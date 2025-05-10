@@ -26,7 +26,7 @@ interface UserProfile {
 }
 
 // API URL - replace with your actual backend URL
-const API_URL = "http://localhost:8000"; // Update this to match your backend URL
+const API_URL = "https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"; // Update this to match your backend URL
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
