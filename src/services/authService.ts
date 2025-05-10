@@ -94,9 +94,11 @@ export const authService = {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("Registration API error response:", errorData);
         throw new Error(errorData.detail || "Registration failed");
       }
 
+      console.log("Registration successful, API response:", await response.json());
       return true;
     } catch (error) {
       console.error("Registration error:", error);

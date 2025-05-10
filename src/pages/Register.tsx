@@ -43,24 +43,26 @@ const Register = () => {
   const onSubmit = async (data: FormData) => {
     console.log("Register form submitted with:", data);
     
-    // Prepare data for the API - change fullName to full_name
-    const registerData = {
-      username: data.username,
-      email: data.email,
-      fullName: data.fullName, // This will be converted to full_name in the API service
-      password: data.password
-    };
-    
-    const success = await authService.register(registerData);
-    
-    if (success) {
-      toast({
-        title: "Registration successful",
-        description: "Your account has been created",
+    try {
+      // Directly call the authService
+      const success = await authService.register({
+        username: data.username,
+        email: data.email,
+        fullName: data.fullName,
+        password: data.password
       });
       
-      // Redirect to login page after registration
-      navigate("/login");
+      if (success) {
+        toast({
+          title: "Registration successful",
+          description: "Your account has been created",
+        });
+        
+        // Redirect to login page after registration
+        navigate("/login");
+      }
+    } catch (error) {
+      console.error("Registration submission error:", error);
     }
   };
 
