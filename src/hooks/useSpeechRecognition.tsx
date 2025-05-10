@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
 
 interface UseSpeechRecognitionProps {
   onResult?: (text: string) => void;
@@ -19,6 +20,8 @@ const useSpeechRecognition = ({
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [isSupported, setIsSupported] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  const { toast } = useToast();
   
   // Using refs to hold instances that don't need to trigger re-renders
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -77,6 +80,15 @@ const useSpeechRecognition = ({
     const handleError = (event: any) => {
       console.error('Speech recognition error:', event.error);
       setIsRecording(false);
+      
+      if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+        setPermissionGranted(false);
+        toast({
+          title: 'Permission denied',
+          description: 'Microphone access was denied. Please allow access to use speech recognition.',
+          variant: 'destructive'
+        });
+      }
     };
 
     recognitionRef.current.onresult = handleResult;
@@ -90,20 +102,45 @@ const useSpeechRecognition = ({
         recognitionRef.current.onerror = null;
       }
     };
-  }, [onResult, onEnd]);
+  }, [onResult, onEnd, toast]);
 
-  const startRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        console.log('Starting speech recognition...');
-        recognitionRef.current.start();
-        setIsRecording(true);
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setIsRecording(false);
-      }
-    } else {
+  // Request microphone permission
+  const requestMicrophonePermission = async (): Promise<boolean> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Stop the tracks immediately as we only needed to request permission
+      stream.getTracks().forEach(track => track.stop());
+      setPermissionGranted(true);
+      return true;
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      setPermissionGranted(false);
+      toast({
+        title: 'Microphone access denied',
+        description: 'You need to allow microphone access to use speech recognition.',
+        variant: 'destructive'
+      });
+      return false;
+    }
+  };
+
+  const startRecording = useCallback(async () => {
+    if (!recognitionRef.current) {
       console.error('Speech recognition is not initialized');
+      return;
+    }
+
+    try {
+      // First request microphone permission
+      const permissionGranted = await requestMicrophonePermission();
+      if (!permissionGranted) return;
+
+      console.log('Starting speech recognition...');
+      recognitionRef.current.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      setIsRecording(false);
     }
   }, []);
 
@@ -129,7 +166,8 @@ const useSpeechRecognition = ({
     startRecording,
     stopRecording,
     resetTranscript,
-    isSupported
+    isSupported,
+    permissionGranted
   };
 };
 

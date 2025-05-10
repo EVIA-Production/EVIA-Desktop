@@ -1,61 +1,38 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import StatusIndicator from '@/components/StatusIndicator';
-import useSpeechRecognition from '@/hooks/useSpeechRecognition';
 import { useToast } from '@/hooks/use-toast';
 import { LogIn } from 'lucide-react';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(true);
   const [hasAccessToken, setHasAccessToken] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
   const { toast } = useToast();
-  
-  const { 
-    isRecording, 
-    transcript, 
-    startRecording, 
-    stopRecording, 
-    resetTranscript,
-    isSupported
-  } = useSpeechRecognition({
-    onResult: (text) => {
-      console.log('New transcript segment:', text);
-    },
-    onEnd: () => {
-      toast({
-        description: "Recording stopped",
-      });
-    }
-  });
-
-  useEffect(() => {
-    // Check if browser supports speech recognition
-    if (!isSupported) {
-      setIsConnected(false);
-      toast({
-        title: 'Speech recognition not supported',
-        description: 'Your browser does not support the Speech Recognition API',
-        variant: 'destructive'
-      });
-    }
-  }, [isSupported, toast]);
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
-    resetTranscript();
+    setTranscript('');
     setSuggestion('');
-    startRecording();
+    setIsRecording(true);
+    toast({
+      description: "Recording started",
+    });
   };
 
   const handleStopRecording = () => {
     console.log('handleStopRecording called');
-    stopRecording();
+    setIsRecording(false);
+    toast({
+      description: "Recording stopped",
+    });
   };
 
   const handleSuggest = () => {
@@ -73,7 +50,7 @@ const Index = () => {
   };
 
   const handleResetContext = () => {
-    resetTranscript();
+    setTranscript('');
     setSuggestion('');
     toast({
       description: 'Context has been reset',

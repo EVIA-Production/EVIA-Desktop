@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
+import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAudioProcessor } from '@/hooks/useAudioProcessor';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -21,22 +22,47 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   isConnected
 }) => {
   const { toast } = useToast();
+  const { startProcessing, stopProcessing } = useAudioProcessor();
+  
+  const handleStartRecording = async () => {
+    console.log('Starting recording process...');
+    const success = await startProcessing();
+    if (success) {
+      console.log('Successfully started audio processing');
+      onStartRecording();
+      toast({
+        description: "Microphone and screen capture access granted. Recording started.",
+      });
+    } else {
+      console.error('Failed to start audio processing');
+    }
+  };
+  
+  const handleStopRecording = () => {
+    console.log('Stopping recording process...');
+    stopProcessing();
+    onStopRecording();
+    toast({
+      description: "Recording stopped",
+    });
+  };
 
   return (
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
         <button
           className="recording-btn bg-evia-green hover:bg-opacity-80"
-          onClick={onStartRecording}
+          onClick={handleStartRecording}
           disabled={!isConnected}
         >
           <Mic className="mr-1" size={20} />
+          <Monitor className="mr-1" size={20} />
           Start Recording
         </button>
       ) : (
         <button
           className="recording-btn bg-evia-red hover:bg-opacity-80"
-          onClick={onStopRecording}
+          onClick={handleStopRecording}
         >
           <Square className="mr-1" size={20} />
           Stop Recording

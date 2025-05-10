@@ -1,4 +1,3 @@
-
 import { toast } from "@/hooks/use-toast";
 
 interface LoginCredentials {
@@ -25,8 +24,8 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// API URL - update to match the correct backend URL
-const API_URL = "https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io";
+// API URL - updated to local development backend URL
+const API_URL = "http://localhost:5001";
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
