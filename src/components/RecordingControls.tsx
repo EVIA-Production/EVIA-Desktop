@@ -58,6 +58,11 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     },
     onError: (error) => {
       console.error('WebSocket error:', error);
+      toast({
+        title: 'Connection Error',
+        description: error,
+        variant: 'destructive'
+      });
     }
   });
   
@@ -71,20 +76,38 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   const handleStartRecording = async () => {
     console.log('Starting recording process...');
     
-    // First connect to WebSocket
-    connectWs();
-    
-    // Then start audio processing
-    const success = await startProcessing();
-    if (success) {
-      console.log('Successfully started audio processing');
-      onStartRecording();
-      toast({
-        description: "Microphone and screen capture access granted. Recording started.",
-      });
-    } else {
-      console.error('Failed to start audio processing');
+    // First connect to WebSocket and wait for connection
+    try {
+      connectWs();
+      
+      // Small delay to ensure WebSocket connection is established
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Then start audio processing
+      const success = await startProcessing();
+      if (success) {
+        console.log('Successfully started audio processing');
+        onStartRecording();
+        toast({
+          description: "Microphone and screen capture access granted. Recording started.",
+        });
+      } else {
+        console.error('Failed to start audio processing');
+        disconnectWs();
+        toast({
+          title: "Error",
+          description: "Failed to start audio processing. Check permissions.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Error during recording setup:', error);
       disconnectWs();
+      toast({
+        title: "Error",
+        description: "Failed to set up recording. Please try again.",
+        variant: "destructive"
+      });
     }
   };
   

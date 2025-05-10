@@ -32,6 +32,7 @@ export const useTranscriptionWebSocket = ({
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const connectionAttemptsRef = useRef(0);
   const { toast } = useToast();
   
   const connect = useCallback(() => {
@@ -39,17 +40,34 @@ export const useTranscriptionWebSocket = ({
       console.log('WebSocket already connected');
       return;
     }
+    
+    if (isConnecting) {
+      console.log('WebSocket connection attempt already in progress');
+      return;
+    }
 
     try {
       console.log(`Connecting to WebSocket at ${websocketUrl}`);
       setIsConnecting(true);
       
+      // Close any existing connection first
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      
       socketRef.current = new WebSocket(websocketUrl);
+      
+      // Track connection attempts
+      connectionAttemptsRef.current++;
+      console.log(`Connection attempt #${connectionAttemptsRef.current}`);
       
       socketRef.current.onopen = () => {
         console.log('WebSocket connection established');
         setIsConnected(true);
         setIsConnecting(false);
+        // Reset connection attempts counter on successful connection
+        connectionAttemptsRef.current = 0;
         toast({
           description: "Connected to transcription service",
         });
@@ -105,7 +123,7 @@ export const useTranscriptionWebSocket = ({
         if (event.code !== 1000) { // Not a normal closure
           toast({
             title: 'Connection Closed',
-            description: `WebSocket closed: ${event.reason || 'Unknown reason'}`,
+            description: `WebSocket closed: ${event.reason || 'Server unavailable. Is your backend running?'}`,
           });
         }
       };
@@ -114,11 +132,18 @@ export const useTranscriptionWebSocket = ({
         console.error('WebSocket error:', event);
         setIsConnected(false);
         setIsConnecting(false);
+        
+        // More helpful error message
+        const errorMessage = connectionAttemptsRef.current > 1 ? 
+          'Failed to connect to transcription service. Make sure your backend server is running.' : 
+          'Failed to connect to transcription service. Check your network connection.';
+        
         toast({
           title: 'Connection Error',
-          description: 'Failed to connect to transcription service',
+          description: errorMessage,
           variant: 'destructive'
         });
+        
         if (onError) onError('WebSocket connection error');
         if (onStatusUpdate) onStatusUpdate('error');
       };
@@ -128,13 +153,13 @@ export const useTranscriptionWebSocket = ({
       setIsConnecting(false);
       toast({
         title: 'Connection Error',
-        description: 'Failed to create WebSocket connection',
+        description: 'Failed to create WebSocket connection. Make sure your backend server is running.',
         variant: 'destructive'
       });
       if (onError) onError('Failed to create WebSocket connection');
       if (onStatusUpdate) onStatusUpdate('error');
     }
-  }, [websocketUrl, onTranscriptUpdate, onSuggestionReceived, onStatusUpdate, onError, toast]);
+  }, [websocketUrl, onTranscriptUpdate, onSuggestionReceived, onStatusUpdate, onError, toast, isConnecting]);
 
   const disconnect = useCallback(() => {
     if (socketRef.current) {
@@ -142,21 +167,43 @@ export const useTranscriptionWebSocket = ({
       socketRef.current.close();
       socketRef.current = null;
     }
+    setIsConnected(false);
+    setIsConnecting(false);
   }, []);
 
   const sendAudioData = useCallback((audioData: ArrayBuffer) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
+    if (!socketRef.current) {
+      console.error('Cannot send audio: WebSocket not initialized');
+      return false;
+    }
+    
+    if (socketRef.current.readyState === WebSocket.OPEN) {
       console.log(`Sending audio data: ${audioData.byteLength} bytes`);
       socketRef.current.send(audioData);
       return true;
     } else {
-      console.error('Cannot send audio: WebSocket is not connected');
+      console.error(`Cannot send audio: WebSocket is not connected (state: ${socketRef.current.readyState})`);
+      if (socketRef.current.readyState === WebSocket.CONNECTING) {
+        console.log('WebSocket is still connecting, waiting...');
+      } else if (socketRef.current.readyState === WebSocket.CLOSING || socketRef.current.readyState === WebSocket.CLOSED) {
+        console.log('WebSocket is closed or closing, attempting to reconnect...');
+        connect(); // Try to reconnect
+      }
       return false;
     }
-  }, []);
+  }, [connect]);
 
   const sendCommand = useCallback((command: string, data: any = {}) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
+    if (!socketRef.current) {
+      console.error('Cannot send command: WebSocket not initialized');
+      toast({
+        description: 'Cannot send command: not connected to server',
+        variant: 'destructive'
+      });
+      return false;
+    }
+    
+    if (socketRef.current.readyState === WebSocket.OPEN) {
       const payload = JSON.stringify({
         command,
         ...data
@@ -170,9 +217,14 @@ export const useTranscriptionWebSocket = ({
         description: 'Cannot send command: not connected to server',
         variant: 'destructive'
       });
+      
+      // If socket is closed or closing, try to reconnect
+      if (socketRef.current.readyState === WebSocket.CLOSED || socketRef.current.readyState === WebSocket.CLOSING) {
+        connect();
+      }
       return false;
     }
-  }, [toast]);
+  }, [connect, toast]);
 
   const requestSuggestion = useCallback(() => {
     return sendCommand('suggest');
@@ -194,6 +246,7 @@ export const useTranscriptionWebSocket = ({
     };
   }, [autoConnect, connect, disconnect]);
 
+  // Expose connection state
   return {
     isConnected,
     isConnecting,
