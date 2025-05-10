@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -19,16 +20,39 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   onResetContext,
   isConnected
 }) => {
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const { toast } = useToast();
+
+  const handleStartRecording = async () => {
+    try {
+      setIsRequestingPermission(true);
+      // Request microphone permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Permission granted, start recording
+      onStartRecording();
+    } catch (error) {
+      // Permission denied or error occurred
+      toast({
+        title: "Microphone access denied",
+        description: "Please allow microphone access to use the recording feature.",
+        variant: "destructive"
+      });
+      console.error('Error accessing microphone:', error);
+    } finally {
+      setIsRequestingPermission(false);
+    }
+  };
+
   return (
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
         <button
-          className="recording-btn bg-evia-green hover:bg-opacity-80"
-          onClick={onStartRecording}
-          disabled={!isConnected}
+          className={`recording-btn ${isRequestingPermission ? 'bg-gray-500' : 'bg-evia-green hover:bg-opacity-80'}`}
+          onClick={handleStartRecording}
+          disabled={!isConnected || isRequestingPermission}
         >
           <Mic className="mr-1" size={20} />
-          Start Recording
+          {isRequestingPermission ? 'Requesting Permission...' : 'Start Recording'}
         </button>
       ) : (
         <button
