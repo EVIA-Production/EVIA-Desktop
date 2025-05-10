@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import StatusIndicator from '@/components/StatusIndicator';
 import useSpeechRecognition from '@/hooks/useSpeechRecognition';
 import { useToast } from '@/hooks/use-toast';
+import { LogIn } from 'lucide-react';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(true);
@@ -68,18 +70,27 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col">
       {/* Header */}
-      <header className="p-4 flex justify-between items-center border-b border-gray-800">
-        <EviaLogo />
-        <Button variant="default" className="bg-evia-pink hover:bg-pink-700">
-          Get started
-        </Button>
+      <header className="p-4 flex justify-between items-center border-b border-gray-800 bg-black bg-opacity-60 backdrop-blur-md">
+        <EviaLogo className="text-white" />
+        <div className="flex gap-3">
+          <Link to="/login">
+            <Button variant="outline" className="border-gray-600 hover:bg-gray-800 text-white">
+              <LogIn className="mr-2 h-4 w-4" /> Sign In
+            </Button>
+          </Link>
+          <Link to="/register">
+            <Button variant="default" className="bg-evia-pink hover:bg-pink-700">
+              Sign Up
+            </Button>
+          </Link>
+        </div>
       </header>
 
       {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-8 max-w-6xl">
-        <h1 className="text-3xl md:text-4xl font-bold text-center mb-8">
+        <h1 className="text-3xl md:text-4xl font-bold text-center mb-8 text-gradient-to-r from-pink-500 to-evia-pink">
           EVIA Live Transcription & Suggestions
         </h1>
 
@@ -107,14 +118,23 @@ const Index = () => {
             title="Live Transcript" 
             content={transcript}
             placeholder="Waiting for speech..."
+            className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
           />
           <TranscriptPanel 
             title="Suggestion" 
             content={suggestion}
             placeholder="Click 'Suggest' after speaking..."
+            className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
           />
         </div>
       </main>
+      
+      {/* Footer */}
+      <footer className="py-6 border-t border-gray-800 bg-black bg-opacity-60 backdrop-blur-md mt-8">
+        <div className="container mx-auto text-center text-gray-400 text-sm">
+          <p>© {new Date().getFullYear()} EVIA Voice Assistant. All rights reserved.</p>
+        </div>
+      </footer>
     </div>
   );
 };

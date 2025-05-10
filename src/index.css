@@ -85,3 +85,30 @@
 .recording-area {
   @apply rounded-md p-4 bg-card text-card-foreground;
 }
+
+/* Add a glossy effect */
+.glass-effect {
+  @apply backdrop-blur-lg bg-opacity-20 border border-white/10;
+}
+
+/* Add gradient text */
+.text-gradient-to-r {
+  @apply bg-clip-text text-transparent;
+}
+
+/* Add pulsing animation for recording indicator */
+@keyframes pulse-recording {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-recording {
+  animation: pulse-recording 2s ease-in-out infinite;
+}
+
