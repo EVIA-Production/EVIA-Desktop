@@ -4,14 +4,13 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from '@/hooks/use-toast';
 import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { authService } from '@/services/authService';
+import { useAuth } from '@/contexts/AuthContext';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -23,6 +22,7 @@ type FormData = z.infer<typeof formSchema>;
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { login } = useAuth();
   
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -33,7 +33,7 @@ const Login = () => {
   });
 
   const onSubmit = async (data: FormData) => {
-    const success = await authService.login(data);
+    const success = await login(data.username, data.password);
     
     if (success) {
       toast({
