@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -21,9 +21,35 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   isConnected
 }) => {
   const { toast } = useToast();
-
+  
   const handleStartRecording = async () => {
-    onStartRecording();
+    try {
+      // Request microphone permission
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      
+      // Stop the tracks immediately as we only needed to request permission
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Now that we have permission, continue with recording
+      onStartRecording();
+      
+      toast({
+        description: "Microphone access granted. Recording started.",
+      });
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      toast({
+        title: 'Microphone access denied',
+        description: 'You need to allow microphone access to use recording features.',
+        variant: 'destructive'
+      });
+    }
   };
 
   return (
