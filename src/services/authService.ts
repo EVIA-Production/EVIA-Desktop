@@ -36,7 +36,13 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          // Add CORS headers
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
+        mode: "cors", // Explicitly set CORS mode
+        credentials: "same-origin", // Use 'include' only if the API expects cookies
         body: JSON.stringify(credentials),
       });
 
@@ -88,7 +94,13 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          // Add CORS headers
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
+        mode: "cors", // Explicitly set CORS mode
+        credentials: "same-origin", // Use 'include' only if the API expects cookies
         body: JSON.stringify(apiData),
       });
 
@@ -125,7 +137,12 @@ export const authService = {
       const response = await fetch(`${API_URL}/users/me/`, {
         headers: {
           Authorization: `${tokenType} ${token}`,
+          // Add CORS headers
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
+        mode: "cors", // Explicitly set CORS mode
       });
 
       if (!response.ok) {
