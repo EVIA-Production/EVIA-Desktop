@@ -12,8 +12,9 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 const formSchema = z.object({
-  name: z.string().min(2, { message: "Name must be at least 2 characters" }),
+  username: z.string().min(3, { message: "Username must be at least 3 characters" }),
   email: z.string().email({ message: "Invalid email address" }),
+  fullName: z.string().min(2, { message: "Full name must be at least 2 characters" }),
   password: z.string().min(6, { message: "Password must be at least 6 characters" }),
   confirmPassword: z.string().min(6, { message: "Password must be at least 6 characters" }),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -30,8 +31,9 @@ const Register = () => {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: "",
+      username: "",
       email: "",
+      fullName: "",
       password: "",
       confirmPassword: "",
     },
@@ -72,13 +74,13 @@ const Register = () => {
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
-                  name="name"
+                  name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Name</FormLabel>
+                      <FormLabel>Username</FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder="John Doe" 
+                          placeholder="johndoe" 
                           className="bg-gray-800 border-gray-700" 
                           {...field} 
                         />
@@ -96,6 +98,23 @@ const Register = () => {
                       <FormControl>
                         <Input 
                           placeholder="your@email.com" 
+                          className="bg-gray-800 border-gray-700" 
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="fullName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Full Name</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="John Doe" 
                           className="bg-gray-800 border-gray-700" 
                           {...field} 
                         />

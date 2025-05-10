@@ -13,7 +13,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 const formSchema = z.object({
-  email: z.string().email({ message: "Invalid email address" }),
+  username: z.string().min(3, { message: "Username must be at least 3 characters" }),
   password: z.string().min(6, { message: "Password must be at least 6 characters" }),
 });
 
@@ -26,7 +26,7 @@ const Login = () => {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: "",
+      username: "",
       password: "",
     },
   });
@@ -66,13 +66,13 @@ const Login = () => {
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
-                  name="email"
+                  name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>Username</FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder="your@email.com" 
+                          placeholder="johndoe" 
                           className="bg-gray-800 border-gray-700" 
                           {...field} 
                         />
