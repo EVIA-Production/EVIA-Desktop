@@ -2,7 +2,13 @@
 import { useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
-export const useAudioProcessor = () => {
+interface UseAudioProcessorProps {
+  onAudioData?: (audioData: ArrayBuffer) => boolean;
+}
+
+export const useAudioProcessor = ({
+  onAudioData
+}: UseAudioProcessorProps = {}) => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -84,7 +90,14 @@ export const useAudioProcessor = () => {
           audioData ? `${audioData.byteLength} bytes` : 'No data',
           'timestamp:', new Date().toISOString()
         );
-        // Here you would send the audio data to your backend or process it further
+        
+        // Forward audio data to websocket if handler is provided
+        if (audioData && onAudioData) {
+          const success = onAudioData(audioData);
+          if (!success) {
+            console.warn('Failed to send audio data to WebSocket');
+          }
+        }
       };
       
       setIsProcessing(true);
@@ -103,7 +116,7 @@ export const useAudioProcessor = () => {
       stopProcessing();
       return false;
     }
-  }, [toast]);
+  }, [toast, onAudioData]);
   
   // Function to stop audio processing
   const stopProcessing = useCallback(() => {
@@ -149,7 +162,7 @@ export const useAudioProcessor = () => {
     
     setIsProcessing(false);
     console.log('Audio processing stopped completely');
-  }, [toast]);
+  }, []);
   
   return {
     isProcessing,

@@ -16,11 +16,12 @@ const Index = () => {
   const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
   const { toast } = useToast();
+  
+  // You can update this URL to point to your backend
+  const websocketUrl = 'ws://localhost:8000/ws/transcribe';
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
-    setTranscript('');
-    setSuggestion('');
     setIsRecording(true);
     toast({
       description: "Recording started",
@@ -36,24 +37,31 @@ const Index = () => {
   };
 
   const handleSuggest = () => {
-    if (transcript) {
-      // In a real app, this would call an AI service to get suggestions
-      setSuggestion(`Here's a suggestion based on your speech: "${transcript.substring(0, 50)}..."`);
-      toast({
-        description: "Suggestion generated",
-      });
-    } else {
-      toast({
-        description: 'Speak first before requesting suggestions',
-      });
-    }
+    console.log('handleSuggest called');
+    toast({
+      description: "Requesting suggestion...",
+    });
   };
 
   const handleResetContext = () => {
+    console.log('handleResetContext called');
     setTranscript('');
     setSuggestion('');
     toast({
       description: 'Context has been reset',
+    });
+  };
+  
+  const handleTranscriptUpdate = (text: string) => {
+    console.log('New transcript text:', text);
+    setTranscript(prev => prev + ' ' + text);
+  };
+  
+  const handleSuggestionReceived = (suggestion: string) => {
+    console.log('New suggestion received:', suggestion);
+    setSuggestion(suggestion);
+    toast({
+      description: "Suggestion generated",
     });
   };
 
@@ -91,6 +99,9 @@ const Index = () => {
             onSuggest={handleSuggest}
             onResetContext={handleResetContext}
             isConnected={isConnected}
+            onTranscriptUpdate={handleTranscriptUpdate}
+            onSuggestionReceived={handleSuggestionReceived}
+            websocketUrl={websocketUrl}
           />
         </div>
 
