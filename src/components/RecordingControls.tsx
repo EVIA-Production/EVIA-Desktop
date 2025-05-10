@@ -25,18 +25,26 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   const { startProcessing, stopProcessing } = useAudioProcessor();
   
   const handleStartRecording = async () => {
+    console.log('Starting recording process...');
     const success = await startProcessing();
     if (success) {
+      console.log('Successfully started audio processing');
       onStartRecording();
       toast({
         description: "Microphone and screen capture access granted. Recording started.",
       });
+    } else {
+      console.error('Failed to start audio processing');
     }
   };
   
   const handleStopRecording = () => {
+    console.log('Stopping recording process...');
     stopProcessing();
     onStopRecording();
+    toast({
+      description: "Recording stopped",
+    });
   };
 
   return (
