@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
+import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface RecordingControlsProps {
@@ -24,8 +24,8 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   
   const handleStartRecording = async () => {
     try {
-      // Request microphone permission
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      // Request microphone permission first
+      const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -33,20 +33,27 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         } 
       });
       
-      // Stop the tracks immediately as we only needed to request permission
-      stream.getTracks().forEach(track => track.stop());
+      // Now request screen display permission
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
       
-      // Now that we have permission, continue with recording
+      // Stop the tracks immediately as we only needed to request permissions
+      micStream.getTracks().forEach(track => track.stop());
+      displayStream.getTracks().forEach(track => track.stop());
+      
+      // Now that we have both permissions, continue with recording
       onStartRecording();
       
       toast({
-        description: "Microphone access granted. Recording started.",
+        description: "Microphone and screen capture access granted. Recording started.",
       });
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error('Error accessing media devices:', error);
       toast({
-        title: 'Microphone access denied',
-        description: 'You need to allow microphone access to use recording features.',
+        title: 'Permission denied',
+        description: 'You need to allow both microphone and screen capture access to use recording features.',
         variant: 'destructive'
       });
     }
@@ -61,6 +68,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
           disabled={!isConnected}
         >
           <Mic className="mr-1" size={20} />
+          <Monitor className="mr-1" size={20} />
           Start Recording
         </button>
       ) : (
