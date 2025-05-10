@@ -22,7 +22,8 @@ const Index = () => {
     startRecording, 
     stopRecording, 
     resetTranscript,
-    isSupported
+    isSupported,
+    permissionGranted
   } = useSpeechRecognition({
     onResult: (text) => {
       console.log('New transcript segment:', text);
@@ -45,6 +46,17 @@ const Index = () => {
       });
     }
   }, [isSupported, toast]);
+
+  useEffect(() => {
+    // Update UI based on permission state
+    if (permissionGranted === false) {
+      toast({
+        title: 'Microphone access needed',
+        description: 'Please allow microphone access to use this feature',
+        variant: 'destructive'
+      });
+    }
+  }, [permissionGranted, toast]);
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');

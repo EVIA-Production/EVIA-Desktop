@@ -22,12 +22,16 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
 }) => {
   const { toast } = useToast();
 
+  const handleStartRecording = async () => {
+    onStartRecording();
+  };
+
   return (
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
         <button
           className="recording-btn bg-evia-green hover:bg-opacity-80"
-          onClick={onStartRecording}
+          onClick={handleStartRecording}
           disabled={!isConnected}
         >
           <Mic className="mr-1" size={20} />
