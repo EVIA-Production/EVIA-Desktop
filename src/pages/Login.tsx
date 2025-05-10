@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { authService } from '@/services/authService';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -31,18 +32,18 @@ const Login = () => {
     },
   });
 
-  const onSubmit = (data: FormData) => {
-    // This would be replaced with actual authentication logic
-    console.log("Login attempt:", data);
+  const onSubmit = async (data: FormData) => {
+    const success = await authService.login(data);
     
-    // Simulate successful login
-    toast({
-      title: "Login successful",
-      description: "Welcome back to EV/A",
-    });
-    
-    // Redirect to main page after login
-    navigate("/");
+    if (success) {
+      toast({
+        title: "Login successful",
+        description: "Welcome back to EV/A",
+      });
+      
+      // Redirect to main page after login
+      navigate("/");
+    }
   };
 
   return (
@@ -102,8 +103,9 @@ const Login = () => {
                 <Button 
                   type="submit" 
                   className="w-full bg-evia-pink hover:bg-pink-700 mt-4"
+                  disabled={form.formState.isSubmitting}
                 >
-                  Sign In
+                  {form.formState.isSubmitting ? "Signing In..." : "Sign In"}
                 </Button>
               </form>
             </Form>

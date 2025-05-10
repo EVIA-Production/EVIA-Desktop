@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { authService } from '@/services/authService';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -39,18 +40,26 @@ const Register = () => {
     },
   });
 
-  const onSubmit = (data: FormData) => {
-    // This would be replaced with actual registration logic
-    console.log("Registration data:", data);
+  const onSubmit = async (data: FormData) => {
+    // Prepare data for the API
+    const registerData = {
+      username: data.username,
+      email: data.email,
+      fullName: data.fullName,
+      password: data.password
+    };
     
-    // Simulate successful registration
-    toast({
-      title: "Registration successful",
-      description: "Your account has been created",
-    });
+    const success = await authService.register(registerData);
     
-    // Redirect to login page after registration
-    navigate("/login");
+    if (success) {
+      toast({
+        title: "Registration successful",
+        description: "Your account has been created",
+      });
+      
+      // Redirect to login page after registration
+      navigate("/login");
+    }
   };
 
   return (
@@ -162,8 +171,9 @@ const Register = () => {
                 <Button 
                   type="submit" 
                   className="w-full bg-evia-pink hover:bg-pink-700 mt-4"
+                  disabled={form.formState.isSubmitting}
                 >
-                  Create Account
+                  {form.formState.isSubmitting ? "Creating Account..." : "Create Account"}
                 </Button>
               </form>
             </Form>
