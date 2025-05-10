@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -8,7 +10,6 @@ interface RecordingControlsProps {
   onSuggest: () => void;
   onResetContext: () => void;
   isConnected: boolean;
-  disabled?: boolean;
 }
 
 const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -17,25 +18,25 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   onStopRecording,
   onSuggest,
   onResetContext,
-  isConnected,
-  disabled = false
+  isConnected
 }) => {
+  const { toast } = useToast();
+
   return (
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
         <button
-          className="recording-btn bg-evia-green hover:bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="recording-btn bg-evia-green hover:bg-opacity-80"
           onClick={onStartRecording}
-          disabled={disabled || !isConnected}
+          disabled={!isConnected}
         >
           <Mic className="mr-1" size={20} />
           Start Recording
         </button>
       ) : (
         <button
-          className="recording-btn bg-evia-red hover:bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="recording-btn bg-evia-red hover:bg-opacity-80"
           onClick={onStopRecording}
-          disabled={disabled}
         >
           <Square className="mr-1" size={20} />
           Stop Recording
@@ -43,18 +44,18 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       )}
 
       <button
-        className="recording-btn bg-evia-pink hover:bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="recording-btn bg-evia-pink hover:bg-opacity-80"
         onClick={onSuggest}
-        disabled={disabled || !isConnected || isRecording}
+        disabled={!isConnected}
       >
         <Lightbulb className="mr-1" size={20} />
         Suggest
       </button>
 
       <button
-        className="recording-btn bg-evia-gold hover:bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="recording-btn bg-evia-gold hover:bg-opacity-80"
         onClick={onResetContext}
-        disabled={disabled || !isConnected}
+        disabled={!isConnected}
       >
         <RotateCcw className="mr-1" size={20} />
         Reset Context
