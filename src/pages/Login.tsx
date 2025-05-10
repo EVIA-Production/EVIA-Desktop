@@ -36,8 +36,8 @@ const Login = () => {
   const onSubmit = async (data: FormData) => {
     console.log("Login form submitted with:", data);
     
-    // Use direct service call first to debug
     try {
+      // First try with authService directly
       const success = await authService.login({
         username: data.username,
         password: data.password
@@ -53,7 +53,7 @@ const Login = () => {
         navigate("/");
       }
     } catch (error) {
-      console.error("Login submission error:", error);
+      console.error("Login error:", error);
     }
   };
 

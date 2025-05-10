@@ -1,3 +1,4 @@
+
 import { toast } from "@/hooks/use-toast";
 
 interface LoginCredentials {
@@ -24,8 +25,8 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// API URL - replace with your actual backend URL
-const API_URL = "http://localhost:8000"; // Updated to use standard local development URL
+// API URL - update to match the correct backend URL
+const API_URL = "https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io";
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -73,12 +74,22 @@ export const authService = {
 
   async register(userData: RegisterCredentials): Promise<boolean> {
     try {
+      // Convert frontend camelCase to backend snake_case
+      const apiData = {
+        username: userData.username,
+        email: userData.email,
+        full_name: userData.fullName, // Convert fullName to full_name as expected by the API
+        password: userData.password
+      };
+
+      console.log("Registering user with:", apiData);
+      
       const response = await fetch(`${API_URL}/signup/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(userData),
+        body: JSON.stringify(apiData),
       });
 
       if (!response.ok) {

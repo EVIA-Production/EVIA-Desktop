@@ -41,11 +41,13 @@ const Register = () => {
   });
 
   const onSubmit = async (data: FormData) => {
-    // Prepare data for the API
+    console.log("Register form submitted with:", data);
+    
+    // Prepare data for the API - change fullName to full_name
     const registerData = {
       username: data.username,
       email: data.email,
-      fullName: data.fullName,
+      fullName: data.fullName, // This will be converted to full_name in the API service
       password: data.password
     };
     
