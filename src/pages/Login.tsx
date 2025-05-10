@@ -11,6 +11,7 @@ import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from '@/contexts/AuthContext';
+import { authService } from '@/services/authService';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -33,16 +34,26 @@ const Login = () => {
   });
 
   const onSubmit = async (data: FormData) => {
-    const success = await login(data.username, data.password);
+    console.log("Login form submitted with:", data);
     
-    if (success) {
-      toast({
-        title: "Login successful",
-        description: "Welcome back to EV/A",
+    // Use direct service call first to debug
+    try {
+      const success = await authService.login({
+        username: data.username,
+        password: data.password
       });
       
-      // Redirect to main page after login
-      navigate("/");
+      if (success) {
+        toast({
+          title: "Login successful",
+          description: "Welcome back to EV/A",
+        });
+        
+        // Redirect to main page after login
+        navigate("/");
+      }
+    } catch (error) {
+      console.error("Login submission error:", error);
     }
   };
 

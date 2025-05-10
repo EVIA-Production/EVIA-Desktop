@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
@@ -62,6 +61,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const login = async (username: string, password: string) => {
     setIsLoading(true);
     try {
+      console.log("AuthContext: Logging in with:", { username });
       const success = await authService.login({ username, password });
       if (success) {
         const user = await authService.getCurrentUser();
@@ -70,12 +70,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
       return false;
     } catch (error) {
-      console.error("Login error:", error);
-      toast({
-        title: "Login Failed",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
+      console.error("Login error in AuthContext:", error);
       return false;
     } finally {
       setIsLoading(false);

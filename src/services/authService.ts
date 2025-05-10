@@ -1,4 +1,3 @@
-
 import { toast } from "@/hooks/use-toast";
 
 interface LoginCredentials {
@@ -26,11 +25,12 @@ interface UserProfile {
 }
 
 // API URL - replace with your actual backend URL
-const API_URL = "https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"; // Update this to match your backend URL
+const API_URL = "http://localhost:8000"; // Updated to use standard local development URL
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
     try {
+      console.log("Attempting to login with:", credentials);
       const response = await fetch(`${API_URL}/login/`, {
         method: "POST",
         headers: {
@@ -45,6 +45,7 @@ export const authService = {
       }
 
       const data: AuthResponse = await response.json();
+      console.log("Login successful, received token:", data.access_token);
       
       // Store token in localStorage
       localStorage.setItem("auth_token", data.access_token);
@@ -56,7 +57,13 @@ export const authService = {
       if (error instanceof Error) {
         toast({
           title: "Login Failed",
-          description: error.message,
+          description: error.message || "Failed to connect to server. Please check your network connection.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Login Failed",
+          description: "Failed to connect to server. Please check your network connection.",
           variant: "destructive",
         });
       }
