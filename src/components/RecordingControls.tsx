@@ -28,16 +28,21 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       setIsRequestingPermission(true);
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
+      
       // Permission granted, start recording
+      console.log("Microphone permission granted, starting recording...");
       onStartRecording();
+      toast({
+        description: "Recording started",
+      });
     } catch (error) {
       // Permission denied or error occurred
+      console.error('Error accessing microphone:', error);
       toast({
         title: "Microphone access denied",
         description: "Please allow microphone access to use the recording feature.",
         variant: "destructive"
       });
-      console.error('Error accessing microphone:', error);
     } finally {
       setIsRequestingPermission(false);
     }

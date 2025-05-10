@@ -25,10 +25,12 @@ const Index = () => {
     isSupported
   } = useSpeechRecognition({
     onResult: (text) => {
-      // Optional callback when new transcript is available
+      console.log('New transcript segment:', text);
     },
     onEnd: () => {
-      // Optional callback when recording ends
+      toast({
+        description: "Recording stopped",
+      });
     }
   });
 
@@ -45,15 +47,24 @@ const Index = () => {
   }, [isSupported, toast]);
 
   const handleStartRecording = () => {
+    console.log('handleStartRecording called');
     resetTranscript();
     setSuggestion('');
     startRecording();
+  };
+
+  const handleStopRecording = () => {
+    console.log('handleStopRecording called');
+    stopRecording();
   };
 
   const handleSuggest = () => {
     if (transcript) {
       // In a real app, this would call an AI service to get suggestions
       setSuggestion(`Here's a suggestion based on your speech: "${transcript.substring(0, 50)}..."`);
+      toast({
+        description: "Suggestion generated",
+      });
     } else {
       toast({
         description: 'Speak first before requesting suggestions',
@@ -99,7 +110,7 @@ const Index = () => {
           <RecordingControls
             isRecording={isRecording}
             onStartRecording={handleStartRecording}
-            onStopRecording={stopRecording}
+            onStopRecording={handleStopRecording}
             onSuggest={handleSuggest}
             onResetContext={handleResetContext}
             isConnected={isConnected}

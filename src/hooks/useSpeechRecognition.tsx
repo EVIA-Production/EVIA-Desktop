@@ -36,6 +36,8 @@ const useSpeechRecognition = ({
         recognitionRef.current.lang = lang;
         setIsSupported(true);
       }
+    } else {
+      console.error('Speech Recognition is not supported in this browser.');
     }
 
     // Cleanup on unmount
@@ -44,7 +46,7 @@ const useSpeechRecognition = ({
         recognitionRef.current.stop();
       }
     };
-  }, [continuous, interimResults, lang]);
+  }, [continuous, interimResults, lang, isRecording]);
 
   // Set up event handlers
   useEffect(() => {
@@ -69,15 +71,23 @@ const useSpeechRecognition = ({
     const handleEnd = () => {
       setIsRecording(false);
       if (onEnd) onEnd();
+      console.log('Speech recognition ended');
+    };
+
+    const handleError = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsRecording(false);
     };
 
     recognitionRef.current.onresult = handleResult;
     recognitionRef.current.onend = handleEnd;
+    recognitionRef.current.onerror = handleError;
 
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.onresult = null;
         recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
       }
     };
   }, [onResult, onEnd]);
@@ -85,17 +95,26 @@ const useSpeechRecognition = ({
   const startRecording = useCallback(() => {
     if (recognitionRef.current) {
       try {
+        console.log('Starting speech recognition...');
         recognitionRef.current.start();
         setIsRecording(true);
       } catch (error) {
         console.error('Error starting speech recognition:', error);
+        setIsRecording(false);
       }
+    } else {
+      console.error('Speech recognition is not initialized');
     }
   }, []);
 
   const stopRecording = useCallback(() => {
     if (recognitionRef.current && isRecording) {
-      recognitionRef.current.stop();
+      console.log('Stopping speech recognition...');
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+      }
       setIsRecording(false);
     }
   }, [isRecording]);
