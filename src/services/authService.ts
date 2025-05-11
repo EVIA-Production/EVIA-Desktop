@@ -1,4 +1,3 @@
-
 interface LoginCredentials {
   username: string;
   password: string;
@@ -35,12 +34,9 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Origin": window.location.origin
         },
         body: JSON.stringify(credentials),
-        credentials: 'include',
-        mode: 'cors',
+        // Remove credentials: 'include' as we're using JWT
       });
 
       console.log("Login response status:", response.status);
@@ -51,18 +47,8 @@ export const authService = {
         throw new Error(errorText || `HTTP error! Status: ${response.status}`);
       }
 
-      // Try to parse the response as JSON
-      const responseText = await response.text();
-      console.log("Login response body:", responseText);
-      
-      let data: AuthResponse;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error("Failed to parse JSON response:", e);
-        throw new Error("Invalid response format from server");
-      }
-      
+      // Parse JSON directly from response
+      const data: AuthResponse = await response.json();
       console.log("Login successful, received token:", data.access_token);
       
       // Store token in localStorage
