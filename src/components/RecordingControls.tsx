@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw, Monitor, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAudioProcessor } from '@/hooks/useAudioProcessor';
@@ -32,7 +33,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   const { toast } = useToast();
   const [permissionRequesting, setPermissionRequesting] = useState(false);
   const [permissionStep, setPermissionStep] = useState<'idle' | 'mic' | 'screen'>('idle');
-  const [serverStatus, setServerStatus] = useState<'unknown' | 'available' | 'unavailable'>('unknown');
   
   // Set up the WebSocket connection
   const {
@@ -60,9 +60,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     },
     onStatusUpdate: (status) => {
       console.log('WebSocket status update:', status);
-      if (status === 'connected') {
-        setServerStatus('available');
-      }
     },
     onError: (error) => {
       console.error('WebSocket error:', error);
@@ -242,16 +239,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {serverStatus === 'unavailable' && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Transcription server is not available at {websocketUrl.replace('ws://', '')}.
-            Make sure your backend server is running.
-          </AlertDescription>
-        </Alert>
-      )}
-      
       <div className="flex flex-wrap gap-4 justify-center">
         {!isRecording ? (
           <button
