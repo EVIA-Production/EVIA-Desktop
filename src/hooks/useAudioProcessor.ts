@@ -1,4 +1,3 @@
-
 import { useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -20,8 +19,8 @@ export const useAudioProcessor = ({
   // Function to start audio processing
   const startProcessing = useCallback(async () => {
     try {
-      console.log('Requesting microphone permissions...');
-      // Request microphone permission first
+      console.log('Creating audio processing pipeline...');
+      // Request microphone permission first (permissions already requested by RecordingControls)
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -29,15 +28,14 @@ export const useAudioProcessor = ({
           autoGainControl: true
         } 
       });
-      console.log('Microphone permissions granted:', micStream.getAudioTracks().length, 'audio track(s)');
+      console.log('Microphone stream obtained:', micStream.getAudioTracks().length, 'audio track(s)');
       
-      // Now request screen display permission
-      console.log('Requesting screen display permissions...');
+      // Now request screen display permission (permissions already requested by RecordingControls)
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true
       });
-      console.log('Screen permissions granted:', 
+      console.log('Display stream obtained:', 
         displayStream.getVideoTracks().length, 'video track(s),',
         displayStream.getAudioTracks().length, 'audio track(s)'
       );
@@ -110,7 +108,7 @@ export const useAudioProcessor = ({
       console.error('Error starting audio processing:', error);
       toast({
         title: 'Error',
-        description: 'Failed to start audio processing. Please check permissions.',
+        description: 'Failed to start audio processing. Please try again.',
         variant: 'destructive'
       });
       stopProcessing();

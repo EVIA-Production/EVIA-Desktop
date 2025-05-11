@@ -30,6 +30,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
 }) => {
   const { toast } = useToast();
   const [permissionRequesting, setPermissionRequesting] = useState(false);
+  const [permissionStep, setPermissionStep] = useState<'idle' | 'mic' | 'screen'>('idle');
   
   // Set up the WebSocket connection
   const {
@@ -78,6 +79,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   const requestMicrophonePermission = async (): Promise<boolean> => {
     try {
       setPermissionRequesting(true);
+      setPermissionStep('mic');
       console.log('Requesting microphone permissions...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Just to check if we have permission, we can stop tracks right after
@@ -94,16 +96,53 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         variant: "destructive"
       });
       return false;
+    }
+  };
+  
+  // Request screen sharing permissions
+  const requestScreenPermission = async (): Promise<boolean> => {
+    try {
+      setPermissionStep('screen');
+      console.log('Requesting screen sharing permissions...');
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      // Just to check if we have permission, we can stop tracks right after
+      stream.getTracks().forEach(track => track.stop());
+      toast({
+        description: "Screen sharing access granted.",
+      });
+      return true;
+    } catch (error) {
+      console.error('Error accessing screen sharing:', error);
+      toast({
+        title: "Permission Denied",
+        description: "Screen sharing access was denied. Recording cannot start.",
+        variant: "destructive"
+      });
+      return false;
     } finally {
       setPermissionRequesting(false);
+      setPermissionStep('idle');
     }
   };
   
   const handleStartRecording = async () => {
     try {
       // First request microphone permissions
-      const permissionGranted = await requestMicrophonePermission();
-      if (!permissionGranted) return;
+      setPermissionRequesting(true);
+      const micPermissionGranted = await requestMicrophonePermission();
+      if (!micPermissionGranted) {
+        setPermissionRequesting(false);
+        setPermissionStep('idle');
+        return;
+      }
+      
+      // Then request screen sharing permissions
+      const screenPermissionGranted = await requestScreenPermission();
+      if (!screenPermissionGranted) {
+        setPermissionRequesting(false);
+        setPermissionStep('idle');
+        return;
+      }
       
       console.log('Starting recording process...');
       
@@ -133,6 +172,8 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     } catch (error) {
       console.error('Error during recording setup:', error);
       disconnectWs();
+      setPermissionRequesting(false);
+      setPermissionStep('idle');
       toast({
         title: "Error",
         description: "Failed to set up recording. Please try again.",
@@ -179,6 +220,20 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   };
 
+  // Get the appropriate button label based on the current permission requesting step
+  const getStartButtonLabel = () => {
+    if (!permissionRequesting) return 'Start Recording';
+    
+    switch (permissionStep) {
+      case 'mic':
+        return 'Requesting Microphone...';
+      case 'screen':
+        return 'Requesting Screen Access...';
+      default:
+        return 'Requesting Permission...';
+    }
+  };
+
   return (
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
@@ -189,7 +244,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         >
           <Mic className="mr-1" size={20} />
           <Monitor className="mr-1" size={20} />
-          {permissionRequesting ? 'Requesting Permission...' : 'Start Recording'}
+          {getStartButtonLabel()}
         </button>
       ) : (
         <button
