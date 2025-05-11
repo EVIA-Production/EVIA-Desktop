@@ -25,8 +25,11 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// API URL - updated to match local development backend URL
-const API_URL = "http://localhost:5001";
+// Update API URL to match the deployed backend URL or use a relative URL
+// Using relative URL for API calls when deployed
+const API_URL = window.location.hostname === 'localhost' 
+  ? "http://localhost:5001"
+  : "/api"; // This will use relative path in production
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -37,6 +40,8 @@ export const authService = {
         headers: {
           "Content-Type": "application/json",
         },
+        // When using a relative URL in production, credentials should be included
+        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
         body: JSON.stringify(credentials),
       });
 
@@ -89,6 +94,8 @@ export const authService = {
         headers: {
           "Content-Type": "application/json",
         },
+        // When using a relative URL in production, credentials should be included
+        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
         body: JSON.stringify(apiData),
       });
 
@@ -126,6 +133,8 @@ export const authService = {
         headers: {
           Authorization: `${tokenType} ${token}`,
         },
+        // When using a relative URL in production, credentials should be included
+        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
       });
 
       if (!response.ok) {
