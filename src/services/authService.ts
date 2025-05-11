@@ -23,10 +23,13 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// When in development use localhost URL, in production use absolute URL
+// Update API URL to match the actual backend endpoint
+// Server logs indicate it's running on port 80 internally but mapped to 5001 externally
 const API_URL = import.meta.env.DEV 
   ? "http://localhost:5001"
-  : "http://localhost:5001"; // Change this to your actual backend URL in production
+  : window.location.origin.includes("localhost") 
+    ? "http://localhost:5001" 
+    : "https://your-production-api.com"; // Change this when deploying
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -37,9 +40,11 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify(credentials),
         credentials: 'include',
+        mode: 'cors',
       });
 
       console.log("Login response status:", response.status);
@@ -93,6 +98,7 @@ export const authService = {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
+          "Origin": window.location.origin
         },
         body: JSON.stringify(apiData),
         mode: 'cors',
@@ -155,8 +161,10 @@ export const authService = {
       const response = await fetch(`${API_URL}/users/me/`, {
         headers: {
           "Authorization": `${tokenType} ${token}`,
+          "Accept": "application/json"
         },
         credentials: 'include',
+        mode: 'cors'
       });
 
       if (!response.ok) {
