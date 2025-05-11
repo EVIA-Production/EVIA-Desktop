@@ -145,8 +145,8 @@ export const authService = {
           "Accept": "application/json",
           "Origin": window.location.origin
         },
-        credentials: 'include',
         mode: 'cors'
+        // Removed credentials: 'include' as we're using JWT
       });
 
       if (!response.ok) {
