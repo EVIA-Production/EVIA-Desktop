@@ -1,11 +1,9 @@
 
 import React, { useState } from 'react';
-import { Mic, Square, Lightbulb, RotateCcw, Monitor, AlertCircle } from 'lucide-react';
+import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAudioProcessor } from '@/hooks/useAudioProcessor';
 import { useTranscriptionWebSocket } from '@/hooks/useTranscriptionWebSocket';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface RecordingControlsProps {
   isRecording: boolean;

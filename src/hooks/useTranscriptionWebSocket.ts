@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 interface TranscriptSegment {
@@ -254,17 +254,8 @@ export const useTranscriptionWebSocket = ({
     return sendCommand('reset');
   }, [sendCommand]);
 
-  // Auto-connect on mount if enabled
-  useEffect(() => {
-    if (autoConnect) {
-      connect();
-    }
-    
-    // Clean up on unmount
-    return () => {
-      disconnect();
-    };
-  }, [autoConnect, connect, disconnect]);
+  // Do not auto-connect on mount since that might be triggering unwanted connections
+  // The RecordingControls component will call connect when needed
 
   // Expose connection state
   return {
