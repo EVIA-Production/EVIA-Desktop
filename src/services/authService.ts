@@ -84,7 +84,6 @@ export const authService = {
         },
         body: JSON.stringify(apiData),
         mode: 'cors',
-        credentials: 'include',
       });
 
       console.log("Registration response status:", response.status);
