@@ -22,9 +22,7 @@ const Index = () => {
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
     setIsRecording(true);
-    toast({
-      description: "Recording started",
-    });
+    // Toast is now handled in the RecordingControls component
   };
 
   const handleStopRecording = () => {

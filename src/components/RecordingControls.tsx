@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAudioProcessor } from '@/hooks/useAudioProcessor';
@@ -29,6 +29,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   websocketUrl = 'ws://localhost:5001/ws'
 }) => {
   const { toast } = useToast();
+  const [permissionRequesting, setPermissionRequesting] = useState(false);
   
   // Set up the WebSocket connection
   const {
@@ -73,11 +74,40 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   });
   
-  const handleStartRecording = async () => {
-    console.log('Starting recording process...');
-    
-    // First connect to WebSocket and wait for connection
+  // Request microphone permissions first
+  const requestMicrophonePermission = async (): Promise<boolean> => {
     try {
+      setPermissionRequesting(true);
+      console.log('Requesting microphone permissions...');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Just to check if we have permission, we can stop tracks right after
+      stream.getTracks().forEach(track => track.stop());
+      toast({
+        description: "Microphone access granted.",
+      });
+      return true;
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      toast({
+        title: "Permission Denied",
+        description: "Microphone access was denied. Recording cannot start.",
+        variant: "destructive"
+      });
+      return false;
+    } finally {
+      setPermissionRequesting(false);
+    }
+  };
+  
+  const handleStartRecording = async () => {
+    try {
+      // First request microphone permissions
+      const permissionGranted = await requestMicrophonePermission();
+      if (!permissionGranted) return;
+      
+      console.log('Starting recording process...');
+      
+      // Then connect to WebSocket
       connectWs();
       
       // Small delay to ensure WebSocket connection is established
@@ -89,14 +119,14 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         console.log('Successfully started audio processing');
         onStartRecording();
         toast({
-          description: "Microphone and screen capture access granted. Recording started.",
+          description: "Recording started successfully.",
         });
       } else {
         console.error('Failed to start audio processing');
         disconnectWs();
         toast({
           title: "Error",
-          description: "Failed to start audio processing. Check permissions.",
+          description: "Failed to start recording. Please try again.",
           variant: "destructive"
         });
       }
@@ -153,13 +183,13 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     <div className="flex flex-wrap gap-4 justify-center">
       {!isRecording ? (
         <button
-          className="recording-btn bg-evia-green hover:bg-opacity-80"
+          className="recording-btn bg-evia-green hover:bg-opacity-80 disabled:opacity-50"
           onClick={handleStartRecording}
-          disabled={!isConnected}
+          disabled={!isConnected || permissionRequesting}
         >
           <Mic className="mr-1" size={20} />
           <Monitor className="mr-1" size={20} />
-          Start Recording
+          {permissionRequesting ? 'Requesting Permission...' : 'Start Recording'}
         </button>
       ) : (
         <button
