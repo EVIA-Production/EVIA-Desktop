@@ -36,16 +36,18 @@ const Login = () => {
     try {
       console.log("Login form submitted with:", data);
       
-      await login(data.username, data.password);
+      const success = await login(data.username, data.password);
       
-      // If login was successful (no error thrown)
-      toast({
-        title: "Login successful",
-        description: "Welcome back to EV/A",
-      });
-      
-      // Redirect to main page after login
-      navigate("/");
+      // Only redirect if login was successful
+      if (success) {
+        toast({
+          title: "Login successful",
+          description: "Welcome back to EV/A",
+        });
+        
+        // Redirect to main page after successful login
+        navigate("/");
+      }
     } catch (error) {
       console.error("Login error:", error);
       
