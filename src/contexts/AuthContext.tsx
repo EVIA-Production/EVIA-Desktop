@@ -86,7 +86,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }) => {
     setIsLoading(true);
     try {
-      return await authService.register(userData);
+      const success = await authService.register(userData);
+      if (success) {
+        return true;
+      }
+      return false;
     } catch (error) {
       console.error("Registration error:", error);
       toast({
