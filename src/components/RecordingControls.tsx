@@ -28,7 +28,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   isConnected,
   onTranscriptUpdate,
   onSuggestionReceived,
-  websocketUrl = 'ws://localhost:5001/ws'
+  websocketUrl = 'ws://localhost:5001/ws/transcribe'
 }) => {
   const { toast } = useToast();
   const [permissionRequesting, setPermissionRequesting] = useState(false);

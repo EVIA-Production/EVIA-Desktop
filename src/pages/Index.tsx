@@ -16,8 +16,8 @@ const Index = () => {
   const [suggestion, setSuggestion] = useState('');
   const { toast } = useToast();
   
-  // Update the WebSocket URL to use the correct endpoint
-  const websocketUrl = 'ws://localhost:5001/ws';
+  // Update the WebSocket URL to use the correct transcription endpoint
+  const websocketUrl = 'ws://localhost:5001/ws/transcribe';
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
