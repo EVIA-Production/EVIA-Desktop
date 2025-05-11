@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -35,7 +34,32 @@ export const useTranscriptionWebSocket = ({
   const connectionAttemptsRef = useRef(0);
   const { toast } = useToast();
   
-  const connect = useCallback(() => {
+  // Utility function to check if WebSocket URL is reachable
+  const isWebSocketServerRunning = useCallback(async (url: string): Promise<boolean> => {
+    // Extract host and port from WebSocket URL
+    try {
+      const wsUrlObj = new URL(url.replace('ws://', 'http://').replace('wss://', 'https://'));
+      const checkUrl = `${wsUrlObj.protocol}//${wsUrlObj.host}/health`;
+      
+      try {
+        const response = await fetch(checkUrl, { 
+          method: 'HEAD', 
+          mode: 'no-cors',
+          // Short timeout to avoid long waits
+          signal: AbortSignal.timeout(2000) 
+        });
+        return true;
+      } catch (error) {
+        console.warn(`Server health check failed: ${error}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('Invalid WebSocket URL format:', error);
+      return false;
+    }
+  }, []);
+  
+  const connect = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
@@ -50,6 +74,22 @@ export const useTranscriptionWebSocket = ({
       console.log(`Connecting to WebSocket at ${websocketUrl}`);
       setIsConnecting(true);
       
+      // First check if the server is likely to be running
+      const serverRunning = await isWebSocketServerRunning(websocketUrl);
+      if (!serverRunning) {
+        console.log('WebSocket server appears to be offline');
+        toast({
+          title: 'Server Unavailable',
+          description: `Cannot connect to transcription server at ${websocketUrl.replace('ws://', '')}. Make sure your backend is running.`,
+          variant: 'destructive'
+        });
+        setIsConnected(false);
+        setIsConnecting(false);
+        if (onError) onError('Transcription server appears to be offline');
+        if (onStatusUpdate) onStatusUpdate('server_unavailable');
+        return;
+      }
+      
       // Close any existing connection first
       if (socketRef.current) {
         socketRef.current.close();
@@ -62,7 +102,25 @@ export const useTranscriptionWebSocket = ({
       connectionAttemptsRef.current++;
       console.log(`Connection attempt #${connectionAttemptsRef.current}`);
       
+      // Set a connection timeout
+      const connectionTimeout = setTimeout(() => {
+        if (socketRef.current && socketRef.current.readyState !== WebSocket.OPEN) {
+          console.error('WebSocket connection timed out');
+          socketRef.current.close();
+          setIsConnecting(false);
+          setIsConnected(false);
+          toast({
+            title: 'Connection Timeout',
+            description: 'Timed out connecting to transcription service. Is your server running?',
+            variant: 'destructive'
+          });
+          if (onError) onError('WebSocket connection timed out');
+          if (onStatusUpdate) onStatusUpdate('timeout');
+        }
+      }, 5000); // 5 second timeout
+      
       socketRef.current.onopen = () => {
+        clearTimeout(connectionTimeout);
         console.log('WebSocket connection established');
         setIsConnected(true);
         setIsConnecting(false);
@@ -115,6 +173,7 @@ export const useTranscriptionWebSocket = ({
       };
       
       socketRef.current.onclose = (event) => {
+        clearTimeout(connectionTimeout);
         console.log('WebSocket connection closed', event.code, event.reason);
         setIsConnected(false);
         setIsConnecting(false);
@@ -129,6 +188,7 @@ export const useTranscriptionWebSocket = ({
       };
       
       socketRef.current.onerror = (event) => {
+        clearTimeout(connectionTimeout);
         console.error('WebSocket error:', event);
         setIsConnected(false);
         setIsConnecting(false);
@@ -159,7 +219,7 @@ export const useTranscriptionWebSocket = ({
       if (onError) onError('Failed to create WebSocket connection');
       if (onStatusUpdate) onStatusUpdate('error');
     }
-  }, [websocketUrl, onTranscriptUpdate, onSuggestionReceived, onStatusUpdate, onError, toast, isConnecting]);
+  }, [websocketUrl, onTranscriptUpdate, onSuggestionReceived, onStatusUpdate, onError, toast, isConnecting, isWebSocketServerRunning]);
 
   const disconnect = useCallback(() => {
     if (socketRef.current) {
