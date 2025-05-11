@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { authService } from '@/services/authService';
+import { useAuth } from '@/contexts/AuthContext';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -28,6 +28,7 @@ type FormData = z.infer<typeof formSchema>;
 const Register = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { register } = useAuth();
   
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -44,8 +45,7 @@ const Register = () => {
     console.log("Register form submitted with:", data);
     
     try {
-      // Directly call the authService
-      const success = await authService.register({
+      const success = await register({
         username: data.username,
         email: data.email,
         fullName: data.fullName,
@@ -55,14 +55,22 @@ const Register = () => {
       if (success) {
         toast({
           title: "Registration successful",
-          description: "Your account has been created",
+          description: "Your account has been created. Please login.",
+          variant: "default",
         });
         
-        // Redirect to login page after registration
+        // Redirect to login page after successful registration
         navigate("/login");
       }
     } catch (error) {
       console.error("Registration submission error:", error);
+      
+      // Display error in toast notification
+      toast({
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
     }
   };
 

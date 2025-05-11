@@ -99,19 +99,35 @@ export const authService = {
       console.log("Registration response status:", response.status);
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Registration error response:", errorText);
-        throw new Error(errorText || `HTTP error! Status: ${response.status}`);
+        const errorData = await response.text();
+        console.error("Registration error response:", errorData);
+        
+        // Try to parse as JSON if possible
+        let errorMessage = `HTTP error! Status: ${response.status}`;
+        try {
+          const parsedError = JSON.parse(errorData);
+          errorMessage = parsedError.detail || parsedError.message || errorMessage;
+        } catch (e) {
+          // If it's not JSON (could be HTML), use a generic error
+          if (errorData.includes("<!DOCTYPE html>")) {
+            errorMessage = `Server error (${response.status}). Please try again later.`;
+          } else {
+            errorMessage = errorData || errorMessage;
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
 
+      let responseData;
       const responseText = await response.text();
       console.log("Registration response body:", responseText);
       
       // Try to parse JSON if the response is not empty
       if (responseText.trim()) {
         try {
-          const jsonData = JSON.parse(responseText);
-          console.log("Registration successful, API response:", jsonData);
+          responseData = JSON.parse(responseText);
+          console.log("Registration successful, API response:", responseData);
         } catch (e) {
           console.warn("Response is not JSON format, but registration may still be successful");
         }
