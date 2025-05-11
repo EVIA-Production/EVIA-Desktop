@@ -1,6 +1,4 @@
 
-import { toast } from "@/hooks/use-toast";
-
 interface LoginCredentials {
   username: string;
   password: string;
@@ -26,7 +24,7 @@ interface UserProfile {
 }
 
 // When in development use localhost URL, in production use absolute URL
-const API_URL = window.location.hostname === 'localhost' 
+const API_URL = import.meta.env.DEV 
   ? "http://localhost:5001"
   : "http://localhost:5001"; // Change this to your actual backend URL in production
 
@@ -34,27 +32,28 @@ export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
     try {
       console.log("Attempting to login with:", credentials);
+      
       const response = await fetch(`${API_URL}/login/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
         },
-        mode: 'cors',
         body: JSON.stringify(credentials),
+        credentials: 'include',
       });
 
-      // Log the actual response for debugging
       console.log("Login response status:", response.status);
-      const responseText = await response.text();
-      console.log("Login response body:", responseText);
-
-      // If not JSON, handle accordingly
+      
       if (!response.ok) {
-        throw new Error(responseText || "Login failed");
+        const errorText = await response.text();
+        console.error("Login error response:", errorText);
+        throw new Error(errorText || `HTTP error! Status: ${response.status}`);
       }
 
       // Try to parse the response as JSON
+      const responseText = await response.text();
+      console.log("Login response body:", responseText);
+      
       let data: AuthResponse;
       try {
         data = JSON.parse(responseText);
@@ -72,20 +71,7 @@ export const authService = {
       return true;
     } catch (error) {
       console.error("Login error:", error);
-      if (error instanceof Error) {
-        toast({
-          title: "Login Failed",
-          description: error.message || "Failed to connect to server. Please check your network connection.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Login Failed",
-          description: "Failed to connect to server. Please check your network connection.",
-          variant: "destructive",
-        });
-      }
-      return false;
+      throw error;
     }
   },
 
@@ -95,7 +81,7 @@ export const authService = {
       const apiData = {
         username: userData.username,
         email: userData.email,
-        full_name: userData.fullName, // Convert fullName to full_name as expected by the API
+        full_name: userData.fullName,
         password: userData.password
       };
 
@@ -105,40 +91,36 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
         },
-        mode: 'cors',
         body: JSON.stringify(apiData),
+        credentials: 'include',
       });
 
-      // Log the actual response for debugging
       console.log("Registration response status:", response.status);
-      const responseText = await response.text();
-      console.log("Registration response body:", responseText);
-
+      
       if (!response.ok) {
-        throw new Error(responseText || "Registration failed");
+        const errorText = await response.text();
+        console.error("Registration error response:", errorText);
+        throw new Error(errorText || `HTTP error! Status: ${response.status}`);
       }
 
-      // Try to parse JSON if possible
-      try {
-        const jsonData = JSON.parse(responseText);
-        console.log("Registration successful, API response:", jsonData);
-      } catch (e) {
-        console.warn("Response is not JSON format, but registration may still be successful");
+      const responseText = await response.text();
+      console.log("Registration response body:", responseText);
+      
+      // Try to parse JSON if the response is not empty
+      if (responseText.trim()) {
+        try {
+          const jsonData = JSON.parse(responseText);
+          console.log("Registration successful, API response:", jsonData);
+        } catch (e) {
+          console.warn("Response is not JSON format, but registration may still be successful");
+        }
       }
       
       return true;
     } catch (error) {
       console.error("Registration error:", error);
-      if (error instanceof Error) {
-        toast({
-          title: "Registration Failed",
-          description: error.message,
-          variant: "destructive",
-        });
-      }
-      return false;
+      throw error;
     }
   },
 
@@ -154,9 +136,8 @@ export const authService = {
       const response = await fetch(`${API_URL}/users/me/`, {
         headers: {
           "Authorization": `${tokenType} ${token}`,
-          "Accept": "application/json",
         },
-        mode: 'cors',
+        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -165,12 +146,13 @@ export const authService = {
           this.logout();
           return null;
         }
-        const responseText = await response.text();
-        console.error("Failed to get user profile:", responseText);
+        const errorText = await response.text();
+        console.error("Failed to get user profile:", errorText);
         throw new Error("Failed to get user profile");
       }
 
       const responseText = await response.text();
+      console.log("User profile response:", responseText);
       
       try {
         return JSON.parse(responseText);

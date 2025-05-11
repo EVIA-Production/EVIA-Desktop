@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
@@ -32,22 +33,29 @@ const Login = () => {
   });
 
   const onSubmit = async (data: FormData) => {
-    console.log("Login form submitted with:", data);
-    
     try {
-      const success = await login(data.username, data.password);
+      console.log("Login form submitted with:", data);
       
-      if (success) {
-        toast({
-          title: "Login successful",
-          description: "Welcome back to EV/A",
-        });
-        
-        // Redirect to main page after login
-        navigate("/");
-      }
+      await login(data.username, data.password);
+      
+      // If login was successful (no error thrown)
+      toast({
+        title: "Login successful",
+        description: "Welcome back to EV/A",
+      });
+      
+      // Redirect to main page after login
+      navigate("/");
     } catch (error) {
       console.error("Login error:", error);
+      
+      toast({
+        title: "Login Failed",
+        description: error instanceof Error 
+          ? error.message 
+          : "Failed to connect to server. Please check your network connection.",
+        variant: "destructive",
+      });
     }
   };
 
