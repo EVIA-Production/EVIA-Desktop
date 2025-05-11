@@ -16,8 +16,8 @@ const Index = () => {
   const [suggestion, setSuggestion] = useState('');
   const { toast } = useToast();
   
-  // Update the WebSocket URL to use port 80 instead of 8000
-  const websocketUrl = 'ws://localhost:80/ws/transcribe';
+  // Update the WebSocket URL to use the correct endpoint
+  const websocketUrl = 'ws://localhost:5001/ws';
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');

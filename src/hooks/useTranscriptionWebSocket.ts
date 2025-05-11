@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -26,7 +27,7 @@ export const useTranscriptionWebSocket = ({
   onStatusUpdate,
   onError,
   autoConnect = false,
-  websocketUrl = 'ws://localhost:80/ws/transcribe'
+  websocketUrl = 'ws://localhost:5001/ws'
 }: UseTranscriptionWebSocketProps = {}) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
