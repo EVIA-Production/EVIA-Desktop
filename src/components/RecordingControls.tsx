@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw, Monitor, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -61,9 +60,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     },
     onStatusUpdate: (status) => {
       console.log('WebSocket status update:', status);
-      if (status === 'server_unavailable') {
-        setServerStatus('unavailable');
-      } else if (status === 'connected') {
+      if (status === 'connected') {
         setServerStatus('available');
       }
     },
@@ -76,34 +73,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       });
     }
   });
-  
-  // Check server availability on first render
-  useEffect(() => {
-    const checkServerAvailability = async () => {
-      try {
-        // Extract host and port from WebSocket URL
-        const wsUrlObj = new URL(websocketUrl.replace('ws://', 'http://').replace('wss://', 'https://'));
-        const checkUrl = `${wsUrlObj.protocol}//${wsUrlObj.host}/health`;
-        
-        try {
-          await fetch(checkUrl, { 
-            method: 'HEAD', 
-            mode: 'no-cors',
-            signal: AbortSignal.timeout(2000)
-          });
-          setServerStatus('available');
-        } catch (error) {
-          console.warn(`Server unavailable: ${error}`);
-          setServerStatus('unavailable');
-        }
-      } catch (error) {
-        console.error('Invalid WebSocket URL:', error);
-        setServerStatus('unavailable');
-      }
-    };
-    
-    checkServerAvailability();
-  }, [websocketUrl]);
   
   // Set up audio processing that sends data to the WebSocket
   const { startProcessing, stopProcessing } = useAudioProcessor({
@@ -164,16 +133,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   
   const handleStartRecording = async () => {
     try {
-      // First check if server is available
-      if (serverStatus === 'unavailable') {
-        toast({
-          title: 'Server Unavailable',
-          description: 'Cannot start recording because the transcription server is not available.',
-          variant: 'destructive'
-        });
-        return;
-      }
-      
       // First request microphone permissions
       setPermissionRequesting(true);
       const micPermissionGranted = await requestMicrophonePermission();
@@ -298,7 +257,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
           <button
             className="recording-btn bg-evia-green hover:bg-opacity-80 disabled:opacity-50"
             onClick={handleStartRecording}
-            disabled={!isConnected || permissionRequesting || serverStatus === 'unavailable'}
+            disabled={!isConnected || permissionRequesting}
           >
             <Mic className="mr-1" size={20} />
             <Monitor className="mr-1" size={20} />
