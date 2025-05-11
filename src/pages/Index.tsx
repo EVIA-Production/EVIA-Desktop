@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -17,8 +16,8 @@ const Index = () => {
   const [suggestion, setSuggestion] = useState('');
   const { toast } = useToast();
   
-  // You can update this URL to point to your backend
-  const websocketUrl = 'ws://localhost:8000/ws/transcribe';
+  // Update the WebSocket URL to use port 80 instead of 8000
+  const websocketUrl = 'ws://localhost:80/ws/transcribe';
 
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
