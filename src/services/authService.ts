@@ -87,12 +87,15 @@ export const authService = {
 
       console.log("Registering user with:", apiData);
       
+      // Create request options with mode: 'cors' to handle CORS properly
       const response = await fetch(`${API_URL}/signup/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify(apiData),
+        mode: 'cors',
         credentials: 'include',
       });
 
