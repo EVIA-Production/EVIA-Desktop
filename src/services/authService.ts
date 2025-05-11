@@ -23,13 +23,8 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// Update API URL to match the actual backend endpoint
-// Server logs indicate it's running on port 80 internally but mapped to 5001 externally
-const API_URL = import.meta.env.DEV 
-  ? "http://localhost:5001"
-  : window.location.origin.includes("localhost") 
-    ? "http://localhost:5001" 
-    : "https://your-production-api.com"; // Change this when deploying
+// Set API URL to the known working backend endpoint
+const API_URL = "http://localhost:5001";
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -41,6 +36,7 @@ export const authService = {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
+          "Origin": window.location.origin
         },
         body: JSON.stringify(credentials),
         credentials: 'include',
@@ -92,7 +88,7 @@ export const authService = {
 
       console.log("Registering user with:", apiData);
       
-      // Create request options with mode: 'cors' to handle CORS properly
+      // Create request options with explicit CORS settings
       const response = await fetch(`${API_URL}/signup/`, {
         method: "POST",
         headers: {
@@ -161,7 +157,8 @@ export const authService = {
       const response = await fetch(`${API_URL}/users/me/`, {
         headers: {
           "Authorization": `${tokenType} ${token}`,
-          "Accept": "application/json"
+          "Accept": "application/json",
+          "Origin": window.location.origin
         },
         credentials: 'include',
         mode: 'cors'
