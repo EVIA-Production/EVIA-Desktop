@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,7 +10,6 @@ import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from '@/contexts/AuthContext';
-import { authService } from '@/services/authService';
 
 const formSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -37,11 +35,7 @@ const Login = () => {
     console.log("Login form submitted with:", data);
     
     try {
-      // First try with authService directly
-      const success = await authService.login({
-        username: data.username,
-        password: data.password
-      });
+      const success = await login(data.username, data.password);
       
       if (success) {
         toast({

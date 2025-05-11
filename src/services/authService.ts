@@ -25,11 +25,10 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// Update API URL to match the deployed backend URL or use a relative URL
-// Using relative URL for API calls when deployed
+// When in development use localhost URL, in production use absolute URL
 const API_URL = window.location.hostname === 'localhost' 
   ? "http://localhost:5001"
-  : "/api"; // This will use relative path in production
+  : "http://localhost:5001"; // Change this to your actual backend URL in production
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -39,18 +38,31 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
-        // When using a relative URL in production, credentials should be included
-        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
+        mode: 'cors',
         body: JSON.stringify(credentials),
       });
 
+      // Log the actual response for debugging
+      console.log("Login response status:", response.status);
+      const responseText = await response.text();
+      console.log("Login response body:", responseText);
+
+      // If not JSON, handle accordingly
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Login failed");
+        throw new Error(responseText || "Login failed");
       }
 
-      const data: AuthResponse = await response.json();
+      // Try to parse the response as JSON
+      let data: AuthResponse;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Failed to parse JSON response:", e);
+        throw new Error("Invalid response format from server");
+      }
+      
       console.log("Login successful, received token:", data.access_token);
       
       // Store token in localStorage
@@ -93,19 +105,29 @@ export const authService = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
-        // When using a relative URL in production, credentials should be included
-        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
+        mode: 'cors',
         body: JSON.stringify(apiData),
       });
 
+      // Log the actual response for debugging
+      console.log("Registration response status:", response.status);
+      const responseText = await response.text();
+      console.log("Registration response body:", responseText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Registration API error response:", errorData);
-        throw new Error(errorData.detail || "Registration failed");
+        throw new Error(responseText || "Registration failed");
       }
 
-      console.log("Registration successful, API response:", await response.json());
+      // Try to parse JSON if possible
+      try {
+        const jsonData = JSON.parse(responseText);
+        console.log("Registration successful, API response:", jsonData);
+      } catch (e) {
+        console.warn("Response is not JSON format, but registration may still be successful");
+      }
+      
       return true;
     } catch (error) {
       console.error("Registration error:", error);
@@ -131,10 +153,10 @@ export const authService = {
     try {
       const response = await fetch(`${API_URL}/users/me/`, {
         headers: {
-          Authorization: `${tokenType} ${token}`,
+          "Authorization": `${tokenType} ${token}`,
+          "Accept": "application/json",
         },
-        // When using a relative URL in production, credentials should be included
-        credentials: window.location.hostname === 'localhost' ? 'omit' : 'include',
+        mode: 'cors',
       });
 
       if (!response.ok) {
@@ -143,10 +165,19 @@ export const authService = {
           this.logout();
           return null;
         }
+        const responseText = await response.text();
+        console.error("Failed to get user profile:", responseText);
         throw new Error("Failed to get user profile");
       }
 
-      return await response.json();
+      const responseText = await response.text();
+      
+      try {
+        return JSON.parse(responseText);
+      } catch (e) {
+        console.error("Failed to parse user profile response:", e);
+        return null;
+      }
     } catch (error) {
       console.error("Error fetching user profile:", error);
       return null;
