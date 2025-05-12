@@ -24,6 +24,39 @@ export const useRecording = () => {
     console.log(`DEBUG: ${message}`);
   };
 
+  // Smart text merging function
+  const smartMergeText = (oldText: string, newText: string): string => {
+    // If either text is empty, return the other one
+    if (!oldText) return newText;
+    if (!newText) return oldText;
+    
+    // Case 1: New text is completely different or just adds new content
+    // Check if the new text contains all of the old text at the beginning
+    if (newText.startsWith(oldText)) {
+      return newText;
+    }
+    
+    // Case 2: New text might be a continuation of old text
+    // Find the longest common substring from the end of oldText to beginning of newText
+    let overlapIndex = 0;
+    for (let i = 1; i <= Math.min(oldText.length, newText.length); i++) {
+      const oldTextSuffix = oldText.slice(oldText.length - i);
+      const newTextPrefix = newText.slice(0, i);
+      
+      if (oldTextSuffix === newTextPrefix) {
+        overlapIndex = i;
+      }
+    }
+    
+    // If we found an overlap, merge the texts at the overlap point
+    if (overlapIndex > 0) {
+      return oldText.slice(0, oldText.length - overlapIndex) + newText;
+    }
+    
+    // Case 3: No overlap found, just concatenate with space
+    return `${oldText} ${newText}`;
+  };
+
   // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((message: any) => {
     console.log('Received WebSocket message:', message);
@@ -36,8 +69,12 @@ export const useRecording = () => {
           // Use a consistent speaker key, including for null speakers
           const speakerKey = speaker !== null ? `Speaker ${speaker}` : 'Unknown';
           
-          // Store this text for this speaker - replace previous text entirely
-          speakerMessagesRef.current.set(speakerKey, text);
+          // Get the previous text for this speaker (if any)
+          const previousText = speakerMessagesRef.current.get(speakerKey) || "";
+          
+          // Use smart merging to update the text for this speaker
+          const mergedText = smartMergeText(previousText, text);
+          speakerMessagesRef.current.set(speakerKey, mergedText);
           
           // Build a new transcript string from all speaker messages
           let newTranscript = '';

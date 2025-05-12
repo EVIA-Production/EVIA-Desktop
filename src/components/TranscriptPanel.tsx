@@ -29,21 +29,17 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Function to render text with animation
-  const renderAnimatedText = (text: string, lineIndex: number) => {
-    return (
-      <div key={`line-${lineIndex}`}>
-        {lineIndex > 0 && <br />}
-        {text.split(' ').map((word, wordIndex) => (
-          <span 
-            key={`word-${lineIndex}-${wordIndex}`} 
-            className="inline-block mr-1 animate-fadeIn"
-          >
-            {word}
-          </span>
-        ))}
+  // Render content with clean line breaks between speakers
+  const renderContent = () => {
+    if (!content) {
+      return <p className="text-gray-400 italic">{placeholder}</p>;
+    }
+    
+    return content.split('\n').map((line, lineIndex) => (
+      <div key={`line-${lineIndex}`} className="mb-2 last:mb-0">
+        <span className="animate-fadeIn">{line}</span>
       </div>
-    );
+    ));
   };
 
   return (
@@ -54,12 +50,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       </h2>
       <ScrollArea className="flex-1 p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
         <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
-          {content ? 
-            content.split('\n').map((line, lineIndex) => 
-              renderAnimatedText(line, lineIndex)
-            ) : 
-            <p className="text-gray-400 italic">{placeholder}</p>
-          }
+          {renderContent()}
         </div>
       </ScrollArea>
     </div>
