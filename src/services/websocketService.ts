@@ -1,4 +1,3 @@
-
 interface WebSocketMessage {
   type: string;
   content?: any;
@@ -32,9 +31,13 @@ export class ChatWebSocket {
     this.intentionalDisconnect = false;
     
     try {
-      // Include token and chat_id as query parameters
+      // Set the token as a cookie before connecting
+      const token = localStorage.getItem('auth_token') || '';
       const tokenType = localStorage.getItem('token_type') || 'Bearer';
-      this.ws = new WebSocket(`ws://localhost:5001/ws/?chat_id=${this.chatId}&token=${encodeURIComponent(`${tokenType} ${this.token}`)}`);
+      document.cookie = `token=${tokenType} ${token}; path=/`;
+      
+      // Only include chat_id in the URL, not the token
+      this.ws = new WebSocket(`ws://localhost:5001/ws/?chat_id=${this.chatId}`);
 
       this.ws.onopen = () => {
         console.log('Connected to chat WebSocket');
