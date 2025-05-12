@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -12,8 +11,9 @@ interface RecordingControlsProps {
   onSuggest: () => void;
   onResetContext: () => void;
   isConnected: boolean;
-  onTranscriptUpdate?: (text: string) => void;
+  onTranscriptUpdate?: (data: any) => void;
   onSuggestionReceived?: (suggestion: string) => void;
+  onConnectionChange?: (isConnected: boolean) => void;
   websocketUrl?: string;
 }
 
@@ -26,6 +26,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   isConnected,
   onTranscriptUpdate,
   onSuggestionReceived,
+  onConnectionChange,
   websocketUrl = 'ws://localhost:5001/ws/transcribe'
 }) => {
   const { toast } = useToast();
@@ -45,19 +46,23 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     autoConnect: false,
     websocketUrl,
     onTranscriptUpdate: (segment) => {
-      console.log('Transcript update:', segment);
-      if (onTranscriptUpdate && segment.text) {
-        onTranscriptUpdate(segment.text);
+      console.log('Transcript update from WebSocket:', segment);
+      if (onTranscriptUpdate) {
+        onTranscriptUpdate(segment);
       }
     },
     onSuggestionReceived: (suggestion) => {
-      console.log('Suggestion received:', suggestion);
+      console.log('Suggestion received from WebSocket:', suggestion);
       if (onSuggestionReceived) {
         onSuggestionReceived(suggestion);
       }
     },
     onStatusUpdate: (status) => {
       console.log('WebSocket status update:', status);
+      // Update connection status based on WebSocket status
+      if (onConnectionChange) {
+        onConnectionChange(status === 'connected');
+      }
     },
     onError: (error) => {
       console.error('WebSocket error:', error);
@@ -66,6 +71,9 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         description: error,
         variant: 'destructive'
       });
+      if (onConnectionChange) {
+        onConnectionChange(false);
+      }
     }
   });
   
@@ -242,7 +250,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
           <button
             className="recording-btn bg-evia-green hover:bg-opacity-80 disabled:opacity-50"
             onClick={handleStartRecording}
-            disabled={!isConnected || permissionRequesting}
+            disabled={permissionRequesting}
           >
             <Mic className="mr-1" size={20} />
             <Monitor className="mr-1" size={20} />
@@ -261,7 +269,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <button
           className="recording-btn bg-evia-pink hover:bg-opacity-80"
           onClick={handleSuggest}
-          disabled={!isConnected || !isRecording}
+          disabled={!wsConnected || !isRecording}
         >
           <Lightbulb className="mr-1" size={20} />
           Suggest
@@ -270,7 +278,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <button
           className="recording-btn bg-evia-gold hover:bg-opacity-80"
           onClick={handleResetContext}
-          disabled={!isConnected || !isRecording}
+          disabled={!wsConnected || !isRecording}
         >
           <RotateCcw className="mr-1" size={20} />
           Reset Context

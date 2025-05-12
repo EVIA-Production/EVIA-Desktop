@@ -1,4 +1,3 @@
-
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -211,7 +210,7 @@ export const useTranscriptionWebSocket = ({
       }
       return false;
     }
-  }, [connect]);
+  }, []);
 
   const sendCommand = useCallback((command: string, data: any = {}) => {
     if (!socketRef.current) {
@@ -244,7 +243,7 @@ export const useTranscriptionWebSocket = ({
       }
       return false;
     }
-  }, [connect, toast]);
+  }, [toast]);
 
   const requestSuggestion = useCallback(() => {
     return sendCommand('suggest');
@@ -253,9 +252,6 @@ export const useTranscriptionWebSocket = ({
   const resetContext = useCallback(() => {
     return sendCommand('reset');
   }, [sendCommand]);
-
-  // Do not auto-connect on mount since that might be triggering unwanted connections
-  // The RecordingControls component will call connect when needed
 
   // Expose connection state
   return {

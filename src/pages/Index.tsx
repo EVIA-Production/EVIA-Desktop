@@ -49,16 +49,26 @@ const Index = () => {
     });
   };
   
-  const handleTranscriptUpdate = (text: string) => {
-    console.log('New transcript text:', text);
-    // Update transcript to include new text, preserving line breaks
+  // Handle transcript updates from the WebSocket
+  const handleTranscriptUpdate = (data: any) => {
+    console.log('New transcript segment:', data);
+    
+    if (!data || !data.text) return;
+    
     setTranscript(prev => {
-      // If previous is empty or ends with a complete sentence, start a new line
-      if (!prev || prev.trim().endsWith('.')) {
-        return prev.trim() ? `${prev}\n${text}` : text;
+      // If it's a final segment and previous transcript doesn't end with punctuation,
+      // add a period to indicate the end of a sentence
+      if (data.is_final && prev.trim() && !prev.trim().match(/[.!?]$/)) {
+        return `${prev.trim()}. ${data.text}`;
       }
+      
+      // If previous transcript is empty or ends with a complete sentence, start a new line
+      if (!prev || prev.trim().match(/[.!?]$/)) {
+        return prev.trim() ? `${prev}\n${data.text}` : data.text;
+      }
+      
       // Otherwise, append to the current line
-      return `${prev} ${text}`;
+      return `${prev} ${data.text}`;
     });
   };
   
@@ -68,6 +78,10 @@ const Index = () => {
     toast({
       description: "Suggestion generated",
     });
+  };
+
+  const handleConnectionChange = (status: boolean) => {
+    setIsConnected(status);
   };
 
   return (
@@ -106,6 +120,7 @@ const Index = () => {
             isConnected={isConnected}
             onTranscriptUpdate={handleTranscriptUpdate}
             onSuggestionReceived={handleSuggestionReceived}
+            onConnectionChange={handleConnectionChange}
             websocketUrl={websocketUrl}
           />
         </div>
@@ -117,7 +132,7 @@ const Index = () => {
         />
 
         {/* Transcription & Suggestion Panels */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]"> {/* Increased height for better visibility */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]">
           <TranscriptPanel 
             title="Live Transcript" 
             content={transcript}
