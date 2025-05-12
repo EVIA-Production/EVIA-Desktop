@@ -22,14 +22,11 @@ export class ChatWebSocket {
     this.chatId = chatId;
     this.token = localStorage.getItem('auth_token') || '';
     
-    // Determine if we're in a local environment or deployed
-    const isLocalhost = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1';
+    // Get the API URL from the authService configuration
+    const apiUrl = "http://localhost:5001";
     
-    // Use secure WebSocket (wss) for deployed environments, regular WebSocket (ws) for localhost
-    const protocol = isLocalhost ? 'ws' : 'wss';
-    const host = isLocalhost ? 'localhost:5001' : window.location.hostname;
-    this.serverUrl = `${protocol}://${host}`;
+    // Convert HTTP URL to WebSocket URL (ws or wss)
+    this.serverUrl = apiUrl.replace(/^http/, 'ws');
     
     console.log('WebSocket server URL:', this.serverUrl);
   }
@@ -60,7 +57,7 @@ export class ChatWebSocket {
       
       console.log('Setting cookie for WebSocket connection:', `token=${authValue}`);
       
-      // Create WebSocket connection
+      // Create WebSocket connection with the corrected URL
       const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       

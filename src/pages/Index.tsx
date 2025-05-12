@@ -41,6 +41,16 @@ const Index = () => {
   useEffect(() => {
     if (chatId && isAuthenticated) {
       addDebugLog(`Connecting to WebSocket with chat ID: ${chatId}`);
+      
+      // Check auth token before connecting
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setHasAccessToken(false);
+        addDebugLog('No auth token available for WebSocket connection');
+        return;
+      }
+      
+      setHasAccessToken(true);
       const ws = chatService.connectToWebSocket(chatId);
       
       // Set up WebSocket message handlers
