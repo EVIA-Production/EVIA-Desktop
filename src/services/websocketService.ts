@@ -32,9 +32,14 @@ export class ChatWebSocket {
     
     try {
       // Set the token as a cookie before connecting
+      // The server expects a cookie named 'token' with the value formatted as 'Bearer {token}'
       const token = localStorage.getItem('auth_token') || '';
       const tokenType = localStorage.getItem('token_type') || 'Bearer';
+      
+      // Format: token=Bearer xxxxxx
       document.cookie = `token=${tokenType} ${token}; path=/`;
+      
+      console.log('Setting cookie for WebSocket connection:', `token=${tokenType} ${token}`);
       
       // Only include chat_id in the URL, not the token
       this.ws = new WebSocket(`ws://localhost:5001/ws/?chat_id=${this.chatId}`);
@@ -59,8 +64,8 @@ export class ChatWebSocket {
         console.error('WebSocket error:', error);
       };
 
-      this.ws.onclose = () => {
-        console.log('Disconnected from WebSocket');
+      this.ws.onclose = (event) => {
+        console.log('Disconnected from WebSocket', event.code, event.reason);
         this.connectionHandlers.forEach(handler => handler(false));
         
         // Implement reconnection logic
