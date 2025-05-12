@@ -1,5 +1,4 @@
-
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface TranscriptPanelProps {
@@ -29,6 +28,36 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
+  // Process the transcript to show only the latest line from each speaker
+  const processedContent = React.useMemo(() => {
+    if (!content || title !== "Live Transcript") return content;
+    
+    const lines = content.split('\n').filter(line => line.trim());
+    const speakerMap = new Map<string, string>();
+    
+    // Keep only the most recent line for each speaker
+    lines.forEach(line => {
+      const match = line.match(/^(Speaker\d+):(.*)/);
+      if (match) {
+        const [, speaker, text] = match;
+        speakerMap.set(speaker, text.trim());
+      } else if (line.trim()) {
+        // For lines without a speaker prefix, keep them as is
+        speakerMap.set(`unknown-${line}`, line);
+      }
+    });
+    
+    // Convert the map back to a string
+    return Array.from(speakerMap.entries())
+      .map(([speaker, text]) => {
+        if (speaker.startsWith('unknown-')) return text;
+        return `${speaker}: ${text}`;
+      })
+      .join('\n');
+  }, [content, title]);
+
+  const contentToDisplay = title === "Live Transcript" ? processedContent : content;
+
   return (
     <div className={`recording-area h-full flex flex-col ${className} rounded-xl transition-all duration-300`}>
       <h2 className="text-xl font-semibold mb-2 flex items-center">
@@ -37,8 +66,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       </h2>
       <ScrollArea className="flex-1 p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
         <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
-          {content ? 
-            content.split('\n').map((line, lineIndex) => {
+          {contentToDisplay ? 
+            contentToDisplay.split('\n').map((line, lineIndex) => {
               // Return a React Fragment with only valid props
               return (
                 <React.Fragment key={`line-${lineIndex}`}>
