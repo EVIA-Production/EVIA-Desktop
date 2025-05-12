@@ -1,3 +1,4 @@
+
 interface WebSocketMessage {
   type: string;
   content?: any;
@@ -45,8 +46,8 @@ export class ChatWebSocket {
         return;
       }
       
-      // Instead of trying to use cookies for cross-origin WebSocket authentication,
-      // we'll include the token as a URL parameter which is more reliable for WebSockets
+      // Include the token as a URL parameter which is more reliable for WebSockets
+      // The backend should extract this parameter and validate the token
       const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}&token=${encodeURIComponent(`${tokenType} ${token}`)}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       
