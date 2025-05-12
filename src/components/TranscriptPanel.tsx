@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -29,75 +28,44 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Process the transcript to concatenate messages from the same speaker
+  // Process the transcript to properly concatenate messages from the same speaker
   const processedContent = useMemo(() => {
     if (!content || title !== "Live Transcript") return content;
     
     const lines = content.split('\n').filter(line => line.trim());
-    const speakerMap = new Map<string, string[]>();
+    const speakerTexts = new Map<string, string>();
     
-    // Group all lines by speaker
+    // Combine text for each speaker
     lines.forEach(line => {
       const match = line.match(/^(Speaker\d+):(.*)/);
       if (match) {
         const [, speaker, text] = match;
-        if (!speakerMap.has(speaker)) {
-          speakerMap.set(speaker, []);
+        const trimmedText = text.trim();
+        
+        if (!speakerTexts.has(speaker)) {
+          speakerTexts.set(speaker, trimmedText);
+        } else {
+          // Only add this text if it's not already part of the existing text
+          const existingText = speakerTexts.get(speaker) || '';
+          if (!existingText.includes(trimmedText)) {
+            speakerTexts.set(speaker, `${existingText} ${trimmedText}`);
+          }
         }
-        speakerMap.get(speaker)?.push(text.trim());
       } else if (line.trim()) {
         // For lines without a speaker prefix, keep them as is
-        if (!speakerMap.has('unknown')) {
-          speakerMap.set('unknown', []);
+        if (!speakerTexts.has('unknown')) {
+          speakerTexts.set('unknown', line);
+        } else {
+          speakerTexts.set('unknown', `${speakerTexts.get('unknown')} ${line}`);
         }
-        speakerMap.get('unknown')?.push(line);
       }
     });
     
-    // For each speaker, filter out sentences that are substrings of later sentences
-    const cleanedMap = new Map<string, string[]>();
-    
-    speakerMap.forEach((utterances, speaker) => {
-      if (speaker === 'unknown') {
-        cleanedMap.set(speaker, utterances);
-        return;
-      }
-      
-      // Sort utterances by length (longest first)
-      const sortedUtterances = [...utterances].sort((a, b) => b.length - a.length);
-      const finalUtterances: string[] = [];
-      
-      // Keep only utterances that aren't contained in any other utterance
-      sortedUtterances.forEach(current => {
-        // Check if this utterance is a substring of any other utterance we've already kept
-        const isSubstring = finalUtterances.some(final => 
-          final.includes(current) && final !== current
-        );
-        
-        if (!isSubstring) {
-          finalUtterances.push(current);
-        }
-      });
-      
-      // Sort final utterances back to original order
-      // by finding their index in the original array
-      finalUtterances.sort((a, b) => {
-        const indexA = utterances.findIndex(u => u === a);
-        const indexB = utterances.findIndex(u => u === b);
-        return indexA - indexB;
-      });
-      
-      // Now we have only one entry per speaker with the most complete sentence
-      cleanedMap.set(speaker, finalUtterances);
-    });
-    
-    // Convert the cleaned map back to a string with concatenated messages per speaker
-    return Array.from(cleanedMap.entries())
-      .map(([speaker, texts]) => {
-        if (speaker === 'unknown') return texts.join(' ');
-        
-        // Concatenate all texts from the same speaker with a space
-        return `${speaker}: ${texts.join(' ')}`;
+    // Convert the map back to a string
+    return Array.from(speakerTexts.entries())
+      .map(([speaker, text]) => {
+        if (speaker === 'unknown') return text;
+        return `${speaker}: ${text}`;
       })
       .join('\n');
   }, [content, title]);
