@@ -36,10 +36,9 @@ const Login = () => {
     try {
       console.log("Login form submitted with:", data);
       
-      const success = await login(data.username, data.password);
+      const result = await login(data.username, data.password);
       
-      // Only redirect if login was successful
-      if (success) {
+      if (result.success) {
         toast({
           title: "Login successful",
           description: "Welcome back to EV/A",
@@ -47,6 +46,13 @@ const Login = () => {
         
         // Redirect to main page after successful login
         navigate("/");
+      } else {
+        // Show error message
+        toast({
+          title: "Login Failed",
+          description: result.error || "Invalid username or password",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Login error:", error);

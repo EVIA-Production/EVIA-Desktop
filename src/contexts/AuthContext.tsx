@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
@@ -14,7 +13,7 @@ interface AuthContextType {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{success: boolean, error?: string}>;
   logout: () => void;
   register: (userData: {
     username: string;
@@ -67,12 +66,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (success) {
         const user = await authService.getCurrentUser();
         setUser(user);
-        return true;
+        return { success: true };
       }
-      return false;
+      return { success: false, error: "Invalid username or password. Please try again." };
     } catch (error) {
       console.error("Login error in AuthContext:", error);
-      return false;
+      return { 
+        success: false, 
+        error: error instanceof Error 
+          ? error.message 
+          : "Failed to connect to server. Please check your network connection." 
+      };
     } finally {
       setIsLoading(false);
     }
