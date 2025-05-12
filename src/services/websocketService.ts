@@ -1,3 +1,4 @@
+
 // WebSocket service for real-time communication
 
 // Interface to maintain type safety for messages
@@ -7,7 +8,7 @@ interface WebSocketMessage {
     text?: string;
     speaker?: number | null;
     is_final?: boolean;
-  };
+  } | string; // Update: data can be string for suggestions
   content?: any;
   transcript?: string;
   suggestion?: string;

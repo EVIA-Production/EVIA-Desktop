@@ -37,11 +37,16 @@ export const useRecording = () => {
         break;
       
       case 'suggestion':
-        // Update suggestions UI - this might be under data or directly in suggestion
-        if (message.data) {
+        // Updated to handle the new suggestion format where data is a string
+        if (typeof message.data === 'string') {
+          setSuggestion(message.data);
+          console.log('Suggestion received:', message.data);
+        } else if (message.data) {
           setSuggestion(message.data.toString());
+          console.log('Suggestion received (converted to string):', message.data.toString());
         } else if (message.suggestion) {
           setSuggestion(message.suggestion);
+          console.log('Legacy suggestion format received:', message.suggestion);
         }
         break;
       
