@@ -226,13 +226,13 @@ export const useRecording = () => {
       description: "Requesting suggestion...",
     });
     
-    // Send message to request suggestion if WebSocket is connected
+    // Updated: Send message with the correct format for suggestion requests
     const ws = getWebSocketInstance(""); // We already have a singleton instance
     if (ws.isConnected()) {
       ws.sendMessage({
-        type: "request_suggestion",
-        content: { transcript }
+        command: "suggest"
       });
+      console.log('Suggestion request sent with command format');
     } else {
       // Fallback for when WebSocket is not connected
       setTimeout(() => {

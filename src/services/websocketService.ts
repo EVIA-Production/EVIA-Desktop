@@ -1,9 +1,9 @@
-
 // WebSocket service for real-time communication
 
 // Interface to maintain type safety for messages
 interface WebSocketMessage {
-  type: string;
+  type?: string;
+  command?: string;
   data?: {
     text?: string;
     speaker?: number | null;
