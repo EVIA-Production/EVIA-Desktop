@@ -1,4 +1,5 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+
+import React, { useRef, useEffect } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface TranscriptPanelProps {
@@ -28,50 +29,6 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Process the transcript to properly concatenate messages from the same speaker
-  const processedContent = useMemo(() => {
-    if (!content || title !== "Live Transcript") return content;
-    
-    const lines = content.split('\n').filter(line => line.trim());
-    const speakerTexts = new Map<string, string>();
-    
-    // Combine text for each speaker
-    lines.forEach(line => {
-      const match = line.match(/^(Speaker\d+):(.*)/);
-      if (match) {
-        const [, speaker, text] = match;
-        const trimmedText = text.trim();
-        
-        if (!speakerTexts.has(speaker)) {
-          speakerTexts.set(speaker, trimmedText);
-        } else {
-          // Only add this text if it's not already part of the existing text
-          const existingText = speakerTexts.get(speaker) || '';
-          if (!existingText.includes(trimmedText)) {
-            speakerTexts.set(speaker, `${existingText} ${trimmedText}`);
-          }
-        }
-      } else if (line.trim()) {
-        // For lines without a speaker prefix, keep them as is
-        if (!speakerTexts.has('unknown')) {
-          speakerTexts.set('unknown', line);
-        } else {
-          speakerTexts.set('unknown', `${speakerTexts.get('unknown')} ${line}`);
-        }
-      }
-    });
-    
-    // Convert the map back to a string
-    return Array.from(speakerTexts.entries())
-      .map(([speaker, text]) => {
-        if (speaker === 'unknown') return text;
-        return `${speaker}: ${text}`;
-      })
-      .join('\n');
-  }, [content, title]);
-
-  const contentToDisplay = title === "Live Transcript" ? processedContent : content;
-
   // Function to render text with animation
   const renderAnimatedText = (text: string, lineIndex: number) => {
     return (
@@ -97,8 +54,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       </h2>
       <ScrollArea className="flex-1 p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
         <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
-          {contentToDisplay ? 
-            contentToDisplay.split('\n').map((line, lineIndex) => 
+          {content ? 
+            content.split('\n').map((line, lineIndex) => 
               renderAnimatedText(line, lineIndex)
             ) : 
             <p className="text-gray-400 italic">{placeholder}</p>

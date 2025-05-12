@@ -16,6 +16,9 @@ export const useRecording = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const audioFrameCountRef = useRef<number>(0);
   
+  // Keep track of the latest message from each speaker
+  const speakerMessagesRef = useRef<Map<string, string>>(new Map());
+  
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
     console.log(`DEBUG: ${message}`);
@@ -30,8 +33,20 @@ export const useRecording = () => {
         // Updated to access data under message.data as per the API response format
         const { text, speaker, is_final } = message.data || {};
         if (text) {
-          // Update transcript UI
-          setTranscript(prev => prev + (speaker !== null ? `Speaker ${speaker}: ` : '') + text + '\n');
+          // Use a consistent speaker key, including for null speakers
+          const speakerKey = speaker !== null ? `Speaker ${speaker}` : 'Unknown';
+          
+          // Store this text for this speaker
+          speakerMessagesRef.current.set(speakerKey, text);
+          
+          // Build a new transcript string from all speaker messages
+          let newTranscript = '';
+          speakerMessagesRef.current.forEach((speakerText, key) => {
+            newTranscript += `${key}: ${speakerText}\n`;
+          });
+          
+          // Update transcript UI with the rebuilt content
+          setTranscript(newTranscript);
         }
         break;
       
@@ -61,7 +76,8 @@ export const useRecording = () => {
       default:
         // Handle transcript field directly if present
         if (message.transcript) {
-          setTranscript(prev => prev + message.transcript + '\n');
+          // When receiving a full transcript replacement
+          setTranscript(message.transcript);
         }
         
         // Handle suggestion field directly if present
@@ -244,6 +260,8 @@ export const useRecording = () => {
     console.log('handleResetContext called');
     setTranscript('');
     setSuggestion('');
+    // Clear the speaker messages map
+    speakerMessagesRef.current.clear();
     addDebugLog('Context reset', setDebugLog);
     
     // Send reset command to the server using the same format as the suggest command
