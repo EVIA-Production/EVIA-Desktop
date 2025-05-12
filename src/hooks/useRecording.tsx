@@ -36,7 +36,7 @@ export const useRecording = () => {
           // Use a consistent speaker key, including for null speakers
           const speakerKey = speaker !== null ? `Speaker ${speaker}` : 'Unknown';
           
-          // Store this text for this speaker
+          // Store this text for this speaker - replace previous text entirely
           speakerMessagesRef.current.set(speakerKey, text);
           
           // Build a new transcript string from all speaker messages
