@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
@@ -172,7 +171,7 @@ const Index = () => {
         </h1>
 
         {/* Chat Status */}
-        {chatId && (
+        {chatId && typeof chatId === 'string' && (
           <div className="mb-4 text-center">
             <p className="text-green-400">Connected to chat session: {chatId.substring(0, 8)}...</p>
           </div>
