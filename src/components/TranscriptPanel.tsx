@@ -31,15 +31,15 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Process suggestion content to remove the "**Suggest**" part
+  // Process suggestion content to extract the text after </think> tag
   const processContent = () => {
     if (!content) {
       return '';
     }
     
     if (isSuggestion) {
-      const suggestPattern = /\*\*Suggest\*\*\s*(.*)/s;
-      const matches = content.match(suggestPattern);
+      const thinkEndTagPattern = /<\/think>\s*(.*)/s;
+      const matches = content.match(thinkEndTagPattern);
       return matches ? matches[1].trim() : content;
     }
     
