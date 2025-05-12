@@ -1,3 +1,4 @@
+
 import { useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -46,7 +47,10 @@ export const useAudioProcessor = ({
       
       // Create AudioContext
       console.log('Creating Audio Context...');
-      audioContextRef.current = new AudioContext();
+      audioContextRef.current = new AudioContext({
+        // Deepgram expects Linear PCM at 16kHz sampling rate for best results
+        sampleRate: 16000 
+      });
       console.log('Audio Context sample rate:', audioContextRef.current.sampleRate);
       
       // Load the audio worklet
@@ -56,7 +60,13 @@ export const useAudioProcessor = ({
       
       // Create the audio worklet node
       console.log('Creating audio worklet node...');
-      audioWorkletNodeRef.current = new AudioWorkletNode(audioContextRef.current, 'audio-processor');
+      audioWorkletNodeRef.current = new AudioWorkletNode(audioContextRef.current, 'audio-processor', {
+        processorOptions: {
+          // Ensure the worklet knows to output 16-bit PCM for Deepgram
+          targetSampleRate: 16000,
+          outputFormat: 'int16'
+        }
+      });
       
       // Create audio destination to collect audio
       audioDestinationRef.current = audioContextRef.current.createMediaStreamDestination();
@@ -100,6 +110,7 @@ export const useAudioProcessor = ({
         
         // Forward audio data to websocket if handler is provided
         if (audioData && onAudioData) {
+          // Send audio as raw binary data - exactly what Deepgram expects
           const success = onAudioData(audioData);
           if (!success) {
             console.warn('Failed to send audio data to WebSocket');

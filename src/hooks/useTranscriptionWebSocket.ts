@@ -56,7 +56,9 @@ export const useTranscriptionWebSocket = ({
         socketRef.current = null;
       }
       
+      // Create a new WebSocket with the Binary type set to 'arraybuffer'
       socketRef.current = new WebSocket(websocketUrl);
+      socketRef.current.binaryType = 'arraybuffer'; // Crucial for binary audio data
       
       // Track connection attempts
       connectionAttemptsRef.current++;
@@ -93,96 +95,125 @@ export const useTranscriptionWebSocket = ({
       };
       
       socketRef.current.onmessage = (event) => {
-        console.log('WebSocket message received:', event.data);
+        console.log('WebSocket message received:', typeof event.data);
+        
         try {
-          const data = JSON.parse(event.data);
-          console.log('Parsed WebSocket message:', data);
-          
-          // Log the exact structure to help debug
-          console.log('Message type:', data.type);
-          console.log('Message data:', data.data);
-          
-          // Check if data is in expected format
-          if (!data.type) {
-            console.warn('Received message without type field:', data);
+          // Check if data is a string (JSON) or binary
+          if (typeof event.data === 'string') {
+            const data = JSON.parse(event.data);
+            console.log('Parsed WebSocket message:', data);
             
-            // Try to handle common backend response formats
-            if (data.text !== undefined) {
-              console.log('Detected transcript data without proper wrapping, adapting...');
-              if (onTranscriptUpdate) {
-                onTranscriptUpdate({
-                  text: data.text,
-                  speaker: data.speaker || null,
-                  is_final: data.is_final || true
+            // Log the exact structure to help debug
+            console.log('Message type:', data.type);
+            console.log('Message data:', data.data);
+            
+            // Process different message types from backend
+            switch (data.type) {
+              case 'transcript_segment':
+                console.log('Transcript segment received:', data.data);
+                if (onTranscriptUpdate) onTranscriptUpdate(data.data);
+                break;
+                
+              case 'suggestion':
+                console.log('Suggestion received:', data.data);
+                if (onSuggestionReceived) {
+                  // Check if suggestion is a string or wrapped in an object
+                  const suggestionText = typeof data.data === 'string' ? data.data : data.data.suggestion;
+                  onSuggestionReceived(suggestionText);
+                }
+                break;
+                
+              case 'status':
+                console.log('Status update received:', data.data);
+                if (onStatusUpdate) onStatusUpdate(data.data);
+                break;
+                
+              case 'error':
+                console.error('Error from server:', data.data);
+                if (onError) onError(data.data);
+                toast({
+                  title: 'Server Error',
+                  description: data.data,
+                  variant: 'destructive'
                 });
-              }
-              return;
+                break;
+                
+              default:
+                console.warn('Unknown message type:', data.type);
+                // Try to handle untyped messages or other formats
+                handleUnstructuredMessage(data);
             }
+          } else if (event.data instanceof ArrayBuffer) {
+            // Handle binary data if needed
+            console.log('Received binary data from server, length:', event.data.byteLength);
+          } else {
+            console.warn('Received unhandled data type:', typeof event.data);
           }
+        } catch (error) {
+          console.error('Error processing WebSocket message', error, 'Raw message:', event.data);
           
-          switch (data.type) {
-            case 'transcript':
-            case 'transcript_segment':
-              console.log('Transcript segment received:', data.data);
-              if (onTranscriptUpdate) onTranscriptUpdate(data.data);
-              break;
-              
-            case 'suggestion':
-              console.log('Suggestion received:', data.data);
-              if (onSuggestionReceived) {
-                // Check if suggestion is a string or wrapped in an object
-                const suggestionText = typeof data.data === 'string' ? data.data : data.data.suggestion;
-                onSuggestionReceived(suggestionText);
-              }
-              break;
-              
-            case 'status':
-              console.log('Status update received:', data.data);
-              if (onStatusUpdate) onStatusUpdate(data.data);
-              break;
-              
-            case 'error':
-              console.error('Error from server:', data.data);
-              if (onError) onError(data.data);
-              toast({
-                title: 'Server Error',
-                description: data.data,
-                variant: 'destructive'
+          // Try to handle plain text or unstructured messages
+          if (typeof event.data === 'string') {
+            handleUnstructuredMessage(event.data);
+          }
+        }
+      };
+      
+      // Helper function to handle unstructured or non-standard messages
+      const handleUnstructuredMessage = (data: any) => {
+        try {
+          // If it's an object with a 'text' property, treat as transcript
+          if (data && (data.text !== undefined || data.transcript !== undefined)) {
+            console.log('Processing as unstructured transcript data');
+            if (onTranscriptUpdate) {
+              onTranscriptUpdate({
+                text: data.text || data.transcript || '',
+                speaker: data.speaker || null,
+                is_final: data.is_final !== undefined ? data.is_final : true
               });
-              break;
-              
-            default:
-              console.warn('Unknown message type:', data.type);
-              // Try to handle untyped messages (some backends might send raw JSON)
-              if (data.text !== undefined) {
-                console.log('Attempting to process as transcript data...');
-                if (onTranscriptUpdate) {
+            }
+          } 
+          // If it's a string, try to parse as JSON or treat as plain text
+          else if (typeof data === 'string') {
+            if (data.trim().startsWith('{') || data.trim().startsWith('[')) {
+              try {
+                const jsonData = JSON.parse(data);
+                console.log('Parsed plain JSON message:', jsonData);
+                
+                // Check for common transcript patterns
+                if (jsonData.text || jsonData.transcript) {
+                  console.log('Found text/transcript in JSON, treating as transcript');
+                  if (onTranscriptUpdate) {
+                    onTranscriptUpdate({
+                      text: jsonData.text || jsonData.transcript || '',
+                      speaker: jsonData.speaker || null,
+                      is_final: jsonData.is_final !== undefined ? jsonData.is_final : true
+                    });
+                  }
+                }
+              } catch (jsonError) {
+                console.log('Not valid JSON, treating as plain text');
+                if (onTranscriptUpdate && data.trim()) {
                   onTranscriptUpdate({
-                    text: data.text,
-                    speaker: data.speaker || null,
-                    is_final: data.is_final || true
+                    text: data,
+                    speaker: null,
+                    is_final: true
                   });
                 }
               }
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message', error, 'Raw message:', event.data);
-          
-          // Try to handle plain text messages
-          try {
-            if (typeof event.data === 'string' && event.data.trim()) {
-              console.log('Received plain text message, treating as transcript');
+            } else if (data.trim()) {
+              console.log('Treating as plain text transcript');
               if (onTranscriptUpdate) {
                 onTranscriptUpdate({
-                  text: event.data,
+                  text: data,
                   speaker: null,
                   is_final: true
                 });
               }
             }
-          } catch (innerError) {
-            console.error('Failed to process as plain text:', innerError);
           }
+        } catch (e) {
+          console.error('Error in handleUnstructuredMessage:', e);
         }
       };
       
@@ -252,7 +283,8 @@ export const useTranscriptionWebSocket = ({
     }
     
     if (socketRef.current.readyState === WebSocket.OPEN) {
-      console.log(`Sending audio data: ${audioData.byteLength} bytes`);
+      // Send as binary data - CRUCIAL for Deepgram compatibility
+      console.log(`Sending audio data: ${audioData.byteLength} bytes as binary`);
       socketRef.current.send(audioData);
       return true;
     } else {
@@ -265,7 +297,7 @@ export const useTranscriptionWebSocket = ({
       }
       return false;
     }
-  }, []);
+  }, [connect]);
 
   const sendCommand = useCallback((command: string, data: any = {}) => {
     if (!socketRef.current) {
