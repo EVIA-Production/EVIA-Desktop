@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -28,7 +29,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Process the transcript to show only the most complete utterance from each speaker
+  // Process the transcript to concatenate messages from the same speaker
   const processedContent = useMemo(() => {
     if (!content || title !== "Live Transcript") return content;
     
@@ -86,16 +87,17 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         return indexA - indexB;
       });
       
+      // Now we have only one entry per speaker with the most complete sentence
       cleanedMap.set(speaker, finalUtterances);
     });
     
-    // Convert the cleaned map back to a string
+    // Convert the cleaned map back to a string with concatenated messages per speaker
     return Array.from(cleanedMap.entries())
       .map(([speaker, texts]) => {
-        if (speaker === 'unknown') return texts.join('\n');
-        return texts
-          .map(line => `${speaker}: ${line}`)
-          .join('\n');
+        if (speaker === 'unknown') return texts.join(' ');
+        
+        // Concatenate all texts from the same speaker with a space
+        return `${speaker}: ${texts.join(' ')}`;
       })
       .join('\n');
   }, [content, title]);
