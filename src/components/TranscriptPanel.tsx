@@ -38,19 +38,22 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       <ScrollArea className="flex-1 p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
         <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
           {content ? 
-            content.split('\n').map((line, lineIndex) => (
-              <React.Fragment key={`line-${lineIndex}`}>
-                {lineIndex > 0 && <br />}
-                {line.split(' ').map((word, wordIndex) => (
-                  <span 
-                    key={`${lineIndex}-${wordIndex}`} 
-                    className="inline-block mr-1 animate-fadeIn"
-                  >
-                    {word}
-                  </span>
-                ))}
-              </React.Fragment>
-            )) : 
+            content.split('\n').map((line, lineIndex) => {
+              // Return a React Fragment with only valid props
+              return (
+                <React.Fragment key={`line-${lineIndex}`}>
+                  {lineIndex > 0 && <br />}
+                  {line.split(' ').map((word, wordIndex) => (
+                    <span 
+                      key={`${lineIndex}-${wordIndex}`} 
+                      className="inline-block mr-1 animate-fadeIn"
+                    >
+                      {word}
+                    </span>
+                  ))}
+                </React.Fragment>
+              );
+            }) : 
             <p className="text-gray-400 italic">{placeholder}</p>
           }
         </div>
