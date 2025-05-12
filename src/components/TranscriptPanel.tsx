@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -30,29 +29,66 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   }, [content]);
 
   // Process the transcript to show only the latest line from each speaker
+  // and remove incomplete utterances when they're contained in newer ones
   const processedContent = useMemo(() => {
     if (!content || title !== "Live Transcript") return content;
     
     const lines = content.split('\n').filter(line => line.trim());
-    const speakerMap = new Map<string, string>();
+    const speakerMap = new Map<string, string[]>();
     
-    // Keep only the most recent line for each speaker
+    // Group all lines by speaker
     lines.forEach(line => {
       const match = line.match(/^(Speaker\d+):(.*)/);
       if (match) {
         const [, speaker, text] = match;
-        speakerMap.set(speaker, text.trim());
+        if (!speakerMap.has(speaker)) {
+          speakerMap.set(speaker, []);
+        }
+        speakerMap.get(speaker)?.push(text.trim());
       } else if (line.trim()) {
         // For lines without a speaker prefix, keep them as is
-        speakerMap.set(`unknown-${line}`, line);
+        if (!speakerMap.has('unknown')) {
+          speakerMap.set('unknown', []);
+        }
+        speakerMap.get('unknown')?.push(line);
       }
     });
     
-    // Convert the map back to a string
-    return Array.from(speakerMap.entries())
+    // For each speaker, filter out sentences that are contained in later sentences
+    const cleanedMap = new Map<string, string>();
+    
+    speakerMap.forEach((utterances, speaker) => {
+      if (speaker === 'unknown') {
+        cleanedMap.set(speaker, utterances.join('\n'));
+        return;
+      }
+      
+      // Process from newest to oldest to keep the most complete utterances
+      const finalUtterances: string[] = [];
+      
+      for (let i = utterances.length - 1; i >= 0; i--) {
+        const current = utterances[i];
+        
+        // Check if this utterance is already contained in any of our final utterances
+        const isContained = finalUtterances.some(final => 
+          final.includes(current) && final !== current
+        );
+        
+        if (!isContained) {
+          finalUtterances.unshift(current); // Add to the beginning to maintain original order
+        }
+      }
+      
+      cleanedMap.set(speaker, finalUtterances.join('\n'));
+    });
+    
+    // Convert the cleaned map back to a string
+    return Array.from(cleanedMap.entries())
       .map(([speaker, text]) => {
-        if (speaker.startsWith('unknown-')) return text;
-        return `${speaker}: ${text}`;
+        if (speaker === 'unknown') return text;
+        return text.split('\n')
+          .map(line => `${speaker}: ${line}`)
+          .join('\n');
       })
       .join('\n');
   }, [content, title]);
