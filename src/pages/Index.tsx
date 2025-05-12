@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
@@ -14,20 +14,34 @@ const Index = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
+  const [debugLog, setDebugLog] = useState<string[]>([]);
   const { toast } = useToast();
   
   // Update the WebSocket URL to use the correct transcription endpoint
   const websocketUrl = 'ws://localhost:5001/ws/transcribe';
 
+  useEffect(() => {
+    // Add debugging log to console when the component mounts
+    console.log('Index component mounted');
+    console.log('WebSocket URL:', websocketUrl);
+  }, []);
+
+  // Add a debug logging function
+  const addDebugLog = (message: string) => {
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
+    console.log(`DEBUG: ${message}`);
+  };
+
   const handleStartRecording = () => {
     console.log('handleStartRecording called');
     setIsRecording(true);
-    // Toast is now handled in the RecordingControls component
+    addDebugLog('Recording started');
   };
 
   const handleStopRecording = () => {
     console.log('handleStopRecording called');
     setIsRecording(false);
+    addDebugLog('Recording stopped');
     toast({
       description: "Recording stopped",
     });
@@ -35,6 +49,7 @@ const Index = () => {
 
   const handleSuggest = () => {
     console.log('handleSuggest called');
+    addDebugLog('Suggestion requested');
     toast({
       description: "Requesting suggestion...",
     });
@@ -44,6 +59,7 @@ const Index = () => {
     console.log('handleResetContext called');
     setTranscript('');
     setSuggestion('');
+    addDebugLog('Context reset');
     toast({
       description: 'Context has been reset',
     });
@@ -51,29 +67,46 @@ const Index = () => {
   
   // Handle transcript updates from the WebSocket
   const handleTranscriptUpdate = (data: any) => {
-    console.log('New transcript segment:', data);
+    console.log('New transcript segment received in Index:', data);
+    addDebugLog(`Transcript update: ${JSON.stringify(data)}`);
     
-    if (!data || !data.text) return;
+    if (!data) {
+      console.warn('Empty transcript data received');
+      return;
+    }
+    
+    // Handle different data formats
+    const text = data.text || data.transcript || (typeof data === 'string' ? data : '');
+    
+    if (!text) {
+      console.warn('No text content in transcript data:', data);
+      return;
+    }
+    
+    console.log('Processing transcript text:', text);
     
     setTranscript(prev => {
       // If it's a final segment and previous transcript doesn't end with punctuation,
       // add a period to indicate the end of a sentence
-      if (data.is_final && prev.trim() && !prev.trim().match(/[.!?]$/)) {
-        return `${prev.trim()}. ${data.text}`;
+      const isFinal = data.is_final !== undefined ? data.is_final : true;
+      
+      if (isFinal && prev.trim() && !prev.trim().match(/[.!?]$/)) {
+        return `${prev.trim()}. ${text}`;
       }
       
       // If previous transcript is empty or ends with a complete sentence, start a new line
       if (!prev || prev.trim().match(/[.!?]$/)) {
-        return prev.trim() ? `${prev}\n${data.text}` : data.text;
+        return prev.trim() ? `${prev}\n${text}` : text;
       }
       
       // Otherwise, append to the current line
-      return `${prev} ${data.text}`;
+      return `${prev} ${text}`;
     });
   };
   
   const handleSuggestionReceived = (suggestion: string) => {
     console.log('New suggestion received:', suggestion);
+    addDebugLog(`Suggestion received: ${suggestion.substring(0, 30)}...`);
     setSuggestion(suggestion);
     toast({
       description: "Suggestion generated",
@@ -81,6 +114,8 @@ const Index = () => {
   };
 
   const handleConnectionChange = (status: boolean) => {
+    console.log('Connection status changed:', status);
+    addDebugLog(`Connection status: ${status ? 'connected' : 'disconnected'}`);
     setIsConnected(status);
   };
 

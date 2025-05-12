@@ -1,3 +1,4 @@
+
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -92,12 +93,35 @@ export const useTranscriptionWebSocket = ({
       };
       
       socketRef.current.onmessage = (event) => {
-        console.log('WebSocket message received');
+        console.log('WebSocket message received:', event.data);
         try {
           const data = JSON.parse(event.data);
           console.log('Parsed WebSocket message:', data);
           
+          // Log the exact structure to help debug
+          console.log('Message type:', data.type);
+          console.log('Message data:', data.data);
+          
+          // Check if data is in expected format
+          if (!data.type) {
+            console.warn('Received message without type field:', data);
+            
+            // Try to handle common backend response formats
+            if (data.text !== undefined) {
+              console.log('Detected transcript data without proper wrapping, adapting...');
+              if (onTranscriptUpdate) {
+                onTranscriptUpdate({
+                  text: data.text,
+                  speaker: data.speaker || null,
+                  is_final: data.is_final || true
+                });
+              }
+              return;
+            }
+          }
+          
           switch (data.type) {
+            case 'transcript':
             case 'transcript_segment':
               console.log('Transcript segment received:', data.data);
               if (onTranscriptUpdate) onTranscriptUpdate(data.data);
@@ -105,7 +129,11 @@ export const useTranscriptionWebSocket = ({
               
             case 'suggestion':
               console.log('Suggestion received:', data.data);
-              if (onSuggestionReceived) onSuggestionReceived(data.data);
+              if (onSuggestionReceived) {
+                // Check if suggestion is a string or wrapped in an object
+                const suggestionText = typeof data.data === 'string' ? data.data : data.data.suggestion;
+                onSuggestionReceived(suggestionText);
+              }
               break;
               
             case 'status':
@@ -125,9 +153,36 @@ export const useTranscriptionWebSocket = ({
               
             default:
               console.warn('Unknown message type:', data.type);
+              // Try to handle untyped messages (some backends might send raw JSON)
+              if (data.text !== undefined) {
+                console.log('Attempting to process as transcript data...');
+                if (onTranscriptUpdate) {
+                  onTranscriptUpdate({
+                    text: data.text,
+                    speaker: data.speaker || null,
+                    is_final: data.is_final || true
+                  });
+                }
+              }
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message', error);
+          console.error('Error parsing WebSocket message', error, 'Raw message:', event.data);
+          
+          // Try to handle plain text messages
+          try {
+            if (typeof event.data === 'string' && event.data.trim()) {
+              console.log('Received plain text message, treating as transcript');
+              if (onTranscriptUpdate) {
+                onTranscriptUpdate({
+                  text: event.data,
+                  speaker: null,
+                  is_final: true
+                });
+              }
+            }
+          } catch (innerError) {
+            console.error('Failed to process as plain text:', innerError);
+          }
         }
       };
       

@@ -17,6 +17,11 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   
+  useEffect(() => {
+    // Log when content changes
+    console.log(`TranscriptPanel (${title}) content updated:`, content);
+  }, [content, title]);
+  
   // Auto-scroll to the bottom when content changes
   useEffect(() => {
     if (scrollRef.current) {
