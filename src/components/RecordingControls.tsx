@@ -62,7 +62,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
           <Button
             className="recording-btn bg-evia-green hover:bg-opacity-80"
             onClick={handleStartRecording}
-            disabled={!isConnected}
           >
             <Mic className="mr-1" size={20} />
             Start Recording
@@ -80,7 +79,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <Button
           className="recording-btn bg-evia-pink hover:bg-opacity-80"
           onClick={handleSuggest}
-          disabled={!isConnected}
         >
           <Lightbulb className="mr-1" size={20} />
           Suggest
@@ -89,7 +87,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <Button
           className="recording-btn bg-evia-gold hover:bg-opacity-80"
           onClick={handleResetContext}
-          disabled={!isConnected}
         >
           <RotateCcw className="mr-1" size={20} />
           Reset Context
