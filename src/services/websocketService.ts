@@ -1,3 +1,4 @@
+
 interface WebSocketMessage {
   type: string;
   content?: any;
@@ -9,18 +10,16 @@ interface WebSocketMessage {
 export class ChatWebSocket {
   private ws: WebSocket | null = null;
   private chatId: string;
-  private token: string;
-  private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
-  private connectionHandlers: ((connected: boolean) => void)[] = [];
   private reconnectInterval: number = 3000;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private intentionalDisconnect: boolean = false;
   private serverUrl: string;
+  private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
+  private connectionHandlers: ((connected: boolean) => void)[] = [];
 
   constructor(chatId: string) {
     this.chatId = chatId;
-    this.token = localStorage.getItem('auth_token') || '';
     
     // Hardcode the WebSocket URL for now
     this.serverUrl = "ws://localhost:5001";
@@ -43,16 +42,21 @@ export class ChatWebSocket {
       
       if (!token) {
         console.error('No authentication token available for WebSocket connection');
+        this.connectionHandlers.forEach(handler => handler(false));
         return;
       }
       
-      // Format the authorization header value
-      const authValue = `${tokenType} ${token}`;
+      // Set various cookie formats to increase chances of success
+      // 1. Set the cookie in exact format expected by FastAPI's OAuth security
+      document.cookie = `Authorization=${tokenType} ${token}; path=/; SameSite=None; Secure`;
       
-      // Set the token as a cookie before connecting
-      document.cookie = `token=${authValue}; path=/; SameSite=Strict;`;
+      // 2. Also try setting a token cookie with just the token value
+      document.cookie = `token=${token}; path=/; SameSite=None; Secure`;
       
-      console.log('Setting cookie for WebSocket connection:', document.cookie);
+      // 3. Set a cookie with the common format used by many OAuth implementations
+      document.cookie = `access_token=${token}; path=/; SameSite=None; Secure`;
+      
+      console.log('Setting cookies for WebSocket connection:', document.cookie);
       
       // Create WebSocket connection with just the chat_id parameter
       const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
@@ -78,6 +82,7 @@ export class ChatWebSocket {
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        this.connectionHandlers.forEach(handler => handler(false));
       };
 
       this.ws.onclose = (event) => {
@@ -95,6 +100,7 @@ export class ChatWebSocket {
       };
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);
+      this.connectionHandlers.forEach(handler => handler(false));
     }
   }
 

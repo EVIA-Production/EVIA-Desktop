@@ -14,7 +14,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAcces
     statusMessage = 'Authentication required';
     statusDetails = 'Please log in to use WebSocket features';
   } else if (!isConnected) {
-    statusDetails = 'Attempting to connect via cookie authentication';
+    statusDetails = 'Attempting to connect via cookie authentication. Check console for details.';
   }
   
   return (
