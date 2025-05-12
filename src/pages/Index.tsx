@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import StatusIndicator from '@/components/StatusIndicator';
 import { useToast } from '@/hooks/use-toast';
 import { LogIn } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -17,11 +18,19 @@ const Index = () => {
   const [suggestion, setSuggestion] = useState('');
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   
   useEffect(() => {
     console.log('Index component mounted');
     setIsConnected(true); // Set to connected by default since we're not using WebSockets
-  }, []);
+    
+    // Redirect to login if not authenticated
+    if (!isAuthenticated) {
+      console.log('User not authenticated, redirecting to login');
+      navigate('/login');
+    }
+  }, [isAuthenticated, navigate]);
 
   // Add a debug logging function
   const addDebugLog = (message: string) => {
@@ -37,7 +46,6 @@ const Index = () => {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
         video: { 
-          cursor: "always",
           displaySurface: "monitor" 
         },
         audio: true 
@@ -99,6 +107,11 @@ const Index = () => {
       description: 'Context has been reset',
     });
   };
+  
+  // If the redirect is happening, don't render the full content
+  if (!isAuthenticated) {
+    return <div>Redirecting to login...</div>;
+  }
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col">
