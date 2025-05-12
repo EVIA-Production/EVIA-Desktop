@@ -28,8 +28,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
-  // Process the transcript to show only the latest line from each speaker
-  // and remove incomplete utterances when they're contained in newer ones
+  // Process the transcript to show only the most complete utterance from each speaker
   const processedContent = useMemo(() => {
     if (!content || title !== "Live Transcript") return content;
     
@@ -54,39 +53,47 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       }
     });
     
-    // For each speaker, filter out sentences that are contained in later sentences
-    const cleanedMap = new Map<string, string>();
+    // For each speaker, filter out sentences that are substrings of later sentences
+    const cleanedMap = new Map<string, string[]>();
     
     speakerMap.forEach((utterances, speaker) => {
       if (speaker === 'unknown') {
-        cleanedMap.set(speaker, utterances.join('\n'));
+        cleanedMap.set(speaker, utterances);
         return;
       }
       
-      // Process from newest to oldest to keep the most complete utterances
+      // Sort utterances by length (longest first)
+      const sortedUtterances = [...utterances].sort((a, b) => b.length - a.length);
       const finalUtterances: string[] = [];
       
-      for (let i = utterances.length - 1; i >= 0; i--) {
-        const current = utterances[i];
-        
-        // Check if this utterance is already contained in any of our final utterances
-        const isContained = finalUtterances.some(final => 
+      // Keep only utterances that aren't contained in any other utterance
+      sortedUtterances.forEach(current => {
+        // Check if this utterance is a substring of any other utterance we've already kept
+        const isSubstring = finalUtterances.some(final => 
           final.includes(current) && final !== current
         );
         
-        if (!isContained) {
-          finalUtterances.unshift(current); // Add to the beginning to maintain original order
+        if (!isSubstring) {
+          finalUtterances.push(current);
         }
-      }
+      });
       
-      cleanedMap.set(speaker, finalUtterances.join('\n'));
+      // Sort final utterances back to original order
+      // by finding their index in the original array
+      finalUtterances.sort((a, b) => {
+        const indexA = utterances.findIndex(u => u === a);
+        const indexB = utterances.findIndex(u => u === b);
+        return indexA - indexB;
+      });
+      
+      cleanedMap.set(speaker, finalUtterances);
     });
     
     // Convert the cleaned map back to a string
     return Array.from(cleanedMap.entries())
-      .map(([speaker, text]) => {
-        if (speaker === 'unknown') return text;
-        return text.split('\n')
+      .map(([speaker, texts]) => {
+        if (speaker === 'unknown') return texts.join('\n');
+        return texts
           .map(line => `${speaker}: ${line}`)
           .join('\n');
       })
