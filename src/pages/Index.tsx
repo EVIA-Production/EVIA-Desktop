@@ -8,9 +8,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { chatService } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
+import { getWebSocketInstance } from '@/services/websocketService';
 
 const Index = () => {
-  const [isConnected, setIsConnected] = useState(true); // Set to true by default now
+  const [isConnected, setIsConnected] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -26,7 +27,8 @@ const Index = () => {
     handleSuggest, 
     handleResetContext,
     setTranscript,
-    setSuggestion 
+    setSuggestion,
+    setIsConnected: setRecordingIsConnected
   } = useRecording();
   
   // Add a debug logging function
@@ -82,6 +84,20 @@ const Index = () => {
     }
   }, [isAuthenticated, isLoading, navigate, toast]);
 
+  // Monitor WebSocket connection status when chatId is available
+  useEffect(() => {
+    if (!chatId) return;
+    
+    const ws = getWebSocketInstance(chatId);
+    const cleanup = ws.onConnectionChange((connected) => {
+      setIsConnected(connected);
+      setRecordingIsConnected(connected);
+      addDebugLog(`WebSocket connection status changed: ${connected ? 'Connected' : 'Disconnected'}`);
+    });
+    
+    return cleanup;
+  }, [chatId, setRecordingIsConnected]);
+
   // Show loading while checking authentication
   if (isLoading) {
     return (
@@ -97,7 +113,7 @@ const Index = () => {
   }
   
   const onStartRecordingWrapper = () => {
-    const cleanup = handleStartRecording(setDebugLog);
+    const cleanup = handleStartRecording(setDebugLog, chatId);
     return cleanup;
   };
 

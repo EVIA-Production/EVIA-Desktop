@@ -1,7 +1,7 @@
 
-// This file has been simplified by removing websocket functionality
+// WebSocket service for real-time communication
 
-// Empty interface to maintain type safety for other parts of the app
+// Interface to maintain type safety for messages
 interface WebSocketMessage {
   type: string;
   content?: any;
@@ -12,52 +12,99 @@ interface WebSocketMessage {
 
 export class ChatWebSocket {
   private chatId: string;
+  private ws: WebSocket | null = null;
+  private isConnectedFlag: boolean = false;
 
   constructor(chatId: string) {
     this.chatId = chatId;
-    console.log('WebSocket functionality has been disabled');
+    console.log('ChatWebSocket initialized with chatId:', chatId);
   }
 
   connect() {
-    // WebSocket functionality has been removed
-    console.log('WebSocket connect method called, but functionality has been removed');
+    try {
+      // Connect to the WebSocket server
+      this.ws = new WebSocket('ws://localhost:5001/ws/transcribe');
+      
+      // Set up event handlers
+      this.ws.onopen = () => {
+        console.log('WebSocket connection established');
+        this.isConnectedFlag = true;
+        // Notify any connection change listeners
+        this.connectionChangeHandlers.forEach(handler => handler(true));
+      };
+
+      this.ws.onclose = () => {
+        console.log('WebSocket connection closed');
+        this.isConnectedFlag = false;
+        // Notify any connection change listeners
+        this.connectionChangeHandlers.forEach(handler => handler(false));
+      };
+
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        this.isConnectedFlag = false;
+        // Notify any connection change listeners
+        this.connectionChangeHandlers.forEach(handler => handler(false));
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as WebSocketMessage;
+          console.log('WebSocket message received:', message);
+          // Notify any message listeners
+          this.messageHandlers.forEach(handler => handler(message));
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+    } catch (error) {
+      console.error('Error connecting to WebSocket:', error);
+      this.isConnectedFlag = false;
+    }
   }
 
+  private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
+  private connectionChangeHandlers: ((connected: boolean) => void)[] = [];
+
   sendMessage(message: WebSocketMessage) {
-    // WebSocket functionality has been removed
-    console.log('WebSocket sendMessage called, but functionality has been removed:', message);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+      console.log('Message sent:', message);
+    } else {
+      console.warn('WebSocket is not connected, cannot send message:', message);
+    }
   }
 
   onMessage(handler: (message: WebSocketMessage) => void) {
-    // WebSocket functionality has been removed
-    console.log('WebSocket onMessage called, but functionality has been removed');
+    this.messageHandlers.push(handler);
     return () => {
-      // No-op cleanup function
+      this.messageHandlers = this.messageHandlers.filter(h => h !== handler);
     };
   }
 
   onConnectionChange(handler: (connected: boolean) => void) {
-    // WebSocket functionality has been removed
-    console.log('WebSocket onConnectionChange called, but functionality has been removed');
-    // Always report as disconnected since functionality is removed
-    handler(false);
+    this.connectionChangeHandlers.push(handler);
+    // Immediately call with current status
+    handler(this.isConnectedFlag);
     return () => {
-      // No-op cleanup function
+      this.connectionChangeHandlers = this.connectionChangeHandlers.filter(h => h !== handler);
     };
   }
 
   disconnect() {
-    // WebSocket functionality has been removed
-    console.log('WebSocket disconnect called, but functionality has been removed');
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+      this.isConnectedFlag = false;
+    }
   }
 
   isConnected(): boolean {
-    // Always return false as WebSocket functionality is removed
-    return false;
+    return this.isConnectedFlag;
   }
 }
 
-// Singleton instance (simplified)
+// Singleton instance
 let wsInstance: ChatWebSocket | null = null;
 
 export const getWebSocketInstance = (chatId: string): ChatWebSocket => {

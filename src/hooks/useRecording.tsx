@@ -1,11 +1,13 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { getWebSocketInstance } from '@/services/websocketService';
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
   const { toast } = useToast();
   
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
@@ -13,7 +15,7 @@ export const useRecording = () => {
     console.log(`DEBUG: ${message}`);
   };
 
-  const handleStartRecording = async (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
+  const handleStartRecording = async (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>, chatId: string | null) => {
     console.log('handleStartRecording called');
     
     try {
@@ -29,6 +31,13 @@ export const useRecording = () => {
       // If we get here, permissions were granted
       setIsRecording(true);
       addDebugLog('Permissions granted. Recording started.', setDebugLog);
+      
+      // Connect to WebSocket if we have a chatId
+      if (chatId) {
+        const ws = getWebSocketInstance(chatId);
+        ws.connect();
+        addDebugLog('WebSocket connection initiated', setDebugLog);
+      }
       
       // Simulate transcription with some sample text
       setTimeout(() => {
@@ -87,11 +96,13 @@ export const useRecording = () => {
     isRecording,
     transcript,
     suggestion,
+    isConnected,
     handleStartRecording,
     handleStopRecording,
     handleSuggest,
     handleResetContext,
     setTranscript,
-    setSuggestion
+    setSuggestion,
+    setIsConnected
   };
 };
