@@ -16,7 +16,7 @@ export interface WebSocketMessage {
 export class ChatWebSocket {
   private chatId: string;
   private socket: WebSocket | null = null;
-  private isConnected = false;
+  private connectionStatus = false;
 
   constructor(chatId: string) {
     this.chatId = chatId;
@@ -31,25 +31,25 @@ export class ChatWebSocket {
       
       this.socket.onopen = () => {
         console.log('WebSocket connection established');
-        this.isConnected = true;
+        this.connectionStatus = true;
         this.dispatchConnectionEvent(true);
       };
       
       this.socket.onclose = () => {
         console.log('WebSocket connection closed');
-        this.isConnected = false;
+        this.connectionStatus = false;
         this.dispatchConnectionEvent(false);
       };
       
       this.socket.onerror = (error) => {
         console.error('WebSocket error:', error);
-        this.isConnected = false;
+        this.connectionStatus = false;
         this.dispatchConnectionEvent(false);
       };
       
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);
-      this.isConnected = false;
+      this.connectionStatus = false;
       this.dispatchConnectionEvent(false);
     }
   }
@@ -106,7 +106,7 @@ export class ChatWebSocket {
   onConnectionChange(handler: (connected: boolean) => void) {
     this.connectionListeners.push(handler);
     // Immediately invoke with current state
-    handler(this.isConnected);
+    handler(this.connectionStatus);
     
     return () => {
       const index = this.connectionListeners.indexOf(handler);
@@ -121,12 +121,12 @@ export class ChatWebSocket {
       console.log('Disconnecting WebSocket...');
       this.socket.close();
       this.socket = null;
-      this.isConnected = false;
+      this.connectionStatus = false;
     }
   }
 
-  isConnected(): boolean {
-    return this.isConnected;
+  getConnectionStatus(): boolean {
+    return this.connectionStatus;
   }
 }
 

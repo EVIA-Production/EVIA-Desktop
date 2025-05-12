@@ -145,7 +145,7 @@ export const useRecording = () => {
     const ws = getWebSocketInstance(chatId);
     
     // Check if connected first
-    if (ws.isConnected()) {
+    if (ws.getConnectionStatus()) {
       ws.sendMessage({ type: 'command', content: 'suggest' });
       toast({
         description: "Requesting suggestion...",
@@ -166,7 +166,7 @@ export const useRecording = () => {
     const chatId = localStorage.getItem('current_chat_id') || 'default';
     const ws = getWebSocketInstance(chatId);
     
-    if (ws.isConnected()) {
+    if (ws.getConnectionStatus()) {
       ws.sendMessage({ type: 'command', content: 'reset' });
     }
     
