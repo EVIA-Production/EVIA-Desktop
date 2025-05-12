@@ -10,7 +10,7 @@ import { chatService } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
 
 const Index = () => {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(true); // Set to true by default now
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
