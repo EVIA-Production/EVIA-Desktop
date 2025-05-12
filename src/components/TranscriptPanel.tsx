@@ -7,13 +7,15 @@ interface TranscriptPanelProps {
   content: string;
   className?: string;
   placeholder?: string;
+  isSuggestion?: boolean;
 }
 
 const TranscriptPanel: React.FC<TranscriptPanelProps> = ({ 
   title, 
   content, 
   className = '',
-  placeholder = "Waiting for input..."
+  placeholder = "Waiting for input...",
+  isSuggestion = false
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -29,13 +31,30 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     }
   }, [content]);
 
+  // Process suggestion content to remove the "**Suggest**" part
+  const processContent = () => {
+    if (!content) {
+      return '';
+    }
+    
+    if (isSuggestion) {
+      const suggestPattern = /\*\*Suggest\*\*\s*(.*)/s;
+      const matches = content.match(suggestPattern);
+      return matches ? matches[1].trim() : content;
+    }
+    
+    return content;
+  };
+
   // Render content with clean line breaks between speakers
   const renderContent = () => {
     if (!content) {
       return <p className="text-gray-400 italic">{placeholder}</p>;
     }
     
-    return content.split('\n').map((line, lineIndex) => (
+    const processedContent = processContent();
+    
+    return processedContent.split('\n').map((line, lineIndex) => (
       <div key={`line-${lineIndex}`} className="mb-2 last:mb-0">
         <span className="animate-fadeIn">{line}</span>
       </div>

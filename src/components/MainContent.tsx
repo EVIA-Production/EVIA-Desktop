@@ -67,6 +67,7 @@ const MainContent: React.FC<MainContentProps> = ({
           content={suggestion}
           placeholder="Suggestions will appear here"
           className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
+          isSuggestion={true}
         />
       </div>
     </div>
