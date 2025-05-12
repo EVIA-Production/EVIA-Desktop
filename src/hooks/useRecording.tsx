@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
@@ -246,6 +245,16 @@ export const useRecording = () => {
     setTranscript('');
     setSuggestion('');
     addDebugLog('Context reset', setDebugLog);
+    
+    // Send reset command to the server using the same format as the suggest command
+    const ws = getWebSocketInstance(""); 
+    if (ws.isConnected()) {
+      ws.sendMessage({
+        command: "reset"
+      });
+      console.log('Reset command sent to server');
+    }
+    
     toast({
       description: 'Context has been reset',
     });
