@@ -6,34 +6,16 @@ interface StatusIndicatorProps {
   hasAccessToken: boolean;
 }
 
-const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAccessToken }) => {
-  let statusMessage = isConnected ? 'Connected to server' : 'Disconnected';
-  let statusDetails = '';
-  
-  if (!hasAccessToken) {
-    statusMessage = 'Authentication required';
-    statusDetails = 'Please log in to use WebSocket features';
-  } else if (!isConnected) {
-    statusDetails = 'Attempting to connect using token authentication. Check console for details.';
-  }
-  
+const StatusIndicator: React.FC<StatusIndicatorProps> = () => {
   return (
     <div className="text-center mb-6">
-      <div className={`inline-flex items-center px-3 py-1 rounded-md ${
-        isConnected 
-          ? 'bg-evia-green bg-opacity-20 text-evia-green' 
-          : 'bg-evia-red bg-opacity-20 text-evia-red'
-      }`}>
-        <div className={`w-2 h-2 rounded-full mr-2 ${
-          isConnected ? 'bg-evia-green' : 'bg-evia-red'
-        }`}></div>
-        {statusMessage}
+      <div className="inline-flex items-center px-3 py-1 rounded-md bg-yellow-600 bg-opacity-20 text-yellow-500">
+        <div className="w-2 h-2 rounded-full mr-2 bg-yellow-500"></div>
+        WebSocket functionality disabled
       </div>
-      {statusDetails && (
-        <div className="text-sm text-gray-400 mt-1">
-          {statusDetails}
-        </div>
-      )}
+      <div className="text-sm text-gray-400 mt-1">
+        Real-time features are currently unavailable
+      </div>
     </div>
   );
 };

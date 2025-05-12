@@ -1,6 +1,4 @@
 
-import { closeWebSocketInstance, getWebSocketInstance } from './websocketService';
-
 interface ChatResponse {
   id: string;
   created_at: string;
@@ -59,18 +57,19 @@ export const chatService = {
   /**
    * Connects to the WebSocket for the given chat
    * @param chatId The chat ID to connect to
-   * @returns The WebSocket instance
+   * @returns A placeholder WebSocket instance (functionality removed)
    */
   connectToWebSocket(chatId: string) {
-    const ws = getWebSocketInstance(chatId);
-    ws.connect();
-    return ws;
+    console.log('WebSocket connection functionality has been removed');
+    // Import just for type safety, but functionality is disabled
+    const { getWebSocketInstance } = require('./websocketService');
+    return getWebSocketInstance(chatId);
   },
 
   /**
    * Disconnects from the current WebSocket
    */
   disconnectFromWebSocket() {
-    closeWebSocketInstance();
+    console.log('WebSocket disconnect functionality has been removed');
   }
 };

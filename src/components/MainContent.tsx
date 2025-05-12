@@ -21,13 +21,10 @@ const MainContent: React.FC<MainContentProps> = ({
   isRecording,
   transcript,
   suggestion,
-  isConnected,
-  chatId,
   onStartRecording,
   onStopRecording,
   onSuggest,
   onResetContext,
-  hasAccessToken
 }) => {
   return (
     <div className="flex-1 container mx-auto px-4 py-8 max-w-6xl">
@@ -43,15 +40,15 @@ const MainContent: React.FC<MainContentProps> = ({
           onStopRecording={onStopRecording}
           onSuggest={onSuggest}
           onResetContext={onResetContext}
-          isConnected={isConnected && !!chatId}
+          isConnected={false}
         />
       </div>
       
       {/* Status indicators now positioned below the buttons */}
       <div className="mb-8">
         <StatusIndicator 
-          isConnected={isConnected} 
-          hasAccessToken={hasAccessToken} 
+          isConnected={false} 
+          hasAccessToken={false} 
         />
       </div>
 
@@ -60,13 +57,13 @@ const MainContent: React.FC<MainContentProps> = ({
         <TranscriptPanel 
           title="Live Transcript" 
           content={transcript}
-          placeholder="Waiting for speech..."
+          placeholder="WebSocket functionality has been disabled"
           className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
         />
         <TranscriptPanel 
           title="Suggestion" 
           content={suggestion}
-          placeholder="Click 'Suggest' after speaking..."
+          placeholder="WebSocket functionality has been disabled"
           className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
         />
       </div>
