@@ -1,4 +1,3 @@
-
 // WebSocket service for real-time communication
 
 // Interface to maintain type safety for messages
@@ -14,6 +13,9 @@ export class ChatWebSocket {
   private chatId: string;
   private ws: WebSocket | null = null;
   private isConnectedFlag: boolean = false;
+  private lastAudioLevel: number = 0;
+  private silenceThreshold: number = 0.01;
+  private audioDetected: boolean = false;
 
   constructor(chatId: string) {
     this.chatId = chatId;
@@ -84,11 +86,44 @@ export class ChatWebSocket {
 
   sendBinaryData(data: ArrayBuffer) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // Check audio levels in the buffer to detect audio
+      const int16Data = new Int16Array(data);
+      const audioLevel = this.calculateAudioLevel(int16Data);
+      
+      // Detect if audio is present
+      const hasAudio = audioLevel > this.silenceThreshold;
+      
+      // Log when audio state changes (from silence to sound or vice versa)
+      if (hasAudio && !this.audioDetected) {
+        console.log(`[Audio Logger] Audio detected - Level: ${audioLevel.toFixed(4)}`);
+        this.audioDetected = true;
+      } else if (!hasAudio && this.audioDetected) {
+        console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
+        this.audioDetected = false;
+      }
+      
+      // Update last audio level
+      this.lastAudioLevel = audioLevel;
+      
+      // Send the data
       this.ws.send(data);
-      // Logging every audio chunk would be too verbose, so we skip it
+      console.log(`[Audio Logger] Audio data sent - Size: ${data.byteLength} bytes, Level: ${audioLevel.toFixed(4)}`);
     } else {
       console.warn('WebSocket is not connected, cannot send binary data');
     }
+  }
+
+  // Calculate audio level (RMS) from int16 audio buffer
+  private calculateAudioLevel(buffer: Int16Array): number {
+    let sum = 0;
+    // Calculate sum of squares
+    for (let i = 0; i < buffer.length; i++) {
+      // Normalize to range -1 to 1
+      const sample = buffer[i] / 32767;
+      sum += sample * sample;
+    }
+    // Return RMS (root mean square)
+    return Math.sqrt(sum / buffer.length);
   }
 
   onMessage(handler: (message: WebSocketMessage) => void) {

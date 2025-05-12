@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
@@ -15,6 +14,7 @@ export const useRecording = () => {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioFrameCountRef = useRef<number>(0);
   
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
@@ -119,6 +119,12 @@ export const useRecording = () => {
             const int16Data = new Int16Array(inputData.length);
             for (let i = 0; i < inputData.length; i++) {
               int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+            }
+            
+            // Log audio frame count for debugging
+            audioFrameCountRef.current += 1;
+            if (audioFrameCountRef.current % 50 === 0) { // Log every 50 frames to avoid console spam
+              console.log(`[Audio Logger] Processing audio frame #${audioFrameCountRef.current}, size: ${int16Data.length} samples`);
             }
             
             // Send audio data through WebSocket
