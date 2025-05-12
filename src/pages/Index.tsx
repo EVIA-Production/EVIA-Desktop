@@ -51,7 +51,15 @@ const Index = () => {
   
   const handleTranscriptUpdate = (text: string) => {
     console.log('New transcript text:', text);
-    setTranscript(prev => prev + ' ' + text);
+    // Update transcript to include new text, preserving line breaks
+    setTranscript(prev => {
+      // If previous is empty or ends with a complete sentence, start a new line
+      if (!prev || prev.trim().endsWith('.')) {
+        return prev.trim() ? `${prev}\n${text}` : text;
+      }
+      // Otherwise, append to the current line
+      return `${prev} ${text}`;
+    });
   };
   
   const handleSuggestionReceived = (suggestion: string) => {
@@ -109,7 +117,7 @@ const Index = () => {
         />
 
         {/* Transcription & Suggestion Panels */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-80">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[500px]"> {/* Increased height for better visibility */}
           <TranscriptPanel 
             title="Live Transcript" 
             content={transcript}
