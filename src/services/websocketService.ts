@@ -16,10 +16,22 @@ export class ChatWebSocket {
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private intentionalDisconnect: boolean = false;
+  private serverUrl: string;
 
   constructor(chatId: string) {
     this.chatId = chatId;
     this.token = localStorage.getItem('auth_token') || '';
+    
+    // Determine if we're in a local environment or deployed
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1';
+    
+    // Use secure WebSocket (wss) for deployed environments, regular WebSocket (ws) for localhost
+    const protocol = isLocalhost ? 'ws' : 'wss';
+    const host = isLocalhost ? 'localhost:5001' : window.location.hostname;
+    this.serverUrl = `${protocol}://${host}`;
+    
+    console.log('WebSocket server URL:', this.serverUrl);
   }
 
   connect() {
@@ -31,18 +43,28 @@ export class ChatWebSocket {
     this.intentionalDisconnect = false;
     
     try {
-      // Set the token as a cookie before connecting
-      // The server expects a cookie named 'token' with the value formatted as 'Bearer {token}'
+      // Get authentication details from localStorage
       const token = localStorage.getItem('auth_token') || '';
       const tokenType = localStorage.getItem('token_type') || 'Bearer';
       
-      // Format: token=Bearer xxxxxx
-      document.cookie = `token=${tokenType} ${token}; path=/`;
+      if (!token) {
+        console.error('No authentication token available for WebSocket connection');
+        return;
+      }
       
-      console.log('Setting cookie for WebSocket connection:', `token=${tokenType} ${token}`);
+      // Format the authorization header value - note the lowercase "bearer"
+      const authValue = `${tokenType.toLowerCase()} ${token}`;
       
-      // Only include chat_id in the URL, not the token
-      this.ws = new WebSocket(`ws://localhost:5001/ws/?chat_id=${this.chatId}`);
+      // Set the token as a cookie before connecting
+      document.cookie = `token=${authValue}; path=/; SameSite=Strict;`;
+      
+      console.log('Setting cookie for WebSocket connection:', `token=${authValue}`);
+      
+      // Create WebSocket connection
+      const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
+      console.log('Connecting to WebSocket URL:', wsUrl);
+      
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         console.log('Connected to chat WebSocket');
