@@ -14,7 +14,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAcces
     statusMessage = 'Authentication required';
     statusDetails = 'Please log in to use WebSocket features';
   } else if (!isConnected) {
-    statusDetails = 'Attempting to connect to ws://localhost:5001/ws/';
+    statusDetails = 'Attempting to connect to WebSocket server with authentication token';
   }
   
   return (
