@@ -2,6 +2,7 @@
 import React from 'react';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
+import StatusIndicator from '@/components/StatusIndicator';
 
 interface MainContentProps {
   isRecording: boolean;
@@ -13,6 +14,7 @@ interface MainContentProps {
   onStopRecording: () => void;
   onSuggest: () => void;
   onResetContext: () => void;
+  hasAccessToken: boolean;
 }
 
 const MainContent: React.FC<MainContentProps> = ({
@@ -24,7 +26,8 @@ const MainContent: React.FC<MainContentProps> = ({
   onStartRecording,
   onStopRecording,
   onSuggest,
-  onResetContext
+  onResetContext,
+  hasAccessToken
 }) => {
   return (
     <div className="flex-1 container mx-auto px-4 py-8 max-w-6xl">
@@ -41,6 +44,14 @@ const MainContent: React.FC<MainContentProps> = ({
           onSuggest={onSuggest}
           onResetContext={onResetContext}
           isConnected={isConnected && !!chatId}
+        />
+      </div>
+      
+      {/* Status indicators now positioned below the buttons */}
+      <div className="mb-8">
+        <StatusIndicator 
+          isConnected={isConnected} 
+          hasAccessToken={hasAccessToken} 
         />
       </div>
 

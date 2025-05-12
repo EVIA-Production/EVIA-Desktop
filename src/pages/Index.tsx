@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
-import StatusIndicator from '@/components/StatusIndicator';
 import ChatStatus from '@/components/ChatStatus';
 import MainContent from '@/components/MainContent';
 import { useToast } from '@/hooks/use-toast';
@@ -103,12 +102,6 @@ const Index = () => {
       <main className="flex-1 flex flex-col">
         <ChatStatus chatId={chatId} />
         
-        {/* Status */}
-        <StatusIndicator 
-          isConnected={isConnected} 
-          hasAccessToken={hasAccessToken} 
-        />
-        
         <MainContent 
           isRecording={isRecording}
           transcript={transcript}
@@ -119,6 +112,7 @@ const Index = () => {
           onStopRecording={onStopRecordingWrapper}
           onSuggest={onSuggestWrapper}
           onResetContext={onResetContextWrapper}
+          hasAccessToken={hasAccessToken}
         />
       </main>
     </AppLayout>

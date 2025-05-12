@@ -12,7 +12,7 @@ const ChatStatus: React.FC<ChatStatusProps> = ({ chatId }) => {
 
   return (
     <div className="mb-4 text-center">
-      <p className="text-green-400">Connected to chat session: {chatId.substring(0, 8)}...</p>
+      <p className="text-green-400">Connected to chat session</p>
     </div>
   );
 };
