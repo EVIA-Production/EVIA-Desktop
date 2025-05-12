@@ -15,7 +15,7 @@ const Index = () => {
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const { toast } = useToast();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const { 
     isRecording, 
@@ -36,6 +36,12 @@ const Index = () => {
   useEffect(() => {
     console.log('Index component mounted');
     setIsConnected(true); // Set to connected by default since we're not using WebSockets
+    
+    // Don't redirect while still loading authentication state
+    if (isLoading) {
+      console.log('Authentication state loading...');
+      return;
+    }
     
     // Redirect to login if not authenticated
     if (!isAuthenticated) {
@@ -73,8 +79,17 @@ const Index = () => {
       
       createNewChat();
     }
-  }, [isAuthenticated, navigate, toast]);
+  }, [isAuthenticated, isLoading, navigate, toast]);
 
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-black to-gray-900">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+  
   // If the redirect is happening, don't render the full content
   if (!isAuthenticated) {
     return <div>Redirecting to login...</div>;

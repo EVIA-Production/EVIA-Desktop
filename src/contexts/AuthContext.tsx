@@ -1,3 +1,4 @@
+
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
@@ -46,10 +47,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const loadUser = async () => {
       setIsLoading(true);
       try {
+        // First check if we have a token in localStorage
+        const token = localStorage.getItem("auth_token");
+        if (!token) {
+          // No token found, user is not authenticated
+          setUser(null);
+          setIsLoading(false);
+          return;
+        }
+        
+        // If token exists, try to get current user
         const user = await authService.getCurrentUser();
-        setUser(user);
+        if (user) {
+          setUser(user);
+          console.log("User authenticated from stored token:", user.username);
+        } else {
+          // If getCurrentUser returns null (invalid token), clear localStorage
+          authService.logout();
+          setUser(null);
+        }
       } catch (error) {
         console.error("Error loading user:", error);
+        // If there's an error (like expired token), clear localStorage
+        authService.logout();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
