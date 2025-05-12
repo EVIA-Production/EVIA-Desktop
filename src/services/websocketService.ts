@@ -49,10 +49,17 @@ export class ChatWebSocket {
 
       this.ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data) as WebSocketMessage;
-          console.log('WebSocket message received:', message);
-          // Notify any message listeners
-          this.messageHandlers.forEach(handler => handler(message));
+          // Handle both text and binary messages
+          if (typeof event.data === 'string') {
+            const message = JSON.parse(event.data) as WebSocketMessage;
+            console.log('WebSocket message received:', message);
+            // Notify any message listeners
+            this.messageHandlers.forEach(handler => handler(message));
+          } else {
+            console.log('Received binary data');
+            // Currently we don't expect binary responses from the server,
+            // but we could handle them here if needed
+          }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
         }
@@ -72,6 +79,15 @@ export class ChatWebSocket {
       console.log('Message sent:', message);
     } else {
       console.warn('WebSocket is not connected, cannot send message:', message);
+    }
+  }
+
+  sendBinaryData(data: ArrayBuffer) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(data);
+      // Logging every audio chunk would be too verbose, so we skip it
+    } else {
+      console.warn('WebSocket is not connected, cannot send binary data');
     }
   }
 

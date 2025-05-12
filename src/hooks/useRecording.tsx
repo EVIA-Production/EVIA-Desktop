@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
@@ -9,6 +9,12 @@ export const useRecording = () => {
   const [suggestion, setSuggestion] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const { toast } = useToast();
+  
+  // Refs to maintain audio processing objects between renders
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
@@ -59,13 +65,22 @@ export const useRecording = () => {
     
     try {
       // Request both audio and screen capture permissions
-      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
         video: { 
           displaySurface: "monitor" 
         },
         audio: true 
       });
+      
+      // Save stream to ref for later cleanup
+      streamRef.current = audioStream;
       
       // If we get here, permissions were granted
       setIsRecording(true);
@@ -81,10 +96,60 @@ export const useRecording = () => {
         
         addDebugLog('WebSocket connection initiated', setDebugLog);
         
-        // Clean up function to remove message handler on unmount
+        // Create audio context and processor
+        const audioContext = new AudioContext({
+          sampleRate: 16000 // Match server requirements
+        });
+        audioContextRef.current = audioContext;
+        
+        const source = audioContext.createMediaStreamSource(audioStream);
+        sourceRef.current = source;
+        
+        // ScriptProcessorNode is deprecated but widely supported
+        // Consider migrating to AudioWorklet in the future
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+        
+        // Process audio data and send to WebSocket
+        processor.onaudioprocess = (e) => {
+          if (ws.isConnected()) {
+            const inputData = e.inputBuffer.getChannelData(0);
+            
+            // Convert float32 to int16 (better compression for transmission)
+            const int16Data = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+            }
+            
+            // Send audio data through WebSocket
+            ws.sendBinaryData(int16Data.buffer);
+          }
+        };
+        
+        // Connect the audio processing nodes
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        addDebugLog('Audio processing pipeline established', setDebugLog);
+        
+        // Clean up function to remove message handler and stop audio processing when unmounted
         return () => {
           removeMessageHandler();
-          audioStream.getTracks().forEach(track => track.stop());
+          
+          if (processorRef.current && sourceRef.current && audioContextRef.current) {
+            processorRef.current.disconnect();
+            sourceRef.current.disconnect();
+            audioContextRef.current.close().catch(console.error);
+            processorRef.current = null;
+            sourceRef.current = null;
+            audioContextRef.current = null;
+          }
+          
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          
           displayStream.getTracks().forEach(track => track.stop());
         };
       }
@@ -109,6 +174,22 @@ export const useRecording = () => {
     console.log('handleStopRecording called');
     setIsRecording(false);
     addDebugLog('Recording stopped', setDebugLog);
+    
+    // Clean up audio processing
+    if (processorRef.current && sourceRef.current && audioContextRef.current) {
+      processorRef.current.disconnect();
+      sourceRef.current.disconnect();
+      audioContextRef.current.close().catch(console.error);
+      processorRef.current = null;
+      sourceRef.current = null;
+      audioContextRef.current = null;
+    }
+    
+    // Stop all tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
     
     // Close WebSocket connection when recording is stopped
     closeWebSocketInstance();
