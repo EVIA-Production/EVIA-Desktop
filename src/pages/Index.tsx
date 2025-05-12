@@ -8,10 +8,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { chatService } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
-import { getWebSocketInstance } from '@/services/websocketService';
 
 const Index = () => {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(true); // Set to true by default now
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -57,17 +56,6 @@ const Index = () => {
     if (existingChatId) {
       setChatId(existingChatId);
       addDebugLog(`Using existing chat ID: ${existingChatId}`);
-      
-      // Setup WebSocket connection status listener
-      const ws = getWebSocketInstance(existingChatId);
-      const removeConnectionListener = ws.onConnectionChange((connected) => {
-        setIsConnected(connected);
-        addDebugLog(`WebSocket connection status: ${connected ? 'connected' : 'disconnected'}`);
-      });
-      
-      return () => {
-        removeConnectionListener();
-      };
     } else {
       // Create a new chat when the user is authenticated
       const createNewChat = async () => {
@@ -76,21 +64,9 @@ const Index = () => {
           const newChatId = await chatService.createChat();
           setChatId(newChatId);
           addDebugLog(`Chat created successfully with ID: ${newChatId}`);
-          
-          // Setup WebSocket connection status listener for new chat
-          const ws = getWebSocketInstance(newChatId);
-          const removeConnectionListener = ws.onConnectionChange((connected) => {
-            setIsConnected(connected);
-            addDebugLog(`WebSocket connection status: ${connected ? 'connected' : 'disconnected'}`);
-          });
-          
           toast({
             description: "Chat session created",
           });
-          
-          return () => {
-            removeConnectionListener();
-          };
         } catch (error) {
           console.error('Failed to create chat:', error);
           addDebugLog(`Failed to create chat: ${error instanceof Error ? error.message : String(error)}`);

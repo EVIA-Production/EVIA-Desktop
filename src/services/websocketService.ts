@@ -1,136 +1,63 @@
 
-// Interface for WebSocket messages
-export interface WebSocketMessage {
+// This file has been simplified by removing websocket functionality
+
+// Empty interface to maintain type safety for other parts of the app
+interface WebSocketMessage {
   type: string;
   content?: any;
   transcript?: string;
   suggestion?: string;
   error?: string;
-  data?: {
-    text?: string;
-    speaker?: string;
-    is_final?: boolean;
-  };
 }
 
 export class ChatWebSocket {
   private chatId: string;
-  private socket: WebSocket | null = null;
-  private connectionStatus = false;
 
   constructor(chatId: string) {
     this.chatId = chatId;
-    console.log('WebSocket instance created for chat:', chatId);
+    console.log('WebSocket functionality has been disabled');
   }
 
   connect() {
-    try {
-      console.log('Connecting to WebSocket server...');
-      // Set up your WebSocket connection using the provided details
-      this.socket = new WebSocket(`ws://localhost:5001/ws/transcribe`);
-      
-      this.socket.onopen = () => {
-        console.log('WebSocket connection established');
-        this.connectionStatus = true;
-        this.dispatchConnectionEvent(true);
-      };
-      
-      this.socket.onclose = () => {
-        console.log('WebSocket connection closed');
-        this.connectionStatus = false;
-        this.dispatchConnectionEvent(false);
-      };
-      
-      this.socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.connectionStatus = false;
-        this.dispatchConnectionEvent(false);
-      };
-      
-    } catch (error) {
-      console.error('Error connecting to WebSocket:', error);
-      this.connectionStatus = false;
-      this.dispatchConnectionEvent(false);
-    }
-  }
-  
-  private connectionListeners: ((connected: boolean) => void)[] = [];
-  
-  private dispatchConnectionEvent(connected: boolean) {
-    this.connectionListeners.forEach(listener => listener(connected));
+    // WebSocket functionality has been removed
+    console.log('WebSocket connect method called, but functionality has been removed');
   }
 
   sendMessage(message: WebSocketMessage) {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket is not connected. Cannot send message:', message);
-      return;
-    }
-    
-    console.log('Sending message to WebSocket server:', message);
-    this.socket.send(JSON.stringify(message));
-  }
-  
-  // Send binary audio data to the WebSocket server
-  sendAudioData(audioData: ArrayBuffer) {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket is not connected. Cannot send audio data');
-      return;
-    }
-    
-    this.socket.send(audioData);
+    // WebSocket functionality has been removed
+    console.log('WebSocket sendMessage called, but functionality has been removed:', message);
   }
 
   onMessage(handler: (message: WebSocketMessage) => void) {
-    if (!this.socket) {
-      console.warn('WebSocket is not initialized');
-      return () => {};
-    }
-    
-    const messageHandler = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as WebSocketMessage;
-        console.log('Received message from WebSocket server:', message);
-        handler(message);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-    
-    this.socket.addEventListener('message', messageHandler);
-    
+    // WebSocket functionality has been removed
+    console.log('WebSocket onMessage called, but functionality has been removed');
     return () => {
-      this.socket?.removeEventListener('message', messageHandler);
+      // No-op cleanup function
     };
   }
 
   onConnectionChange(handler: (connected: boolean) => void) {
-    this.connectionListeners.push(handler);
-    // Immediately invoke with current state
-    handler(this.connectionStatus);
-    
+    // WebSocket functionality has been removed
+    console.log('WebSocket onConnectionChange called, but functionality has been removed');
+    // Always report as disconnected since functionality is removed
+    handler(false);
     return () => {
-      const index = this.connectionListeners.indexOf(handler);
-      if (index !== -1) {
-        this.connectionListeners.splice(index, 1);
-      }
+      // No-op cleanup function
     };
   }
 
   disconnect() {
-    if (this.socket) {
-      console.log('Disconnecting WebSocket...');
-      this.socket.close();
-      this.socket = null;
-      this.connectionStatus = false;
-    }
+    // WebSocket functionality has been removed
+    console.log('WebSocket disconnect called, but functionality has been removed');
   }
 
-  getConnectionStatus(): boolean {
-    return this.connectionStatus;
+  isConnected(): boolean {
+    // Always return false as WebSocket functionality is removed
+    return false;
   }
 }
 
-// Singleton instance
+// Singleton instance (simplified)
 let wsInstance: ChatWebSocket | null = null;
 
 export const getWebSocketInstance = (chatId: string): ChatWebSocket => {
