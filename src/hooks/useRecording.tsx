@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { getWebSocketInstance } from '@/services/websocketService';
+import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -64,6 +64,11 @@ export const useRecording = () => {
     console.log('handleStopRecording called');
     setIsRecording(false);
     addDebugLog('Recording stopped', setDebugLog);
+    
+    // Close WebSocket connection when recording is stopped
+    closeWebSocketInstance();
+    addDebugLog('WebSocket connection closed', setDebugLog);
+    
     toast({
       description: "Recording stopped",
     });

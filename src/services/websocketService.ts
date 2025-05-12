@@ -33,8 +33,8 @@ export class ChatWebSocket {
         this.connectionChangeHandlers.forEach(handler => handler(true));
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket connection closed');
+      this.ws.onclose = (event) => {
+        console.log('WebSocket connection closed:', event.code, event.reason || 'No reason provided');
         this.isConnectedFlag = false;
         // Notify any connection change listeners
         this.connectionChangeHandlers.forEach(handler => handler(false));
@@ -93,9 +93,12 @@ export class ChatWebSocket {
 
   disconnect() {
     if (this.ws) {
-      this.ws.close();
+      console.log('Actively closing WebSocket connection');
+      this.ws.close(1000, 'User stopped recording');
       this.ws = null;
       this.isConnectedFlag = false;
+      // Notify any connection change listeners
+      this.connectionChangeHandlers.forEach(handler => handler(false));
     }
   }
 
