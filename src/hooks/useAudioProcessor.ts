@@ -61,21 +61,30 @@ export const useAudioProcessor = ({
       // Create audio destination to collect audio
       audioDestinationRef.current = audioContextRef.current.createMediaStreamDestination();
       
-      // Connect microphone to the audio worklet
-      console.log('Connecting microphone source to audio worklet...');
-      const micSource = audioContextRef.current.createMediaStreamSource(micStream);
-      micSource.connect(audioWorkletNodeRef.current);
+      // Create a mixer node to combine audio streams
+      console.log('Creating audio mixer...');
+      const mixerNode = audioContextRef.current.createGain();
+      mixerNode.gain.value = 1.0; // Set gain to 1.0 (no amplification)
       
-      // If display stream has audio tracks, connect them too
+      // Connect microphone to the mixer
+      console.log('Connecting microphone source to mixer...');
+      const micSource = audioContextRef.current.createMediaStreamSource(micStream);
+      micSource.connect(mixerNode);
+      
+      // If display stream has audio tracks, connect them to the mixer
       const audioTracks = displayStream.getAudioTracks();
       if (audioTracks.length > 0) {
-        console.log('Connecting display audio to worklet...');
+        console.log('Connecting display audio to mixer...');
         const displayAudio = new MediaStream(audioTracks);
         const displaySource = audioContextRef.current.createMediaStreamSource(displayAudio);
-        displaySource.connect(audioWorkletNodeRef.current);
+        displaySource.connect(mixerNode);
       } else {
         console.log('No audio tracks in display stream');
       }
+      
+      // Connect mixer to worklet
+      console.log('Connecting mixer to worklet...');
+      mixerNode.connect(audioWorkletNodeRef.current);
       
       // Connect worklet to destination
       console.log('Connecting worklet to destination...');
