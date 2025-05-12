@@ -25,6 +25,7 @@ const MainContent: React.FC<MainContentProps> = ({
   onStopRecording,
   onSuggest,
   onResetContext,
+  isConnected, // Make sure we use the actual isConnected prop
   hasAccessToken
 }) => {
   return (
@@ -41,14 +42,14 @@ const MainContent: React.FC<MainContentProps> = ({
           onStopRecording={onStopRecording}
           onSuggest={onSuggest}
           onResetContext={onResetContext}
-          isConnected={true} // Always enable buttons now
+          isConnected={isConnected} // Pass the actual connection status
         />
       </div>
       
       {/* Status indicators now positioned below the buttons */}
       <div className="mb-8">
         <StatusIndicator 
-          isConnected={true} 
+          isConnected={isConnected} 
           hasAccessToken={hasAccessToken} 
         />
       </div>
