@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -9,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { LogIn } from 'lucide-react';
 
 const Index = () => {
-  const [isConnected, setIsConnected] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -17,13 +18,8 @@ const Index = () => {
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const { toast } = useToast();
   
-  // Update the WebSocket URL to use the correct transcription endpoint
-  const websocketUrl = 'ws://localhost:5001/ws/transcribe';
-
   useEffect(() => {
-    // Add debugging log to console when the component mounts
     console.log('Index component mounted');
-    console.log('WebSocket URL:', websocketUrl);
   }, []);
 
   // Add a debug logging function
@@ -65,60 +61,6 @@ const Index = () => {
     });
   };
   
-  // Handle transcript updates from the WebSocket
-  const handleTranscriptUpdate = (data: any) => {
-    console.log('New transcript segment received in Index:', data);
-    addDebugLog(`Transcript update: ${JSON.stringify(data)}`);
-    
-    if (!data) {
-      console.warn('Empty transcript data received');
-      return;
-    }
-    
-    // Handle different data formats
-    const text = data.text || data.transcript || (typeof data === 'string' ? data : '');
-    
-    if (!text) {
-      console.warn('No text content in transcript data:', data);
-      return;
-    }
-    
-    console.log('Processing transcript text:', text);
-    
-    setTranscript(prev => {
-      // If it's a final segment and previous transcript doesn't end with punctuation,
-      // add a period to indicate the end of a sentence
-      const isFinal = data.is_final !== undefined ? data.is_final : true;
-      
-      if (isFinal && prev.trim() && !prev.trim().match(/[.!?]$/)) {
-        return `${prev.trim()}. ${text}`;
-      }
-      
-      // If previous transcript is empty or ends with a complete sentence, start a new line
-      if (!prev || prev.trim().match(/[.!?]$/)) {
-        return prev.trim() ? `${prev}\n${text}` : text;
-      }
-      
-      // Otherwise, append to the current line
-      return `${prev} ${text}`;
-    });
-  };
-  
-  const handleSuggestionReceived = (suggestion: string) => {
-    console.log('New suggestion received:', suggestion);
-    addDebugLog(`Suggestion received: ${suggestion.substring(0, 30)}...`);
-    setSuggestion(suggestion);
-    toast({
-      description: "Suggestion generated",
-    });
-  };
-
-  const handleConnectionChange = (status: boolean) => {
-    console.log('Connection status changed:', status);
-    addDebugLog(`Connection status: ${status ? 'connected' : 'disconnected'}`);
-    setIsConnected(status);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col">
       {/* Header */}
@@ -153,10 +95,6 @@ const Index = () => {
             onSuggest={handleSuggest}
             onResetContext={handleResetContext}
             isConnected={isConnected}
-            onTranscriptUpdate={handleTranscriptUpdate}
-            onSuggestionReceived={handleSuggestionReceived}
-            onConnectionChange={handleConnectionChange}
-            websocketUrl={websocketUrl}
           />
         </div>
 

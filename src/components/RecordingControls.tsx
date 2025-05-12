@@ -1,8 +1,8 @@
+
 import React, { useState } from 'react';
 import { Mic, Square, Lightbulb, RotateCcw, Monitor } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAudioProcessor } from '@/hooks/useAudioProcessor';
-import { useTranscriptionWebSocket } from '@/hooks/useTranscriptionWebSocket';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -11,10 +11,6 @@ interface RecordingControlsProps {
   onSuggest: () => void;
   onResetContext: () => void;
   isConnected: boolean;
-  onTranscriptUpdate?: (data: any) => void;
-  onSuggestionReceived?: (suggestion: string) => void;
-  onConnectionChange?: (isConnected: boolean) => void;
-  websocketUrl?: string;
 }
 
 const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -23,66 +19,13 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   onStopRecording,
   onSuggest,
   onResetContext,
-  isConnected,
-  onTranscriptUpdate,
-  onSuggestionReceived,
-  onConnectionChange,
-  websocketUrl = 'ws://localhost:5001/ws/transcribe'
+  isConnected
 }) => {
   const { toast } = useToast();
   const [permissionRequesting, setPermissionRequesting] = useState(false);
   const [permissionStep, setPermissionStep] = useState<'idle' | 'mic' | 'screen'>('idle');
   
-  // Set up the WebSocket connection
-  const {
-    isConnected: wsConnected,
-    isConnecting: wsConnecting,
-    connect: connectWs,
-    disconnect: disconnectWs,
-    sendAudioData,
-    requestSuggestion,
-    resetContext: resetWsContext
-  } = useTranscriptionWebSocket({
-    autoConnect: false,
-    websocketUrl,
-    onTranscriptUpdate: (segment) => {
-      console.log('Transcript update from WebSocket:', segment);
-      if (onTranscriptUpdate) {
-        onTranscriptUpdate(segment);
-      }
-    },
-    onSuggestionReceived: (suggestion) => {
-      console.log('Suggestion received from WebSocket:', suggestion);
-      if (onSuggestionReceived) {
-        onSuggestionReceived(suggestion);
-      }
-    },
-    onStatusUpdate: (status) => {
-      console.log('WebSocket status update:', status);
-      // Update connection status based on WebSocket status
-      if (onConnectionChange) {
-        onConnectionChange(status === 'connected');
-      }
-    },
-    onError: (error) => {
-      console.error('WebSocket error:', error);
-      toast({
-        title: 'Connection Error',
-        description: error,
-        variant: 'destructive'
-      });
-      if (onConnectionChange) {
-        onConnectionChange(false);
-      }
-    }
-  });
-  
-  // Set up audio processing that sends data to the WebSocket
-  const { startProcessing, stopProcessing } = useAudioProcessor({
-    onAudioData: (audioData) => {
-      return sendAudioData(audioData);
-    }
-  });
+  const { startProcessing, stopProcessing } = useAudioProcessor();
   
   // Request microphone permissions first
   const requestMicrophonePermission = async (): Promise<boolean> => {
@@ -155,12 +98,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       
       console.log('Starting recording process...');
       
-      // Then connect to WebSocket
-      await connectWs();
-      
-      // Small delay to ensure WebSocket connection is established
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
       // Then start audio processing
       const success = await startProcessing();
       if (success) {
@@ -171,7 +108,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         });
       } else {
         console.error('Failed to start audio processing');
-        disconnectWs();
         toast({
           title: "Error",
           description: "Failed to start recording. Please try again.",
@@ -180,7 +116,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       }
     } catch (error) {
       console.error('Error during recording setup:', error);
-      disconnectWs();
       setPermissionRequesting(false);
       setPermissionStep('idle');
       toast({
@@ -194,7 +129,6 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   const handleStopRecording = () => {
     console.log('Stopping recording process...');
     stopProcessing();
-    disconnectWs();
     onStopRecording();
     toast({
       description: "Recording stopped",
@@ -203,30 +137,18 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
   
   const handleSuggest = () => {
     console.log('Requesting suggestion...');
-    const success = requestSuggestion();
-    if (success) {
-      onSuggest();
-    } else {
-      toast({
-        title: "Error",
-        description: "Could not request suggestion. Not connected to server.",
-        variant: "destructive"
-      });
-    }
+    onSuggest();
+    toast({
+      description: "Requesting suggestion...",
+    });
   };
   
   const handleResetContext = () => {
     console.log('Resetting context...');
-    const success = resetWsContext();
-    if (success) {
-      onResetContext();
-    } else {
-      toast({
-        title: "Error",
-        description: "Could not reset context. Not connected to server.",
-        variant: "destructive"
-      });
-    }
+    onResetContext();
+    toast({
+      description: "Context reset",
+    });
   };
 
   // Get the appropriate button label based on the current permission requesting step
@@ -269,7 +191,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <button
           className="recording-btn bg-evia-pink hover:bg-opacity-80"
           onClick={handleSuggest}
-          disabled={!wsConnected || !isRecording}
+          disabled={!isConnected || !isRecording}
         >
           <Lightbulb className="mr-1" size={20} />
           Suggest
@@ -278,7 +200,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <button
           className="recording-btn bg-evia-gold hover:bg-opacity-80"
           onClick={handleResetContext}
-          disabled={!wsConnected || !isRecording}
+          disabled={!isConnected || !isRecording}
         >
           <RotateCcw className="mr-1" size={20} />
           Reset Context

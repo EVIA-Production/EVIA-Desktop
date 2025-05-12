@@ -2,13 +2,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
-interface UseAudioProcessorProps {
-  onAudioData?: (audioData: ArrayBuffer) => boolean;
-}
-
-export const useAudioProcessor = ({
-  onAudioData
-}: UseAudioProcessorProps = {}) => {
+export const useAudioProcessor = () => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -21,7 +15,7 @@ export const useAudioProcessor = ({
   const startProcessing = useCallback(async () => {
     try {
       console.log('Creating audio processing pipeline...');
-      // Request microphone permission first (permissions already requested by RecordingControls)
+      // Request microphone permission first
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -31,7 +25,7 @@ export const useAudioProcessor = ({
       });
       console.log('Microphone stream obtained:', micStream.getAudioTracks().length, 'audio track(s)');
       
-      // Now request screen display permission (permissions already requested by RecordingControls)
+      // Now request screen display permission
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true
@@ -48,7 +42,6 @@ export const useAudioProcessor = ({
       // Create AudioContext
       console.log('Creating Audio Context...');
       audioContextRef.current = new AudioContext({
-        // Deepgram expects Linear PCM at 16kHz sampling rate for best results
         sampleRate: 16000 
       });
       console.log('Audio Context sample rate:', audioContextRef.current.sampleRate);
@@ -62,7 +55,6 @@ export const useAudioProcessor = ({
       console.log('Creating audio worklet node...');
       audioWorkletNodeRef.current = new AudioWorkletNode(audioContextRef.current, 'audio-processor', {
         processorOptions: {
-          // Ensure the worklet knows to output 16-bit PCM for Deepgram
           targetSampleRate: 16000,
           outputFormat: 'int16'
         }
@@ -107,15 +99,6 @@ export const useAudioProcessor = ({
           audioData ? `${audioData.byteLength} bytes` : 'No data',
           'timestamp:', new Date().toISOString()
         );
-        
-        // Forward audio data to websocket if handler is provided
-        if (audioData && onAudioData) {
-          // Send audio as raw binary data - exactly what Deepgram expects
-          const success = onAudioData(audioData);
-          if (!success) {
-            console.warn('Failed to send audio data to WebSocket');
-          }
-        }
       };
       
       setIsProcessing(true);
@@ -134,7 +117,7 @@ export const useAudioProcessor = ({
       stopProcessing();
       return false;
     }
-  }, [toast, onAudioData]);
+  }, [toast]);
   
   // Function to stop audio processing
   const stopProcessing = useCallback(() => {
