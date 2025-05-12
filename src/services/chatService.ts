@@ -56,18 +56,17 @@ export const chatService = {
 
   /**
    * Connects to the WebSocket for the given chat
-   * @param chatId The chat ID to connect to
-   * @returns A placeholder WebSocket instance (functionality removed)
+   * This function has been disabled since WebSocket functionality is removed
    */
   connectToWebSocket(chatId: string) {
     console.log('WebSocket connection functionality has been removed');
-    // Import just for type safety, but functionality is disabled
-    const { getWebSocketInstance } = require('./websocketService');
-    return getWebSocketInstance(chatId);
+    // Simply return null as WebSocket functionality is removed
+    return null;
   },
 
   /**
    * Disconnects from the current WebSocket
+   * This function has been disabled since WebSocket functionality is removed
    */
   disconnectFromWebSocket() {
     console.log('WebSocket disconnect functionality has been removed');
