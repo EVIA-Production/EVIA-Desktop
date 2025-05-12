@@ -19,11 +19,6 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAcces
         }`}></div>
         {isConnected ? 'Connected' : 'Disconnected'}
       </div>
-      {isConnected && (
-        <div className="text-sm text-gray-400 mt-1">
-          Real-time transcription is available
-        </div>
-      )}
     </div>
   );
 };
