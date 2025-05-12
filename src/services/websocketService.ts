@@ -46,19 +46,13 @@ export class ChatWebSocket {
         return;
       }
       
-      // Set various cookie formats to increase chances of success
-      // 1. Set the cookie in exact format expected by FastAPI's OAuth security
+      // Set auth token as a cookie with appropriate attributes before connecting
+      // The backend expects a cookie named "Authorization" with the token
       document.cookie = `Authorization=${tokenType} ${token}; path=/; SameSite=None; Secure`;
       
-      // 2. Also try setting a token cookie with just the token value
-      document.cookie = `token=${token}; path=/; SameSite=None; Secure`;
+      console.log('Setting authorization cookie for WebSocket connection:', document.cookie);
       
-      // 3. Set a cookie with the common format used by many OAuth implementations
-      document.cookie = `access_token=${token}; path=/; SameSite=None; Secure`;
-      
-      console.log('Setting cookies for WebSocket connection:', document.cookie);
-      
-      // Create WebSocket connection with just the chat_id parameter
+      // Create WebSocket connection
       const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       
