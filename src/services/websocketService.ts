@@ -1,4 +1,3 @@
-
 interface WebSocketMessage {
   type: string;
   content?: any;
@@ -46,14 +45,9 @@ export class ChatWebSocket {
         return;
       }
       
-      // Set auth token as a cookie with appropriate attributes before connecting
-      // The backend expects a cookie named "Authorization" with the token
-      document.cookie = `Authorization=${tokenType} ${token}; path=/; SameSite=None; Secure`;
-      
-      console.log('Setting authorization cookie for WebSocket connection:', document.cookie);
-      
-      // Create WebSocket connection
-      const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
+      // Instead of trying to use cookies for cross-origin WebSocket authentication,
+      // we'll include the token as a URL parameter which is more reliable for WebSockets
+      const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}&token=${encodeURIComponent(`${tokenType} ${token}`)}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       
       this.ws = new WebSocket(wsUrl);
