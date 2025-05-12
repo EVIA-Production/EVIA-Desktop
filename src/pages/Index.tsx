@@ -9,6 +9,7 @@ import StatusIndicator from '@/components/StatusIndicator';
 import { useToast } from '@/hooks/use-toast';
 import { LogIn } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { chatService } from '@/services/chatService';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -17,9 +18,16 @@ const Index = () => {
   const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [chatId, setChatId] = useState<string | null>(null);
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  
+  // Add a debug logging function
+  const addDebugLog = (message: string) => {
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
+    console.log(`DEBUG: ${message}`);
+  };
   
   useEffect(() => {
     console.log('Index component mounted');
@@ -29,14 +37,39 @@ const Index = () => {
     if (!isAuthenticated) {
       console.log('User not authenticated, redirecting to login');
       navigate('/login');
+      return;
     }
-  }, [isAuthenticated, navigate]);
-
-  // Add a debug logging function
-  const addDebugLog = (message: string) => {
-    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
-    console.log(`DEBUG: ${message}`);
-  };
+    
+    // Check for existing chat ID
+    const existingChatId = chatService.getCurrentChatId();
+    if (existingChatId) {
+      setChatId(existingChatId);
+      addDebugLog(`Using existing chat ID: ${existingChatId}`);
+    } else {
+      // Create a new chat when the user is authenticated
+      const createNewChat = async () => {
+        try {
+          addDebugLog('Creating new chat session...');
+          const newChatId = await chatService.createChat();
+          setChatId(newChatId);
+          addDebugLog(`Chat created successfully with ID: ${newChatId}`);
+          toast({
+            description: "Chat session created",
+          });
+        } catch (error) {
+          console.error('Failed to create chat:', error);
+          addDebugLog(`Failed to create chat: ${error instanceof Error ? error.message : String(error)}`);
+          toast({
+            title: "Error",
+            description: "Failed to create chat session",
+            variant: "destructive"
+          });
+        }
+      };
+      
+      createNewChat();
+    }
+  }, [isAuthenticated, navigate, toast]);
 
   const handleStartRecording = async () => {
     console.log('handleStartRecording called');
@@ -138,6 +171,13 @@ const Index = () => {
           EVIA Live Transcription & Suggestions
         </h1>
 
+        {/* Chat Status */}
+        {chatId && (
+          <div className="mb-4 text-center">
+            <p className="text-green-400">Connected to chat session: {chatId.substring(0, 8)}...</p>
+          </div>
+        )}
+
         {/* Controls */}
         <div className="mb-8">
           <RecordingControls
@@ -146,7 +186,7 @@ const Index = () => {
             onStopRecording={handleStopRecording}
             onSuggest={handleSuggest}
             onResetContext={handleResetContext}
-            isConnected={isConnected}
+            isConnected={isConnected && !!chatId}
           />
         </div>
 
