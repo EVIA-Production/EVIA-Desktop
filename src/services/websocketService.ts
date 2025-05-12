@@ -39,14 +39,23 @@ export class ChatWebSocket {
     try {
       // Get authentication details from localStorage
       const token = localStorage.getItem('auth_token') || '';
+      const tokenType = localStorage.getItem('token_type') || 'Bearer';
       
       if (!token) {
         console.error('No authentication token available for WebSocket connection');
         return;
       }
       
-      // Create WebSocket connection with authentication token as a URL parameter
-      const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}&token=${token}`;
+      // Format the authorization header value
+      const authValue = `${tokenType} ${token}`;
+      
+      // Set the token as a cookie before connecting
+      document.cookie = `token=${authValue}; path=/; SameSite=Strict;`;
+      
+      console.log('Setting cookie for WebSocket connection:', document.cookie);
+      
+      // Create WebSocket connection with just the chat_id parameter
+      const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       
       this.ws = new WebSocket(wsUrl);
