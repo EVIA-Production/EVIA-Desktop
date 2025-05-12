@@ -3,6 +3,11 @@
 // Interface to maintain type safety for messages
 interface WebSocketMessage {
   type: string;
+  data?: {
+    text?: string;
+    speaker?: number | null;
+    is_final?: boolean;
+  };
   content?: any;
   transcript?: string;
   suggestion?: string;

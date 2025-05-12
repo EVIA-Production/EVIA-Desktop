@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
@@ -27,21 +28,28 @@ export const useRecording = () => {
     
     switch (message.type) {
       case 'transcript_segment':
-        const { text, speaker, is_final } = message.content || {};
-        // Update transcript UI
-        setTranscript(prev => prev + (speaker ? `Speaker ${speaker}: ` : '') + text + '\n');
+        // Updated to access data under message.data as per the API response format
+        const { text, speaker, is_final } = message.data || {};
+        if (text) {
+          // Update transcript UI
+          setTranscript(prev => prev + (speaker !== null ? `Speaker ${speaker}: ` : '') + text + '\n');
+        }
         break;
       
       case 'suggestion':
-        // Update suggestions UI
-        setSuggestion(message.suggestion || '');
+        // Update suggestions UI - this might be under data or directly in suggestion
+        if (message.data) {
+          setSuggestion(message.data.toString());
+        } else if (message.suggestion) {
+          setSuggestion(message.suggestion);
+        }
         break;
       
       case 'error':
-        console.error('Server error:', message.error);
+        console.error('Server error:', message.error || (message.data?.error));
         toast({
           title: "Error",
-          description: message.error || "An unknown error occurred",
+          description: message.error || (message.data?.error) || "An unknown error occurred",
           variant: "destructive"
         });
         break;
