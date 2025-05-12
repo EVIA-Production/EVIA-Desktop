@@ -29,15 +29,43 @@ const Index = () => {
     console.log(`DEBUG: ${message}`);
   };
 
-  const handleStartRecording = () => {
+  const handleStartRecording = async () => {
     console.log('handleStartRecording called');
-    setIsRecording(true);
-    addDebugLog('Recording started');
     
-    // Simulate transcription with some sample text
-    setTimeout(() => {
-      setTranscript('This is a sample transcript that would normally come from speech recognition.');
-    }, 1000);
+    try {
+      // Request both audio and screen capture permissions
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: { 
+          cursor: "always",
+          displaySurface: "monitor" 
+        },
+        audio: true 
+      });
+      
+      // If we get here, permissions were granted
+      setIsRecording(true);
+      addDebugLog('Permissions granted. Recording started.');
+      
+      // Simulate transcription with some sample text
+      setTimeout(() => {
+        setTranscript('This is a sample transcript that would normally come from speech recognition.');
+      }, 1000);
+      
+      // Clean up function to stop tracks when recording is stopped
+      return () => {
+        audioStream.getTracks().forEach(track => track.stop());
+        displayStream.getTracks().forEach(track => track.stop());
+      };
+    } catch (error) {
+      console.error('Error getting media permissions:', error);
+      addDebugLog(`Permission error: ${error}`);
+      toast({
+        title: "Permission Error",
+        description: "Could not access microphone or screen. Please grant permissions and try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleStopRecording = () => {

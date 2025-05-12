@@ -26,7 +26,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     console.log('Starting recording...');
     onStartRecording();
     toast({
-      description: "Recording started",
+      description: "Requesting permissions...",
     });
   };
   
