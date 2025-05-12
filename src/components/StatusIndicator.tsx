@@ -12,12 +12,12 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAcces
       <div className={`inline-flex items-center px-3 py-1 rounded-md ${
         isConnected 
           ? 'bg-green-600 bg-opacity-20 text-green-500' 
-          : 'bg-yellow-600 bg-opacity-20 text-yellow-500'
+          : 'bg-red-600 bg-opacity-20 text-red-500'
       }`}>
         <div className={`w-2 h-2 rounded-full mr-2 ${
-          isConnected ? 'bg-green-500' : 'bg-yellow-500'
+          isConnected ? 'bg-green-500' : 'bg-red-500'
         }`}></div>
-        {isConnected ? 'Connected' : 'WebSocket functionality disabled'}
+        {isConnected ? 'Connected' : 'Disconnected'}
       </div>
       <div className="text-sm text-gray-400 mt-1">
         {isConnected 
