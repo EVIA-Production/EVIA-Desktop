@@ -84,19 +84,23 @@
 
 /* Specific hover styles for each button type */
 .bg-evia-green:hover {
-  @apply bg-evia-green bg-opacity-80;
+  background-color: #2ecc71;
+  opacity: 0.8;
 }
 
 .bg-evia-red:hover {
-  @apply bg-evia-red bg-opacity-80;
+  background-color: #e74c3c;
+  opacity: 0.8;
 }
 
 .bg-evia-pink:hover {
-  @apply bg-evia-pink bg-opacity-80;
+  background-color: #e91e63;
+  opacity: 0.8;
 }
 
 .bg-evia-gold:hover {
-  @apply bg-evia-gold bg-opacity-80;
+  background-color: #d4af37;
+  opacity: 0.8;
 }
 
 .recording-area {
