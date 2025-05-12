@@ -2,6 +2,7 @@
 import React from 'react';
 import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -26,7 +27,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     console.log('Starting recording...');
     onStartRecording();
     toast({
-      description: "Requesting permissions...",
+      description: "Starting recording...",
     });
   };
   
@@ -58,40 +59,41 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-4 justify-center">
         {!isRecording ? (
-          <button
+          <Button
             className="recording-btn bg-evia-green hover:bg-opacity-80"
             onClick={handleStartRecording}
+            disabled={!isConnected}
           >
             <Mic className="mr-1" size={20} />
             Start Recording
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
             className="recording-btn bg-evia-red hover:bg-opacity-80"
             onClick={handleStopRecording}
           >
             <Square className="mr-1" size={20} />
             Stop Recording
-          </button>
+          </Button>
         )}
 
-        <button
+        <Button
           className="recording-btn bg-evia-pink hover:bg-opacity-80"
           onClick={handleSuggest}
           disabled={!isConnected}
         >
           <Lightbulb className="mr-1" size={20} />
           Suggest
-        </button>
+        </Button>
 
-        <button
+        <Button
           className="recording-btn bg-evia-gold hover:bg-opacity-80"
           onClick={handleResetContext}
           disabled={!isConnected}
         >
           <RotateCcw className="mr-1" size={20} />
           Reset Context
-        </button>
+        </Button>
       </div>
     </div>
   );

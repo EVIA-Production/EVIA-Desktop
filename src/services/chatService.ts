@@ -1,4 +1,6 @@
 
+import { closeWebSocketInstance, getWebSocketInstance } from './websocketService';
+
 interface ChatResponse {
   id: string;
   created_at: string;
@@ -52,5 +54,23 @@ export const chatService = {
    */
   getCurrentChatId(): string | null {
     return localStorage.getItem('current_chat_id');
+  },
+
+  /**
+   * Connects to the WebSocket for the given chat
+   * @param chatId The chat ID to connect to
+   * @returns The WebSocket instance
+   */
+  connectToWebSocket(chatId: string) {
+    const ws = getWebSocketInstance(chatId);
+    ws.connect();
+    return ws;
+  },
+
+  /**
+   * Disconnects from the current WebSocket
+   */
+  disconnectFromWebSocket() {
+    closeWebSocketInstance();
   }
 };

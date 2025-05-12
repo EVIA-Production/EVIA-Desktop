@@ -1,0 +1,127 @@
+
+interface WebSocketMessage {
+  type: string;
+  content?: any;
+  transcript?: string;
+  suggestion?: string;
+  error?: string;
+}
+
+export class ChatWebSocket {
+  private ws: WebSocket | null = null;
+  private chatId: string;
+  private token: string;
+  private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
+  private connectionHandlers: ((connected: boolean) => void)[] = [];
+  private reconnectInterval: number = 3000;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private intentionalDisconnect: boolean = false;
+
+  constructor(chatId: string) {
+    this.chatId = chatId;
+    this.token = localStorage.getItem('auth_token') || '';
+  }
+
+  connect() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return;
+    }
+
+    this.intentionalDisconnect = false;
+    
+    try {
+      // Include token and chat_id as query parameters
+      const tokenType = localStorage.getItem('token_type') || 'Bearer';
+      this.ws = new WebSocket(`ws://localhost:5001/ws/?chat_id=${this.chatId}&token=${encodeURIComponent(`${tokenType} ${this.token}`)}`);
+
+      this.ws.onopen = () => {
+        console.log('Connected to chat WebSocket');
+        this.reconnectAttempts = 0;
+        this.connectionHandlers.forEach(handler => handler(true));
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const data: WebSocketMessage = JSON.parse(event.data);
+          console.log('Received WebSocket message:', data);
+          this.messageHandlers.forEach(handler => handler(data));
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      this.ws.onclose = () => {
+        console.log('Disconnected from WebSocket');
+        this.connectionHandlers.forEach(handler => handler(false));
+        
+        // Implement reconnection logic
+        if (!this.intentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+          console.log(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
+          setTimeout(() => {
+            this.reconnectAttempts++;
+            this.connect();
+          }, this.reconnectInterval);
+        }
+      };
+    } catch (error) {
+      console.error('Error connecting to WebSocket:', error);
+    }
+  }
+
+  sendMessage(message: WebSocketMessage) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+    } else {
+      console.error('WebSocket not connected. Cannot send message.');
+    }
+  }
+
+  onMessage(handler: (message: WebSocketMessage) => void) {
+    this.messageHandlers.push(handler);
+    return () => {
+      this.messageHandlers = this.messageHandlers.filter(h => h !== handler);
+    };
+  }
+
+  onConnectionChange(handler: (connected: boolean) => void) {
+    this.connectionHandlers.push(handler);
+    return () => {
+      this.connectionHandlers = this.connectionHandlers.filter(h => h !== handler);
+    };
+  }
+
+  disconnect() {
+    this.intentionalDisconnect = true;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+}
+
+// Singleton instance to be shared across the application
+let wsInstance: ChatWebSocket | null = null;
+
+export const getWebSocketInstance = (chatId: string): ChatWebSocket => {
+  if (!wsInstance && chatId) {
+    wsInstance = new ChatWebSocket(chatId);
+  }
+  return wsInstance!;
+};
+
+export const closeWebSocketInstance = () => {
+  if (wsInstance) {
+    wsInstance.disconnect();
+    wsInstance = null;
+  }
+};

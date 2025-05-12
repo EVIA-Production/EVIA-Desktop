@@ -8,12 +8,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { chatService } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
+import { ChatWebSocket } from '@/services/websocketService';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [wsConnection, setWsConnection] = useState<ChatWebSocket | null>(null);
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
@@ -24,7 +26,9 @@ const Index = () => {
     handleStartRecording, 
     handleStopRecording, 
     handleSuggest, 
-    handleResetContext 
+    handleResetContext,
+    setTranscript,
+    setSuggestion 
   } = useRecording();
   
   // Add a debug logging function
@@ -33,9 +37,52 @@ const Index = () => {
     console.log(`DEBUG: ${message}`);
   };
   
+  // Connect to WebSocket when chatId is available
+  useEffect(() => {
+    if (chatId && isAuthenticated) {
+      addDebugLog(`Connecting to WebSocket with chat ID: ${chatId}`);
+      const ws = chatService.connectToWebSocket(chatId);
+      
+      // Set up WebSocket message handlers
+      const removeMessageHandler = ws.onMessage(message => {
+        if (message.transcript) {
+          setTranscript(message.transcript);
+        }
+        if (message.suggestion) {
+          setSuggestion(message.suggestion);
+        }
+        if (message.error) {
+          toast({
+            title: "Error",
+            description: message.error,
+            variant: "destructive"
+          });
+        }
+      });
+      
+      // Set up connection state handler
+      const removeConnectionHandler = ws.onConnectionChange(connected => {
+        setIsConnected(connected);
+        if (connected) {
+          addDebugLog('WebSocket connected');
+        } else {
+          addDebugLog('WebSocket disconnected');
+        }
+      });
+      
+      setWsConnection(ws);
+      
+      // Clean up WebSocket connection on unmount
+      return () => {
+        removeMessageHandler();
+        removeConnectionHandler();
+        chatService.disconnectFromWebSocket();
+      };
+    }
+  }, [chatId, isAuthenticated, toast, setTranscript, setSuggestion]);
+  
   useEffect(() => {
     console.log('Index component mounted');
-    setIsConnected(true); // Set to connected by default since we're not using WebSockets
     
     // Don't redirect while still loading authentication state
     if (isLoading) {
@@ -96,19 +143,31 @@ const Index = () => {
   }
   
   const onStartRecordingWrapper = () => {
+    if (wsConnection && wsConnection.isConnected()) {
+      wsConnection.sendMessage({ type: "start_recording" });
+    }
     const cleanup = handleStartRecording(setDebugLog);
     return cleanup;
   };
 
   const onStopRecordingWrapper = () => {
+    if (wsConnection && wsConnection.isConnected()) {
+      wsConnection.sendMessage({ type: "stop_recording" });
+    }
     handleStopRecording(setDebugLog);
   };
 
   const onSuggestWrapper = () => {
+    if (wsConnection && wsConnection.isConnected()) {
+      wsConnection.sendMessage({ type: "suggest" });
+    }
     handleSuggest(setDebugLog);
   };
 
   const onResetContextWrapper = () => {
+    if (wsConnection && wsConnection.isConnected()) {
+      wsConnection.sendMessage({ type: "reset_context" });
+    }
     handleResetContext(setDebugLog);
   };
   
