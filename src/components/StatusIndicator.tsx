@@ -8,9 +8,13 @@ interface StatusIndicatorProps {
 
 const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAccessToken }) => {
   let statusMessage = isConnected ? 'Connected to server' : 'Disconnected';
+  let statusDetails = '';
   
   if (!hasAccessToken) {
     statusMessage = 'Authentication required';
+    statusDetails = 'Please log in to use WebSocket features';
+  } else if (!isConnected) {
+    statusDetails = 'Attempting to connect to ws://localhost:5001/ws/';
   }
   
   return (
@@ -25,6 +29,11 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ isConnected, hasAcces
         }`}></div>
         {statusMessage}
       </div>
+      {statusDetails && (
+        <div className="text-sm text-gray-400 mt-1">
+          {statusDetails}
+        </div>
+      )}
     </div>
   );
 };

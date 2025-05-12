@@ -22,11 +22,8 @@ export class ChatWebSocket {
     this.chatId = chatId;
     this.token = localStorage.getItem('auth_token') || '';
     
-    // Get the API URL from the authService configuration
-    const apiUrl = "http://localhost:5001";
-    
-    // Convert HTTP URL to WebSocket URL (ws or wss)
-    this.serverUrl = apiUrl.replace(/^http/, 'ws');
+    // Hardcode the WebSocket URL for now
+    this.serverUrl = "ws://localhost:5001";
     
     console.log('WebSocket server URL:', this.serverUrl);
   }
@@ -57,7 +54,7 @@ export class ChatWebSocket {
       
       console.log('Setting cookie for WebSocket connection:', `token=${authValue}`);
       
-      // Create WebSocket connection with the corrected URL
+      // Create WebSocket connection with the exact URL format
       const wsUrl = `${this.serverUrl}/ws/?chat_id=${this.chatId}`;
       console.log('Connecting to WebSocket URL:', wsUrl);
       
