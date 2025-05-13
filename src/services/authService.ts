@@ -28,15 +28,17 @@ interface UserProfile {
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
     try {
+      console.log("API Base URL:", API_BASE_URL);
+      const loginUrl = `${API_BASE_URL}/login/`;
+      console.log("Full login URL:", loginUrl);
       console.log("Attempting to login with:", credentials);
       
-      const response = await fetch(`${API_BASE_URL}/login/`, {
+      const response = await fetch(loginUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(credentials),
-        // Remove credentials: 'include' as we're using JWT
       });
 
       console.log("Login response status:", response.status);
