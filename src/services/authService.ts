@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../config/config';
+
 interface LoginCredentials {
   username: string;
   password: string;
@@ -22,15 +24,13 @@ interface UserProfile {
   disabled: boolean;
 }
 
-// Set API URL to the known working backend endpoint
-const API_URL = "http://localhost:5001";
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
     try {
       console.log("Attempting to login with:", credentials);
       
-      const response = await fetch(`${API_URL}/login/`, {
+      const response = await fetch(`${API_BASE_URL}/login/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -75,7 +75,7 @@ export const authService = {
       console.log("Registering user with:", apiData);
       
       // Create request options with explicit CORS settings
-      const response = await fetch(`${API_URL}/signup/`, {
+      const response = await fetch(`${API_BASE_URL}/signup/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -139,7 +139,7 @@ export const authService = {
     }
 
     try {
-      const response = await fetch(`${API_URL}/users/me/`, {
+      const response = await fetch(`${API_BASE_URL}/users/me/`, {
         headers: {
           "Authorization": `${tokenType} ${token}`,
           "Accept": "application/json",

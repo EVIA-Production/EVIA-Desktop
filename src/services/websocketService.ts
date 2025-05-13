@@ -1,5 +1,7 @@
 // WebSocket service for real-time communication
 
+import { WS_BASE_URL } from '../config/config';
+
 // Interface to maintain type safety for messages
 interface WebSocketMessage {
   type?: string;
@@ -31,7 +33,7 @@ export class ChatWebSocket {
   connect() {
     try {
       // Connect to the WebSocket server
-      this.ws = new WebSocket('ws://localhost:5001/ws/transcribe');
+      this.ws = new WebSocket(`${WS_BASE_URL}/ws/transcribe`);
       
       // Set up event handlers
       this.ws.onopen = () => {

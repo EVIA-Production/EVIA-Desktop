@@ -1,4 +1,3 @@
-
 # Stage 1: Build the application
 FROM node:20-alpine as builder
 
@@ -10,6 +9,14 @@ RUN npm ci
 
 # Copy the rest of the application code
 COPY . .
+
+# Set build-time environment variables with defaults
+ARG VITE_BACKEND_URL=http://localhost
+ARG VITE_BACKEND_PORT=5001
+
+# Make environment variables available during build
+ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
+ENV VITE_BACKEND_PORT=$VITE_BACKEND_PORT
 
 # Build the application
 RUN npm run build

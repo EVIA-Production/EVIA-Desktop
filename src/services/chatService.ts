@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '../config/config';
 
 interface ChatResponse {
   id: string;
@@ -19,7 +20,7 @@ export const chatService = {
         throw new Error('No authentication token found');
       }
       
-      const response = await fetch('http://localhost:5001/chat/', {
+      const response = await fetch(`${API_BASE_URL}/chat/`, {
         method: 'POST',
         headers: {
           'Authorization': `${tokenType} ${token}`,
