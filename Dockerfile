@@ -10,9 +10,9 @@ RUN npm ci
 # Copy the rest of the application code
 COPY . .
 
-# Set build-time environment variables with defaults
-ARG VITE_BACKEND_URL=http://localhost
-ARG VITE_BACKEND_PORT=5001
+# Define build arguments without defaults - these will be provided by Azure
+ARG VITE_BACKEND_URL
+ARG VITE_BACKEND_PORT
 
 # Make environment variables available during build
 ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
