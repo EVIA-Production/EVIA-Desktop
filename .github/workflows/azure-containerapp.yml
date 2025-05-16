@@ -25,7 +25,7 @@ jobs:
           --image frontend:latest \
           --file ./Dockerfile \
           .
-<
+
     - name: Deploy to Azure Container App
       run: |
         az containerapp update \
