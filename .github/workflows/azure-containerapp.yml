@@ -1,0 +1,34 @@
+name: Deploy to Azure Container App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-to-containerapp:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Log in to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Build and push Docker image to ACR
+      run: |
+        az acr build \
+          --registry eviaregistry \
+          --image frontend:latest \
+          --file ./Dockerfile \
+          .
+
+    - name: Deploy to Azure Container App
+      run: |
+        az containerapp update \
+          --name frontend \
+          --resource-group EVIA \
+          --image eviaregistry.azurecr.io/frontend:latest 
