@@ -1,4 +1,3 @@
-
 import React from 'react';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
@@ -49,7 +48,7 @@ const MainContent: React.FC<MainContentProps> = ({
       {/* Status indicators now positioned below the buttons */}
       <div className="mb-8">
         <StatusIndicator 
-          isConnected={isConnected} 
+          isConnected={isRecording}
           hasAccessToken={hasAccessToken} 
         />
       </div>
@@ -60,13 +59,13 @@ const MainContent: React.FC<MainContentProps> = ({
           title="Live Transcript" 
           content={transcript}
           placeholder="Your transcript will appear here"
-          className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
+          className="bg-card border border-border shadow-lg"
         />
         <TranscriptPanel 
           title="Suggestion" 
           content={suggestion}
           placeholder="Suggestions will appear here"
-          className="bg-gray-900 bg-opacity-50 border border-gray-800 shadow-lg"
+          className="bg-card border border-border shadow-lg"
           isSuggestion={true}
         />
       </div>

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
@@ -68,18 +67,18 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <EviaLogo className="mx-auto mb-4 text-4xl text-white" />
-          <h1 className="text-2xl font-bold text-white">Welcome Back</h1>
-          <p className="text-gray-400">Sign in to continue to EV/A</p>
+          <EviaLogo className="mx-auto mb-4 text-4xl text-foreground" />
+          <h1 className="text-2xl font-bold text-foreground">Welcome Back</h1>
+          <p className="text-muted-foreground">Sign in to continue to EV/A</p>
         </div>
 
-        <Card className="bg-gray-900 border-gray-800 text-white">
+        <Card className="bg-card border-border text-card-foreground">
           <CardHeader>
             <CardTitle className="text-xl">Sign In</CardTitle>
-            <CardDescription className="text-gray-400">
+            <CardDescription className="text-muted-foreground">
               Enter your credentials below to sign in
             </CardDescription>
           </CardHeader>
@@ -91,11 +90,11 @@ const Login = () => {
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Username</FormLabel>
+                      <FormLabel className="text-foreground">Username</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="johndoe" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -108,12 +107,12 @@ const Login = () => {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel className="text-foreground">Password</FormLabel>
                       <FormControl>
                         <Input 
                           type="password" 
                           placeholder="******" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -123,7 +122,7 @@ const Login = () => {
                 />
                 <Button 
                   type="submit" 
-                  className="w-full bg-evia-pink hover:bg-pink-700 mt-4"
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 mt-4"
                   disabled={form.formState.isSubmitting}
                 >
                   {form.formState.isSubmitting ? "Signing In..." : "Sign In"}
@@ -131,10 +130,10 @@ const Login = () => {
               </form>
             </Form>
           </CardContent>
-          <CardFooter className="flex justify-center text-sm text-gray-400">
+          <CardFooter className="flex justify-center text-sm text-muted-foreground">
             <p>
               Don't have an account?{" "}
-              <Link to="/register" className="text-evia-pink hover:underline">
+              <Link to="/register" className="font-medium text-primary hover:underline">
                 Sign up
               </Link>
             </p>

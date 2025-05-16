@@ -1,39 +1,49 @@
-
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
 import { LogIn } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col">
+    <div className="min-h-screen bg-background text-white flex flex-col">
       {/* Header */}
-      <header className="p-4 flex justify-between items-center border-b border-gray-800 bg-black bg-opacity-60 backdrop-blur-md">
+      <header className="p-4 flex justify-between items-center border-b border-border bg-black bg-opacity-60 backdrop-blur-md">
         <EviaLogo className="text-white" />
-        <div className="flex gap-3">
-          <Link to="/login">
-            <Button variant="outline" className="border-gray-600 hover:bg-gray-800 text-white">
-              <LogIn className="mr-2 h-4 w-4" /> Sign In
-            </Button>
-          </Link>
-          <Link to="/register">
-            <Button variant="default" className="bg-evia-pink hover:bg-pink-700">
-              Sign Up
-            </Button>
-          </Link>
-        </div>
+        {!isAuthenticated && (
+          <div className="flex gap-3">
+            <Link to="/login">
+              <Button 
+                variant="outline" 
+                className="border-border bg-transparent hover:bg-accent text-muted-foreground">
+                <LogIn className="mr-2 h-4 w-4" /> Sign In
+              </Button>
+            </Link>
+            <Link to="/register">
+              <Button 
+                variant="default" 
+                className="bg-primary text-primary-foreground hover:bg-primary/90">
+                Sign Up
+              </Button>
+            </Link>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
-      {children}
+      <div className="flex-1 bg-gradient-to-br from-black via-black to-purple-950/20">
+        {children}
+      </div>
       
       {/* Footer */}
-      <footer className="py-6 border-t border-gray-800 bg-black bg-opacity-60 backdrop-blur-md mt-8">
+      <footer className="py-6 border-t border-border bg-black bg-opacity-60 backdrop-blur-md mt-8">
         <div className="container mx-auto text-center text-gray-400 text-sm">
           <p>© {new Date().getFullYear()} EVIA Voice Assistant. All rights reserved.</p>
         </div>

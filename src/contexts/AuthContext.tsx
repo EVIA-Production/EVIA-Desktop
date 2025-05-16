@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';

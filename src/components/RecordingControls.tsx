@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Mic, Square, Lightbulb, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -60,7 +59,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
       <div className="flex flex-wrap gap-4 justify-center">
         {!isRecording ? (
           <Button
-            className="recording-btn bg-evia-green hover:bg-opacity-80"
+            className="recording-btn bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleStartRecording}
           >
             <Mic className="mr-1" size={20} />
@@ -68,7 +67,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
           </Button>
         ) : (
           <Button
-            className="recording-btn bg-evia-red hover:bg-opacity-80"
+            className="recording-btn bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={handleStopRecording}
           >
             <Square className="mr-1" size={20} />
@@ -77,7 +76,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         )}
 
         <Button
-          className="recording-btn bg-evia-pink hover:bg-opacity-80"
+          className="recording-btn bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={handleSuggest}
         >
           <Lightbulb className="mr-1" size={20} />
@@ -85,7 +84,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         </Button>
 
         <Button
-          className="recording-btn bg-evia-gold hover:bg-opacity-80"
+          className="recording-btn bg-secondary text-secondary-foreground hover:bg-secondary/90"
           onClick={handleResetContext}
         >
           <RotateCcw className="mr-1" size={20} />

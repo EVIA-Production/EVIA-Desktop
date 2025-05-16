@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
@@ -75,18 +74,18 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <EviaLogo className="mx-auto mb-4 text-4xl text-white" />
-          <h1 className="text-2xl font-bold text-white">Create Account</h1>
-          <p className="text-gray-400">Sign up to get started with EV/A</p>
+          <EviaLogo className="mx-auto mb-4 text-4xl text-foreground" />
+          <h1 className="text-2xl font-bold text-foreground">Create Account</h1>
+          <p className="text-muted-foreground">Sign up to get started with EV/A</p>
         </div>
 
-        <Card className="bg-gray-900 border-gray-800 text-white">
+        <Card className="bg-card border-border text-card-foreground">
           <CardHeader>
             <CardTitle className="text-xl">Sign Up</CardTitle>
-            <CardDescription className="text-gray-400">
+            <CardDescription className="text-muted-foreground">
               Enter your information to create an account
             </CardDescription>
           </CardHeader>
@@ -98,11 +97,11 @@ const Register = () => {
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Username</FormLabel>
+                      <FormLabel className="text-foreground">Username</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="johndoe" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -115,11 +114,11 @@ const Register = () => {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel className="text-foreground">Email</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="your@email.com" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -132,11 +131,11 @@ const Register = () => {
                   name="fullName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Full Name</FormLabel>
+                      <FormLabel className="text-foreground">Full Name</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="John Doe" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -149,12 +148,12 @@ const Register = () => {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel className="text-foreground">Password</FormLabel>
                       <FormControl>
                         <Input 
                           type="password" 
                           placeholder="******" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -167,12 +166,12 @@ const Register = () => {
                   name="confirmPassword"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
+                      <FormLabel className="text-foreground">Confirm Password</FormLabel>
                       <FormControl>
                         <Input 
                           type="password" 
                           placeholder="******" 
-                          className="bg-gray-800 border-gray-700" 
+                          className="bg-card border-input text-foreground"
                           {...field} 
                         />
                       </FormControl>
@@ -182,7 +181,7 @@ const Register = () => {
                 />
                 <Button 
                   type="submit" 
-                  className="w-full bg-evia-pink hover:bg-pink-700 mt-4"
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 mt-4"
                   disabled={form.formState.isSubmitting}
                 >
                   {form.formState.isSubmitting ? "Creating Account..." : "Create Account"}
@@ -190,10 +189,10 @@ const Register = () => {
               </form>
             </Form>
           </CardContent>
-          <CardFooter className="flex justify-center text-sm text-gray-400">
+          <CardFooter className="flex justify-center text-sm text-muted-foreground">
             <p>
               Already have an account?{" "}
-              <Link to="/login" className="text-evia-pink hover:underline">
+              <Link to="/login" className="font-medium text-primary hover:underline">
                 Sign in
               </Link>
             </p>
