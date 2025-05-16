@@ -16,45 +16,9 @@ export const useRecording = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const audioFrameCountRef = useRef<number>(0);
   
-  // Keep track of the latest message from each speaker
-  const speakerMessagesRef = useRef<Map<string, string>>(new Map());
-  
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
     console.log(`DEBUG: ${message}`);
-  };
-
-  // Smart text merging function
-  const smartMergeText = (oldText: string, newText: string): string => {
-    // If either text is empty, return the other one
-    if (!oldText) return newText;
-    if (!newText) return oldText;
-    
-    // Case 1: New text is completely different or just adds new content
-    // Check if the new text contains all of the old text at the beginning
-    if (newText.startsWith(oldText)) {
-      return newText;
-    }
-    
-    // Case 2: New text might be a continuation of old text
-    // Find the longest common substring from the end of oldText to beginning of newText
-    let overlapIndex = 0;
-    for (let i = 1; i <= Math.min(oldText.length, newText.length); i++) {
-      const oldTextSuffix = oldText.slice(oldText.length - i);
-      const newTextPrefix = newText.slice(0, i);
-      
-      if (oldTextSuffix === newTextPrefix) {
-        overlapIndex = i;
-      }
-    }
-    
-    // If we found an overlap, merge the texts at the overlap point
-    if (overlapIndex > 0) {
-      return oldText.slice(0, oldText.length - overlapIndex) + newText;
-    }
-    
-    // Case 3: No overlap found, just concatenate with space
-    return `${oldText} ${newText}`;
   };
 
   // Handle WebSocket messages
@@ -62,42 +26,43 @@ export const useRecording = () => {
     console.log('Received WebSocket message:', message);
     
     switch (message.type) {
-      case 'transcript_segment':
-        // Updated to access data under message.data as per the API response format
-        const { text, speaker, is_final } = message.data || {};
-        if (text) {
-          // Use a consistent speaker key, including for null speakers
-          const speakerKey = speaker !== null ? `Speaker ${speaker}` : 'Unknown';
-          
-          // Get the previous text for this speaker (if any)
-          const previousText = speakerMessagesRef.current.get(speakerKey) || "";
-          
-          // Use smart merging to update the text for this speaker
-          const mergedText = smartMergeText(previousText, text);
-          speakerMessagesRef.current.set(speakerKey, mergedText);
-          
-          // Build a new transcript string from all speaker messages
-          let newTranscript = '';
-          speakerMessagesRef.current.forEach((speakerText, key) => {
-            newTranscript += `${key}: ${speakerText}\n`;
-          });
-          
-          // Update transcript UI with the rebuilt content
-          setTranscript(newTranscript);
+      case 'transcript_utterance': // New type from backend for final utterances
+        const { text, speaker } = message.data || {}; // speaker is "Speaker X"
+        if (text && speaker) {
+          // Append the new utterance directly.
+          // Each utterance is a new paragraph.
+          setTranscript(prevTranscript => prevTranscript + `${speaker}: ${text}\n`);
+        }
+        break;
+
+      case 'transcript_interim': // New type for interim, fast updates
+        const { text: interimText, speaker: interimSpeaker } = message.data || {};
+
+        if (interimText) {
+          const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
+
+          console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
+
+        }
+        break;
+
+      case 'transcript_segment': // Fallback for older backend messages or non-utterance segments
+        const { text: segmentText, speaker: segmentSpeaker } = message.data || {};
+        if (segmentText && segmentSpeaker) {
+          // This is the old logic's path. If backend is fully updated, this might not be hit often for new transcripts.
+          // For now, append it like an utterance to ensure something shows up if backend isn't fully sending new types.
+          setTranscript(prevTranscript => prevTranscript + `${segmentSpeaker}: ${segmentText}\n`);
+          console.warn("Received 'transcript_segment'. Ensure backend is sending 'transcript_utterance'.");
         }
         break;
       
       case 'suggestion':
-        // Updated to handle the new suggestion format where data is a string
         if (typeof message.data === 'string') {
           setSuggestion(message.data);
-          console.log('Suggestion received:', message.data);
-        } else if (message.data) {
+        } else if (message.data && typeof message.data.toString === 'function') {
           setSuggestion(message.data.toString());
-          console.log('Suggestion received (converted to string):', message.data.toString());
-        } else if (message.suggestion) {
+        } else if (message.suggestion) { // Legacy
           setSuggestion(message.suggestion);
-          console.log('Legacy suggestion format received:', message.suggestion);
         }
         break;
       
@@ -111,19 +76,16 @@ export const useRecording = () => {
         break;
 
       default:
-        // Handle transcript field directly if present
-        if (message.transcript) {
-          // When receiving a full transcript replacement
-          setTranscript(message.transcript);
+        // Handle direct transcript/suggestion fields if backend sends them (legacy or other message types)
+        if (message.transcript && typeof message.transcript === 'string') {
+          setTranscript(message.transcript); // Replace entire transcript
         }
-        
-        // Handle suggestion field directly if present
-        if (message.suggestion) {
+        if (message.suggestion && typeof message.suggestion === 'string') {
           setSuggestion(message.suggestion);
         }
         break;
     }
-  }, [toast]);
+  }, [toast, setTranscript, setSuggestion]); // Ensure all state setters used are in dependency array
 
   const handleStartRecording = async (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>, chatId: string | null) => {
     console.log('handleStartRecording called');
@@ -297,8 +259,6 @@ export const useRecording = () => {
     console.log('handleResetContext called');
     setTranscript('');
     setSuggestion('');
-    // Clear the speaker messages map
-    speakerMessagesRef.current.clear();
     addDebugLog('Context reset', setDebugLog);
     
     // Send reset command to the server using the same format as the suggest command
