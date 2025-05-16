@@ -1,17 +1,20 @@
-
 import React from 'react';
+import eviaLogoImage from '@/assets/evia-white.png';
 
 interface EviaLogoProps {
   className?: string;
+  width?: number | string; // Optional width prop
+  height?: number | string; // Optional height prop
 }
 
-const EviaLogo: React.FC<EviaLogoProps> = ({ className }) => {
+const EviaLogo: React.FC<EviaLogoProps> = ({ className, width = 100, height = 50 }) => { // Added width and height props with defaults
   return (
-    <div className={`font-bold text-2xl tracking-widest flex items-center ${className}`}>
-      <span className="bg-clip-text text-transparent bg-gradient-to-r from-evia-pink to-pink-300">EV</span>
-      <span className="mx-0.5 text-gray-300">/</span>
-      <span className="bg-clip-text text-transparent bg-gradient-to-r from-pink-400 to-evia-pink">A</span>
-    </div>
+    <img 
+      src={eviaLogoImage} 
+      alt="EVIA Logo" 
+      className={className} 
+      style={{ width, height }} // Apply width and height
+    />
   );
 };
 
