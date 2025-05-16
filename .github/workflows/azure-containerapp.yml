@@ -24,8 +24,8 @@ jobs:
           --registry eviaregistry \
           --image frontend:latest \
           --file ./Dockerfile \
+          --build-arg VITE_BACKEND_URL=https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io \
           .
-
     - name: Deploy to Azure Container App
       run: |
         az containerapp update \
