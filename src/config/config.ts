@@ -1,11 +1,6 @@
-
-// Default values for development/preview
-const DEFAULT_URL = 'http://localhost';
-const DEFAULT_PORT = '8000';
-
-// Get environment variables with fallbacks
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || DEFAULT_URL;
-export const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || DEFAULT_PORT;
+// Get environment variables
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+export const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT;
 
 // Debug logs
 console.log('Environment Variables:', {
@@ -24,15 +19,19 @@ console.log('Constructed API_BASE_URL:', API_BASE_URL);
 
 // Safely construct WebSocket URL
 export const WS_BASE_URL = (() => {
+  if (!BACKEND_URL) {
+    throw new Error('VITE_BACKEND_URL environment variable is required');
+  }
+
   // Default to ws:// protocol
   let protocol = 'ws://';
-  let host = BACKEND_URL || DEFAULT_URL;
+  let host = BACKEND_URL;
   
   // Remove http:// or https:// if present
-  if (host?.startsWith('https://')) {
+  if (host.startsWith('https://')) {
     protocol = 'wss://';  // Use secure WebSocket for HTTPS
     host = host.replace('https://', '');
-  } else if (host?.startsWith('http://')) {
+  } else if (host.startsWith('http://')) {
     host = host.replace('http://', '');
   }
   
