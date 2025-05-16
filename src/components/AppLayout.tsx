@@ -20,11 +20,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         {!isAuthenticated && (
           <div className="flex gap-3">
             <Link to="/login">
-              <Button variant="outline" className="border-gray-600 hover:bg-gray-800 text-white">
               <Button 
                 variant="outline" 
                 className="border-border bg-transparent hover:bg-accent text-muted-foreground">
-
                 <LogIn className="mr-2 h-4 w-4" /> Sign In
               </Button>
             </Link>
@@ -32,7 +30,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <Button 
                 variant="default" 
                 className="bg-primary text-primary-foreground hover:bg-primary/90">
-
                 Sign Up
               </Button>
             </Link>
