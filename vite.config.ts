@@ -8,6 +8,16 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    strictPort: true,
+    proxy: {},
+    open: false,
+    cors: true,
+    hmr: {
+      overlay: true
+    },
+    fs: {
+      strict: true,
+    }
   },
   plugins: [
     react(),
@@ -19,4 +29,14 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  preview: {
+    port: 8080,
+    strictPort: true,
+    host: true,
+    cors: true
+  },
+  build: {
+    rollupOptions: {},
+    minify: true
+  }
 }));
