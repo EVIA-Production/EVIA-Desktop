@@ -29,28 +29,9 @@ export const useRecording = () => {
       case 'transcript_utterance': // New type from backend for final utterances
         const { text, speaker } = message.data || {}; // speaker is "Speaker X"
         if (text && speaker) {
-          console.log('[Transcript] Received final utterance:', {
-            speaker,
-            text,
-            timestamp: new Date().toISOString()
-          });
-
           // Append the new utterance directly.
           // Each utterance is a new paragraph.
-          setTranscript(prevTranscript => {
-            // Remove any interim text (last line if it doesn't end with newline)
-            const lines = prevTranscript.split('\n');
-            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-              console.log('[Transcript] Removing interim line before adding final utterance');
-              lines.pop(); // Remove the last line if it's interim
-            }
-            const newTranscript = lines.join('\n') + `${speaker}: ${text}\n`;
-            console.log('[Transcript] Updated transcript with final utterance:', newTranscript);
-            return newTranscript;
-          });
-        } else {
-          console.warn('[Transcript] Received invalid utterance:', { text, speaker });
-
+          setTranscript(prevTranscript => prevTranscript + `${speaker}: ${text}\n`);
         }
         break;
 
@@ -59,94 +40,19 @@ export const useRecording = () => {
 
         if (interimText) {
           const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
-          // Update the transcript with interim text
-          setTranscript(prevTranscript => {
-            const lines = prevTranscript.split('\n');
-            // Remove the last line if it's interim (doesn't end with newline)
-            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-              lines.pop();
-            }
-            return lines.join('\n') + `${speakerLabel}${interimText}`;
-          });
+
           console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
+
         }
         break;
 
-      case 'transcript_segment': // Handle both interim and final segments
-        const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
-        
-        // Log the raw message for debugging
-        console.log('[Transcript] Raw segment message:', {
-          type: message.type,
-          data: message.data,
-          timestamp: new Date().toISOString()
-        });
-
-        // Handle interim updates (empty text or null speaker is normal)
-        if (!is_final) {
-          if (!segmentText || segmentText.trim() === '') {
-            console.log('[Transcript] Received empty interim update - this is normal during processing');
-            break;
-          }
-          if (segmentSpeaker === null) {
-            console.log('[Transcript] Received interim update with null speaker - this is normal before speaker detection');
-            break;
-          }
-        }
-
-        // For final segments, we expect both text and speaker
-        if (is_final && (!segmentText || segmentSpeaker === undefined)) {
-          console.warn('[Transcript] Received final segment with missing data:', {
-            text: segmentText,
-            speaker: segmentSpeaker,
-            is_final,
-            messageType: message.type,
-            rawMessage: message
-          });
-          break;
-        }
-
-        // Process valid segments (speaker can be 0 or any number)
-        // Only process if text or speaker is not null/undefined (for interim, text can be empty string)
-        if (segmentText !== undefined && segmentSpeaker !== undefined) {
-          // For interim segments, only append if there is text or a valid speaker (non-null)
-          if (!is_final && (segmentText === null || segmentText === '') && segmentSpeaker === null) {
-             console.log('[Transcript] Skipping empty interim segment with null speaker.');
-             break; // Skip appending null:null interim segments
-          }
-
-          console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
-            speaker: segmentSpeaker,
-            text: segmentText,
-            is_final,
-            timestamp: new Date().toISOString()
-          });
-
-          if (is_final) {
-            // For final segments, append to the transcript
-            setTranscript(prevTranscript => {
-              const lines = prevTranscript.split('\n');
-              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-                console.log('[Transcript] Removing interim line before adding final segment');
-                lines.pop(); // Remove interim line if present
-              }
-              const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
-              console.log('[Transcript] Updated transcript with final segment:', newTranscript);
-              return newTranscript;
-            });
-          } else {
-            // For interim segments, update the last line
-            setTranscript(prevTranscript => {
-              const lines = prevTranscript.split('\n');
-              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-                console.log('[Transcript] Removing previous interim line');
-                lines.pop(); // Remove previous interim line
-              }
-              const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
-              console.log('[Transcript] Updated transcript with interim segment:', newTranscript);
-              return newTranscript;
-            });
-          }
+      case 'transcript_segment': // Fallback for older backend messages or non-utterance segments
+        const { text: segmentText, speaker: segmentSpeaker } = message.data || {};
+        if (segmentText && segmentSpeaker) {
+          // This is the old logic's path. If backend is fully updated, this might not be hit often for new transcripts.
+          // For now, append it like an utterance to ensure something shows up if backend isn't fully sending new types.
+          setTranscript(prevTranscript => prevTranscript + `${segmentSpeaker}: ${segmentText}\n`);
+          console.warn("Received 'transcript_segment'. Ensure backend is sending 'transcript_utterance'.");
         }
         break;
       
