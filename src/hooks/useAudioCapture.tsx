@@ -5,12 +5,13 @@ export const useAudioCapture = () => {
   const [isRecording, setIsRecording] = useState(false);
   const { toast } = useToast();
   
-  // Refs to maintain audio processing objects between renders
+  // Refs for audio processing
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioFrameCountRef = useRef<number>(0);
+  const displayStreamRef = useRef<MediaStream | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const analyserIntervalRef = useRef<number | null>(null);
   
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
@@ -25,34 +26,46 @@ export const useAudioCapture = () => {
     
     try {
       // Request both audio and screen capture permissions
-      const audioStream = await navigator.mediaDevices.getUserMedia({ 
+      const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
         } 
       });
+      streamRef.current = micStream;
+      addDebugLog('Got microphone stream', setDebugLog);
+
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
         video: { 
           displaySurface: "monitor" 
         },
         audio: true 
       });
-      
+      displayStreamRef.current = displayStream;
+      addDebugLog('Got display stream', setDebugLog);
+
+      // Handle display stream ending
+      const displayAudioTrack = displayStream.getAudioTracks()[0];
+      if (displayAudioTrack) {
+        displayAudioTrack.onended = () => {
+          console.log('Display media track ended');
+          stopRecording(setDebugLog);
+        };
+      }
+
       // Create audio context
       const audioContext = new AudioContext({
         sampleRate: 16000 // Match server requirements
       });
       audioContextRef.current = audioContext;
-      
-      // Create source for microphone stream
-      const micSource = audioContext.createMediaStreamSource(audioStream);
-      
-      // Check if display stream has audio tracks
-      const hasSystemAudio = displayStream.getAudioTracks().length > 0;
+      addDebugLog(`AudioContext created. Sample rate: ${audioContext.sampleRate}Hz`, setDebugLog);
+
+      // Create sources
+      const micSource = audioContext.createMediaStreamSource(micStream);
       let sysSource: MediaStreamAudioSourceNode | null = null;
       
-      if (hasSystemAudio) {
+      if (displayStream.getAudioTracks().length > 0) {
         try {
           sysSource = audioContext.createMediaStreamSource(displayStream);
           addDebugLog('System audio capture enabled', setDebugLog);
@@ -60,82 +73,91 @@ export const useAudioCapture = () => {
           console.warn('Failed to create system audio source:', error);
           addDebugLog('System audio capture not available', setDebugLog);
         }
-      } else {
-        addDebugLog('System audio capture not available', setDebugLog);
       }
-      
+
+      // Create destination to mix streams
       const destination = audioContext.createMediaStreamDestination();
       
-      // Connect microphone source
+      // Connect sources
       micSource.connect(destination);
-      
-      // Connect system audio source if available
       if (sysSource) {
         sysSource.connect(destination);
       }
-      
-      // Save combined stream to ref for later cleanup
-      streamRef.current = destination.stream;
-      
-      // If we get here, permissions were granted
-      setIsRecording(true);
-      addDebugLog('Permissions granted. Recording started.', setDebugLog);
-      
-      // Create audio processor for the combined stream
-      const source = audioContext.createMediaStreamSource(destination.stream);
-      sourceRef.current = source;
-      
-      // ScriptProcessorNode is deprecated but widely supported
-      // Consider migrating to AudioWorklet in the future
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      
-      // Process audio data
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        
-        // Convert float32 to int16 (better compression for transmission)
-        const int16Data = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+
+      // Load and setup AudioWorklet
+      await audioContext.audioWorklet.addModule('/audio_processor.js');
+      addDebugLog('AudioWorklet module loaded', setDebugLog);
+
+      const workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+      workletNodeRef.current = workletNode;
+      addDebugLog('AudioWorkletNode created', setDebugLog);
+
+      // Handle worklet messages
+      workletNode.port.addEventListener('message', (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          const data = event.data;
+          const int16Array = new Int16Array(data);
+          onAudioData(int16Array);
         }
-        
-        // Log audio frame count for debugging
-        audioFrameCountRef.current += 1;
-        if (audioFrameCountRef.current % 50 === 0) { // Log every 50 frames to avoid console spam
-          console.log(`[Audio Logger] Processing audio frame #${audioFrameCountRef.current}, size: ${int16Data.length} samples`);
-        }
-        
-        // Send audio data through callback
-        onAudioData(int16Data);
+      });
+
+      workletNode.port.onmessageerror = (event) => {
+        console.error('Error receiving message from AudioWorklet:', event);
+        toast({
+          title: "Error",
+          description: "Audio processing error",
+          variant: "destructive"
+        });
       };
-      
-      // Connect the audio processing nodes
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      
-      addDebugLog('Audio processing pipeline established', setDebugLog);
-      
+
+      workletNode.onprocessorerror = (event) => {
+        console.error('Error inside AudioWorkletProcessor:', event);
+        toast({
+          title: "Error",
+          description: "Audio processing error",
+          variant: "destructive"
+        });
+        stopRecording(setDebugLog);
+      };
+
+      // Send init ack to worklet
+      workletNode.port.postMessage('INIT_ACK');
+
+      // Connect combined stream to worklet
+      const combinedSource = audioContext.createMediaStreamSource(destination.stream);
+      combinedSource.connect(workletNode);
+
+      // Setup audio level monitoring
+      analyserNodeRef.current = audioContext.createAnalyser();
+      analyserNodeRef.current.fftSize = 256;
+      const bufferLength = analyserNodeRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      combinedSource.connect(analyserNodeRef.current);
+
+      // Start level monitoring
+      if (analyserIntervalRef.current) {
+        clearInterval(analyserIntervalRef.current);
+      }
+      analyserIntervalRef.current = window.setInterval(() => {
+        if (analyserNodeRef.current) {
+          analyserNodeRef.current.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for(let i = 0; i < bufferLength; i++) {
+            sum += dataArray[i];
+          }
+          let averageLevel = sum / bufferLength;
+          console.log(`Combined Stream Avg Level: ${averageLevel.toFixed(2)}`);
+        }
+      }, 500);
+
+      setIsRecording(true);
+      addDebugLog('Recording started', setDebugLog);
+
       // Return cleanup function
       return () => {
-        if (processorRef.current && sourceRef.current && audioContextRef.current) {
-          processorRef.current.disconnect();
-          sourceRef.current.disconnect();
-          audioContextRef.current.close().catch(console.error);
-          processorRef.current = null;
-          sourceRef.current = null;
-          audioContextRef.current = null;
-        }
-        
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
-        }
-        
-        // Stop all tracks from both streams
-        audioStream.getTracks().forEach(track => track.stop());
-        displayStream.getTracks().forEach(track => track.stop());
+        stopRecording(setDebugLog);
       };
+
     } catch (error) {
       console.error('Error getting media permissions:', error);
       addDebugLog(`Permission error: ${error}`, setDebugLog);
@@ -151,23 +173,40 @@ export const useAudioCapture = () => {
     console.log('stopRecording called');
     setIsRecording(false);
     addDebugLog('Recording stopped', setDebugLog);
-    
-    // Clean up audio processing
-    if (processorRef.current && sourceRef.current && audioContextRef.current) {
-      processorRef.current.disconnect();
-      sourceRef.current.disconnect();
-      audioContextRef.current.close().catch(console.error);
-      processorRef.current = null;
-      sourceRef.current = null;
-      audioContextRef.current = null;
+
+    // Stop analyser
+    if (analyserIntervalRef.current) {
+      clearInterval(analyserIntervalRef.current);
+      analyserIntervalRef.current = null;
     }
-    
+    if (analyserNodeRef.current) {
+      analyserNodeRef.current.disconnect();
+      analyserNodeRef.current = null;
+    }
+
+    // Cleanup worklet
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.close();
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
+    }
+
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(console.error);
+    }
+    audioContextRef.current = null;
+
     // Stop all tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    
+    if (displayStreamRef.current) {
+      displayStreamRef.current.getTracks().forEach(track => track.stop());
+      displayStreamRef.current = null;
+    }
+
     toast({
       description: "Recording stopped",
     });
