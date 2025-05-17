@@ -74,10 +74,29 @@ export const useRecording = () => {
 
       case 'transcript_segment': // Handle both interim and final segments
         const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
+        
+        // Log the raw message for debugging
+        console.log('[Transcript] Raw segment message:', {
+          type: message.type,
+          data: message.data,
+          timestamp: new Date().toISOString()
+        });
+
+        if (!segmentText || segmentText.trim() === '') {
+          console.log('[Transcript] Received empty text segment - this is normal for interim updates');
+          break;
+        }
+
+        if (segmentSpeaker === null) {
+          console.log('[Transcript] Received segment with null speaker - this might indicate a speaker detection issue');
+          break;
+        }
+
         if (segmentText && segmentSpeaker) {
-          console.log(`[Transcript] Received ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
+          console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
             speaker: segmentSpeaker,
             text: segmentText,
+            is_final,
             timestamp: new Date().toISOString()
           });
 
@@ -107,8 +126,13 @@ export const useRecording = () => {
             });
           }
         } else {
-          console.warn('[Transcript] Received invalid segment:', { text: segmentText, speaker: segmentSpeaker, is_final });
-
+          console.warn('[Transcript] Received malformed segment:', {
+            text: segmentText,
+            speaker: segmentSpeaker,
+            is_final,
+            messageType: message.type,
+            rawMessage: message
+          });
         }
         break;
       
