@@ -28,7 +28,11 @@ export const useRecording = () => {
     switch (message.type) {
       case 'transcript_utterance': // New type from backend for final utterances
         const { text, speaker } = message.data || {}; // speaker is "Speaker X"
+        // Log raw utterance data received
+        console.log('[Transcript] Received utterance data:', { text, speaker });
+        
         if (text && speaker) {
+          console.log('[Transcript] Processing final utterance:', { speaker, text });
           // Append the new utterance directly.
           // Each utterance is a new paragraph.
           setTranscript(prevTranscript => {
@@ -39,13 +43,18 @@ export const useRecording = () => {
             }
             return lines.join('\n') + `${speaker}: ${text}\n`;
           });
+        } else {
+          console.warn('[Transcript] Skipping final utterance due to missing data:', { text, speaker });
         }
         break;
 
       case 'transcript_interim': // New type for interim, fast updates
         const { text: interimText, speaker: interimSpeaker } = message.data || {};
+        // Log raw interim data received
+        console.log('[Transcript] Received interim data:', { interimText, interimSpeaker });
 
         if (interimText) {
+          console.log('[Transcript] Processing interim segment:', { interimSpeaker, interimText });
           const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
           // Update the transcript with interim text
           setTranscript(prevTranscript => {
@@ -57,12 +66,22 @@ export const useRecording = () => {
             return lines.join('\n') + `${speakerLabel}${interimText}`;
           });
           console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
+        } else {
+           console.log('[Transcript] Skipping interim segment due to missing text:', { interimText, interimSpeaker });
         }
         break;
 
       case 'transcript_segment': // Handle both interim and final segments
         const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
+        
+        // Log raw segment data received
+        console.log('[Transcript] Received segment data:', { text: segmentText, speaker: segmentSpeaker, is_final });
+
+        // Check condition for processing
+        console.log('[Transcript] Checking segment condition: segmentText && segmentSpeaker', { segmentText, segmentSpeaker, conditionResult: segmentText && segmentSpeaker });
+
         if (segmentText && segmentSpeaker) {
+          console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, { speaker: segmentSpeaker, text: segmentText });
           if (is_final) {
             // For final segments, append to the transcript
             setTranscript(prevTranscript => {
@@ -82,6 +101,8 @@ export const useRecording = () => {
               return lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
             });
           }
+        } else {
+          console.log('[Transcript] Skipping segment due to condition (text or speaker falsy):', { text: segmentText, speaker: segmentSpeaker });
         }
         break;
       
