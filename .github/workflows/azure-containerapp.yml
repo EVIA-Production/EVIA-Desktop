@@ -20,15 +20,17 @@ jobs:
 
     - name: Build and push Docker image to ACR
       run: |
+        IMAGE_TAG=${{ github.sha }}
         az acr build \
           --registry eviaregistry \
-          --image frontend:latest \
+          --image frontend:$IMAGE_TAG \
           --file ./Dockerfile \
           --build-arg VITE_BACKEND_URL=https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io \
           .
     - name: Deploy to Azure Container App
       run: |
+        IMAGE_TAG=${{ github.sha }}
         az containerapp update \
           --name frontend \
           --resource-group EVIA \
-          --image eviaregistry.azurecr.io/frontend:latest 
+          --image eviaregistry.azurecr.io/frontend:$IMAGE_TAG 
