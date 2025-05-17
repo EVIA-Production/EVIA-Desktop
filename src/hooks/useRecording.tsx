@@ -48,7 +48,8 @@ export const useRecording = () => {
 
       case 'transcript_segment': // Fallback for older backend messages or non-utterance segments
         const { text: segmentText, speaker: segmentSpeaker } = message.data || {};
-        if (segmentText && segmentSpeaker) {
+        // Check if segmentText has a value and segmentSpeaker is a number (which includes 0)
+        if (segmentText && typeof segmentSpeaker === 'number') {
           // This is the old logic's path. If backend is fully updated, this might not be hit often for new transcripts.
           // For now, append it like an utterance to ensure something shows up if backend isn't fully sending new types.
           setTranscript(prevTranscript => prevTranscript + `${segmentSpeaker}: ${segmentText}\n`);
