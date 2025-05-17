@@ -146,8 +146,23 @@ export const useRecording = () => {
         audio: true 
       });
       
-      // Save stream to ref for later cleanup
-      streamRef.current = audioStream;
+      // Create audio context and combine streams
+      const audioContext = new AudioContext({
+        sampleRate: 16000 // Match server requirements
+      });
+      audioContextRef.current = audioContext;
+      
+      // Create sources for both streams
+      const micSource = audioContext.createMediaStreamSource(audioStream);
+      const sysSource = audioContext.createMediaStreamSource(displayStream);
+      const destination = audioContext.createMediaStreamDestination();
+      
+      // Connect both sources to the destination
+      micSource.connect(destination);
+      sysSource.connect(destination);
+      
+      // Save combined stream to ref for later cleanup
+      streamRef.current = destination.stream;
       
       // If we get here, permissions were granted
       setIsRecording(true);
@@ -163,13 +178,8 @@ export const useRecording = () => {
         
         addDebugLog('WebSocket connection initiated', setDebugLog);
         
-        // Create audio context and processor
-        const audioContext = new AudioContext({
-          sampleRate: 16000 // Match server requirements
-        });
-        audioContextRef.current = audioContext;
-        
-        const source = audioContext.createMediaStreamSource(audioStream);
+        // Create audio processor for the combined stream
+        const source = audioContext.createMediaStreamSource(destination.stream);
         sourceRef.current = source;
         
         // ScriptProcessorNode is deprecated but widely supported
@@ -223,6 +233,8 @@ export const useRecording = () => {
             streamRef.current = null;
           }
           
+          // Stop all tracks from both streams
+          audioStream.getTracks().forEach(track => track.stop());
           displayStream.getTracks().forEach(track => track.stop());
         };
       }
