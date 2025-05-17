@@ -29,16 +29,28 @@ export const useRecording = () => {
       case 'transcript_utterance': // New type from backend for final utterances
         const { text, speaker } = message.data || {}; // speaker is "Speaker X"
         if (text && speaker) {
+          console.log('[Transcript] Received final utterance:', {
+            speaker,
+            text,
+            timestamp: new Date().toISOString()
+          });
+
           // Append the new utterance directly.
           // Each utterance is a new paragraph.
           setTranscript(prevTranscript => {
             // Remove any interim text (last line if it doesn't end with newline)
             const lines = prevTranscript.split('\n');
             if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+              console.log('[Transcript] Removing interim line before adding final utterance');
               lines.pop(); // Remove the last line if it's interim
             }
-            return lines.join('\n') + `${speaker}: ${text}\n`;
+            const newTranscript = lines.join('\n') + `${speaker}: ${text}\n`;
+            console.log('[Transcript] Updated transcript with final utterance:', newTranscript);
+            return newTranscript;
           });
+        } else {
+          console.warn('[Transcript] Received invalid utterance:', { text, speaker });
+
         }
         break;
 
@@ -63,37 +75,39 @@ export const useRecording = () => {
       case 'transcript_segment': // Handle both interim and final segments
         const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
         if (segmentText && segmentSpeaker) {
-console.log(`[Transcript] Received ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
-  speaker: segmentSpeaker,
-  text: segmentText,
-  timestamp: new Date().toISOString()
-});
+          console.log(`[Transcript] Received ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
+            speaker: segmentSpeaker,
+            text: segmentText,
+            timestamp: new Date().toISOString()
+          });
 
-if (is_final) {
-  // For final segments, append to the transcript
-  setTranscript(prevTranscript => {
-    const lines = prevTranscript.split('\n');
-    if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-      console.log('[Transcript] Removing interim line before adding final segment');
-      lines.pop(); // Remove interim line if present
-    }
-    const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
-    console.log('[Transcript] Updated transcript with final segment:', newTranscript);
-    return newTranscript;
-  });
-} else {
-  // For interim segments, update the last line
-  setTranscript(prevTranscript => {
-    const lines = prevTranscript.split('\n');
-    if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-      console.log('[Transcript] Removing previous interim line');
-      lines.pop(); // Remove previous interim line
-    }
-    const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
-    console.log('[Transcript] Updated transcript with interim segment:', newTranscript);
-    return newTranscript;
-  });
-}
+          if (is_final) {
+            // For final segments, append to the transcript
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                console.log('[Transcript] Removing interim line before adding final segment');
+                lines.pop(); // Remove interim line if present
+              }
+              const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
+              console.log('[Transcript] Updated transcript with final segment:', newTranscript);
+              return newTranscript;
+            });
+          } else {
+            // For interim segments, update the last line
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                console.log('[Transcript] Removing previous interim line');
+                lines.pop(); // Remove previous interim line
+              }
+              const newTranscript = lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
+              console.log('[Transcript] Updated transcript with interim segment:', newTranscript);
+              return newTranscript;
+            });
+          }
+        } else {
+          console.warn('[Transcript] Received invalid segment:', { text: segmentText, speaker: segmentSpeaker, is_final });
 
         }
         break;
