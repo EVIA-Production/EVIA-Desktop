@@ -31,7 +31,14 @@ export const useRecording = () => {
         if (text && speaker) {
           // Append the new utterance directly.
           // Each utterance is a new paragraph.
-          setTranscript(prevTranscript => prevTranscript + `${speaker}: ${text}\n`);
+          setTranscript(prevTranscript => {
+            // Remove any interim text (last line if it doesn't end with newline)
+            const lines = prevTranscript.split('\n');
+            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+              lines.pop(); // Remove the last line if it's interim
+            }
+            return lines.join('\n') + `${speaker}: ${text}\n`;
+          });
         }
         break;
 
@@ -40,19 +47,41 @@ export const useRecording = () => {
 
         if (interimText) {
           const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
-
+          // Update the transcript with interim text
+          setTranscript(prevTranscript => {
+            const lines = prevTranscript.split('\n');
+            // Remove the last line if it's interim (doesn't end with newline)
+            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+              lines.pop();
+            }
+            return lines.join('\n') + `${speakerLabel}${interimText}`;
+          });
           console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
-
         }
         break;
 
-      case 'transcript_segment': // Fallback for older backend messages or non-utterance segments
-        const { text: segmentText, speaker: segmentSpeaker } = message.data || {};
+      case 'transcript_segment': // Handle both interim and final segments
+        const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
         if (segmentText && segmentSpeaker) {
-          // This is the old logic's path. If backend is fully updated, this might not be hit often for new transcripts.
-          // For now, append it like an utterance to ensure something shows up if backend isn't fully sending new types.
-          setTranscript(prevTranscript => prevTranscript + `${segmentSpeaker}: ${segmentText}\n`);
-          console.warn("Received 'transcript_segment'. Ensure backend is sending 'transcript_utterance'.");
+          if (is_final) {
+            // For final segments, append to the transcript
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                lines.pop(); // Remove interim line if present
+              }
+              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
+            });
+          } else {
+            // For interim segments, update the last line
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                lines.pop(); // Remove previous interim line
+              }
+              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
+            });
+          }
         }
         break;
       
