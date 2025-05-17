@@ -146,20 +146,40 @@ export const useRecording = () => {
         audio: true 
       });
       
-      // Create audio context and combine streams
+      // Create audio context
       const audioContext = new AudioContext({
         sampleRate: 16000 // Match server requirements
       });
       audioContextRef.current = audioContext;
       
-      // Create sources for both streams
+      // Create source for microphone stream
       const micSource = audioContext.createMediaStreamSource(audioStream);
-      const sysSource = audioContext.createMediaStreamSource(displayStream);
+      
+      // Check if display stream has audio tracks
+      const hasSystemAudio = displayStream.getAudioTracks().length > 0;
+      let sysSource: MediaStreamAudioSourceNode | null = null;
+      
+      if (hasSystemAudio) {
+        try {
+          sysSource = audioContext.createMediaStreamSource(displayStream);
+          addDebugLog('System audio capture enabled', setDebugLog);
+        } catch (error) {
+          console.warn('Failed to create system audio source:', error);
+          addDebugLog('System audio capture not available', setDebugLog);
+        }
+      } else {
+        addDebugLog('System audio capture not available', setDebugLog);
+      }
+      
       const destination = audioContext.createMediaStreamDestination();
       
-      // Connect both sources to the destination
+      // Connect microphone source
       micSource.connect(destination);
-      sysSource.connect(destination);
+      
+      // Connect system audio source if available
+      if (sysSource) {
+        sysSource.connect(destination);
+      }
       
       // Save combined stream to ref for later cleanup
       streamRef.current = destination.stream;
