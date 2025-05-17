@@ -107,7 +107,14 @@ export const useRecording = () => {
         }
 
         // Process valid segments (speaker can be 0 or any number)
-        if (segmentText && segmentSpeaker !== undefined) {
+        // Only process if text or speaker is not null/undefined (for interim, text can be empty string)
+        if (segmentText !== undefined && segmentSpeaker !== undefined) {
+          // For interim segments, only append if there is text or a valid speaker (non-null)
+          if (!is_final && (segmentText === null || segmentText === '') && segmentSpeaker === null) {
+             console.log('[Transcript] Skipping empty interim segment with null speaker.');
+             break; // Skip appending null:null interim segments
+          }
+
           console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
             speaker: segmentSpeaker,
             text: segmentText,
