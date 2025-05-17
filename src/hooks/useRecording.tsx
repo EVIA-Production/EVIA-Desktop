@@ -7,6 +7,8 @@ export const useRecording = () => {
   const [transcript, setTranscript] = useState('');
   const [suggestion, setSuggestion] = useState('');
   const [isConnected, setIsConnected] = useState(false);
+  const [finalSegments, setFinalSegments] = useState<{ speaker: number | null; text: string }[]>([]);
+  const [currentInterimSegment, setCurrentInterimSegment] = useState<{ speaker: number | null; text: string } | null>(null);
   const { toast } = useToast();
   
   // Refs to maintain audio processing objects between renders
@@ -33,16 +35,10 @@ export const useRecording = () => {
 
         if (text && typeof speaker === 'number') {
           console.log('[Transcript] Processing final utterance:', { speaker, text });
-          // Append the new utterance directly.
-          // Each utterance is a new paragraph.
-          setTranscript(prevTranscript => {
-            // Remove any interim text (last line if it doesn't end with newline)
-            const lines = prevTranscript.split('\n');
-            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-              lines.pop(); // Remove the last line if it's interim
-            }
-            return lines.join('\n') + `${speaker}: ${text}\n`;
-          });
+          // Add the finalized utterance to the list of final segments
+          setFinalSegments(prevSegments => [...prevSegments, { speaker, text }]);
+          // Clear the current interim segment
+          setCurrentInterimSegment(null);
         } else {
           console.warn('[Transcript] Skipping final utterance due to condition (text falsy or speaker not a number):', { text, speaker });
         }
@@ -53,18 +49,12 @@ export const useRecording = () => {
         // Log raw interim data received
         console.log('[Transcript] Received interim data:', { interimText, interimSpeaker });
 
+        // Update the current interim segment
+        setCurrentInterimSegment(interimText ? { speaker: interimSpeaker ?? null, text: interimText } : null);
+        
         if (interimText) {
           console.log('[Transcript] Processing interim segment:', { interimSpeaker, interimText });
           const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
-          // Update the transcript with interim text
-          setTranscript(prevTranscript => {
-            const lines = prevTranscript.split('\n');
-            // Remove the last line if it's interim (doesn't end with newline)
-            if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-              lines.pop();
-            }
-            return lines.join('\n') + `${speakerLabel}${interimText}`;
-          });
           console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
         } else {
            console.log('[Transcript] Skipping interim segment due to missing text:', { interimText, interimSpeaker });
