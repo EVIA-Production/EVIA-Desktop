@@ -95,7 +95,7 @@ export const useRecording = () => {
         }
 
         // For final segments, we expect both text and speaker
-        if (is_final && (!segmentText || !segmentSpeaker)) {
+        if (is_final && (!segmentText || segmentSpeaker === undefined)) {
           console.warn('[Transcript] Received final segment with missing data:', {
             text: segmentText,
             speaker: segmentSpeaker,
@@ -106,8 +106,8 @@ export const useRecording = () => {
           break;
         }
 
-        // Process valid segments
-        if (segmentText && segmentSpeaker) {
+        // Process valid segments (speaker can be 0 or any number)
+        if (segmentText && segmentSpeaker !== undefined) {
           console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
             speaker: segmentSpeaker,
             text: segmentText,
