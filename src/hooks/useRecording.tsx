@@ -82,16 +82,31 @@ export const useRecording = () => {
           timestamp: new Date().toISOString()
         });
 
-        if (!segmentText || segmentText.trim() === '') {
-          console.log('[Transcript] Received empty text segment - this is normal for interim updates');
+        // Handle interim updates (empty text or null speaker is normal)
+        if (!is_final) {
+          if (!segmentText || segmentText.trim() === '') {
+            console.log('[Transcript] Received empty interim update - this is normal during processing');
+            break;
+          }
+          if (segmentSpeaker === null) {
+            console.log('[Transcript] Received interim update with null speaker - this is normal before speaker detection');
+            break;
+          }
+        }
+
+        // For final segments, we expect both text and speaker
+        if (is_final && (!segmentText || !segmentSpeaker)) {
+          console.warn('[Transcript] Received final segment with missing data:', {
+            text: segmentText,
+            speaker: segmentSpeaker,
+            is_final,
+            messageType: message.type,
+            rawMessage: message
+          });
           break;
         }
 
-        if (segmentSpeaker === null) {
-          console.log('[Transcript] Received segment with null speaker - this might indicate a speaker detection issue');
-          break;
-        }
-
+        // Process valid segments
         if (segmentText && segmentSpeaker) {
           console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, {
             speaker: segmentSpeaker,
@@ -125,14 +140,6 @@ export const useRecording = () => {
               return newTranscript;
             });
           }
-        } else {
-          console.warn('[Transcript] Received malformed segment:', {
-            text: segmentText,
-            speaker: segmentSpeaker,
-            is_final,
-            messageType: message.type,
-            rawMessage: message
-          });
         }
         break;
       
