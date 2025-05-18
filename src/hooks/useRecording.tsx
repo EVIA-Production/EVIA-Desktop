@@ -4,13 +4,16 @@ import { useWebSocketMessages } from './useWebSocketMessages';
 export const useRecording = () => {
   const {
     transcript,
+    transcriptSegments,
     suggestion,
-    finalSegments,
-    currentInterimSegment,
+    suggestionsDisabled,
+    fullHistory,
+    connectionStatus,
+    errorMessage,
     handleWebSocketMessage,
     handleSuggest,
     handleResetContext,
-    setTranscript,
+    requestHistory,
     setSuggestion
   } = useWebSocketMessages();
 
@@ -25,16 +28,18 @@ export const useRecording = () => {
   return {
     isRecording,
     transcript,
+    transcriptSegments,
     suggestion,
+    suggestionsDisabled,
+    fullHistory,
+    connectionStatus,
+    errorMessage,
     isConnected,
-    finalSegments,
-    currentInterimSegment,
     handleStartRecording,
     handleStopRecording,
     handleSuggest,
     handleResetContext,
-    handleWebSocketMessage,
-    setTranscript,
+    requestHistory,
     setSuggestion,
     setIsConnected
   };

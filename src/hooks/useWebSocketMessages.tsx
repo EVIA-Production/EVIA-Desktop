@@ -1,110 +1,110 @@
 import { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { getWebSocketInstance } from '@/services/websocketService';
+
+interface TranscriptSegment {
+  speaker: number;
+  text: string;
+  show_speaker_label: boolean;
+  is_new_speaker_turn: boolean;
+}
 
 export const useWebSocketMessages = () => {
-  const [transcript, setTranscript] = useState('');
+  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
   const [suggestion, setSuggestion] = useState('');
-  const [finalSegments, setFinalSegments] = useState<{ speaker: number | null; text: string }[]>([]);
-  const [currentInterimSegment, setCurrentInterimSegment] = useState<{ speaker: number | null; text: string } | null>(null);
+  const [suggestionsDisabled, setSuggestionsDisabled] = useState(false);
+  const [fullHistory, setFullHistory] = useState<any[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const { toast } = useToast();
 
   const handleWebSocketMessage = useCallback((message: any) => {
     console.log('Received WebSocket message:', message);
     
-    switch (message.type) {
-      case 'transcript_utterance':
-        const { text, speaker } = message.data || {};
-        console.log('[Transcript] Checking utterance condition: text && typeof speaker === \'number\'', { text, speaker, conditionResult: text && typeof speaker === 'number' });
+    try {
+      const msgType = message.type;
+      const msgData = message.data;
 
-        if (text && typeof speaker === 'number') {
-          console.log('[Transcript] Processing final utterance:', { speaker, text });
-          setFinalSegments(prevSegments => [...prevSegments, { speaker, text }]);
-          setCurrentInterimSegment(null);
-        } else {
-          console.warn('[Transcript] Skipping final utterance due to condition (text falsy or speaker not a number):', { text, speaker });
-        }
-        break;
-
-      case 'transcript_interim':
-        const { text: interimText, speaker: interimSpeaker } = message.data || {};
-        console.log('[Transcript] Received interim data:', { interimText, interimSpeaker });
-
-        setCurrentInterimSegment(interimText ? { speaker: interimSpeaker ?? null, text: interimText } : null);
-        
-        if (interimText) {
-          console.log('[Transcript] Processing interim segment:', { interimSpeaker, interimText });
-          const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : '';
-          console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
-        } else {
-           console.log('[Transcript] Skipping interim segment due to missing text:', { interimText, interimSpeaker });
-        }
-        break;
-
-      case 'transcript_segment':
-        const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
-        console.log('[Transcript] Received segment data:', { text: segmentText, speaker: segmentSpeaker, is_final });
-        console.log('[Transcript] Checking segment condition: segmentText && typeof segmentSpeaker === \'number\'', { segmentText, segmentSpeaker, conditionResult: segmentText && typeof segmentSpeaker === 'number' });
-
-        if (segmentText && typeof segmentSpeaker === 'number') {
-          console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, { speaker: segmentSpeaker, text: segmentText });
-          if (is_final) {
-            setTranscript(prevTranscript => {
-              const lines = prevTranscript.split('\n');
-              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-                lines.pop();
-              }
-              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
-            });
-          } else {
-            setTranscript(prevTranscript => {
-              const lines = prevTranscript.split('\n');
-              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
-                lines.pop();
-              }
-              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
-            });
+      switch (msgType) {
+        case 'transcript_segment':
+          if (!msgData || typeof msgData !== 'object') {
+            console.warn('Ignoring non-dict transcript_segment data:', msgData);
+            return;
           }
-        } else {
-          console.log('[Transcript] Skipping segment due to condition (text falsy or speaker not a number):', { text: segmentText, speaker: segmentSpeaker });
-        }
-        break;
-      
-      case 'suggestion':
-        if (typeof message.data === 'string') {
-          setSuggestion(message.data);
-        } else if (message.data && typeof message.data.toString === 'function') {
-          setSuggestion(message.data.toString());
-        } else if (message.suggestion) {
-          setSuggestion(message.suggestion);
-        }
-        break;
-      
-      case 'error':
-        console.error('Server error:', message.error || (message.data?.error));
-        toast({
-          title: "Error",
-          description: message.error || (message.data?.error) || "An unknown error occurred",
-          variant: "destructive"
-        });
-        break;
 
-      default:
-        if (message.transcript && typeof message.transcript === 'string') {
-          setTranscript(message.transcript);
-        }
-        if (message.suggestion && typeof message.suggestion === 'string') {
-          setSuggestion(message.suggestion);
-        }
-        break;
+          // Only process final segments for persistent display
+          if (!msgData.is_final) {
+            return;
+          }
+
+          // Default speaker to 0 if None/missing
+          const speaker = msgData.speaker ?? 0;
+          const text = (msgData.text || '').trim();
+          
+          if (!text) {
+            return; // Don't add empty segments
+          }
+
+          setTranscriptSegments(prevSegments => {
+            const isFirstSegment = prevSegments.length === 0;
+            const showLabel = isFirstSegment || prevSegments[prevSegments.length - 1].speaker !== speaker;
+            const isNewSpeakerTurn = showLabel && !isFirstSegment;
+
+            return [...prevSegments, {
+              speaker,
+              text,
+              show_speaker_label: showLabel,
+              is_new_speaker_turn: isNewSpeakerTurn
+            }];
+          });
+          break;
+
+        case 'suggestion':
+          console.log('Received Suggestion:', msgData);
+          setSuggestion(msgData);
+          setSuggestionsDisabled(false);
+          break;
+
+        case 'history':
+          console.log('Received History:', msgData);
+          setFullHistory(msgData);
+          break;
+
+        case 'status':
+          setConnectionStatus(`Status: ${msgData}`);
+          break;
+
+        case 'error':
+          const errorMsg = `Backend Error: ${msgData}`;
+          setErrorMessage(errorMsg);
+          console.error('Backend Error Message:', msgData);
+          toast({
+            title: "Error",
+            description: errorMsg,
+            variant: "destructive"
+          });
+          break;
+
+        default:
+          console.log('Received unknown message type:', msgType);
+      }
+    } catch (error) {
+      const errorMsg = `Error processing message: ${error}`;
+      setErrorMessage(errorMsg);
+      console.error(errorMsg);
+      toast({
+        title: "Error",
+        description: errorMsg,
+        variant: "destructive"
+      });
     }
   }, [toast]);
 
   const handleSuggest = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     console.log('handleSuggest called');
     setDebugLog(prev => [...prev, 'Suggestion requested']);
-    toast({
-      description: "Requesting suggestion...",
-    });
+    setSuggestion('Requesting...'); // Immediate feedback
+    setSuggestionsDisabled(true); // Disable button until suggestion is received
     
     const ws = getWebSocketInstance("");
     if (ws.isConnected()) {
@@ -113,16 +113,20 @@ export const useWebSocketMessages = () => {
       });
       console.log('Suggestion request sent with command format');
     } else {
-      setTimeout(() => {
-        setSuggestion('This is a sample suggestion based on your transcript. In a real application, this would be generated by an AI based on the recorded speech.');
-      }, 1000);
+      toast({
+        description: "Not connected to server",
+        variant: "destructive"
+      });
     }
   };
 
   const handleResetContext = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     console.log('handleResetContext called');
-    setTranscript('');
+    setTranscriptSegments([]); // Clear segments
     setSuggestion('');
+    setSuggestionsDisabled(false); // Enable suggestion button
+    setFullHistory([]);
+    setConnectionStatus('Resetting context...');
     setDebugLog(prev => [...prev, 'Context reset']);
     
     const ws = getWebSocketInstance(""); 
@@ -131,22 +135,49 @@ export const useWebSocketMessages = () => {
         command: "reset"
       });
       console.log('Reset command sent to server');
+    } else {
+      toast({
+        description: "Not connected to server",
+        variant: "destructive"
+      });
     }
-    
-    toast({
-      description: 'Context has been reset',
-    });
   };
 
+  const requestHistory = () => {
+    console.log('Requesting history...');
+    const ws = getWebSocketInstance("");
+    if (ws.isConnected()) {
+      ws.sendMessage({
+        command: "history"
+      });
+      console.log('History request sent');
+    } else {
+      toast({
+        description: "Not connected to server",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Format transcript for display
+  const formattedTranscript = transcriptSegments.map((segment, index) => {
+    const prefix = segment.show_speaker_label ? `Speaker ${segment.speaker}: ` : '';
+    const newline = segment.is_new_speaker_turn ? '\n' : '';
+    return `${newline}${prefix}${segment.text}`;
+  }).join('');
+
   return {
-    transcript,
+    transcript: formattedTranscript,
+    transcriptSegments,
     suggestion,
-    finalSegments,
-    currentInterimSegment,
+    suggestionsDisabled,
+    fullHistory,
+    connectionStatus,
+    errorMessage,
     handleWebSocketMessage,
     handleSuggest,
     handleResetContext,
-    setTranscript,
+    requestHistory,
     setSuggestion
   };
 }; 
