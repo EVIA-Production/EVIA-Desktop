@@ -9,11 +9,18 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
   
   // Refs to maintain audio processing objects between renders
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const sysSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micGainRef = useRef<GainNode | null>(null);
+  const sysGainRef = useRef<GainNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const sysStreamRef = useRef<MediaStream | null>(null);
   const audioFrameCountRef = useRef<number>(0);
   const messageHandlerRef = useRef<(() => void) | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const analyserIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
@@ -25,19 +32,22 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
     
     try {
       // Request both audio and screen capture permissions
-      const audioStream = await navigator.mediaDevices.getUserMedia({ 
+      const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
         } 
       });
+      micStreamRef.current = micStream;
+      
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
         video: { 
           displaySurface: "monitor" 
         },
         audio: true 
       });
+      sysStreamRef.current = displayStream;
       
       // Create audio context
       const audioContext = new AudioContext({
@@ -45,16 +55,34 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       });
       audioContextRef.current = audioContext;
       
-      // Create source for microphone stream
-      const micSource = audioContext.createMediaStreamSource(audioStream);
+      // Create sources for both streams
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      micSourceRef.current = micSource;
+      
+      // Create gain nodes for volume control
+      const micGain = audioContext.createGain();
+      const sysGain = audioContext.createGain();
+      const masterGain = audioContext.createGain();
+      
+      micGainRef.current = micGain;
+      sysGainRef.current = sysGain;
+      masterGainRef.current = masterGain;
+      
+      // Set initial gain values (adjust these as needed)
+      micGain.gain.value = 1.0;    // Microphone at full volume
+      sysGain.gain.value = 0.5;    // System audio at half volume
+      masterGain.gain.value = 1.0; // Master volume at full
       
       // Check if display stream has audio tracks
       const hasSystemAudio = displayStream.getAudioTracks().length > 0;
-      let sysSource: MediaStreamAudioSourceNode | null = null;
-      
       if (hasSystemAudio) {
         try {
-          sysSource = audioContext.createMediaStreamSource(displayStream);
+          const sysSource = audioContext.createMediaStreamSource(displayStream);
+          sysSourceRef.current = sysSource;
+          
+          // Connect system audio through its gain node
+          sysSource.connect(sysGain);
+          sysGain.connect(masterGain);
           addDebugLog('System audio capture enabled', setDebugLog);
         } catch (error) {
           console.warn('Failed to create system audio source:', error);
@@ -64,18 +92,33 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
         addDebugLog('System audio capture not available', setDebugLog);
       }
       
+      // Connect microphone through its gain node
+      micSource.connect(micGain);
+      micGain.connect(masterGain);
+      
+      // Create destination for the mixed audio
       const destination = audioContext.createMediaStreamDestination();
+      masterGain.connect(destination);
       
-      // Connect microphone source
-      micSource.connect(destination);
+      // Create analyser node for monitoring audio levels
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyserNodeRef.current = analyser;
+      masterGain.connect(analyser);
       
-      // Connect system audio source if available
-      if (sysSource) {
-        sysSource.connect(destination);
-      }
-      
-      // Save combined stream to ref for later cleanup
-      streamRef.current = destination.stream;
+      // Start monitoring audio levels
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      analyserIntervalRef.current = setInterval(() => {
+        if (analyserNodeRef.current) {
+          analyserNodeRef.current.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const averageLevel = sum / dataArray.length;
+          console.log(`Audio Level: ${averageLevel.toFixed(2)}`);
+        }
+      }, 500);
       
       // If we get here, permissions were granted
       setIsRecording(true);
@@ -94,9 +137,8 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
         
         addDebugLog('WebSocket connection initiated', setDebugLog);
         
-        // Create audio processor for the combined stream
+        // Create audio processor for the mixed stream
         const source = audioContext.createMediaStreamSource(destination.stream);
-        sourceRef.current = source;
         
         // ScriptProcessorNode is deprecated but widely supported
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -129,38 +171,40 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
         processor.connect(audioContext.destination);
         
         addDebugLog('Audio processing pipeline established', setDebugLog);
-        
-        // Clean up function to remove message handler and stop audio processing when unmounted
-        return () => {
-          if (messageHandlerRef.current) {
-            messageHandlerRef.current();
-            messageHandlerRef.current = null;
-          }
-          
-          if (processorRef.current && sourceRef.current && audioContextRef.current) {
-            processorRef.current.disconnect();
-            sourceRef.current.disconnect();
-            audioContextRef.current.close().catch(console.error);
-            processorRef.current = null;
-            sourceRef.current = null;
-            audioContextRef.current = null;
-          }
-          
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-          }
-          
-          // Stop all tracks from both streams
-          audioStream.getTracks().forEach(track => track.stop());
-          displayStream.getTracks().forEach(track => track.stop());
-        };
       }
       
-      // Clean up function to stop tracks when recording is stopped
+      // Clean up function to remove message handler and stop audio processing when unmounted
       return () => {
-        audioStream.getTracks().forEach(track => track.stop());
-        displayStream.getTracks().forEach(track => track.stop());
+        if (messageHandlerRef.current) {
+          messageHandlerRef.current();
+          messageHandlerRef.current = null;
+        }
+        
+        if (processorRef.current && source && audioContextRef.current) {
+          processorRef.current.disconnect();
+          source.disconnect();
+          audioContextRef.current.close().catch(console.error);
+          processorRef.current = null;
+          source = null;
+          audioContextRef.current = null;
+        }
+        
+        // Stop all tracks
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach(track => track.stop());
+          micStreamRef.current = null;
+        }
+        
+        if (sysStreamRef.current) {
+          sysStreamRef.current.getTracks().forEach(track => track.stop());
+          sysStreamRef.current = null;
+        }
+        
+        // Clear analyser interval
+        if (analyserIntervalRef.current) {
+          clearInterval(analyserIntervalRef.current);
+          analyserIntervalRef.current = null;
+        }
       };
     } catch (error) {
       console.error('Error getting media permissions:', error);
@@ -180,19 +224,59 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
     addDebugLog('Recording stopped', setDebugLog);
     
     // Clean up audio processing
-    if (processorRef.current && sourceRef.current && audioContextRef.current) {
+    if (processorRef.current && audioContextRef.current) {
       processorRef.current.disconnect();
-      sourceRef.current.disconnect();
-      audioContextRef.current.close().catch(console.error);
       processorRef.current = null;
-      sourceRef.current = null;
+    }
+    
+    // Disconnect and clean up gain nodes
+    if (micGainRef.current) {
+      micGainRef.current.disconnect();
+      micGainRef.current = null;
+    }
+    
+    if (sysGainRef.current) {
+      sysGainRef.current.disconnect();
+      sysGainRef.current = null;
+    }
+    
+    if (masterGainRef.current) {
+      masterGainRef.current.disconnect();
+      masterGainRef.current = null;
+    }
+    
+    // Disconnect and clean up sources
+    if (micSourceRef.current) {
+      micSourceRef.current.disconnect();
+      micSourceRef.current = null;
+    }
+    
+    if (sysSourceRef.current) {
+      sysSourceRef.current.disconnect();
+      sysSourceRef.current = null;
+    }
+    
+    // Close audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(console.error);
       audioContextRef.current = null;
     }
     
     // Stop all tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    
+    if (sysStreamRef.current) {
+      sysStreamRef.current.getTracks().forEach(track => track.stop());
+      sysStreamRef.current = null;
+    }
+    
+    // Clear analyser interval
+    if (analyserIntervalRef.current) {
+      clearInterval(analyserIntervalRef.current);
+      analyserIntervalRef.current = null;
     }
     
     // Remove message handler if it exists
