@@ -3,14 +3,6 @@ import { useWebSocketMessages } from './useWebSocketMessages';
 
 export const useRecording = () => {
   const {
-    isRecording,
-    isConnected,
-    handleStartRecording,
-    handleStopRecording,
-    setIsConnected
-  } = useAudioCapture();
-
-  const {
     transcript,
     suggestion,
     finalSegments,
@@ -21,6 +13,14 @@ export const useRecording = () => {
     setTranscript,
     setSuggestion
   } = useWebSocketMessages();
+
+  const {
+    isRecording,
+    isConnected,
+    handleStartRecording,
+    handleStopRecording,
+    setIsConnected
+  } = useAudioCapture(handleWebSocketMessage);
 
   return {
     isRecording,

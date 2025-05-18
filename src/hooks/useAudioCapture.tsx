@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
-export const useAudioCapture = () => {
+export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const { toast } = useToast();
@@ -13,6 +13,7 @@ export const useAudioCapture = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioFrameCountRef = useRef<number>(0);
+  const messageHandlerRef = useRef<(() => void) | null>(null);
 
   const addDebugLog = (message: string, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
@@ -86,6 +87,11 @@ export const useAudioCapture = () => {
         ws.connect();
         setIsConnected(true);
         
+        // Register message handler if provided
+        if (onWebSocketMessage) {
+          messageHandlerRef.current = ws.onMessage(onWebSocketMessage);
+        }
+        
         addDebugLog('WebSocket connection initiated', setDebugLog);
         
         // Create audio processor for the combined stream
@@ -126,6 +132,11 @@ export const useAudioCapture = () => {
         
         // Clean up function to remove message handler and stop audio processing when unmounted
         return () => {
+          if (messageHandlerRef.current) {
+            messageHandlerRef.current();
+            messageHandlerRef.current = null;
+          }
+          
           if (processorRef.current && sourceRef.current && audioContextRef.current) {
             processorRef.current.disconnect();
             sourceRef.current.disconnect();
@@ -182,6 +193,12 @@ export const useAudioCapture = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
+    }
+    
+    // Remove message handler if it exists
+    if (messageHandlerRef.current) {
+      messageHandlerRef.current();
+      messageHandlerRef.current = null;
     }
     
     // Close WebSocket connection when recording is stopped
