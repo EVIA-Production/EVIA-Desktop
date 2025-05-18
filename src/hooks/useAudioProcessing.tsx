@@ -1,240 +1,200 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
-interface TranscriptSegment {
-  speaker: number | null;
-  text: string;
-  show_speaker_label?: boolean;
-  is_new_speaker_turn?: boolean;
-}
-
 export const useAudioProcessing = () => {
-  // State management
-  const [isRecording, setIsRecording] = useState(false);
-  const [suggestionsDisabled, setSuggestionsDisabled] = useState(false);
-  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [latestSuggestion, setLatestSuggestion] = useState('');
-  const [fullHistory, setFullHistory] = useState<any[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState('Disconnected');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [transcript, setTranscript] = useState('');
+  const [suggestion, setSuggestion] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [finalSegments, setFinalSegments] = useState<{ speaker: number | null; text: string }[]>([]);
+  const [currentInterimSegment, setCurrentInterimSegment] = useState<{ speaker: number | null; text: string } | null>(null);
   const { toast } = useToast();
 
-  // Keep track of cleanup functions
-  const cleanupRef = useRef<(() => void) | null>(null);
-
-  // WebSocket message handler
+  // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((message: any) => {
     console.log('Received WebSocket message:', message);
     
-    try {
-      const data = typeof message === 'string' ? JSON.parse(message) : message;
-      const msgType = data.type;
-      const msgData = data.data;
+    switch (message.type) {
+      case 'transcript_utterance': // New type from backend for final utterances
+        const { text, speaker } = message.data || {}; // speaker is "Speaker X"
+        // Check condition for processing (text must be truthy, speaker must be a number)
+        console.log('[Transcript] Checking utterance condition: text && typeof speaker === \'number\'', { text, speaker, conditionResult: text && typeof speaker === 'number' });
 
-      switch (msgType) {
-        case 'transcript_segment':
-          if (!msgData || typeof msgData !== 'object') {
-            console.warn('Ignoring non-object transcript_segment data:', msgData);
-            return;
-          }
-
-          // Only process final segments for persistent display
-          if (!msgData.is_final) return;
-
-          // Default speaker to 0 if null/missing
-          const speaker = msgData.speaker ?? 0;
-          const text = (msgData.text || '').trim();
-          if (!text) return; // Don't add empty segments
-
-          // Determine if the speaker label should be shown
-          const isFirstSegment = transcriptSegments.length === 0;
-          let showLabel = true;
-          if (!isFirstSegment) {
-            const lastSegment = transcriptSegments[transcriptSegments.length - 1];
-            if (lastSegment.speaker === speaker) {
-              showLabel = false; // Don't show label if same speaker
-            }
-          }
-
-          // Determine if this segment starts a new speaker's turn
-          const isNewSpeakerTurn = showLabel && !isFirstSegment;
-
-          // Append the new segment
-          setTranscriptSegments(prev => [...prev, {
-            speaker,
-            text,
-            show_speaker_label: showLabel,
-            is_new_speaker_turn: isNewSpeakerTurn
-          }]);
-          break;
-
-        case 'suggestion':
-          console.log('Received Suggestion:', msgData);
-          setLatestSuggestion(msgData);
-          setSuggestionsDisabled(false);
-          break;
-
-        case 'history':
-          console.log('Received History:', msgData);
-          setFullHistory(msgData);
-          break;
-
-        case 'status':
-          setConnectionStatus(`Status: ${msgData}`);
-          break;
-
-        case 'error':
-          setErrorMessage(`Backend Error: ${msgData}`);
-          console.error('Backend Error Message:', msgData);
-          toast({
-            title: "Error",
-            description: msgData,
-            variant: "destructive"
-          });
-          break;
-
-        default:
-          console.log('Received unknown message type:', msgType);
-      }
-    } catch (error) {
-      setErrorMessage('Error processing message: ' + (error as Error).message);
-      console.error('Error processing message:', error);
-    }
-  }, [transcriptSegments, toast]);
-
-  // WebSocket event handlers
-  const handleOpen = useCallback(() => {
-    setConnectionStatus('Connected');
-    setIsRecording(true);
-    setSuggestionsDisabled(false);
-    setErrorMessage('');
-    setTranscriptSegments([]);
-    console.log('WebSocket Opened');
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setConnectionStatus('Disconnected');
-    setIsRecording(false);
-    console.log('WebSocket Closed');
-  }, []);
-
-  const handleError = useCallback((error: string) => {
-    setConnectionStatus('Error');
-    setErrorMessage(`WebSocket error: ${error}`);
-    setIsRecording(false);
-    console.error('WebSocket Error:', error);
-  }, []);
-
-  // Set up WebSocket connection and handlers
-  useEffect(() => {
-    // Clean up previous connection if it exists
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-
-    try {
-      const ws = getWebSocketInstance('');
-      
-      // Set up message handler
-      const removeMessageHandler = ws.onMessage(handleWebSocketMessage);
-      
-      // Set up connection change handler
-      const removeConnectionHandler = ws.onConnectionChange((connected) => {
-        if (connected) {
-          handleOpen();
+        if (text && typeof speaker === 'number') {
+          console.log('[Transcript] Processing final utterance:', { speaker, text });
+          // Add the finalized utterance to the list of final segments
+          setFinalSegments(prevSegments => [...prevSegments, { speaker, text }]);
+          // Clear the current interim segment
+          setCurrentInterimSegment(null);
         } else {
-          handleClose();
+          console.warn('[Transcript] Skipping final utterance due to condition (text falsy or speaker not a number):', { text, speaker });
         }
-      });
+        break;
 
-      // Store cleanup function
-      cleanupRef.current = () => {
-        removeMessageHandler();
-        removeConnectionHandler();
-        closeWebSocketInstance();
-      };
+      case 'transcript_interim': // New type for interim, fast updates
+        const { text: interimText, speaker: interimSpeaker } = message.data || {};
+        // Log raw interim data received
+        console.log('[Transcript] Received interim data:', { interimText, interimSpeaker });
 
-      // Connect the WebSocket
-      ws.connect();
-    } catch (error) {
-      console.error('Error setting up WebSocket:', error);
-      setErrorMessage('Failed to set up WebSocket connection');
+        // Update the current interim segment
+        setCurrentInterimSegment(interimText ? { speaker: interimSpeaker ?? null, text: interimText } : null);
+        
+        if (interimText) {
+          console.log('[Transcript] Processing interim segment:', { interimSpeaker, interimText });
+          const speakerLabel = interimSpeaker ? `${interimSpeaker}: ` : ''; // interimSpeaker might be null or "Speaker X"
+          console.log(`Interim: ${interimSpeaker ? interimSpeaker + ':' : ''} ${interimText}`);
+        } else {
+           console.log('[Transcript] Skipping interim segment due to missing text:', { interimText, interimSpeaker });
+        }
+        break;
+
+      case 'transcript_segment': // Handle both interim and final segments
+        const { text: segmentText, speaker: segmentSpeaker, is_final } = message.data || {};
+        
+        // Log raw segment data received
+        console.log('[Transcript] Received segment data:', { text: segmentText, speaker: segmentSpeaker, is_final });
+
+        // Check condition for processing (segmentText must be truthy, segmentSpeaker must be a number)
+        console.log('[Transcript] Checking segment condition: segmentText && typeof segmentSpeaker === \'number\'', { segmentText, segmentSpeaker, conditionResult: segmentText && typeof segmentSpeaker === 'number' });
+
+        if (segmentText && typeof segmentSpeaker === 'number') {
+          console.log(`[Transcript] Processing ${is_final ? 'FINAL' : 'INTERIM'} segment:`, { speaker: segmentSpeaker, text: segmentText });
+          if (is_final) {
+            // For final segments, append to the transcript
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                lines.pop(); // Remove interim line if present
+              }
+              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}\n`;
+            });
+          } else {
+            // For interim segments, update the last line
+            setTranscript(prevTranscript => {
+              const lines = prevTranscript.split('\n');
+              if (lines.length > 0 && !lines[lines.length - 1].endsWith('\n')) {
+                lines.pop(); // Remove previous interim line
+              }
+              return lines.join('\n') + `${segmentSpeaker}: ${segmentText}`;
+            });
+          }
+        } else {
+          console.log('[Transcript] Skipping segment due to condition (text falsy or speaker not a number):', { text: segmentText, speaker: segmentSpeaker });
+        }
+        break;
+      
+      case 'suggestion':
+        if (typeof message.data === 'string') {
+          setSuggestion(message.data);
+        } else if (message.data && typeof message.data.toString === 'function') {
+          setSuggestion(message.data.toString());
+        } else if (message.suggestion) { // Legacy
+          setSuggestion(message.suggestion);
+        }
+        break;
+      
+      case 'error':
+        console.error('Server error:', message.error || (message.data?.error));
+        toast({
+          title: "Error",
+          description: message.error || (message.data?.error) || "An unknown error occurred",
+          variant: "destructive"
+        });
+        break;
+
+      default:
+        // Handle direct transcript/suggestion fields if backend sends them (legacy or other message types)
+        if (message.transcript && typeof message.transcript === 'string') {
+          setTranscript(message.transcript); // Replace entire transcript
+        }
+        if (message.suggestion && typeof message.suggestion === 'string') {
+          setSuggestion(message.suggestion);
+        }
+        break;
     }
+  }, [toast]);
 
-    // Cleanup on unmount
+  const startProcessing = (chatId: string | null, setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
+    if (!chatId) return;
+
+    const ws = getWebSocketInstance(chatId);
+    ws.connect();
+    
+    // Register message handler
+    const removeMessageHandler = ws.onMessage(handleWebSocketMessage);
+    
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] WebSocket connection initiated`]);
+    
     return () => {
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
+      removeMessageHandler();
+      closeWebSocketInstance();
+      setDebugLog(prev => [...prev, `[${new Date().toISOString()}] WebSocket connection closed`]);
     };
-  }, [handleWebSocketMessage, handleOpen, handleClose]);
+  };
 
-  // Command sending helper
-  const sendCommand = useCallback((commandData: any) => {
-    const ws = getWebSocketInstance('');
+  const stopProcessing = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
+    closeWebSocketInstance();
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] WebSocket connection closed`]);
+  };
+
+  const handleSuggest = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
+    console.log('handleSuggest called');
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] Suggestion requested`]);
+    toast({
+      description: "Requesting suggestion...",
+    });
+    
+    const ws = getWebSocketInstance("");
     if (ws.isConnected()) {
-      console.log('Sending command:', commandData);
-      ws.sendMessage(commandData);
+      ws.sendMessage({
+        command: "suggest"
+      });
+      console.log('Suggestion request sent with command format');
     } else {
-      console.error('WebSocket not connected');
-      setErrorMessage('WebSocket not connected');
+      // Fallback for when WebSocket is not connected
+      setTimeout(() => {
+        setSuggestion('This is a sample suggestion based on your transcript. In a real application, this would be generated by an AI based on the recorded speech.');
+      }, 1000);
     }
-  }, []);
+  };
 
-  // Action handlers
-  const requestSuggestion = useCallback(() => {
-    console.log('Requesting suggestion...');
-    setLatestSuggestion('Requesting...');
-    setSuggestionsDisabled(true);
-    sendCommand({ command: 'suggest' });
-  }, [sendCommand]);
+  const handleResetContext = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
+    console.log('handleResetContext called');
+    setTranscript('');
+    setSuggestion('');
+    setDebugLog(prev => [...prev, `[${new Date().toISOString()}] Context reset`]);
+    
+    const ws = getWebSocketInstance("");
+    if (ws.isConnected()) {
+      ws.sendMessage({
+        command: "reset"
+      });
+      console.log('Reset command sent to server');
+    }
+    
+    toast({
+      description: 'Context has been reset',
+    });
+  };
 
-  const resetContext = useCallback(() => {
-    console.log('Requesting context reset...');
-    setTranscriptSegments([]);
-    setLatestSuggestion('');
-    setSuggestionsDisabled(false);
-    setFullHistory([]);
-    setConnectionStatus('Resetting context...');
-    sendCommand({ command: 'reset' });
-  }, [sendCommand]);
-
-  const requestHistory = useCallback(() => {
-    console.log('Requesting history...');
-    sendCommand({ command: 'history' });
-  }, [sendCommand]);
-
-  // Process audio data
-  const processAudioData = useCallback((data: Int16Array) => {
-    const ws = getWebSocketInstance('');
+  const processAudioData = (data: Int16Array) => {
+    const ws = getWebSocketInstance("");
     if (ws.isConnected()) {
       ws.sendBinaryData(data.buffer);
     }
-  }, []);
+  };
 
   return {
-    // State
-    isRecording,
-    suggestionsDisabled,
-    transcriptSegments,
-    latestSuggestion,
-    fullHistory,
-    connectionStatus,
-    errorMessage,
-
-    // Actions
-    requestSuggestion,
-    resetContext,
-    requestHistory,
+    transcript,
+    suggestion,
+    isConnected,
+    setIsConnected,
+    startProcessing,
+    stopProcessing,
+    handleSuggest,
+    handleResetContext,
     processAudioData,
-
-    // WebSocket handlers
-    handleWebSocketMessage,
-    handleOpen,
-    handleClose,
-    handleError
+    setTranscript,
+    setSuggestion
   };
 }; 
