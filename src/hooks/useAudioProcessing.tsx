@@ -123,6 +123,30 @@ export const useAudioProcessing = () => {
     console.error('WebSocket Error:', error);
   }, []);
 
+  // Set up WebSocket connection and handlers
+  useEffect(() => {
+    const ws = getWebSocketInstance('');
+    
+    // Set up message handler
+    const removeMessageHandler = ws.onMessage(handleWebSocketMessage);
+    
+    // Set up connection change handler
+    const removeConnectionHandler = ws.onConnectionChange((connected) => {
+      if (connected) {
+        handleOpen();
+      } else {
+        handleClose();
+      }
+    });
+
+    // Cleanup on unmount
+    return () => {
+      removeMessageHandler();
+      removeConnectionHandler();
+      closeWebSocketInstance();
+    };
+  }, [handleWebSocketMessage, handleOpen, handleClose]);
+
   // Command sending helper
   const sendCommand = useCallback((commandData: any) => {
     const ws = getWebSocketInstance('');
