@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
@@ -19,6 +19,9 @@ export const useAudioProcessing = () => {
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const [errorMessage, setErrorMessage] = useState('');
   const { toast } = useToast();
+
+  // Keep track of cleanup functions
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   // WebSocket message handler
   const handleWebSocketMessage = useCallback((message: any) => {
@@ -125,25 +128,47 @@ export const useAudioProcessing = () => {
 
   // Set up WebSocket connection and handlers
   useEffect(() => {
-    const ws = getWebSocketInstance('');
-    
-    // Set up message handler
-    const removeMessageHandler = ws.onMessage(handleWebSocketMessage);
-    
-    // Set up connection change handler
-    const removeConnectionHandler = ws.onConnectionChange((connected) => {
-      if (connected) {
-        handleOpen();
-      } else {
-        handleClose();
-      }
-    });
+    // Clean up previous connection if it exists
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
+
+    try {
+      const ws = getWebSocketInstance('');
+      
+      // Set up message handler
+      const removeMessageHandler = ws.onMessage(handleWebSocketMessage);
+      
+      // Set up connection change handler
+      const removeConnectionHandler = ws.onConnectionChange((connected) => {
+        if (connected) {
+          handleOpen();
+        } else {
+          handleClose();
+        }
+      });
+
+      // Store cleanup function
+      cleanupRef.current = () => {
+        removeMessageHandler();
+        removeConnectionHandler();
+        closeWebSocketInstance();
+      };
+
+      // Connect the WebSocket
+      ws.connect();
+    } catch (error) {
+      console.error('Error setting up WebSocket:', error);
+      setErrorMessage('Failed to set up WebSocket connection');
+    }
 
     // Cleanup on unmount
     return () => {
-      removeMessageHandler();
-      removeConnectionHandler();
-      closeWebSocketInstance();
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
     };
   }, [handleWebSocketMessage, handleOpen, handleClose]);
 
