@@ -1,5 +1,6 @@
-// Get environment variables
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+
+// Get environment variables with fallback to your backend URL
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io';
 export const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT;
 
 // Debug logs
