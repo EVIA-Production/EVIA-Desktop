@@ -78,6 +78,7 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
         <Button
           className="recording-btn bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={handleSuggest}
+          disabled={!isRecording}
         >
           <Lightbulb className="mr-1" size={20} />
           Suggest
