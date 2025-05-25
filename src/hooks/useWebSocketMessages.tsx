@@ -103,7 +103,7 @@ export const useWebSocketMessages = () => {
   const handleSuggest = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     console.log('handleSuggest called');
     setDebugLog(prev => [...prev, 'Suggestion requested']);
-    setSuggestion('Requesting...'); // Immediate feedback
+    setSuggestion('Requesting suggestion ...'); // Immediate feedback
     setSuggestionsDisabled(true); // Disable button until suggestion is received
     
     const ws = getWebSocketInstance("");

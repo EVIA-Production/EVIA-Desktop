@@ -53,8 +53,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     
     const processedContent = processContent();
     
-    // Add spaces after punctuation marks if they're missing
-    const formattedContent = processedContent
+    // Only apply formatting for non-suggestion content
+    const formattedContent = isSuggestion ? processedContent : processedContent
       .replace(/([.,!?])([^\s])/g, '$1 $2')  // Add space after punctuation if not followed by space
       .replace(/\s+/g, ' ')  // Normalize multiple spaces to single space
       .replace(/(Speaker \d+:)/g, '\n$1')  // Add line break before each Speaker
