@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
-import { LogIn } from 'lucide-react';
+import { LogIn, MessageSquare, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
@@ -24,7 +24,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       {/* Header */}
       <header className="p-4 flex justify-between items-center border-b border-border bg-black bg-opacity-60 backdrop-blur-md">
         <EviaLogo className="text-white" />
-        {!isAuthenticated && (
+        {!isAuthenticated ? (
           <div className="flex gap-3">
             <Link to="/login">
               <Button 
@@ -38,8 +38,26 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 variant="default" 
                 className="bg-primary text-primary-foreground hover:bg-primary/90">
                 Sign Up
-              </Button>
+                </Button>
             </Link>
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            {location.pathname !== '/chats' && (
+              <Link to="/chats">
+                <Button 
+                  variant="outline" 
+                  className="border-border bg-transparent hover:bg-accent text-muted-foreground">
+                  <MessageSquare className="mr-2 h-4 w-4" /> My Chats
+                </Button>
+              </Link>
+            )}
+            <Button 
+              onClick={handleLogout}
+              variant="outline" 
+              className="border-border bg-transparent hover:bg-accent text-muted-foreground">
+              <LogOut className="mr-2 h-4 w-4" /> Sign Out
+            </Button>
           </div>
         )}
       </header>

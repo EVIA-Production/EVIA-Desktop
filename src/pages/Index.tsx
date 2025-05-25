@@ -25,7 +25,6 @@ const Index = () => {
     handleStopRecording, 
     handleSuggest, 
     handleResetContext,
-    setTranscript,
     setSuggestion,
     setIsConnected: setRecordingIsConnected,
     setTranscriptSegments
@@ -90,30 +89,12 @@ const Index = () => {
       setChatId(existingChatId);
       addDebugLog(`Using existing chat ID: ${existingChatId}`);
     } else {
-      // Create a new chat when the user is authenticated
-      const createNewChat = async () => {
-        try {
-          addDebugLog('Creating new chat session...');
-          const newChatId = await chatService.createChat();
-          setChatId(newChatId);
-          addDebugLog(`Chat created successfully with ID: ${newChatId}`);
-          toast({
-            description: "Chat session created",
-          });
-        } catch (error) {
-          console.error('Failed to create chat:', error);
-          addDebugLog(`Failed to create chat: ${error instanceof Error ? error.message : String(error)}`);
-          toast({
-            title: "Error",
-            description: "Failed to create chat session",
-            variant: "destructive"
-          });
-        }
-      };
-      
-      createNewChat();
+      // If no chat is selected, redirect to chat list
+      console.log('No chat selected, redirecting to chat list');
+      navigate('/chats');
+      return;
     }
-  }, [isAuthenticated, isLoading, navigate, toast]);
+  }, [isAuthenticated, isLoading, navigate]);
 
   // Monitor WebSocket connection status when chatId is available
   useEffect(() => {
