@@ -1,4 +1,8 @@
 import React from 'react';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card } from '@/components/ui/card';
+import { Mic, MicOff, Lightbulb, RotateCcw } from 'lucide-react';
 import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import StatusIndicator from '@/components/StatusIndicator';
@@ -9,7 +13,7 @@ interface MainContentProps {
   suggestion: string;
   isConnected: boolean;
   chatId: string | null;
-  onStartRecording: () => void;
+  onStartRecording: () => Promise<() => void>;
   onStopRecording: () => void;
   onSuggest: () => void;
   onResetContext: () => void;
@@ -24,7 +28,7 @@ const MainContent: React.FC<MainContentProps> = ({
   onStopRecording,
   onSuggest,
   onResetContext,
-  isConnected, // Make sure we use the actual isConnected prop
+  isConnected,
   hasAccessToken
 }) => {
   return (
@@ -41,7 +45,7 @@ const MainContent: React.FC<MainContentProps> = ({
           onStopRecording={onStopRecording}
           onSuggest={onSuggest}
           onResetContext={onResetContext}
-          isConnected={isConnected} // Pass the actual connection status
+          isConnected={isConnected}
         />
       </div>
       

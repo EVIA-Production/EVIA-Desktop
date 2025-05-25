@@ -44,23 +44,35 @@ const Login = () => {
         });
         
         // Redirect to main page after successful login
-        navigate("/");
+        navigate("/chats");
       } else {
         // Show error message
         toast({
-          title: "Login Failed",
-          description: result.error || "Invalid username or password",
+          title: "Authentication Failed",
+          description: "The username or password you entered is incorrect. Please try again.",
           variant: "destructive",
         });
       }
     } catch (error) {
       console.error("Login error:", error);
       
+      // Extract the error message from the response
+      let errorMessage = "Failed to connect to server. Please check your network connection.";
+      if (error instanceof Error) {
+        try {
+          const errorData = JSON.parse(error.message);
+          if (errorData.detail) {
+            errorMessage = errorData.detail;
+          }
+        } catch {
+          // If parsing fails, use the original error message
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
-        title: "Login Failed",
-        description: error instanceof Error 
-          ? error.message 
-          : "Failed to connect to server. Please check your network connection.",
+        title: "Authentication Failed",
+        description: errorMessage,
         variant: "destructive",
       });
     }

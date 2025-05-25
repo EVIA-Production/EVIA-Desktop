@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
+import { chatService } from '@/services/chatService';
 
 export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -31,6 +32,12 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
     console.log('handleStartRecording called');
     
     try {
+      // Update chat's last_used_at timestamp
+      if (chatId) {
+        await chatService.updateLastUsed(chatId);
+        addDebugLog('Updated chat last used timestamp', setDebugLog);
+      }
+
       // Request both audio and screen capture permissions
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {

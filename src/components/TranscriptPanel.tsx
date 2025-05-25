@@ -53,7 +53,14 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     
     const processedContent = processContent();
     
-    return processedContent.split('\n').map((line, lineIndex) => (
+    // Add spaces after punctuation marks if they're missing
+    const formattedContent = processedContent
+      .replace(/([.,!?])([^\s])/g, '$1 $2')  // Add space after punctuation if not followed by space
+      .replace(/\s+/g, ' ')  // Normalize multiple spaces to single space
+      .replace(/(Speaker \d+:)/g, '\n$1')  // Add line break before each Speaker
+      .trim();  // Remove any leading/trailing whitespace
+    
+    return formattedContent.split('\n').map((line, lineIndex) => (
       <div key={`line-${lineIndex}`} className="mb-2 last:mb-0">
         <span className="animate-fadeIn">{line}</span>
       </div>
@@ -66,7 +73,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         <span className="mr-2 w-2 h-2 rounded-full bg-evia-pink animate-pulse"></span>
         {title}
       </h2>
-      <ScrollArea className="flex-1 p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
+      <ScrollArea className="h-[400px] p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
         <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
           {renderContent()}
         </div>

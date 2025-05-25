@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
@@ -28,7 +27,8 @@ const Index = () => {
     handleResetContext,
     setTranscript,
     setSuggestion,
-    setIsConnected: setRecordingIsConnected
+    setIsConnected: setRecordingIsConnected,
+    setTranscriptSegments
   } = useRecording();
   
   // Add a debug logging function
@@ -36,6 +36,37 @@ const Index = () => {
     setDebugLog(prev => [...prev, `[${new Date().toISOString()}] ${message}`]);
     console.log(`DEBUG: ${message}`);
   };
+
+  // Load past transcripts when chat is selected
+  useEffect(() => {
+    if (!chatId) return;
+
+    const loadPastTranscripts = async () => {
+      try {
+        const transcripts = await chatService.getChatTranscripts(chatId);
+        if (transcripts.length > 0) {
+          // Convert transcripts to segments format
+          const segments = transcripts.map(transcript => ({
+            speaker: 0, // Default speaker for past transcripts
+            text: transcript.content,
+            show_speaker_label: true,
+            is_new_speaker_turn: true
+          }));
+          setTranscriptSegments(segments);
+          addDebugLog(`Loaded ${transcripts.length} past transcripts`);
+        }
+      } catch (error) {
+        console.error('Error loading past transcripts:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load past transcripts",
+          variant: "destructive"
+        });
+      }
+    };
+
+    loadPastTranscripts();
+  }, [chatId, toast]);
   
   useEffect(() => {
     console.log('Index component mounted');
@@ -54,7 +85,7 @@ const Index = () => {
     }
     
     // Check for existing chat ID
-    const existingChatId = chatService.getCurrentChatId();
+    const existingChatId = localStorage.getItem('selectedChatId');
     if (existingChatId) {
       setChatId(existingChatId);
       addDebugLog(`Using existing chat ID: ${existingChatId}`);
@@ -107,9 +138,9 @@ const Index = () => {
     );
   }
   
-  // If the redirect is happening, don't render the full content
-  if (!isAuthenticated) {
-    return <div>Redirecting to login...</div>;
+  // If not authenticated or no chat selected, don't render the content (will be redirected)
+  if (!isAuthenticated || !chatId) {
+    return null;
   }
   
   const onStartRecordingWrapper = () => {
@@ -128,25 +159,23 @@ const Index = () => {
   const onResetContextWrapper = () => {
     handleResetContext(setDebugLog);
   };
-  
+
   return (
     <AppLayout>
-      <main className="flex-1 flex flex-col">
-        <ChatStatus chatId={chatId} />
-        
-        <MainContent 
+      <div className="flex flex-col h-full">
+        <MainContent
           isRecording={isRecording}
           transcript={transcript}
           suggestion={suggestion}
-          isConnected={isConnected}
-          chatId={chatId}
           onStartRecording={onStartRecordingWrapper}
           onStopRecording={onStopRecordingWrapper}
           onSuggest={onSuggestWrapper}
           onResetContext={onResetContextWrapper}
+          isConnected={isConnected}
+          chatId={chatId}
           hasAccessToken={hasAccessToken}
         />
-      </main>
+      </div>
     </AppLayout>
   );
 };

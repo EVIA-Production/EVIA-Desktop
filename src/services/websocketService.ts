@@ -32,8 +32,16 @@ export class ChatWebSocket {
 
   connect() {
     try {
-      // Connect to the WebSocket server
-      this.ws = new WebSocket(`${WS_BASE_URL}/ws/transcribe`);
+      // Get the authentication token
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        console.error('No authentication token found');
+        return;
+      }
+
+      // Connect to the WebSocket server with chat_id and token as query parameters
+      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${this.chatId}&token=${token}`;
+      this.ws = new WebSocket(wsUrl);
       
       // Set up event handlers
       this.ws.onopen = () => {

@@ -178,6 +178,7 @@ export const useWebSocketMessages = () => {
     handleSuggest,
     handleResetContext,
     requestHistory,
-    setSuggestion
+    setSuggestion,
+    setTranscriptSegments
   };
 }; 
