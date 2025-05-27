@@ -84,6 +84,17 @@ export const useChatList = () => {
     }
   };
 
+  const deleteChat = async (chatId: string) => {
+    try {
+      await chatService.deleteChat(chatId);
+      // Refresh the chat list to remove the deleted chat
+      await fetchChats();
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      throw error;
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString();
   };
@@ -94,6 +105,7 @@ export const useChatList = () => {
     createNewChat,
     selectChat,
     updateChatName,
+    deleteChat,
     formatDate,
   };
 }; 

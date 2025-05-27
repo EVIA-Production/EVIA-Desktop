@@ -229,5 +229,37 @@ export const chatService = {
       console.error('Error updating chat name:', error);
       throw error;
     }
+  },
+
+  /**
+   * Deletes a chat
+   * @param chatId The ID of the chat to delete
+   */
+  async deleteChat(chatId: string): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const tokenType = localStorage.getItem('token_type') || 'Bearer';
+      
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/chat/${chatId}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `${tokenType} ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Failed to delete chat:', errorText);
+        throw new Error(`Failed to delete chat: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      throw error;
+    }
   }
 };

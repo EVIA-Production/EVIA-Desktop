@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, MessageSquare, Calendar, Clock, ChevronRight, Edit2, Check, X } from 'lucide-react';
+import { Plus, MessageSquare, Calendar, Clock, ChevronRight, Edit2, Check, X, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { useChatList } from '@/hooks/useChatList';
 import { motion } from 'framer-motion';
@@ -9,14 +9,25 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ChatList = () => {
-  const { chats, loading, createNewChat, formatDate, updateChatName } = useChatList();
+  const { chats, loading, createNewChat, formatDate, updateChatName, deleteChat } = useChatList();
   const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     // Don't redirect while still loading authentication state
@@ -62,6 +73,31 @@ const ChatList = () => {
   const handleCancelEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingChatId(null);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    setChatToDelete(chatId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!chatToDelete) return;
+    
+    try {
+      await deleteChat(chatToDelete);
+      toast({
+        title: 'Success',
+        description: 'Chat deleted successfully',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete chat. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setChatToDelete(null);
+    }
   };
 
   // Show loading while checking authentication
@@ -185,6 +221,14 @@ const ChatList = () => {
                             >
                               <Edit2 className="h-4 w-4 text-gray-400 hover:text-primary" />
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleDeleteClick(e, String(chat.id))}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="h-4 w-4 text-gray-400 hover:text-red-500" />
+                            </Button>
                           </div>
                         )}
                         <div className="flex items-center space-x-4 text-sm text-gray-400">
@@ -206,6 +250,26 @@ const ChatList = () => {
             ))}
           </div>
         )}
+
+        <AlertDialog open={!!chatToDelete} onOpenChange={() => setChatToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the chat and all its messages.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDelete}
+                className="bg-red-500 hover:bg-red-600 text-white"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
