@@ -1,17 +1,22 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, MessageSquare, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { Plus, MessageSquare, Calendar, Clock, ChevronRight, Edit2, Check, X } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { useChatList } from '@/hooks/useChatList';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 
 const ChatList = () => {
-  const { chats, loading, createNewChat, formatDate } = useChatList();
+  const { chats, loading, createNewChat, formatDate, updateChatName } = useChatList();
   const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useAuth();
+  const { toast } = useToast();
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   useEffect(() => {
     // Don't redirect while still loading authentication state
@@ -28,6 +33,35 @@ const ChatList = () => {
   const handleChatSelect = (chatId: string) => {
     localStorage.setItem('selectedChatId', chatId);
     navigate('/');
+  };
+
+  const handleEditClick = (e: React.MouseEvent, chatId: string, currentName: string) => {
+    e.stopPropagation();
+    setEditingChatId(chatId);
+    setEditingName(currentName);
+  };
+
+  const handleSaveEdit = async (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    try {
+      await updateChatName(chatId, editingName);
+      setEditingChatId(null);
+      toast({
+        title: 'Success',
+        description: 'Chat name updated successfully',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update chat name. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingChatId(null);
   };
 
   // Show loading while checking authentication
@@ -115,7 +149,44 @@ const ChatList = () => {
                         <MessageSquare className="h-6 w-6 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold text-white">Chat {index + 1}</h3>
+                        {editingChatId === String(chat.id) ? (
+                          <div className="flex items-center space-x-2">
+                            <Input
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="bg-background/50 text-white border-border"
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleSaveEdit(e, String(chat.id))}
+                              className="text-green-500 hover:text-green-600"
+                            >
+                              <Check className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelEdit}
+                              className="text-red-500 hover:text-red-600"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2">
+                            <h3 className="text-lg font-semibold text-white">{chat.name || `Chat ${index + 1}`}</h3>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleEditClick(e, String(chat.id), chat.name || `Chat ${index + 1}`)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Edit2 className="h-4 w-4 text-gray-400 hover:text-primary" />
+                            </Button>
+                          </div>
+                        )}
                         <div className="flex items-center space-x-4 text-sm text-gray-400">
                           <div className="flex items-center">
                             <Calendar className="mr-1 h-4 w-4" />

@@ -2,6 +2,7 @@ import { API_BASE_URL } from '../config/config';
 
 interface ChatResponse {
   id: number;
+  name: string;
   created_at: string;
   last_used_at: string;
   user_id: string;
@@ -193,6 +194,39 @@ export const chatService = {
       return await response.json();
     } catch (error) {
       console.error('Error fetching transcripts:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Updates the name of a chat
+   * @param chatId The ID of the chat to update
+   * @param name The new name for the chat
+   */
+  async updateChatName(chatId: string, name: string): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const tokenType = localStorage.getItem('token_type') || 'Bearer';
+      
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/chat/${chatId}/update-name/?name=${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `${tokenType} ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Failed to update chat name:', errorText);
+        throw new Error(`Failed to update chat name: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Error updating chat name:', error);
       throw error;
     }
   }

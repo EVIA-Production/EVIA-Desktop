@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface Chat {
   id: number;
+  name: string;
   created_at: string;
   last_used_at: string;
   user_id: string;
@@ -72,6 +73,17 @@ export const useChatList = () => {
     }
   };
 
+  const updateChatName = async (chatId: string, name: string) => {
+    try {
+      await chatService.updateChatName(chatId, name);
+      // Refresh the chat list to show the updated name
+      await fetchChats();
+    } catch (error) {
+      console.error('Error updating chat name:', error);
+      throw error;
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString();
   };
@@ -81,6 +93,7 @@ export const useChatList = () => {
     loading,
     createNewChat,
     selectChat,
+    updateChatName,
     formatDate,
   };
 }; 
