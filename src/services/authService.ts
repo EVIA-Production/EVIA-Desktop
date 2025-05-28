@@ -22,9 +22,12 @@ interface UserProfile {
   email: string;
   full_name: string;
   disabled: boolean;
-  isAdmin?: boolean;
+  is_admin?: boolean;
 }
 
+interface UserListResponse {
+  users: UserProfile[];
+}
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<boolean> {
@@ -185,5 +188,42 @@ export const authService = {
 
   isAuthenticated(): boolean {
     return localStorage.getItem("auth_token") !== null;
+  },
+
+  async getAllUsers(): Promise<UserProfile[]> {
+    const token = localStorage.getItem("auth_token");
+    const tokenType = localStorage.getItem("token_type");
+    
+    if (!token || !tokenType) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/users/`, {
+        headers: {
+          "Authorization": `${tokenType} ${token}`,
+          "Accept": "application/json",
+          "Origin": window.location.origin
+        },
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized - Admin access required");
+        }
+        if (response.status === 403) {
+          throw new Error("Forbidden - Admin access required");
+        }
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to fetch users");
+      }
+
+      const data: UserListResponse = await response.json();
+      return data.users;
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      throw error;
+    }
   }
 };

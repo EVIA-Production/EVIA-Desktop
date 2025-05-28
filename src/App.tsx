@@ -11,6 +11,8 @@ import Register from "./pages/Register";
 import ChatList from "./pages/ChatList";
 import NotFound from "./pages/NotFound";
 import AdminPage from "./pages/AdminPage";
+import UserDetailPage from "./pages/UserDetailPage";
+import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 
 const queryClient = new QueryClient();
 
@@ -32,7 +34,22 @@ const App = () => {
               <Route path="/chats" element={<ChatList />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/admin" element={<AdminPage />} />
+              <Route 
+                path="/admin" 
+                element={
+                  <ProtectedAdminRoute>
+                    <AdminPage />
+                  </ProtectedAdminRoute>
+                } 
+              />
+              <Route 
+                path="/admin/users/:username" 
+                element={
+                  <ProtectedAdminRoute>
+                    <UserDetailPage />
+                  </ProtectedAdminRoute>
+                } 
+              />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
