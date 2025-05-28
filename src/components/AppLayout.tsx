@@ -63,7 +63,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 bg-gradient-to-br from-black via-black to-purple-950/20">
+      <div className="flex-1 flex flex-col bg-gradient-to-br from-black via-black to-purple-950/20 p-4 min-h-0">
         {children}
       </div>
       
