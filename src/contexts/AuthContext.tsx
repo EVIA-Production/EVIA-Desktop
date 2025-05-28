@@ -7,6 +7,7 @@ interface UserProfile {
   email: string;
   full_name: string;
   disabled: boolean;
+  is_admin?: boolean;
 }
 
 interface AuthContextType {
@@ -60,6 +61,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (user) {
           setUser(user);
           console.log("User authenticated from stored token:", user.username);
+          console.log("AuthContext user state after load:", user);
         } else {
           // If getCurrentUser returns null (invalid token), clear localStorage
           authService.logout();
@@ -86,6 +88,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (success) {
         const user = await authService.getCurrentUser();
         setUser(user);
+        console.log("AuthContext user state after login:", user);
         return { success: true };
       }
       return { success: false, error: "Invalid username or password. Please try again." };

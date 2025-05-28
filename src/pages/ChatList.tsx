@@ -29,18 +29,6 @@ const ChatList = () => {
   const [editingName, setEditingName] = useState('');
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Don't redirect while still loading authentication state
-    if (isLoading) {
-      return;
-    }
-    
-    // Redirect to login if not authenticated
-    if (!isAuthenticated) {
-      navigate('/login');
-    }
-  }, [isAuthenticated, isLoading, navigate]);
-
   const handleChatSelect = (chatId: string) => {
     localStorage.setItem('selectedChatId', chatId);
     navigate('/');

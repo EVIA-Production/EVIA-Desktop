@@ -10,7 +10,7 @@ interface AppLayoutProps {
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -43,6 +43,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         ) : (
           <div className="flex gap-3">
+            {isAuthenticated && user?.is_admin && location.pathname === '/chats' && (
+              <Link to="/admin">
+                <Button 
+                  variant="outline" 
+                  className="border-border bg-transparent hover:bg-accent text-muted-foreground">
+                  Admin
+                </Button>
+              </Link>
+            )}
             {location.pathname !== '/chats' && (
               <Link to="/chats">
                 <Button 

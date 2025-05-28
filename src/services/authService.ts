@@ -22,6 +22,7 @@ interface UserProfile {
   email: string;
   full_name: string;
   disabled: boolean;
+  isAdmin?: boolean;
 }
 
 
