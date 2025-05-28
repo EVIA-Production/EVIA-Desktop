@@ -238,7 +238,7 @@ const ChatList = () => {
                           </div>
                           <div className="flex items-center">
                             <Clock className="mr-1 h-4 w-4" />
-                            {new Date(chat.last_used_at || chat.created_at).toLocaleTimeString()}
+                            {new Date(chat.last_used_at || chat.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
                         </div>
                       </div>
