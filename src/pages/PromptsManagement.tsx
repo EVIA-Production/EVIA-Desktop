@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,55 +22,27 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-
-interface Prompt {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-  isActive: boolean;
-}
-
-// Mock data
-const mockPrompts: Prompt[] = [
-  {
-    id: '1',
-    name: 'General Assistant',
-    description: 'A helpful assistant for general questions',
-    content: 'You are a helpful assistant that provides clear and concise answers.',
-    createdAt: '2024-03-15T10:00:00Z',
-    updatedAt: '2024-03-15T10:00:00Z',
-    isActive: true,
-  },
-  {
-    id: '2',
-    name: 'Code Expert',
-    description: 'Specialized in programming and technical questions',
-    content: 'You are a programming expert that helps with code-related questions.',
-    createdAt: '2024-03-15T11:00:00Z',
-    updatedAt: '2024-03-15T11:00:00Z',
-    isActive: false,
-  },
-];
+import { promptService, SystemPrompt } from '@/services/promptService';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const PromptsManagement = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [prompts, setPrompts] = useState<Prompt[]>(mockPrompts);
+  const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState<Prompt | null>(null);
-  const [newPrompt, setNewPrompt] = useState<Omit<Prompt, 'id' | 'createdAt' | 'updatedAt'>>({
+  const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
+  const [newPrompt, setNewPrompt] = useState<Omit<SystemPrompt, 'id' | 'created_at' | 'updated_at'>>({
     name: '',
     description: '',
     content: '',
-    isActive: false,
+    is_active: false,
   });
+  const [searchTerm, setSearchTerm] = useState('');
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isLoading) return;
     
     if (!isAuthenticated) {
@@ -82,60 +54,140 @@ const PromptsManagement = () => {
       navigate('/');
       return;
     }
+
+    fetchPrompts();
   }, [isAuthenticated, isLoading, user, navigate]);
 
-  const handleAddPrompt = () => {
-    const prompt: Prompt = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...newPrompt,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setPrompts([...prompts, prompt]);
-    setNewPrompt({ name: '', description: '', content: '', isActive: false });
-    setIsAddDialogOpen(false);
-    toast({
-      title: "Success",
-      description: "Prompt added successfully",
-    });
+  const fetchPrompts = async () => {
+    try {
+      setIsLoadingPrompts(true);
+      const data = await promptService.getPrompts();
+      setPrompts(data);
+    } catch (error) {
+      console.error('Failed to fetch prompts:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch prompts",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPrompts(false);
+    }
   };
 
-  const handleEditPrompt = () => {
+  const handleAddPrompt = async () => {
+    try {
+      // Call the service to create the prompt
+      await promptService.createPrompt(newPrompt);
+
+      // Close dialog and reset form
+      setIsAddDialogOpen(false);
+      setNewPrompt({ name: '', description: '', content: '', is_active: false });
+
+      // Refetch prompts to get the newly created one and update list
+      fetchPrompts();
+      
+      toast({
+        title: "Success",
+        description: "Prompt added successfully",
+      });
+    } catch (error) {
+      console.error('Failed to add prompt:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add prompt",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditPrompt = async () => {
     if (!editingPrompt) return;
     
-    setPrompts(prompts.map(p => 
-      p.id === editingPrompt.id 
-        ? { ...editingPrompt, updatedAt: new Date().toISOString() }
-        : p
-    ));
-    setEditingPrompt(null);
-    setIsEditDialogOpen(false);
-    toast({
-      title: "Success",
-      description: "Prompt updated successfully",
-    });
+    try {
+      const updatedPrompt = await promptService.updatePrompt(editingPrompt.id.toString(), editingPrompt);
+      setPrompts(prompts.map(p => 
+        p.id === updatedPrompt.id 
+          ? updatedPrompt
+          : p
+      ));
+      setEditingPrompt(null);
+      setIsEditDialogOpen(false);
+      toast({
+        title: "Success",
+        description: "Prompt updated successfully",
+      });
+    } catch (error) {
+      console.error('Failed to update prompt:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update prompt",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDeletePrompt = (id: string) => {
-    setPrompts(prompts.filter(p => p.id !== id));
-    toast({
-      title: "Success",
-      description: "Prompt deleted successfully",
-    });
+  const handleDeletePrompt = async (id: string) => {
+    try {
+      await promptService.deletePrompt(id);
+      setPrompts(prompts.filter(p => p.id !== id));
+      toast({
+        title: "Success",
+        description: "Prompt deleted successfully",
+      });
+    } catch (error) {
+      console.error('Failed to delete prompt:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete prompt",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleToggleActive = (id: string) => {
-    setPrompts(prompts.map(p => ({
-      ...p,
-      isActive: p.id === id ? !p.isActive : false
-    })));
-    toast({
-      title: "Success",
-      description: "Active prompt updated successfully",
-    });
+  const handleToggleActive = async (id: string) => {
+    const promptToToggle = prompts.find(p => p.id === id);
+    if (!promptToToggle) return;
+
+    try {
+      // Call the service to set the active status
+      await promptService.setActiveStatus(id, !promptToToggle.is_active);
+
+      // Refetch prompts to get the updated active status for all prompts
+      fetchPrompts(); 
+      
+      toast({
+        title: "Success",
+        description: "Active prompt updated successfully",
+      });
+    } catch (error) {
+      console.error('Failed to toggle prompt status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update active prompt",
+        variant: "destructive",
+      });
+      // If there's an error, refetch prompts to revert optimistic update if necessary
+      fetchPrompts(); 
+    }
   };
 
-  if (isLoading) {
+  const filteredPrompts = prompts.filter(prompt => {
+    const searchMatch = prompt.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        prompt.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (prompt.description && prompt.description.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    return searchMatch;
+  });
+
+  // Sort prompts to show active first
+  const sortedPrompts = [...filteredPrompts].sort((a, b) => {
+    if (a.is_active && !b.is_active) return -1; // a is active, b is not: a comes first
+    if (!a.is_active && b.is_active) return 1;  // b is active, a is not: b comes first
+    return 0; // both are active or inactive: maintain original order
+  });
+
+  if (isLoading || isLoadingPrompts) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-full">
@@ -184,7 +236,7 @@ const PromptsManagement = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Description</label>
                   <Input
-                    value={newPrompt.description}
+                    value={newPrompt.description || ''}
                     onChange={(e) => setNewPrompt({ ...newPrompt, description: e.target.value })}
                     placeholder="Enter prompt description"
                   />
@@ -206,96 +258,92 @@ const PromptsManagement = () => {
           </Dialog>
         </div>
 
-        <div className="bg-card/50 rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {prompts.map((prompt) => (
-                <TableRow key={prompt.id} className={prompt.isActive ? 'bg-primary/10' : ''}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {prompt.name}
-                      {prompt.isActive && (
-                        <CheckCircle2 className="h-4 w-4 text-primary" />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{prompt.description}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleToggleActive(prompt.id)}
-                        className={prompt.isActive ? 'text-primary' : ''}
-                      >
-                        {prompt.isActive ? 'Active' : 'Set Active'}
-                      </Button>
-                      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setEditingPrompt(prompt)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Edit Prompt</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                              <label className="text-sm font-medium">Name</label>
-                              <Input
-                                value={editingPrompt?.name || ''}
-                                onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, name: e.target.value } : null)}
-                                placeholder="Enter prompt name"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-sm font-medium">Description</label>
-                              <Input
-                                value={editingPrompt?.description || ''}
-                                onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, description: e.target.value } : null)}
-                                placeholder="Enter prompt description"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-sm font-medium">Content</label>
-                              <Textarea
-                                value={editingPrompt?.content || ''}
-                                onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, content: e.target.value } : null)}
-                                placeholder="Enter prompt content"
-                                className="min-h-[100px]"
-                              />
-                            </div>
-                            <Button onClick={handleEditPrompt} className="w-full">
-                              Save Changes
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeletePrompt(prompt.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
+        <div className="mb-6 w-full">
+          <Input
+            placeholder="Search prompts..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full"
+          />
+        </div>
+
+        <div className="space-y-4">
+          {sortedPrompts.map((prompt) => (
+            <div key={prompt.id} className={`bg-card/50 rounded-lg border border-border p-4 flex items-center justify-between ${prompt.is_active ? 'border-primary/50 bg-primary/10' : ''}`}>
+              <div className="flex-1 pr-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-lg font-semibold">{prompt.name}</h3>
+                  {prompt.is_active && (
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                  )}
+                </div>
+                <p className="text-gray-400 text-sm truncate">{prompt.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleToggleActive(prompt.id)}
+                  className={prompt.is_active ? 'text-primary' : ''}
+                >
+                  {prompt.is_active ? 'Active' : 'Set Active'}
+                </Button>
+                <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditingPrompt(prompt)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Edit Prompt</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Name</label>
+                        <Input
+                          value={editingPrompt?.name || ''}
+                          onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, name: e.target.value } : null)}
+                          placeholder="Enter prompt name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Description</label>
+                        <Input
+                          value={editingPrompt?.description || ''}
+                          onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, description: e.target.value } : null)}
+                          placeholder="Enter prompt description"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Content</label>
+                        <Textarea
+                          value={editingPrompt?.content || ''}
+                          onChange={(e) => setEditingPrompt(editingPrompt ? { ...editingPrompt, content: e.target.value } : null)}
+                          placeholder="Enter prompt content"
+                          className="min-h-[100px]"
+                        />
+                      </div>
+                      <Button onClick={handleEditPrompt} className="w-full">
+                        Save Changes
                       </Button>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleDeletePrompt(prompt.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </AppLayout>
