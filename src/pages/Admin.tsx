@@ -5,8 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Loader2, Shield } from 'lucide-react';
+import { Loader2, Shield, ArrowLeft, Search, Filter, Pencil } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -15,6 +14,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface UserProfile {
   username: string;
@@ -24,27 +31,27 @@ interface UserProfile {
   is_admin?: boolean;
 }
 
-const Admin = () => {
+type FilterType = 'all' | 'active' | 'disabled' | 'admin' | 'non-admin';
+
+const UserManagement = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<FilterType>('all');
   const { isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    // Don't redirect while still loading authentication state
-    if (isLoading) {
-      return;
-    }
+    if (isLoading) return;
     
-    // Redirect to login if not authenticated
     if (!isAuthenticated) {
       navigate('/login');
       return;
     }
 
-    // Redirect to home if not admin
     if (!user?.is_admin) {
       navigate('/');
       return;
@@ -53,10 +60,42 @@ const Admin = () => {
     loadUsers();
   }, [isAuthenticated, isLoading, user, navigate]);
 
+  useEffect(() => {
+    let filtered = users;
+
+    // Apply search filter
+    if (searchQuery.trim() !== '') {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(user => 
+        user.username.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply status filter
+    switch (filter) {
+      case 'active':
+        filtered = filtered.filter(user => !user.disabled);
+        break;
+      case 'disabled':
+        filtered = filtered.filter(user => user.disabled);
+        break;
+      case 'admin':
+        filtered = filtered.filter(user => user.is_admin);
+        break;
+      case 'non-admin':
+        filtered = filtered.filter(user => !user.is_admin);
+        break;
+    }
+
+    setFilteredUsers(filtered);
+  }, [searchQuery, filter, users]);
+
   const loadUsers = async () => {
     try {
       const fetchedUsers = await authService.getAllUsers();
       setUsers(fetchedUsers);
+      setFilteredUsers(fetchedUsers);
     } catch (error) {
       toast({
         title: "Error",
@@ -68,8 +107,10 @@ const Admin = () => {
     }
   };
 
+  const handleEdit = (username: string) => {
+    navigate(`/admin/users/${username}`);
+  };
 
-  // Show loading while checking authentication
   if (isLoading || loading) {
     return (
       <AppLayout>
@@ -85,8 +126,45 @@ const Admin = () => {
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Admin Dashboard</h1>
+            <Button
+              variant="ghost"
+              className="mb-4"
+              onClick={() => navigate('/admin')}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Dashboard
+            </Button>
+            <h1 className="text-4xl font-bold text-white mb-2">User Management</h1>
             <p className="text-gray-400">Manage user permissions and access</p>
+          </div>
+        </div>
+
+        <div className="flex gap-4 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-card/50 border-border"
+            />
+          </div>
+          <div className="w-[200px]">
+            <Select value={filter} onValueChange={(value: FilterType) => setFilter(value)}>
+              <SelectTrigger className="bg-card/50 border-border">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  <SelectValue placeholder="Filter users" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Users</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="disabled">Disabled</SelectItem>
+                <SelectItem value="admin">Admins</SelectItem>
+                <SelectItem value="non-admin">Non-Admins</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -96,43 +174,34 @@ const Admin = () => {
               <TableRow>
                 <TableHead>Username</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Full Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Admin Access</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => (
+              {filteredUsers.map((user) => (
                 <TableRow key={user.username}>
                   <TableCell className="font-medium">{user.username}</TableCell>
                   <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.full_name}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      user.disabled 
-                        ? 'bg-red-500/20 text-red-400' 
-                        : 'bg-green-500/20 text-green-400'
-                    }`}>
-                      {user.disabled ? 'Disabled' : 'Active'}
-                    </span>
-                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {updating === user.username ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Switch
-                          checked={user.is_admin}
-                          className="data-[state=checked]:bg-primary"
-                        />
-                      )}
-                      {user.is_admin && (
-                        <Shield className="h-4 w-4 text-primary" />
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEdit(user.username)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
+              {filteredUsers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center text-gray-400 py-4">
+                    No users found
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -141,4 +210,4 @@ const Admin = () => {
   );
 };
 
-export default Admin; 
+export default UserManagement; 

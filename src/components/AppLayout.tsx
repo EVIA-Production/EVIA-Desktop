@@ -43,7 +43,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         ) : (
           <div className="flex gap-3">
-            {isAuthenticated && user?.is_admin && location.pathname === '/chats' && (
+            {isAuthenticated && user?.is_admin && (
               <Link to="/admin">
                 <Button 
                   variant="outline" 

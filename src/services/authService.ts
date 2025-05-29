@@ -225,5 +225,121 @@ export const authService = {
       console.error("Error fetching users:", error);
       throw error;
     }
+  },
+
+  async deleteUser(username: string): Promise<void> {
+    const token = localStorage.getItem("auth_token");
+    const tokenType = localStorage.getItem("token_type");
+    
+    if (!token || !tokenType) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${username}`, {
+        method: 'DELETE',
+        headers: {
+          "Authorization": `${tokenType} ${token}`,
+          "Accept": "application/json",
+          "Origin": window.location.origin
+        },
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized - Admin access required");
+        }
+        if (response.status === 403) {
+          throw new Error("Forbidden - Admin access required");
+        }
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      throw error;
+    }
+  },
+
+  async updateUser(username: string, userData: {
+    email: string;
+    full_name: string;
+    disabled: boolean;
+    is_admin: boolean;
+  }): Promise<UserProfile> {
+    const token = localStorage.getItem("auth_token");
+    const tokenType = localStorage.getItem("token_type");
+    
+    if (!token || !tokenType) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${username}`, {
+        method: 'PUT',
+        headers: {
+          "Authorization": `${tokenType} ${token}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Origin": window.location.origin
+        },
+        body: JSON.stringify(userData),
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized - Admin access required");
+        }
+        if (response.status === 403) {
+          throw new Error("Forbidden - Admin access required");
+        }
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to update user");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error updating user:", error);
+      throw error;
+    }
+  },
+
+  async changePassword(username: string, newPassword: string): Promise<void> {
+    const token = localStorage.getItem("auth_token");
+    const tokenType = localStorage.getItem("token_type");
+    
+    if (!token || !tokenType) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${username}/change-password`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `${tokenType} ${token}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Origin": window.location.origin
+        },
+        body: JSON.stringify({ new_password: newPassword }),
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized - Admin access required");
+        }
+        if (response.status === 403) {
+          throw new Error("Forbidden - Admin access required");
+        }
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to change password");
+      }
+    } catch (error) {
+      console.error("Error changing password:", error);
+      throw error;
+    }
   }
 };

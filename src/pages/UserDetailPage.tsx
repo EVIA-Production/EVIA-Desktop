@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ArrowLeft, Mail, User, Shield, Save, Lock } from 'lucide-react';
+import { Loader2, ArrowLeft, Mail, User, Shield, Save, Lock, Trash2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 
 interface UserProfile {
@@ -58,7 +59,9 @@ const UserDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<FormData>({
@@ -68,7 +71,8 @@ const UserDetailPage = () => {
       full_name: '',
       disabled: false,
       is_admin: false
-    }
+    },
+    mode: "onChange"
   });
 
   const passwordForm = useForm<PasswordFormData>({
@@ -120,10 +124,135 @@ const UserDetailPage = () => {
   };
 
   const onSubmit = async (data: FormData) => {
-
+    if (!user) return;
+    
+    console.log('Form submitted with data:', data);
+    console.log('Current form state:', {
+      isDirty: form.formState.isDirty,
+      dirtyFields: form.formState.dirtyFields,
+      values: form.getValues()
+    });
+    
+    setSaving(true);
+    try {
+      // Get the current form values and ensure they're the latest
+      const formValues = {
+        email: form.getValues("email"),
+        full_name: form.getValues("full_name"),
+        disabled: form.getValues("disabled"),
+        is_admin: form.getValues("is_admin")
+      };
+      
+      console.log('Sending update with values:', formValues);
+      
+      const updatedUser = await authService.updateUser(user.username, formValues);
+      
+      console.log('Update successful:', updatedUser);
+      
+      setUser(updatedUser);
+      // Reset the form with the new values
+      form.reset(formValues, {
+        keepDirty: false,
+        keepErrors: false
+      });
+      
+      console.log('Form reset complete');
+      
+      toast({
+        title: "Success",
+        description: "User information updated successfully",
+      });
+    } catch (error) {
+      console.error('Update failed:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update user information",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const onPasswordSubmit = async (data: PasswordFormData) => {
+    if (!user) return;
+    
+    setChangingPassword(true);
+    try {
+      await authService.changePassword(user.username, data.newPassword);
+      
+      // Reset the password form
+      passwordForm.reset({
+        newPassword: '',
+        confirmPassword: ''
+      });
+      
+      // Close the dialog
+      setIsPasswordDialogOpen(false);
+      
+      toast({
+        title: "Success",
+        description: "Password changed successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to change password",
+        variant: "destructive",
+      });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!user) return;
+    
+    setDeleting(true);
+    try {
+      await authService.deleteUser(user.username);
+      toast({
+        title: "Success",
+        description: `User ${user.username} has been deleted`,
+      });
+      navigate('/admin/users');
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete user",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+      setIsDeleteDialogOpen(false);
+    }
+  };
+
+  // Also add logging to the switch handlers
+  const handleAdminChange = (checked: boolean) => {
+    console.log('Admin switch changed:', checked);
+    form.setValue("is_admin", checked, { 
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true
+    });
+    console.log('Form state after admin change:', {
+      isDirty: form.formState.isDirty,
+      dirtyFields: form.formState.dirtyFields
+    });
+  };
+
+  const handleDisabledChange = (checked: boolean) => {
+    console.log('Disabled switch changed:', !checked);
+    form.setValue("disabled", !checked, { 
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true
+    });
+    console.log('Form state after disabled change:', {
+      isDirty: form.formState.isDirty,
+      dirtyFields: form.formState.dirtyFields
+    });
   };
 
   if (loading) {
@@ -146,16 +275,35 @@ const UserDetailPage = () => {
         <Button
           variant="ghost"
           className="mb-6"
-          onClick={() => navigate('/admin')}
+          onClick={() => navigate('/admin/users')}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Users
         </Button>
 
         <div className="space-y-6">
-          <div>
-            <h1 className="text-4xl font-bold text-white mb-2">{user.full_name}</h1>
-            <p className="text-gray-400">User Details</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold text-white mb-2">{user.full_name}</h1>
+              <p className="text-gray-400">User Details</p>
+            </div>
+            <Button
+              variant="destructive"
+              onClick={() => setIsDeleteDialogOpen(true)}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete User
+                </>
+              )}
+            </Button>
           </div>
 
           <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -215,7 +363,7 @@ const UserDetailPage = () => {
                       <Switch
                         id="is_admin"
                         checked={form.watch("is_admin")}
-                        onCheckedChange={(checked) => form.setValue("is_admin", checked)}
+                        onCheckedChange={handleAdminChange}
                       />
                     </div>
                   </div>
@@ -228,12 +376,12 @@ const UserDetailPage = () => {
                       <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
                       <Switch
                         id="disabled"
-                        checked={form.watch("disabled")}
-                        onCheckedChange={(checked) => form.setValue("disabled", checked)}
+                        checked={!form.watch("disabled")}
+                        onCheckedChange={handleDisabledChange}
                       />
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
-                      {form.watch("disabled") ? "Disabled" : "Active"}
+                      {!form.watch("disabled") ? "Active" : "Disabled"}
                     </p>
                   </div>
                 </div>
@@ -256,13 +404,13 @@ const UserDetailPage = () => {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => navigate('/admin')}
+                  onClick={() => navigate('/admin/users')}
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || !form.formState.isDirty}
                 >
                   {saving ? (
                     <>
@@ -345,6 +493,40 @@ const UserDetailPage = () => {
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete User</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete {user?.username}? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsDeleteDialogOpen(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

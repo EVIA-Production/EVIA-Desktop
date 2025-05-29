@@ -13,6 +13,9 @@ import NotFound from "./pages/NotFound";
 import AdminPage from "./pages/AdminPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
+import AdminDashboard from "./pages/AdminDashboard";
+import UserManagement from "./pages/Admin";
+import PromptsManagement from "./pages/PromptsManagement";
 
 const queryClient = new QueryClient();
 
@@ -34,13 +37,29 @@ const App = () => {
               <Route path="/chats" element={<ChatList />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route 
-                path="/admin" 
+              <Route
+                path="/admin"
                 element={
                   <ProtectedAdminRoute>
-                    <AdminPage />
+                    <AdminDashboard />
                   </ProtectedAdminRoute>
-                } 
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedAdminRoute>
+                    <UserManagement />
+                  </ProtectedAdminRoute>
+                }
+              />
+              <Route
+                path="/admin/prompts"
+                element={
+                  <ProtectedAdminRoute>
+                    <PromptsManagement />
+                  </ProtectedAdminRoute>
+                }
               />
               <Route 
                 path="/admin/users/:username" 
