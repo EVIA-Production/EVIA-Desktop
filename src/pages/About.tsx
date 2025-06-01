@@ -25,7 +25,7 @@ const About = () => {
       <Tabs defaultValue="about" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="about">About & Tutorial</TabsTrigger>
-          <TabsTrigger value="privacy">Datenschutzerklärung</TabsTrigger>
+          <TabsTrigger value="privacy">Privacy Policy</TabsTrigger>
         </TabsList>
         
         <TabsContent value="about">
@@ -91,57 +91,82 @@ const About = () => {
         <TabsContent value="privacy">
           <Card>
             <CardHeader>
-              <CardTitle>Datenschutzerklärung</CardTitle>
-              <CardDescription>Privacy Policy</CardDescription>
+              <CardTitle>Privacy Policy</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[600px] pr-4">
                 <div className="space-y-6 text-gray-700 dark:text-gray-300">
                   <section>
-                    <h2 className="text-2xl font-semibold mb-4">1. Datenschutz auf einen Blick</h2>
-                    <h3 className="text-xl font-medium mb-2">Allgemeine Hinweise</h3>
-                    <p>
-                      Die folgenden Hinweise geben einen einfachen Überblick darüber, was mit Ihren
-                      personenbezogenen Daten passiert, wenn Sie diese Website besuchen.
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">1. Who we are</h2>
+                    <p>EVIA GBR, Munich, Germany. Contact us: bene.kroetz@gmail.com</p>
                   </section>
 
                   <section>
-                    <h2 className="text-2xl font-semibold mb-4">2. Datenerfassung auf dieser Website</h2>
-                    <h3 className="text-xl font-medium mb-2">Wer ist verantwortlich für die Datenerfassung?</h3>
-                    <p>
-                      Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber.
-                      Dessen Kontaktdaten können Sie dem Impressum dieser Website entnehmen.
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">2. Data we collect</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Your interview audio recordings.</li>
+                      <li>Transcripts of them.</li>
+                      <li>Metadata: IP, time, device.</li>
+                    </ul>
                   </section>
 
                   <section>
-                    <h2 className="text-2xl font-semibold mb-4">3. Allgemeine Hinweise und Pflichtinformationen</h2>
-                    <h3 className="text-xl font-medium mb-2">Datenschutz</h3>
-                    <p>
-                      Die Betreiber dieser Seiten nehmen den Schutz Ihrer persönlichen Daten sehr ernst.
-                      Wir behandeln Ihre personenbezogenen Daten vertraulich und entsprechend der
-                      gesetzlichen Datenschutzvorschriften sowie dieser Datenschutzerklärung.
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">3. Why we need it</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Transcription in real time.</li>
+                      <li>Recommendations for conversations.</li>
+                      <li>Improving our system.</li>
+                    </ul>
                   </section>
 
                   <section>
-                    <h2 className="text-2xl font-semibold mb-4">4. Datenerfassung auf dieser Website</h2>
-                    <h3 className="text-xl font-medium mb-2">Cookies</h3>
-                    <p>
-                      Unsere Website verwendet Cookies. Das sind kleine Textdateien, die Ihr Webbrowser
-                      auf Ihrem Endgerät speichert. Cookies helfen uns dabei, unser Angebot nutzerfreundlicher,
-                      effektiver und sicherer zu machen.
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">4. Legal basis</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Your consent.</li>
+                      <li>Our legitimate interest in helping you.</li>
+                    </ul>
                   </section>
 
                   <section>
-                    <h2 className="text-2xl font-semibold mb-4">5. Analyse-Tools und Werbung</h2>
-                    <p>
-                      Wir verwenden verschiedene Analyse-Tools, um die Nutzung unserer Website zu
-                      verbessern und Ihnen ein optimales Nutzererlebnis zu bieten.
-                    </p>
+                    <h2 className="text-2xl font-semibold mb-4">5. Who receives the data (when using EVIA)</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Deepgram (USA): Transcription.</li>
+                      <li>Groq (USA): Recommendations.</li>
+                      <li>Microsoft Azure (EU): Storage.</li>
+                    </ul>
+                    <p className="mt-2">Data goes to the US, but we have safeguards (SCCs).</p>
                   </section>
+
+                  <section>
+                    <h2 className="text-2xl font-semibold mb-4">6. How long we keep them</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Audio: Deleted after 24 hours.</li>
+                      <li>Transcripts: Until you delete them or pilot phase ends.</li>
+                      <li>Metadata: As long as necessary.</li>
+                    </ul>
+                  </section>
+
+                  <section>
+                    <h2 className="text-2xl font-semibold mb-4">7. Your rights</h2>
+                    <ul className="list-disc pl-6 space-y-2">
+                      <li>Look at your data.</li>
+                      <li>Change them.</li>
+                      <li>Delete it.</li>
+                      <li>Say no to processing.</li>
+                      <li>Take your data with you.</li>
+                    </ul>
+                  </section>
+
+                  <section>
+                    <h2 className="text-2xl font-semibold mb-4">8. Security</h2>
+                    <p>We encrypt everything. Only authorized persons have access.</p>
+                  </section>
+
+                  <section>
+                    <h2 className="text-2xl font-semibold mb-4">9. Changes</h2>
+                    <p>We update this. New versions are on our website.</p>
+                  </section>
+
                 </div>
               </ScrollArea>
             </CardContent>

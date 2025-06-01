@@ -243,7 +243,7 @@ const Register = () => {
                         <FormLabel>
                           I accept the{" "}
                           <Link to="/about" className="text-primary hover:underline">
-                            Datenschutzerklärung
+                              Privacy Policy
                           </Link>
                         </FormLabel>
                         <FormMessage />
