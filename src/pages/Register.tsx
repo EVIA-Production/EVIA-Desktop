@@ -290,7 +290,7 @@ const Register = () => {
                                       I consent to EVIA GBR retaining my personal data (audio recordings, transcripts, and metadata) after the 3-month pilot phase for the purpose of improving EVIA's AI and optimizing sales recommendations. My data will be stored securely with AES-256 encryption and processed by EVIA and its sub-processors (Deepgram, Groq, Microsoft Azure) as outlined in the Privacy Policy.
                                     </p>
                                     <p>
-                                      I understand that my data will be retained for up to 2 years or until the purpose is fulfilled, whichever is sooner. I can withdraw my consent at any time via settings page or email: privacy@evia.com without affecting my use of EVIA during the pilot phase.
+                                      I understand that my data will be retained for up to 2 years or until the purpose is fulfilled, whichever is sooner. I can withdraw my consent at any time via settings page or email: bene.kroetz@gmail.com without affecting my use of EVIA during the pilot phase.
                                     </p>
                                   </div>
                                 </DialogDescription>
