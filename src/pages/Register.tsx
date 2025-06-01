@@ -11,7 +11,15 @@ import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Info } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const registerSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
@@ -41,6 +49,7 @@ const Register = () => {
   const { register } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isDataRetentionDialogOpen, setIsDataRetentionDialogOpen] = useState(false);
   
   const form = useForm<RegisterData>({
     resolver: zodResolver(registerSchema),
@@ -99,11 +108,11 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-black to-gray-900 p-4">
-      <Card className="w-full max-w-md bg-card/50 border-border">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black via-black to-purple-950/20 p-4">
+      <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <div className="flex justify-center mb-4">
-            <EviaLogo className="text-3xl text-white" />
+            <EviaLogo className="text-4xl" />
           </div>
           <CardTitle className="text-2xl text-center">Create an account</CardTitle>
           <CardDescription className="text-center">
@@ -264,8 +273,30 @@ const Register = () => {
                         />
                       </FormControl>
                       <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          EVIA can keep my data after pilot phase
+                        <FormLabel className="flex items-center gap-2">
+                          I consent to data retention after pilot phase
+                          <Dialog open={isDataRetentionDialogOpen} onOpenChange={setIsDataRetentionDialogOpen}>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-4 w-4">
+                                <Info className="h-4 w-4 text-primary" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Data Retention Consent</DialogTitle>
+                                <DialogDescription>
+                                  <div className="space-y-4 mt-4">
+                                    <p>
+                                      I consent to EVIA GBR retaining my personal data (audio recordings, transcripts, and metadata) after the 3-month pilot phase for the purpose of improving EVIA's AI and optimizing sales recommendations. My data will be stored securely with AES-256 encryption and processed by EVIA and its sub-processors (Deepgram, Groq, Microsoft Azure) as outlined in the Privacy Policy.
+                                    </p>
+                                    <p>
+                                      I understand that my data will be retained for up to 2 years or until the purpose is fulfilled, whichever is sooner. I can withdraw my consent at any time via settings page or email: privacy@evia.com without affecting my use of EVIA during the pilot phase.
+                                    </p>
+                                  </div>
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
                         </FormLabel>
                         <FormMessage />
                       </div>

@@ -81,7 +81,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <div className="container mx-auto text-center text-gray-400 text-sm">
           <div className="flex justify-center items-center gap-4 mb-2">
             <Link to="/about" className="hover:text-white transition-colors">
-              About & Privacy
+              About
+            </Link>
+            <span className="text-gray-600">•</span>
+            <Link to="/privacy" className="hover:text-white transition-colors">
+              Privacy
             </Link>
           </div>
           <p>© {new Date().getFullYear()} EVIA Voice Assistant. All rights reserved.</p>

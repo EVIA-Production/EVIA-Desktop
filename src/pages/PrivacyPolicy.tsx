@@ -77,17 +77,7 @@ const PrivacyPolicy = () => {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4">7. Data Retention Consent</h2>
-              <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
-                I consent to EVIA GBR retaining my personal data (audio recordings, transcripts, and metadata) after the 3-month pilot phase for the purpose of improving EVIA's AI and optimizing sales recommendations. My data will be stored securely with AES-256 encryption and processed by EVIA and its sub-processors (Deepgram, Groq, Microsoft Azure) as outlined in the Privacy Policy.
-              </p>
-              <p className="text-gray-700 dark:text-gray-300 leading-relaxed mt-4">
-                I understand that my data will be retained for up to 2 years or until the purpose is fulfilled, whichever is sooner. I can withdraw my consent at any time via settings page or email: privacy@evia.com without affecting my use of EVIA during the pilot phase.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-semibold mb-4">8. Your rights</h2>
+              <h2 className="text-2xl font-semibold mb-4">7. Your rights</h2>
               <ul className="list-disc pl-6 space-y-2">
                 <li>Look at your data.</li>
                 <li>Change them.</li>
@@ -98,12 +88,12 @@ const PrivacyPolicy = () => {
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4">9. Security</h2>
+              <h2 className="text-2xl font-semibold mb-4">8. Security</h2>
               <p>We encrypt everything. Only authorized persons have access.</p>
             </section>
 
             <section>
-              <h2 className="text-2xl font-semibold mb-4">10. Changes</h2>
+              <h2 className="text-2xl font-semibold mb-4">9. Changes</h2>
               <p>We update this. New versions are on our website.</p>
             </section>
           </div>
