@@ -16,7 +16,7 @@ const About = () => {
           className="border-border bg-transparent hover:bg-accent text-muted-foreground"
           onClick={() => navigate(-1)}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Zurück
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
       </div>
       
