@@ -1,10 +1,25 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const About = () => {
+  const navigate = useNavigate();
+
   return (
     <div className="container mx-auto py-8 px-4">
+      <div className="flex items-center mb-8">
+        <Button
+          variant="outline"
+          className="border-border bg-transparent hover:bg-accent text-muted-foreground"
+          onClick={() => navigate(-1)}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" /> Zurück
+        </Button>
+      </div>
+      
       <h1 className="text-4xl font-bold mb-8 text-center">About EVIA</h1>
       
       <Tabs defaultValue="about" className="w-full">
