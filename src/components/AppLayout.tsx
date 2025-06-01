@@ -79,6 +79,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       {/* Footer */}
       <footer className="py-6 border-t border-border bg-black bg-opacity-60 backdrop-blur-md mt-8">
         <div className="container mx-auto text-center text-gray-400 text-sm">
+          <div className="flex justify-center items-center gap-4 mb-2">
+            <Link to="/about" className="hover:text-white transition-colors">
+              About & Privacy
+            </Link>
+          </div>
           <p>© {new Date().getFullYear()} EVIA Voice Assistant. All rights reserved.</p>
         </div>
       </footer>

@@ -16,6 +16,7 @@ import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 import AdminDashboard from "./pages/AdminDashboard";
 import UserManagement from "./pages/Admin";
 import PromptsManagement from "./pages/PromptsManagement";
+import About from "./pages/About";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,7 @@ const App = () => {
               <Route path="/chats" element={<ChatList />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/about" element={<About />} />
               <Route
                 path="/admin"
                 element={
