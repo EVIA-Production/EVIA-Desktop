@@ -242,7 +242,7 @@ const Register = () => {
                       <div className="space-y-1 leading-none">
                         <FormLabel>
                           I accept the{" "}
-                          <Link to="/about" className="text-primary hover:underline">
+                          <Link to="/privacy" className="text-primary hover:underline">
                               Privacy Policy
                           </Link>
                         </FormLabel>

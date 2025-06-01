@@ -17,6 +17,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import UserManagement from "./pages/Admin";
 import PromptsManagement from "./pages/PromptsManagement";
 import About from "./pages/About";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 const queryClient = new QueryClient();
 
@@ -39,6 +40,7 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/about" element={<About />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route
                 path="/admin"
                 element={
