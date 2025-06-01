@@ -24,7 +24,7 @@ export const promptService = {
     console.log('Debug Info:', {
       'window.location.origin': window.location.origin,
       'API_BASE_URL': API_BASE_URL,
-      'Full URL': `${API_BASE_URL}/admin/prompts/`,
+      'Full URL': `${API_BASE_URL}/admin/prompts`,
       'Headers': {
         "Authorization": `${tokenType} ${token}`,
         "Accept": "application/json",
@@ -32,7 +32,7 @@ export const promptService = {
       }
     });
 
-    const response = await fetch(`${API_BASE_URL}/admin/prompts/`, {
+    const response = await fetch(`${API_BASE_URL}/admin/prompts`, {
       headers: {
         "Authorization": `${tokenType} ${token}`,
         "Accept": "application/json",
@@ -114,7 +114,7 @@ export const promptService = {
       throw new Error("Not authenticated");
     }
 
-    const response = await fetch(`${API_BASE_URL}/admin/prompts/`, {
+    const response = await fetch(`${API_BASE_URL}/admin/prompts`, {
       method: 'POST',
       headers: {
         "Content-Type": "application/json",
