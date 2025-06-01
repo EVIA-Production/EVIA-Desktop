@@ -10,6 +10,7 @@ interface RegisterCredentials {
   email: string;
   fullName: string;
   password: string;
+  dataRetentionAccepted: boolean;
 }
 
 interface AuthResponse {
@@ -75,7 +76,8 @@ export const authService = {
         username: userData.username,
         email: userData.email,
         full_name: userData.fullName,
-        password: userData.password
+        password: userData.password,
+        data_retention_accepted: userData.dataRetentionAccepted
       };
 
       console.log("Registering user with:", apiData);

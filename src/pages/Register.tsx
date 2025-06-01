@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from '@/hooks/use-toast';
 import EviaLogo from '@/components/EviaLogo';
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from '@/contexts/AuthContext';
+import { Eye, EyeOff } from 'lucide-react';
 
-const formSchema = z.object({
+const registerSchema = z.object({
   username: z.string().min(3, { message: "Username must be at least 3 characters" }),
   email: z.string().email({ message: "Invalid email address" }),
   fullName: z.string().min(2, { message: "Full name must be at least 2 characters" }),
@@ -21,39 +23,46 @@ const formSchema = z.object({
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
-  confirmPassword: z.string()
+  confirmPassword: z.string(),
+  privacyPolicyAccepted: z.boolean().refine((val) => val === true, {
+    message: "You must accept the privacy policy to continue",
+  }),
+  dataRetentionAccepted: z.boolean(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
 
-type FormData = z.infer<typeof formSchema>;
+type RegisterData = z.infer<typeof registerSchema>;
 
 const Register = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { register } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
-  const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<RegisterData>({
+    resolver: zodResolver(registerSchema),
     defaultValues: {
       username: "",
       email: "",
       fullName: "",
       password: "",
       confirmPassword: "",
+      privacyPolicyAccepted: false,
+      dataRetentionAccepted: false,
     },
   });
 
-  const onSubmit = async (data: FormData) => {
-    console.log("Register form submitted with:", data);
-    
+  const onSubmit = async (data: RegisterData) => {
     try {
       const success = await register({
         username: data.username,
         email: data.email,
         fullName: data.fullName,
-        password: data.password
+        password: data.password,
+        dataRetentionAccepted: data.dataRetentionAccepted
       });
       
       if (success) {
@@ -63,16 +72,27 @@ const Register = () => {
           variant: "default",
         });
         
-        // Redirect to login page after successful registration
         navigate("/login");
       }
     } catch (error) {
       console.error("Registration submission error:", error);
       
-      // Display error in toast notification
+      let errorMessage = "An unexpected error occurred";
+      if (error instanceof Error) {
+        if (error.message.includes("Email address already in use")) {
+          errorMessage = "This email address is already registered. Please use a different email or try logging in.";
+          form.setError("email", {
+            type: "manual",
+            message: "This email is already registered"
+          });
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "Registration failed",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -108,19 +128,6 @@ const Register = () => {
               />
               <FormField
                 control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter your email" type="email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
                 name="fullName"
                 render={({ field }) => (
                   <FormItem>
@@ -134,12 +141,44 @@ const Register = () => {
               />
               <FormField
                 control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter your email" type="email" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter your password" type="password" {...field} />
+                      <div className="relative">
+                        <Input 
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Enter your password"
+                          {...field}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-gray-500" />
+                          )}
+                        </Button>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -152,7 +191,26 @@ const Register = () => {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <Input placeholder="Confirm your password" type="password" {...field} />
+                      <div className="relative">
+                        <Input 
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Confirm your password"
+                          {...field}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-gray-500" />
+                          )}
+                        </Button>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -168,6 +226,54 @@ const Register = () => {
                   <li>At least one special character</li>
                 </ul>
               </div>
+
+              <div className="space-y-4 pt-4">
+                <FormField
+                  control={form.control}
+                  name="privacyPolicyAccepted"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          I accept the{" "}
+                          <Link to="/about" className="text-primary hover:underline">
+                            Datenschutzerklärung
+                          </Link>
+                        </FormLabel>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="dataRetentionAccepted"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          EVIA can keep my data after pilot phase
+                        </FormLabel>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <Button type="submit" className="w-full">
                 Create Account
               </Button>
@@ -188,3 +294,4 @@ const Register = () => {
 };
 
 export default Register;
+

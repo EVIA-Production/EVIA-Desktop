@@ -21,6 +21,7 @@ interface AuthContextType {
     email: string;
     fullName: string;
     password: string;
+    dataRetentionAccepted: boolean;
   }) => Promise<boolean>;
 }
 
@@ -110,6 +111,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     email: string;
     fullName: string;
     password: string;
+    dataRetentionAccepted: boolean;
   }) => {
     setIsLoading(true);
     try {
