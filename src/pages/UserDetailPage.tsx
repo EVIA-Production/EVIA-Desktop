@@ -32,8 +32,8 @@ interface UserProfile {
 const formSchema = z.object({
   email: z.string().email("Invalid email address"),
   full_name: z.string().min(2, "Full name must be at least 2 characters"),
-  disabled: z.boolean(),
-  is_admin: z.boolean()
+  disabled: z.boolean().default(false),
+  is_admin: z.boolean().default(false)
 });
 
 const passwordSchema = z.object({
@@ -139,8 +139,8 @@ const UserDetailPage = () => {
       const formValues = {
         email: form.getValues("email"),
         full_name: form.getValues("full_name"),
-        disabled: form.getValues("disabled"),
-        is_admin: form.getValues("is_admin")
+        disabled: form.getValues("disabled") ?? false, // Ensure disabled is always included
+        is_admin: form.getValues("is_admin") ?? false  // Ensure is_admin is always included
       };
       
       console.log('Sending update with values:', formValues);
@@ -243,15 +243,16 @@ const UserDetailPage = () => {
   };
 
   const handleDisabledChange = (checked: boolean) => {
-    console.log('Disabled switch changed:', !checked);
-    form.setValue("disabled", !checked, { 
+    console.log('Disabled switch changed:', checked);
+    form.setValue("disabled", checked, { 
       shouldDirty: true,
       shouldTouch: true,
       shouldValidate: true
     });
     console.log('Form state after disabled change:', {
       isDirty: form.formState.isDirty,
-      dirtyFields: form.formState.dirtyFields
+      dirtyFields: form.formState.dirtyFields,
+      values: form.getValues()
     });
   };
 
@@ -306,7 +307,15 @@ const UserDetailPage = () => {
             </Button>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={(e) => {
+            console.log('Form submit event triggered');
+            console.log('Form state at submit:', {
+              isDirty: form.formState.isDirty,
+              dirtyFields: form.formState.dirtyFields,
+              values: form.getValues()
+            });
+            form.handleSubmit(onSubmit)(e);
+          }}>
             <Card className="bg-card/50 border-border">
               <CardHeader>
                 <CardTitle>Profile Information</CardTitle>
@@ -331,7 +340,11 @@ const UserDetailPage = () => {
                     <Label htmlFor="email" className="text-sm text-gray-400">Email</Label>
                     <Input
                       id="email"
-                      {...form.register("email")}
+                      {...form.register("email", {
+                        onChange: (e) => {
+                          form.setValue("email", e.target.value, { shouldDirty: true });
+                        }
+                      })}
                       className="mt-1 bg-card/50"
                     />
                     {form.formState.errors.email && (
@@ -346,7 +359,11 @@ const UserDetailPage = () => {
                     <Label htmlFor="full_name" className="text-sm text-gray-400">Full Name</Label>
                     <Input
                       id="full_name"
-                      {...form.register("full_name")}
+                      {...form.register("full_name", {
+                        onChange: (e) => {
+                          form.setValue("full_name", e.target.value, { shouldDirty: true });
+                        }
+                      })}
                       className="mt-1 bg-card/50"
                     />
                     {form.formState.errors.full_name && (
@@ -376,12 +393,12 @@ const UserDetailPage = () => {
                       <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
                       <Switch
                         id="disabled"
-                        checked={!form.watch("disabled")}
+                        checked={form.watch("disabled")}
                         onCheckedChange={handleDisabledChange}
                       />
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
-                      {!form.watch("disabled") ? "Active" : "Disabled"}
+                      {form.watch("disabled") ? "Disabled" : "Active"}
                     </p>
                   </div>
                 </div>
