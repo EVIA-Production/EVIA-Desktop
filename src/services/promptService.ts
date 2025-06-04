@@ -5,6 +5,7 @@ export interface SystemPrompt {
   name: string;
   description: string | null;
   content: string;
+  language: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;

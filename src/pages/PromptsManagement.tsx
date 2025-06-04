@@ -38,6 +38,7 @@ const PromptsManagement = () => {
     name: '',
     description: '',
     content: '',
+    language: 'en',
     is_active: false,
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,7 +83,7 @@ const PromptsManagement = () => {
 
       // Close dialog and reset form
       setIsAddDialogOpen(false);
-      setNewPrompt({ name: '', description: '', content: '', is_active: false });
+      setNewPrompt({ name: '', description: '', content: '', language: 'en', is_active: false });
 
       // Refetch prompts to get the newly created one and update list
       fetchPrompts();
@@ -250,6 +251,21 @@ const PromptsManagement = () => {
                     className="min-h-[100px]"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Language</label>
+                  <Select
+                    value={newPrompt.language}
+                    onValueChange={(value) => setNewPrompt({ ...newPrompt, language: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="de">German</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button onClick={handleAddPrompt} className="w-full">
                   Add Prompt
                 </Button>
@@ -278,6 +294,7 @@ const PromptsManagement = () => {
                   )}
                 </div>
                 <p className="text-gray-400 text-sm truncate">{prompt.description}</p>
+                <p className="text-gray-400 text-sm mt-1">Language: {prompt.language.toUpperCase()}</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -327,6 +344,21 @@ const PromptsManagement = () => {
                           placeholder="Enter prompt content"
                           className="min-h-[100px]"
                         />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Language</label>
+                        <Select
+                          value={editingPrompt?.language || 'en'}
+                          onValueChange={(value) => setEditingPrompt(editingPrompt ? { ...editingPrompt, language: value } : null)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select language" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="en">English</SelectItem>
+                            <SelectItem value="de">German</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       <Button onClick={handleEditPrompt} className="w-full">
                         Save Changes
