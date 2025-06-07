@@ -106,7 +106,16 @@ export const useWebSocketMessages = () => {
     setSuggestion('Requesting suggestion ...'); // Immediate feedback
     setSuggestionsDisabled(true); // Disable button until suggestion is received
     
-    const ws = getWebSocketInstance("");
+    const chatId = localStorage.getItem('selectedChatId');
+    if (!chatId) {
+      toast({
+        description: "No chat selected",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    const ws = getWebSocketInstance(chatId);
     if (ws.isConnected()) {
       ws.sendMessage({
         command: "suggest"
@@ -129,7 +138,16 @@ export const useWebSocketMessages = () => {
     setConnectionStatus('Resetting context...');
     setDebugLog(prev => [...prev, 'Context reset']);
     
-    const ws = getWebSocketInstance(""); 
+    const chatId = localStorage.getItem('selectedChatId');
+    if (!chatId) {
+      toast({
+        description: "No chat selected",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    const ws = getWebSocketInstance(chatId);
     if (ws.isConnected()) {
       ws.sendMessage({
         command: "reset"
@@ -145,7 +163,16 @@ export const useWebSocketMessages = () => {
 
   const requestHistory = () => {
     console.log('Requesting history...');
-    const ws = getWebSocketInstance("");
+    const chatId = localStorage.getItem('selectedChatId');
+    if (!chatId) {
+      toast({
+        description: "No chat selected",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    const ws = getWebSocketInstance(chatId);
     if (ws.isConnected()) {
       ws.sendMessage({
         command: "history"

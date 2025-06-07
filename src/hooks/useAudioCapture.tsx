@@ -29,14 +29,15 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
   };
 
   const handleStartRecording = async (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>, chatId: string | null) => {
-    console.log('handleStartRecording called');
-    
+    if (!chatId) {
+      addDebugLog('No chat ID provided, cannot start recording', setDebugLog);
+      return;
+    }
+
     try {
       // Update chat's last_used_at timestamp
-      if (chatId) {
-        await chatService.updateLastUsed(chatId);
-        addDebugLog('Updated chat last used timestamp', setDebugLog);
-      }
+      await chatService.updateLastUsed(chatId);
+      addDebugLog('Updated chat last used timestamp', setDebugLog);
 
       // Request both audio and screen capture permissions
       const micStream = await navigator.mediaDevices.getUserMedia({ 
@@ -132,173 +133,145 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       addDebugLog('Permissions granted. Recording started.', setDebugLog);
       
       // Connect to WebSocket if we have a chatId
-      if (chatId) {
-        const ws = getWebSocketInstance(chatId);
-        ws.connect();
-        setIsConnected(true);
-        
-        // Register message handler if provided
-        if (onWebSocketMessage) {
-          messageHandlerRef.current = ws.onMessage(onWebSocketMessage);
-        }
-        
-        addDebugLog('WebSocket connection initiated', setDebugLog);
-        
-        // Create audio processor for the mixed stream
-        const source = audioContext.createMediaStreamSource(destination.stream);
-        
-        // ScriptProcessorNode is deprecated but widely supported
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-        
-        // Process audio data and send to WebSocket
-        processor.onaudioprocess = (e) => {
-          if (ws.isConnected()) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            
-            // Convert float32 to int16 (better compression for transmission)
-            const int16Data = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i++) {
-              int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
-            }
-            
-            // Log audio frame count for debugging
-            audioFrameCountRef.current += 1;
-            if (audioFrameCountRef.current % 50 === 0) {
-              console.log(`[Audio Logger] Processing audio frame #${audioFrameCountRef.current}, size: ${int16Data.length} samples`);
-            }
-            
-            // Send audio data through WebSocket
-            ws.sendBinaryData(int16Data.buffer);
-          }
-        };
-        
-        // Connect the audio processing nodes
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        
-        addDebugLog('Audio processing pipeline established', setDebugLog);
+      const ws = getWebSocketInstance(chatId);
+      ws.connect();
+      setIsConnected(true);
+      
+      // Register message handler if provided
+      if (onWebSocketMessage) {
+        messageHandlerRef.current = ws.onMessage(onWebSocketMessage);
       }
       
-      // Clean up function to remove message handler and stop audio processing when unmounted
-      return () => {
-        if (messageHandlerRef.current) {
-          messageHandlerRef.current();
-          messageHandlerRef.current = null;
-        }
-        
-        if (processorRef.current && source && audioContextRef.current) {
-          processorRef.current.disconnect();
-          source.disconnect();
-          audioContextRef.current.close().catch(console.error);
-          processorRef.current = null;
-          source = null;
-          audioContextRef.current = null;
-        }
-        
-        // Stop all tracks
-        if (micStreamRef.current) {
-          micStreamRef.current.getTracks().forEach(track => track.stop());
-          micStreamRef.current = null;
-        }
-        
-        if (sysStreamRef.current) {
-          sysStreamRef.current.getTracks().forEach(track => track.stop());
-          sysStreamRef.current = null;
-        }
-        
-        // Clear analyser interval
-        if (analyserIntervalRef.current) {
-          clearInterval(analyserIntervalRef.current);
-          analyserIntervalRef.current = null;
+      addDebugLog('WebSocket connection initiated', setDebugLog);
+      
+      // Create audio processor for the mixed stream
+      const source = audioContext.createMediaStreamSource(destination.stream);
+      
+      // ScriptProcessorNode is deprecated but widely supported
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      
+      // Process audio data and send to WebSocket
+      processor.onaudioprocess = (e) => {
+        if (ws.isConnected()) {
+          const inputData = e.inputBuffer.getChannelData(0);
+          
+          // Convert float32 to int16 (better compression for transmission)
+          const int16Data = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+          }
+          
+          // Log audio frame count for debugging
+          audioFrameCountRef.current += 1;
+          if (audioFrameCountRef.current % 50 === 0) {
+            console.log(`[Audio Logger] Processing audio frame #${audioFrameCountRef.current}, size: ${int16Data.length} samples`);
+          }
+          
+          // Send audio data through WebSocket
+          ws.sendBinaryData(int16Data.buffer);
         }
       };
+      
+      // Connect the audio processing nodes
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      
+      addDebugLog('Audio processing pipeline established', setDebugLog);
     } catch (error) {
-      console.error('Error getting media permissions:', error);
-      addDebugLog(`Permission error: ${error}`, setDebugLog);
+      console.error('Error starting recording:', error);
+      addDebugLog(`Error starting recording: ${error}`, setDebugLog);
       toast({
-        title: "Permission Error",
-        description: "Could not access microphone or screen. Please grant permissions and try again.",
+        title: "Error",
+        description: "Failed to start recording. Please try again.",
         variant: "destructive"
       });
     }
   };
 
   const handleStopRecording = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
-    console.log('handleStopRecording called');
-    setIsRecording(false);
-    setIsConnected(false);
-    addDebugLog('Recording stopped', setDebugLog);
-    
-    // Clean up audio processing
-    if (processorRef.current && audioContextRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
+    try {
+      console.log('handleStopRecording called');
+      setIsRecording(false);
+      setIsConnected(false);
+      addDebugLog('Recording stopped', setDebugLog);
+      
+      // Clean up audio processing
+      if (processorRef.current && audioContextRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+      }
+      
+      // Disconnect and clean up gain nodes
+      if (micGainRef.current) {
+        micGainRef.current.disconnect();
+        micGainRef.current = null;
+      }
+      
+      if (sysGainRef.current) {
+        sysGainRef.current.disconnect();
+        sysGainRef.current = null;
+      }
+      
+      if (masterGainRef.current) {
+        masterGainRef.current.disconnect();
+        masterGainRef.current = null;
+      }
+      
+      // Disconnect and clean up sources
+      if (micSourceRef.current) {
+        micSourceRef.current.disconnect();
+        micSourceRef.current = null;
+      }
+      
+      if (sysSourceRef.current) {
+        sysSourceRef.current.disconnect();
+        sysSourceRef.current = null;
+      }
+      
+      // Close audio context
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(console.error);
+        audioContextRef.current = null;
+      }
+      
+      // Stop all tracks
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(track => track.stop());
+        micStreamRef.current = null;
+      }
+      
+      if (sysStreamRef.current) {
+        sysStreamRef.current.getTracks().forEach(track => track.stop());
+        sysStreamRef.current = null;
+      }
+      
+      // Clear analyser interval
+      if (analyserIntervalRef.current) {
+        clearInterval(analyserIntervalRef.current);
+        analyserIntervalRef.current = null;
+      }
+      
+      // Remove message handler if it exists
+      if (messageHandlerRef.current) {
+        messageHandlerRef.current();
+        messageHandlerRef.current = null;
+      }
+      
+      // Close WebSocket connection
+      const chatId = localStorage.getItem('selectedChatId');
+      if (chatId) {
+        closeWebSocketInstance(chatId);
+      }
+      addDebugLog('WebSocket connection closed', setDebugLog);
+      
+      toast({
+        description: "Recording stopped",
+      });
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      addDebugLog(`Error stopping recording: ${error}`, setDebugLog);
     }
-    
-    // Disconnect and clean up gain nodes
-    if (micGainRef.current) {
-      micGainRef.current.disconnect();
-      micGainRef.current = null;
-    }
-    
-    if (sysGainRef.current) {
-      sysGainRef.current.disconnect();
-      sysGainRef.current = null;
-    }
-    
-    if (masterGainRef.current) {
-      masterGainRef.current.disconnect();
-      masterGainRef.current = null;
-    }
-    
-    // Disconnect and clean up sources
-    if (micSourceRef.current) {
-      micSourceRef.current.disconnect();
-      micSourceRef.current = null;
-    }
-    
-    if (sysSourceRef.current) {
-      sysSourceRef.current.disconnect();
-      sysSourceRef.current = null;
-    }
-    
-    // Close audio context
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(console.error);
-      audioContextRef.current = null;
-    }
-    
-    // Stop all tracks
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => track.stop());
-      micStreamRef.current = null;
-    }
-    
-    if (sysStreamRef.current) {
-      sysStreamRef.current.getTracks().forEach(track => track.stop());
-      sysStreamRef.current = null;
-    }
-    
-    // Clear analyser interval
-    if (analyserIntervalRef.current) {
-      clearInterval(analyserIntervalRef.current);
-      analyserIntervalRef.current = null;
-    }
-    
-    // Remove message handler if it exists
-    if (messageHandlerRef.current) {
-      messageHandlerRef.current();
-      messageHandlerRef.current = null;
-    }
-    
-    // Close WebSocket connection when recording is stopped
-    closeWebSocketInstance();
-    addDebugLog('WebSocket connection closed', setDebugLog);
-    
-    toast({
-      description: "Recording stopped",
-    });
   };
 
   return {

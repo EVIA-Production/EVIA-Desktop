@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { chatService } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
-import { getWebSocketInstance } from '@/services/websocketService';
+import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
 const Index = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -100,6 +100,12 @@ const Index = () => {
   useEffect(() => {
     if (!chatId) return;
     
+    // Close any existing WebSocket connection for the previous chat
+    const previousChatId = localStorage.getItem('selectedChatId');
+    if (previousChatId && previousChatId !== chatId) {
+      closeWebSocketInstance(previousChatId);
+    }
+    
     const ws = getWebSocketInstance(chatId);
     const cleanup = ws.onConnectionChange((connected) => {
       setIsConnected(connected);
@@ -107,7 +113,10 @@ const Index = () => {
       addDebugLog(`WebSocket connection status changed: ${connected ? 'Connected' : 'Disconnected'}`);
     });
     
-    return cleanup;
+    return () => {
+      cleanup();
+      // Don't close the WebSocket here as it might be needed for other components
+    };
   }, [chatId, setRecordingIsConnected]);
 
   // Show loading while checking authentication
@@ -124,9 +133,11 @@ const Index = () => {
     return null;
   }
   
-  const onStartRecordingWrapper = () => {
-    const cleanup = handleStartRecording(setDebugLog, chatId);
-    return cleanup;
+  const onStartRecordingWrapper = async () => {
+    await handleStartRecording(setDebugLog, chatId);
+    return () => {
+      // Cleanup function
+    };
   };
 
   const onStopRecordingWrapper = () => {

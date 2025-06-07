@@ -174,19 +174,32 @@ export class ChatWebSocket {
   }
 }
 
-// Singleton instance
-let wsInstance: ChatWebSocket | null = null;
+// Map to store WebSocket instances by chat ID
+const wsInstances = new Map<string, ChatWebSocket>();
 
 export const getWebSocketInstance = (chatId: string): ChatWebSocket => {
-  if (!wsInstance && chatId) {
-    wsInstance = new ChatWebSocket(chatId);
+  // If we already have an instance for this chat, return it
+  if (wsInstances.has(chatId)) {
+    return wsInstances.get(chatId)!;
   }
-  return wsInstance!;
+
+  // Create a new instance for this chat
+  const ws = new ChatWebSocket(chatId);
+  wsInstances.set(chatId, ws);
+  return ws;
 };
 
-export const closeWebSocketInstance = () => {
-  if (wsInstance) {
-    wsInstance.disconnect();
-    wsInstance = null;
+export const closeWebSocketInstance = (chatId: string) => {
+  const ws = wsInstances.get(chatId);
+  if (ws) {
+    ws.disconnect();
+    wsInstances.delete(chatId);
   }
+};
+
+export const closeAllWebSocketInstances = () => {
+  wsInstances.forEach((ws, chatId) => {
+    ws.disconnect();
+    wsInstances.delete(chatId);
+  });
 };

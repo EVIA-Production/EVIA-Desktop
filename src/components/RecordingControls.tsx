@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 
 interface RecordingControlsProps {
   isRecording: boolean;
-  onStartRecording: () => void;
+  onStartRecording: () => Promise<() => void>;
   onStopRecording: () => void;
   onSuggest: () => void;
   onResetContext: () => void;
@@ -22,12 +22,21 @@ const RecordingControls: React.FC<RecordingControlsProps> = ({
 }) => {
   const { toast } = useToast();
 
-  const handleStartRecording = () => {
+  const handleStartRecording = async () => {
     console.log('Starting recording...');
-    onStartRecording();
-    toast({
-      description: "Starting recording...",
-    });
+    try {
+      await onStartRecording();
+      toast({
+        description: "Starting recording...",
+      });
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start recording. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
   
   const handleStopRecording = () => {
