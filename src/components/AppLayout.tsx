@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import EviaLogo from '@/components/EviaLogo';
-import { LogIn, MessageSquare, LogOut } from 'lucide-react';
+import { LogIn, MessageSquare, LogOut, MessageSquareText } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
@@ -58,6 +58,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   variant="outline" 
                   className="border-border bg-transparent hover:bg-accent text-muted-foreground">
                   <MessageSquare className="mr-2 h-4 w-4" /> My Chats
+                </Button>
+              </Link>
+            )}
+            {isAuthenticated && location.pathname !== '/prompts' && (
+              <Link to="/prompts">
+                <Button 
+                  variant="outline" 
+                  className="border-border bg-transparent hover:bg-accent text-muted-foreground">
+                  <MessageSquareText className="mr-2 h-4 w-4" /> Prompts
                 </Button>
               </Link>
             )}

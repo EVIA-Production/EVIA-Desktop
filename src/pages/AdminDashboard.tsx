@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Loader2, Users, MessageSquare } from 'lucide-react';
+import { Loader2, Users } from 'lucide-react';
 
 const AdminDashboard = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -49,15 +49,6 @@ const AdminDashboard = () => {
           >
             <Users className="h-8 w-8" />
             <span className="text-lg">User Management</span>
-          </Button>
-
-          <Button
-            variant="outline"
-            className="h-32 flex flex-col items-center justify-center gap-4 hover:bg-card/50"
-            onClick={() => navigate('/admin/prompts')}
-          >
-            <MessageSquare className="h-8 w-8" />
-            <span className="text-lg">Manage Prompts</span>
           </Button>
         </div>
       </div>

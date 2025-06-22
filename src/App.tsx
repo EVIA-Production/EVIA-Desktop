@@ -65,6 +65,10 @@ const App = () => {
                   </ProtectedAdminRoute>
                 }
               />
+              <Route
+                path="/prompts"
+                element={<PromptsManagement />}
+              />
               <Route 
                 path="/admin/users/:username" 
                 element={

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft, Plus, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -51,13 +51,8 @@ const PromptsManagement = () => {
       return;
     }
 
-    if (!user?.is_admin) {
-      navigate('/');
-      return;
-    }
-
     fetchPrompts();
-  }, [isAuthenticated, isLoading, user, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
 
   const fetchPrompts = async () => {
     try {
@@ -203,14 +198,6 @@ const PromptsManagement = () => {
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Button
-              variant="ghost"
-              className="mb-4"
-              onClick={() => navigate('/admin')}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Button>
             <h1 className="text-4xl font-bold text-white mb-2">Manage Prompts</h1>
             <p className="text-gray-400">Create and manage system prompts</p>
           </div>
