@@ -40,7 +40,7 @@ const Login = () => {
       if (result.success) {
         toast({
           title: "Login successful",
-          description: "Welcome back to EV/A",
+          description: "Welcome back to EVIA",
         });
         
         // Redirect to main page after successful login
@@ -84,7 +84,7 @@ const Login = () => {
         <div className="text-center mb-8">
           <EviaLogo className="mx-auto mb-4 text-4xl text-foreground" />
           <h1 className="text-2xl font-bold text-foreground">Welcome Back</h1>
-          <p className="text-muted-foreground">Sign in to continue to EV/A</p>
+          <p className="text-muted-foreground">Sign in to continue with EVIA</p>
         </div>
 
         <Card className="bg-card border-border text-card-foreground">
@@ -144,7 +144,7 @@ const Login = () => {
           </CardContent>
           <CardFooter className="flex justify-center text-sm text-muted-foreground">
             <p>
-              Don't have an account?{" "}
+              No account yet?{" "}
               <Link to="/register" className="font-medium text-primary hover:underline">
                 Sign up
               </Link>
