@@ -64,6 +64,7 @@ const MainContent: React.FC<MainContentProps> = ({
           content={transcript}
           placeholder="Your transcript will appear here"
           className="bg-card border border-border shadow-lg order-2 md:order-1"
+          defaultCollapsed={true}
         />
         <TranscriptPanel 
           title="Suggestion" 

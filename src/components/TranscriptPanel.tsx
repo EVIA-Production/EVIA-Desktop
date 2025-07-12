@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TranscriptPanelProps {
   title: string;
@@ -7,6 +8,7 @@ interface TranscriptPanelProps {
   className?: string;
   placeholder?: string;
   isSuggestion?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 const TranscriptPanel: React.FC<TranscriptPanelProps> = ({ 
@@ -14,8 +16,10 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   content, 
   className = '',
   placeholder = "Waiting for input...",
-  isSuggestion = false
+  isSuggestion = false,
+  defaultCollapsed = false
 }) => {
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -25,10 +29,10 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   
   // Auto-scroll to the bottom when content changes
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !isCollapsed) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [content]);
+  }, [content, isCollapsed]);
 
   // Process suggestion content to extract the text after </think> tag
   const processContent = () => {
@@ -67,17 +71,33 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     ));
   };
 
+  const toggleCollapse = () => {
+    setIsCollapsed(!isCollapsed);
+  };
+
   return (
     <div className={`recording-area h-full flex flex-col ${className} rounded-xl transition-all duration-300`}>
-      <h2 className="text-xl font-semibold mb-2 flex items-center">
-        <span className="mr-2 w-2 h-2 rounded-full bg-evia-pink animate-pulse"></span>
-        {title}
-      </h2>
-      <ScrollArea className="h-[400px] p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
-        <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
-          {renderContent()}
-        </div>
-      </ScrollArea>
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-xl font-semibold flex items-center">
+          <span className="mr-2 w-2 h-2 rounded-full bg-evia-pink animate-pulse"></span>
+          {title}
+        </h2>
+        <button 
+          onClick={toggleCollapse} 
+          className="p-1 rounded-full hover:bg-gray-700 transition-colors"
+          aria-label={isCollapsed ? "Expand" : "Collapse"}
+        >
+          {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+        </button>
+      </div>
+      
+      {!isCollapsed && (
+        <ScrollArea className="h-[400px] p-4 backdrop-blur-md bg-black bg-opacity-40 rounded-xl border border-gray-800 shadow-inner">
+          <div className="text-white leading-relaxed whitespace-pre-wrap" ref={scrollRef}>
+            {renderContent()}
+          </div>
+        </ScrollArea>
+      )}
     </div>
   );
 };
