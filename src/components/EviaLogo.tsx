@@ -11,18 +11,21 @@ interface EviaLogoProps {
 
 const EviaLogo: React.FC<EviaLogoProps> = ({ 
   className, 
-  width = 100, 
-  height = 50,
+  width,
+  height,
   variant = 'white' // Default to white logo
 }) => {
   const logoSrc = variant === 'white' ? whiteLogoImage : blackLogoImage;
+  
+  // Only apply width/height styles if explicitly provided
+  const style = width || height ? { width, height } : undefined;
   
   return (
     <img 
       src={logoSrc} 
       alt="EVIA Logo" 
       className={className} 
-      style={{ width, height }} // Apply width and height
+      style={style}
     />
   );
 };
