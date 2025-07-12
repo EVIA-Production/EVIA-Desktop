@@ -11,8 +11,8 @@ interface EviaLogoProps {
 
 const EviaLogo: React.FC<EviaLogoProps> = ({ 
   className, 
-  width,
-  height,
+  width = 100,
+  height = 100,
   variant = 'white' // Default to white logo
 }) => {
   const logoSrc = variant === 'white' ? whiteLogoImage : blackLogoImage;
