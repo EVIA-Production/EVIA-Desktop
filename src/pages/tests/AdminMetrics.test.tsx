@@ -1,9 +1,10 @@
 // AdminMetrics.test.tsx
+import { test, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
 import AdminMetrics from '../AdminMetrics';
 import { BrowserRouter } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { toBeInTheDocument } from '@testing-library/jest-dom/extend-expect';
 
 // Mock dependencies
 vi.mock('@/services/analyticsService', () => ({
@@ -17,6 +18,16 @@ vi.mock('@/hooks/use-toast', () => ({
     toast: vi.fn()
   })
 }));
+
+// Mock localStorage
+global.localStorage = {
+  getItem: vi.fn(() => 'mock-token'),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(),
+};
 
 // Import the mocked service
 import analyticsService from '@/services/analyticsService';

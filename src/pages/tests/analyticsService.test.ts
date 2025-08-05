@@ -1,6 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import analyticsService from '@/services/analyticsService';
 
+// Mock localStorage
+global.localStorage = {
+  getItem: vi.fn(() => 'mock-token'),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(),
+};
+
 describe('analyticsService', () => {
   it('fetches overall metrics successfully', async () => {
     const mockMetrics = { total_sessions: 5 };
