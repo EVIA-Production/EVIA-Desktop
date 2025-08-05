@@ -18,6 +18,7 @@ import UserManagement from "./pages/Admin";
 import PromptsManagement from "./pages/PromptsManagement";
 import About from "./pages/About";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import AdminMetrics from "./pages/AdminMetrics";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +63,14 @@ const App = () => {
                 element={
                   <ProtectedAdminRoute>
                     <PromptsManagement />
+                  </ProtectedAdminRoute>
+                }
+              />
+              <Route
+                path="/admin/metrics"
+                element={
+                  <ProtectedAdminRoute>
+                    <AdminMetrics />
                   </ProtectedAdminRoute>
                 }
               />

@@ -7,75 +7,150 @@ interface TranscriptSegment {
   text: string;
   show_speaker_label: boolean;
   is_new_speaker_turn: boolean;
+  is_final: boolean;
+}
+
+interface WebSocketMessage {
+  type: string;
+  data: unknown;
+}
+
+interface TranscriptData {
+  text: string;
+  speaker: number | null;
+  is_final: boolean;
+}
+
+interface HistoryItem {
+  role: string;
+  content: string;
 }
 
 export const useWebSocketMessages = () => {
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
   const [suggestion, setSuggestion] = useState('');
   const [suggestionsDisabled, setSuggestionsDisabled] = useState(false);
-  const [fullHistory, setFullHistory] = useState<any[]>([]);
+  const [fullHistory, setFullHistory] = useState<HistoryItem[]>([]);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const { toast } = useToast();
+  const showSpeakerNames = true; // Toggle to show/hide speaker names
 
-  const handleWebSocketMessage = useCallback((message: any) => {
+  // Helper function to split text into sentences
+  const splitSentences = (text: string): string[] => {
+    return text
+      .split(/(?<=[.!?])\s+/)
+      .filter(sentence => sentence.trim().length > 0);
+  };
+
+  const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
     console.log('Received WebSocket message:', message);
     
     try {
       const msgType = message.type;
       const msgData = message.data;
 
+      // Variables that would be declared in case blocks
+      let speaker: number;
+      let text: string;
+      let errorMsg: string;
+
       switch (msgType) {
-        case 'transcript_segment':
+        case 'transcript_segment': {
           if (!msgData || typeof msgData !== 'object') {
             console.warn('Ignoring non-dict transcript_segment data:', msgData);
             return;
           }
 
-          // Only process final segments for persistent display
-          if (!msgData.is_final) {
-            return;
-          }
+          const transcriptData = msgData as TranscriptData;
+          speaker = transcriptData.speaker ?? 0;
+          text = (transcriptData.text || '').trim();
 
-          // Default speaker to 0 if None/missing
-          const speaker = msgData.speaker ?? 0;
-          const text = (msgData.text || '').trim();
-          
           if (!text) {
             return; // Don't add empty segments
           }
 
           setTranscriptSegments(prevSegments => {
             const isFirstSegment = prevSegments.length === 0;
-            const showLabel = isFirstSegment || prevSegments[prevSegments.length - 1].speaker !== speaker;
-            const isNewSpeakerTurn = showLabel && !isFirstSegment;
+            let lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
+            let sameSpeaker = lastSegment && lastSegment.speaker === speaker;
+            let showLabel = isFirstSegment || !sameSpeaker;
+            let isNewSpeakerTurn = true; // Force new line for new utterances
 
-            return [...prevSegments, {
-              speaker,
-              text,
-              show_speaker_label: showLabel,
-              is_new_speaker_turn: isNewSpeakerTurn
-            }];
+            let updatedSegments = [...prevSegments];
+
+            if (transcriptData.is_final) {
+                if (sameSpeaker && lastSegment && !lastSegment.is_final) {
+                    updatedSegments.pop(); // Remove pending interim
+                    lastSegment = updatedSegments.length > 0 ? updatedSegments[updatedSegments.length - 1] : null;
+                    sameSpeaker = lastSegment && lastSegment.speaker === speaker;
+                    showLabel = updatedSegments.length === 0 || !sameSpeaker;
+                    isNewSpeakerTurn = true;
+                }
+
+                const sentences = splitSentences(text);
+                sentences.forEach((sentence, index) => {
+                    const segmentShowLabel = index === 0 ? showLabel : false;
+                    const segmentNewTurn = index === 0 ? isNewSpeakerTurn : false;
+                    updatedSegments.push({
+                        speaker,
+                        text: sentence,
+                        show_speaker_label: segmentShowLabel && showSpeakerNames,
+                        is_new_speaker_turn: segmentNewTurn,
+                        is_final: true
+                    });
+                });
+                console.log('Appended new final segments from sentences, count:', sentences.length, ' total length:', updatedSegments.length);
+                return updatedSegments;
+            } else {
+                // Existing interim logic remains
+                const sameSpeaker = lastSegment && lastSegment.speaker === speaker;
+                const showLabel = isFirstSegment || !sameSpeaker;
+                const isNewSpeakerTurn = showLabel && !isFirstSegment;
+
+                if (sameSpeaker && lastSegment && !lastSegment.is_final) {
+                    // Update existing interim segment
+                    const updatedSegments = [...prevSegments];
+                    updatedSegments[updatedSegments.length - 1].text = text;
+                    console.log('Updated existing interim segment, length:', updatedSegments.length);
+                    return updatedSegments;
+                } else {
+                    // Add new interim segment
+                    const updatedSegments = [...prevSegments, {
+                      speaker,
+                      text,
+                      show_speaker_label: showLabel,
+                      is_new_speaker_turn: isNewSpeakerTurn,
+                      is_final: false
+                    }];
+                    console.log('Appended new interim segment, length:', updatedSegments.length);
+                    return updatedSegments;
+                }
+            }
           });
           break;
+        }
 
-        case 'suggestion':
+        case 'suggestion': {
           console.log('Received Suggestion:', msgData);
-          setSuggestion(msgData);
+          setSuggestion(msgData as string);
           setSuggestionsDisabled(false);
           break;
+        }
 
-        case 'history':
+        case 'history': {
           console.log('Received History:', msgData);
-          setFullHistory(msgData);
+          setFullHistory(msgData as HistoryItem[]);
           break;
+        }
 
-        case 'status':
-          setConnectionStatus(`Status: ${msgData}`);
+        case 'status': {
+          setConnectionStatus(`Status: ${String(msgData)}`);
           break;
+        }
 
-        case 'error':
-          const errorMsg = `Backend Error: ${msgData}`;
+        case 'error': {
+          errorMsg = `Backend Error: ${String(msgData)}`;
           setErrorMessage(errorMsg);
           console.error('Backend Error Message:', msgData);
           toast({
@@ -84,6 +159,7 @@ export const useWebSocketMessages = () => {
             variant: "destructive"
           });
           break;
+        }
 
         default:
           console.log('Received unknown message type:', msgType);
@@ -186,12 +262,12 @@ export const useWebSocketMessages = () => {
     }
   };
 
-  // Format transcript for display
+  // Format transcript for display - exactly as in the original version but with space to prevent gluing
   const formattedTranscript = transcriptSegments.map((segment, index) => {
     const prefix = segment.show_speaker_label ? `Speaker ${segment.speaker}: ` : '';
     const newline = segment.is_new_speaker_turn ? '\n' : '';
     return `${newline}${prefix}${segment.text}`;
-  }).join('');
+  }).join(' ');
 
   return {
     transcript: formattedTranscript,
@@ -208,4 +284,4 @@ export const useWebSocketMessages = () => {
     setSuggestion,
     setTranscriptSegments
   };
-}; 
+};

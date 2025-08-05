@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { authService } from '@/services/authService';
+import analyticsService from '@/services/analyticsService';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ArrowLeft, Mail, User, Shield, Save, Lock, Trash2 } from 'lucide-react';
+import { Loader2, ArrowLeft, Mail, User, Shield, Save, Lock, Trash2, BarChart } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,17 @@ interface UserProfile {
   full_name: string;
   disabled: boolean;
   is_admin?: boolean;
+}
+
+interface UserMetrics {
+  session_count?: number;
+  avg_duration?: number;
+  total_suggestions?: number;
+  avg_suggestions?: number;
+  total_errors?: number;
+  avg_transcription_latency?: number;
+  avg_suggestion_latency?: number;
+  total_token_usage?: number;
 }
 
 const formSchema = z.object({
@@ -62,6 +74,8 @@ const UserDetailPage = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [metrics, setMetrics] = useState<UserMetrics | null>(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<FormData>({
@@ -86,6 +100,7 @@ const UserDetailPage = () => {
   useEffect(() => {
     if (username) {
       loadUserDetails(username);
+      loadUserMetrics(username);
     }
   }, [username]);
 
@@ -98,6 +113,8 @@ const UserDetailPage = () => {
       
       if (userDetails) {
         setUser(userDetails);
+        
+        // Set form default values
         form.reset({
           email: userDetails.email,
           full_name: userDetails.full_name,
@@ -106,68 +123,84 @@ const UserDetailPage = () => {
         });
       } else {
         toast({
-          title: "Error",
-          description: "User not found",
-          variant: "destructive",
+          title: "User not found",
+          description: "Could not find user details",
+          variant: "destructive"
         });
-        navigate('/admin');
+        navigate('/admin/users');
       }
     } catch (error) {
+      console.error("Error loading user details:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load user details",
-        variant: "destructive",
+        description: "Failed to load user details",
+        variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
   };
 
+  const loadUserMetrics = async (username: string) => {
+    setLoadingMetrics(true);
+    try {
+      const userMetrics = await analyticsService.getUserMetrics(username);
+      console.log('User metrics loaded:', userMetrics);
+      setMetrics(userMetrics);
+    } catch (error) {
+      console.error('Error loading user metrics:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load user metrics",
+        variant: "destructive"
+      });
+      // Set default metrics on error
+      setMetrics({
+        session_count: 0,
+        avg_duration: 0,
+        total_suggestions: 0,
+        avg_suggestions: 0,
+        total_errors: 0,
+        avg_transcription_latency: 0,
+        avg_suggestion_latency: 0,
+        total_token_usage: 0
+      });
+    } finally {
+      setLoadingMetrics(false);
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
     if (!user) return;
     
-    console.log('Form submitted with data:', data);
-    console.log('Current form state:', {
-      isDirty: form.formState.isDirty,
-      dirtyFields: form.formState.dirtyFields,
-      values: form.getValues()
-    });
-    
     setSaving(true);
     try {
-      // Get the current form values and ensure they're the latest
-      const formValues = {
-        email: form.getValues("email"),
-        full_name: form.getValues("full_name"),
-        disabled: form.getValues("disabled") ?? false, // Ensure disabled is always included
-        is_admin: form.getValues("is_admin") ?? false  // Ensure is_admin is always included
-      };
-      
-      console.log('Sending update with values:', formValues);
-      
-      const updatedUser = await authService.updateUser(user.username, formValues);
-      
-      console.log('Update successful:', updatedUser);
+      const updatedUser = await authService.updateUser(user.username, {
+        email: data.email,
+        full_name: data.full_name,
+        disabled: data.disabled,
+        is_admin: data.is_admin
+      });
       
       setUser(updatedUser);
-      // Reset the form with the new values
-      form.reset(formValues, {
-        keepDirty: false,
-        keepErrors: false
-      });
-      
-      console.log('Form reset complete');
-      
       toast({
         title: "Success",
-        description: "User information updated successfully",
+        description: "User updated successfully",
+      });
+      
+      // Reset form state to mark it as "not dirty"
+      form.reset({
+        email: updatedUser.email,
+        full_name: updatedUser.full_name,
+        disabled: updatedUser.disabled,
+        is_admin: updatedUser.is_admin || false
       });
     } catch (error) {
-      console.error('Update failed:', error);
+      console.error("Error updating user:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update user information",
-        variant: "destructive",
+        description: "Failed to update user",
+        variant: "destructive"
       });
     } finally {
       setSaving(false);
@@ -181,24 +214,19 @@ const UserDetailPage = () => {
     try {
       await authService.changePassword(user.username, data.newPassword);
       
-      // Reset the password form
-      passwordForm.reset({
-        newPassword: '',
-        confirmPassword: ''
-      });
-      
-      // Close the dialog
-      setIsPasswordDialogOpen(false);
-      
       toast({
         title: "Success",
         description: "Password changed successfully",
       });
+      
+      setIsPasswordDialogOpen(false);
+      passwordForm.reset();
     } catch (error) {
+      console.error("Error changing password:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to change password",
-        variant: "destructive",
+        description: "Failed to change password",
+        variant: "destructive"
       });
     } finally {
       setChangingPassword(false);
@@ -211,55 +239,43 @@ const UserDetailPage = () => {
     setDeleting(true);
     try {
       await authService.deleteUser(user.username);
+      
       toast({
         title: "Success",
-        description: `User ${user.username} has been deleted`,
+        description: "User deleted successfully",
       });
+      
       navigate('/admin/users');
     } catch (error) {
+      console.error("Error deleting user:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete user",
-        variant: "destructive",
+        description: "Failed to delete user",
+        variant: "destructive"
       });
-    } finally {
       setDeleting(false);
       setIsDeleteDialogOpen(false);
     }
   };
 
-  // Also add logging to the switch handlers
   const handleAdminChange = (checked: boolean) => {
-    console.log('Admin switch changed:', checked);
     form.setValue("is_admin", checked, { 
       shouldDirty: true,
-      shouldTouch: true,
       shouldValidate: true
-    });
-    console.log('Form state after admin change:', {
-      isDirty: form.formState.isDirty,
-      dirtyFields: form.formState.dirtyFields
     });
   };
 
   const handleDisabledChange = (checked: boolean) => {
-    console.log('Disabled switch changed:', checked);
     form.setValue("disabled", checked, { 
       shouldDirty: true,
-      shouldTouch: true,
       shouldValidate: true
-    });
-    console.log('Form state after disabled change:', {
-      isDirty: form.formState.isDirty,
-      dirtyFields: form.formState.dirtyFields,
-      values: form.getValues()
     });
   };
 
   if (loading) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-full">
+        <div className="flex justify-center items-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       </AppLayout>
@@ -267,31 +283,131 @@ const UserDetailPage = () => {
   }
 
   if (!user) {
-    return null;
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center h-full">
+          <h1 className="text-2xl font-bold mb-4">User not found</h1>
+          <Button onClick={() => navigate('/admin/users')}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Users
+          </Button>
+        </div>
+      </AppLayout>
+    );
   }
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <Button
-          variant="ghost"
-          className="mb-6"
-          onClick={() => navigate('/admin/users')}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Users
-        </Button>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">{user.full_name}</h1>
-              <p className="text-gray-400">User Details</p>
+      <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {user.username}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  {...passwordForm.register("newPassword")}
+                />
+                {passwordForm.formState.errors.newPassword && (
+                  <p className="text-sm text-red-500">{passwordForm.formState.errors.newPassword.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  {...passwordForm.register("confirmPassword")}
+                />
+                {passwordForm.formState.errors.confirmPassword && (
+                  <p className="text-sm text-red-500">{passwordForm.formState.errors.confirmPassword.message}</p>
+                )}
+              </div>
             </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsPasswordDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={changingPassword}>
+                {changingPassword ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Changing...
+                  </>
+                ) : (
+                  "Change Password"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {user.username}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="container mx-auto py-6 max-w-4xl">
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/admin/users')}
+              className="mr-4"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <h1 className="text-2xl font-bold">User: {user.username}</h1>
+          </div>
+          <div>
             <Button
               variant="destructive"
+              size="sm"
               onClick={() => setIsDeleteDialogOpen(true)}
-              disabled={deleting}
             >
               {deleting ? (
                 <>
@@ -306,249 +422,210 @@ const UserDetailPage = () => {
               )}
             </Button>
           </div>
-
-          <form onSubmit={(e) => {
-            console.log('Form submit event triggered');
-            console.log('Form state at submit:', {
-              isDirty: form.formState.isDirty,
-              dirtyFields: form.formState.dirtyFields,
-              values: form.getValues()
-            });
-            form.handleSubmit(onSubmit)(e);
-          }}>
-            <Card className="bg-card/50 border-border">
-              <CardHeader>
-                <CardTitle>Profile Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center space-x-4">
-                  <User className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <Label htmlFor="username" className="text-sm text-gray-400">Username</Label>
-                    <Input
-                      id="username"
-                      value={user.username}
-                      disabled
-                      className="mt-1 bg-card/50"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <Mail className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <Label htmlFor="email" className="text-sm text-gray-400">Email</Label>
-                    <Input
-                      id="email"
-                      {...form.register("email", {
-                        onChange: (e) => {
-                          form.setValue("email", e.target.value, { shouldDirty: true });
-                        }
-                      })}
-                      className="mt-1 bg-card/50"
-                    />
-                    {form.formState.errors.email && (
-                      <p className="text-sm text-red-500 mt-1">{form.formState.errors.email.message}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <User className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <Label htmlFor="full_name" className="text-sm text-gray-400">Full Name</Label>
-                    <Input
-                      id="full_name"
-                      {...form.register("full_name", {
-                        onChange: (e) => {
-                          form.setValue("full_name", e.target.value, { shouldDirty: true });
-                        }
-                      })}
-                      className="mt-1 bg-card/50"
-                    />
-                    {form.formState.errors.full_name && (
-                      <p className="text-sm text-red-500 mt-1">{form.formState.errors.full_name.message}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <Shield className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="is_admin" className="text-sm text-gray-400">Admin Access</Label>
-                      <Switch
-                        id="is_admin"
-                        checked={form.watch("is_admin")}
-                        onCheckedChange={handleAdminChange}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <Shield className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
-                      <Switch
-                        id="disabled"
-                        checked={form.watch("disabled")}
-                        onCheckedChange={handleDisabledChange}
-                      />
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {form.watch("disabled") ? "Disabled" : "Active"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <Lock className="h-5 w-5 text-primary" />
-                  <div className="flex-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsPasswordDialogOpen(true)}
-                      className="w-full"
-                    >
-                      Change Password
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-end space-x-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate('/admin/users')}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={saving || !form.formState.isDirty}
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-              </CardFooter>
-            </Card>
-          </form>
         </div>
 
-        <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Change Password</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  {...passwordForm.register("newPassword")}
-                />
-                {passwordForm.formState.errors.newPassword && (
-                  <p className="text-sm text-red-500">{passwordForm.formState.errors.newPassword.message}</p>
-                )}
+        <form onSubmit={(e) => {
+          console.log('Form submit event triggered');
+          console.log('Form state at submit:', {
+            isDirty: form.formState.isDirty,
+            dirtyFields: form.formState.dirtyFields,
+            values: form.getValues()
+          });
+          form.handleSubmit(onSubmit)(e);
+        }}>
+          <Card className="bg-card/50 border-border">
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center space-x-4">
+                <User className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <Label htmlFor="username" className="text-sm text-gray-400">Username</Label>
+                  <Input
+                    id="username"
+                    value={user.username}
+                    disabled
+                    className="mt-1 bg-card/50"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  {...passwordForm.register("confirmPassword")}
-                />
-                {passwordForm.formState.errors.confirmPassword && (
-                  <p className="text-sm text-red-500">{passwordForm.formState.errors.confirmPassword.message}</p>
-                )}
-              </div>
-
-              <div className="text-sm text-gray-500">
-                <p>Password requirements:</p>
-                <ul className="list-disc list-inside">
-                  <li>At least 8 characters</li>
-                  <li>At least one uppercase letter</li>
-                  <li>At least one lowercase letter</li>
-                  <li>At least one number</li>
-                  <li>At least one special character</li>
-                </ul>
-              </div>
-
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsPasswordDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={changingPassword}
-                >
-                  {changingPassword ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Changing Password...
-                    </>
-                  ) : (
-                    "Change Password"
+              <div className="flex items-center space-x-4">
+                <Mail className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <Label htmlFor="email" className="text-sm text-gray-400">Email</Label>
+                  <Input
+                    id="email"
+                    {...form.register("email", {
+                      onChange: (e) => {
+                        form.setValue("email", e.target.value, { shouldDirty: true });
+                      }
+                    })}
+                    className="mt-1 bg-card/50"
+                  />
+                  {form.formState.errors.email && (
+                    <p className="text-sm text-red-500 mt-1">{form.formState.errors.email.message}</p>
                   )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                </div>
+              </div>
 
-        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete User</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete {user?.username}? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
+              <div className="flex items-center space-x-4">
+                <User className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <Label htmlFor="full_name" className="text-sm text-gray-400">Full Name</Label>
+                  <Input
+                    id="full_name"
+                    {...form.register("full_name", {
+                      onChange: (e) => {
+                        form.setValue("full_name", e.target.value, { shouldDirty: true });
+                      }
+                    })}
+                    className="mt-1 bg-card/50"
+                  />
+                  {form.formState.errors.full_name && (
+                    <p className="text-sm text-red-500 mt-1">{form.formState.errors.full_name.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <Shield className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="is_admin" className="text-sm text-gray-400">Admin Access</Label>
+                    <Switch
+                      id="is_admin"
+                      checked={form.watch("is_admin")}
+                      onCheckedChange={handleAdminChange}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <Shield className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
+                    <Switch
+                      id="disabled"
+                      checked={form.watch("disabled")}
+                      onCheckedChange={handleDisabledChange}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {form.watch("disabled") ? "Disabled" : "Active"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <Lock className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsPasswordDialogOpen(true)}
+                    className="w-full"
+                  >
+                    Change Password
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end space-x-4">
               <Button
+                type="button"
                 variant="outline"
-                onClick={() => setIsDeleteDialogOpen(false)}
-                disabled={deleting}
+                onClick={() => navigate('/admin/users')}
               >
                 Cancel
               </Button>
               <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={deleting}
+                type="submit"
+                disabled={saving || !form.formState.isDirty}
               >
-                {deleting ? (
+                {saving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Deleting...
+                    Saving...
                   </>
                 ) : (
-                  "Delete"
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Changes
+                  </>
                 )}
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </CardFooter>
+          </Card>
+        </form>
+
+        <Card className="bg-card/50 border-border mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <BarChart className="h-5 w-5 mr-2" />
+              User Metrics
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingMetrics ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : !metrics ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No metrics available for this user.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Sessions</h3>
+                  <p className="text-3xl font-bold">{metrics.session_count ?? 0}</p>
+                </div>
+                
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Session Duration</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_duration?.toFixed(2) ?? '0.00'} seconds</p>
+                </div>
+                
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Suggestions</h3>
+                  <p className="text-3xl font-bold">{metrics.total_suggestions ?? 0}</p>
+                </div>
+                
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestions per Session</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_suggestions?.toFixed(2) ?? '0.00'}</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Errors</h3>
+                  <p className="text-3xl font-bold">{metrics.total_errors ?? 0}</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Transcription Latency</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_transcription_latency?.toFixed(2) ?? '0.00'} ms</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestion Latency</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_suggestion_latency?.toFixed(2) ?? '0.00'} ms</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Token Usage</h3>
+                  <p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );
 };
 
-export default UserDetailPage; 
+export default UserDetailPage;

@@ -14,6 +14,7 @@ const Index = () => {
   const [hasAccessToken, setHasAccessToken] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
@@ -41,31 +42,38 @@ const Index = () => {
     if (!chatId) return;
 
     const loadPastTranscripts = async () => {
-      try {
-        const transcripts = await chatService.getChatTranscripts(chatId);
-        if (transcripts.length > 0) {
-          // Convert transcripts to segments format
-          const segments = transcripts.map(transcript => ({
-            speaker: 0, // Default speaker for past transcripts
-            text: transcript.content,
-            show_speaker_label: true,
-            is_new_speaker_turn: true
-          }));
-          setTranscriptSegments(segments);
-          addDebugLog(`Loaded ${transcripts.length} past transcripts`);
+        try {
+            const showSpeakerNames = true;
+            const transcripts = await chatService.getChatTranscripts(chatId);
+            const segments = [];
+            transcripts.forEach(transcript => {
+                const sentences = transcript.content
+                    .split(/(?<=[.!?])\s+/)
+                    .filter(sentence => sentence.trim().length > 0);
+                sentences.forEach((sentence, index) => {
+                    segments.push({
+                        speaker: 0, // Default for past
+                        text: sentence,
+                        show_speaker_label: index === 0 ? showSpeakerNames : false,
+                        is_new_speaker_turn: index === 0 ? true : false,
+                        is_final: true
+                    });
+                });
+            });
+            setTranscriptSegments(segments);
+            addDebugLog(`Loaded ${segments.length} transcript segments from ${transcripts.length} entries`);
+        } catch (error) {
+            console.error('Error loading past transcripts:', error);
+            toast({
+                title: "Error",
+                description: "Failed to load past transcripts",
+                variant: "destructive"
+            });
         }
-      } catch (error) {
-        console.error('Error loading past transcripts:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load past transcripts",
-          variant: "destructive"
-        });
-      }
     };
 
     loadPastTranscripts();
-  }, [chatId, toast]);
+}, [chatId, refreshKey, toast]);
   
   useEffect(() => {
     console.log('Index component mounted');
@@ -142,7 +150,8 @@ const Index = () => {
 
   const onStopRecordingWrapper = () => {
     handleStopRecording(setDebugLog);
-  };
+    setRefreshKey(prev => prev + 1);
+};
 
   const onSuggestWrapper = () => {
     handleSuggest(setDebugLog);

@@ -261,9 +261,12 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       // Close WebSocket connection
       const chatId = localStorage.getItem('selectedChatId');
       if (chatId) {
-        closeWebSocketInstance(chatId);
+        setTimeout(() => {
+          closeWebSocketInstance(chatId);
+          addDebugLog('WebSocket connection closed after delay', setDebugLog);
+        }, 2000);
+        addDebugLog('Scheduled WebSocket close in 2 seconds to receive pending messages', setDebugLog);
       }
-      addDebugLog('WebSocket connection closed', setDebugLog);
       
       toast({
         description: "Recording stopped",
