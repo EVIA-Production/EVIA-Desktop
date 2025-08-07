@@ -1,4 +1,5 @@
-# Welcome to your Lovable project
+# EVIA Frontend
+React + Vite frontend for EVIA.
 
 ## Project info
 
@@ -59,6 +60,12 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+
+## Metrics UI
+- Admin pages consume backend endpoints:
+  - `GET /admin/metrics` for overall metrics
+  - `GET /admin/users/{username}/metrics` for per-user metrics
+- Extend dashboards to include sessions/week, retention, feature usage, API costs as backend exposes them.
 
 ## How can I deploy this project?
 
