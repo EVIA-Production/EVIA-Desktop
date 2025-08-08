@@ -1,19 +1,15 @@
 # EVIA Frontend
-React + Vite frontend for EVIA.
+React + Vite + TypeScript frontend for EVIA.
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/8643a74a-4a2f-46f4-9b9f-f8e35927ebd1
+**Live App**: https://frontend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io/
 
 ## How can I edit this code?
 
 There are several ways of editing your application.
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/8643a74a-4a2f-46f4-9b9f-f8e35927ebd1) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
+You can edit locally in any IDE. Ensure Node 20+ is installed.
 
 **Use your preferred IDE**
 
@@ -24,16 +20,9 @@ The only requirement is having Node.js & npm installed - [install with nvm](http
 Follow these steps:
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
+cd evia-frontend
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
@@ -53,28 +42,21 @@ npm run dev
 
 ## What technologies are used for this project?
 
-This project is built with:
+This project is built with Vite, React, TypeScript, shadcn/ui, Tailwind CSS, TanStack Query.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Features
+- Auth (login/register), protected admin routes
+- Chats: list/create/rename/delete; live transcription; suggestions
+- Admin dashboards: overall and per-user metrics via backend `/admin/metrics` and `/admin/users/{username}/metrics`
 
-## Metrics UI
-- Admin pages consume backend endpoints:
-  - `GET /admin/metrics` for overall metrics
-  - `GET /admin/users/{username}/metrics` for per-user metrics
-- Extend dashboards to include sessions/week, retention, feature usage, API costs as backend exposes them.
+## Configuration
+Set at build-time via Vite args/env:
+- `VITE_BACKEND_URL=https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io`
+- `VITE_BACKEND_PORT=443` (optional; auto-handled if URL includes scheme and host)
 
-## How can I deploy this project?
+## Deployment
+- CI/CD with GitHub Actions builds Docker image and updates Azure Container Apps on push to `main`.
 
-Simply open [Lovable](https://lovable.dev/projects/8643a74a-4a2f-46f4-9b9f-f8e35927ebd1) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## Troubleshooting
+- If “Failed to fetch” on protected APIs, verify you’re logged in and CORS allows the frontend host.
+- WebSocket issues: ensure token and `chatId` are set, and backend WS endpoint is reachable (wss on prod).
