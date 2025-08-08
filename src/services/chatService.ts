@@ -44,13 +44,39 @@ export const chatService = {
         throw new Error(`Failed to create chat: ${response.status} ${response.statusText}`);
       }
       
-      const chat: ChatResponse = await response.json();
+      const chat: Partial<ChatResponse> = await response.json();
       console.log('Chat created successfully:', chat);
       
-      // Store the chat ID in localStorage for easy access
-      localStorage.setItem('selectedChatId', String(chat.id));
+      // Prefer ID from create response; if missing, fall back to most recent chat from list
+      let newChatId: number | null = (typeof chat?.id === 'number') ? chat.id : null;
+      if (newChatId == null) {
+        try {
+          const token = localStorage.getItem('auth_token');
+          const tokenType = localStorage.getItem('token_type') || 'Bearer';
+          const listResp = await fetch(`${API_BASE_URL}/chat/`, {
+            headers: { 'Authorization': `${tokenType} ${token}`, 'Content-Type': 'application/json' }
+          });
+          if (listResp.ok) {
+            const chats: ChatResponse[] = await listResp.json();
+            if (Array.isArray(chats) && chats.length > 0) {
+              // Choose most recently used/created
+              const latest = [...chats].sort((a, b) => new Date(b.last_used_at || b.created_at).getTime() - new Date(a.last_used_at || a.created_at).getTime())[0];
+              newChatId = latest?.id ?? null;
+            }
+          }
+        } catch (_) {
+          // ignore, will handle below
+        }
+      }
       
-      return chat.id;
+      if (newChatId == null) {
+        throw new Error('Chat was created but no ID was returned');
+      }
+      
+      // Store the chat ID in localStorage for easy access
+      localStorage.setItem('selectedChatId', String(newChatId));
+      
+      return newChatId;
     } catch (error) {
       console.error('Error creating chat:', error);
       throw error;

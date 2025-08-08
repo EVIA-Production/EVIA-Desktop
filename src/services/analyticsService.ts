@@ -12,7 +12,21 @@ interface Metrics {
   avg_duration?: number;
   total_suggestions?: number;
   avg_suggestions?: number;
-  // Add other metrics as needed
+  total_errors?: number;
+  avg_transcription_latency?: number;
+  avg_suggestion_latency?: number;
+  total_token_usage?: number;
+  avg_sessions_per_week?: number;
+  feature_usage?: Record<string, number>;
+  avg_time_to_first?: number;
+  avg_error_rate?: number;
+  avg_deepgram_time?: number;
+  avg_groq_time?: number;
+  avg_tokens_per_suggestion?: number;
+  retention_rate?: number;
+  total_api_cost?: number;
+  total_deepgram_calls?: number;
+  total_groq_calls?: number;
 }
 
 interface UserMetrics {
@@ -20,7 +34,20 @@ interface UserMetrics {
   avg_duration?: number;
   total_suggestions?: number;
   avg_suggestions?: number;
-  // Add other metrics as needed
+  total_errors?: number;
+  avg_transcription_latency?: number;
+  avg_suggestion_latency?: number;
+  total_token_usage?: number;
+  sessions_per_week?: number;
+  feature_usage?: Record<string, number>;
+  avg_time_to_first?: number;
+  error_rate?: number;
+  avg_deepgram_time?: number;
+  avg_groq_time?: number;
+  avg_tokens_per_suggestion?: number;
+  total_api_cost?: number;
+  deepgram_calls?: number;
+  groq_calls?: number;
 }
 
 class AnalyticsService {

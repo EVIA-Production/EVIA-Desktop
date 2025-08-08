@@ -91,8 +91,12 @@ const Index = () => {
       return;
     }
     
-    // Check for existing chat ID
-    const existingChatId = localStorage.getItem('selectedChatId');
+    // Check for existing chat ID (guard against string 'undefined'/'null')
+    const raw = localStorage.getItem('selectedChatId');
+    const existingChatId = (raw && raw !== 'undefined' && raw !== 'null') ? raw : null;
+    if (raw && !existingChatId) {
+      localStorage.removeItem('selectedChatId');
+    }
     if (existingChatId) {
       setChatId(existingChatId);
       addDebugLog(`Using existing chat ID: ${existingChatId}`);

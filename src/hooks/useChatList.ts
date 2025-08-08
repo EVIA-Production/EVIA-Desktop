@@ -44,6 +44,8 @@ export const useChatList = () => {
   const createNewChat = async () => {
     try {
       const chatId = await chatService.createChat();
+      // Ensure selectedChatId is set before navigation
+      localStorage.setItem('selectedChatId', String(chatId));
       toast({
         title: 'Success',
         description: 'New chat created successfully',

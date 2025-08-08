@@ -39,6 +39,16 @@ interface UserMetrics {
   avg_transcription_latency?: number;
   avg_suggestion_latency?: number;
   total_token_usage?: number;
+  sessions_per_week?: number;
+  feature_usage?: Record<string, number>;
+  avg_time_to_first?: number;
+  error_rate?: number;
+  avg_deepgram_time?: number;
+  avg_groq_time?: number;
+  avg_tokens_per_suggestion?: number;
+  total_api_cost?: number;
+  deepgram_calls?: number;
+  groq_calls?: number;
 }
 
 const formSchema = z.object({
@@ -163,7 +173,17 @@ const UserDetailPage = () => {
         total_errors: 0,
         avg_transcription_latency: 0,
         avg_suggestion_latency: 0,
-        total_token_usage: 0
+        total_token_usage: 0,
+        feature_usage: {},
+        sessions_per_week: 0,
+        avg_time_to_first: 0,
+        error_rate: 0,
+        avg_deepgram_time: 0,
+        avg_groq_time: 0,
+        avg_tokens_per_suggestion: 0,
+        total_api_cost: 0,
+        deepgram_calls: 0,
+        groq_calls: 0
       });
     } finally {
       setLoadingMetrics(false);
@@ -619,8 +639,56 @@ const UserDetailPage = () => {
                   <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Token Usage</h3>
                   <p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p>
                 </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Sessions / Week</h3>
+                  <p className="text-3xl font-bold">{metrics.sessions_per_week?.toFixed(2) ?? '0.00'}</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Time to First Suggestion</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_time_to_first?.toFixed(2) ?? '0.00'} s</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Error Rate</h3>
+                  <p className="text-3xl font-bold">{metrics.error_rate?.toFixed(2) ?? '0.00'}</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Deepgram Time</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_deepgram_time?.toFixed(2) ?? '0.00'} s</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Groq Time</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_groq_time?.toFixed(2) ?? '0.00'} s</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Tokens / Suggestion</h3>
+                  <p className="text-3xl font-bold">{metrics.avg_tokens_per_suggestion?.toFixed(2) ?? '0.00'}</p>
+                </div>
+
+                <div className="bg-background/50 p-4 rounded-lg border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total API Cost (est.)</h3>
+                  <p className="text-3xl font-bold">${metrics.total_api_cost?.toFixed(2) ?? '0.00'}</p>
+                </div>
               </div>
             )}
+              {metrics && metrics.feature_usage && Object.keys(metrics.feature_usage).length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold mb-2">Feature Usage</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Object.entries(metrics.feature_usage).map(([k, v]) => (
+                      <div key={k} className="bg-background/50 p-4 rounded-lg border border-border">
+                        <h4 className="text-sm font-medium text-muted-foreground mb-2">{k}</h4>
+                        <p className="text-2xl font-bold">{v}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
           </CardContent>
         </Card>
       </div>
