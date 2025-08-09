@@ -3,7 +3,8 @@ import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 import { chatService } from '@/services/chatService';
 
-export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => {
+type WsMessage = { type?: string; data?: unknown };
+export const useAudioCapture = (onWebSocketMessage?: (message: WsMessage) => void) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const { toast } = useToast();
@@ -104,7 +105,7 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       micSource.connect(micGain);
       micGain.connect(masterGain);
       
-      // Create destination for the mixed audio
+      // Create destination for optional local monitoring/analysis
       const destination = audioContext.createMediaStreamDestination();
       masterGain.connect(destination);
       
@@ -132,52 +133,60 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       setIsRecording(true);
       addDebugLog('Permissions granted. Recording started.', setDebugLog);
       
-      // Connect to WebSocket if we have a chatId
-      const ws = getWebSocketInstance(chatId);
-      ws.connect();
+      // Connect two WebSockets: one for mic (source=mic), one for system (source=system)
+      const wsMic = getWebSocketInstance(chatId, 'mic');
+      wsMic.connect();
+      const wsSys = getWebSocketInstance(chatId, 'system');
+      wsSys.connect();
       setIsConnected(true);
       
-      // Register message handler if provided
+      // Register message handler if provided (attach to both)
       if (onWebSocketMessage) {
-        messageHandlerRef.current = ws.onMessage(onWebSocketMessage);
+        const detachMic = wsMic.onMessage(onWebSocketMessage);
+        const detachSys = wsSys.onMessage(onWebSocketMessage);
+        messageHandlerRef.current = () => { detachMic(); detachSys(); };
       }
       
-      addDebugLog('WebSocket connection initiated', setDebugLog);
+      addDebugLog('WebSocket connections initiated (mic + system)', setDebugLog);
       
-      // Create audio processor for the mixed stream
-      const source = audioContext.createMediaStreamSource(destination.stream);
+      // Create dedicated processors per source and send to the corresponding WS only
+      // Mic processor
+      const micProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      micGain.connect(micProcessor);
+      micProcessor.connect(audioContext.destination);
+      micProcessor.onaudioprocess = (e) => {
+        const wsMicConn = getWebSocketInstance(chatId, 'mic');
+        if (!wsMicConn.isConnected()) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        const int16Data = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+        }
+        audioFrameCountRef.current += 1;
+        if (audioFrameCountRef.current % 50 === 0) {
+          console.log(`[Audio Logger][MIC] Frame #${audioFrameCountRef.current}, size: ${int16Data.length}`);
+        }
+        wsMicConn.sendBinaryData(int16Data.buffer);
+      };
       
-      // ScriptProcessorNode is deprecated but widely supported
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      
-      // Process audio data and send to WebSocket
-      processor.onaudioprocess = (e) => {
-        if (ws.isConnected()) {
+      // System processor (only if system audio available)
+      if (sysSourceRef.current) {
+        const sysProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+        sysGain.connect(sysProcessor);
+        sysProcessor.connect(audioContext.destination);
+        sysProcessor.onaudioprocess = (e) => {
+          const wsSysConn = getWebSocketInstance(chatId, 'system');
+          if (!wsSysConn.isConnected()) return;
           const inputData = e.inputBuffer.getChannelData(0);
-          
-          // Convert float32 to int16 (better compression for transmission)
           const int16Data = new Int16Array(inputData.length);
           for (let i = 0; i < inputData.length; i++) {
             int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
           }
-          
-          // Log audio frame count for debugging
-          audioFrameCountRef.current += 1;
-          if (audioFrameCountRef.current % 50 === 0) {
-            console.log(`[Audio Logger] Processing audio frame #${audioFrameCountRef.current}, size: ${int16Data.length} samples`);
-          }
-          
-          // Send audio data through WebSocket
-          ws.sendBinaryData(int16Data.buffer);
-        }
-      };
+          wsSysConn.sendBinaryData(int16Data.buffer);
+        };
+      }
       
-      // Connect the audio processing nodes
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      
-      addDebugLog('Audio processing pipeline established', setDebugLog);
+      addDebugLog('Audio processing pipeline established (separate mic/system streams)', setDebugLog);
     } catch (error) {
       console.error('Error starting recording:', error);
       addDebugLog(`Error starting recording: ${error}`, setDebugLog);
@@ -256,6 +265,13 @@ export const useAudioCapture = (onWebSocketMessage?: (message: any) => void) => 
       if (messageHandlerRef.current) {
         messageHandlerRef.current();
         messageHandlerRef.current = null;
+      }
+
+      // Close WS instances for this chat
+      const selectedId = localStorage.getItem('selectedChatId') || undefined;
+      if (selectedId) {
+        closeWebSocketInstance(selectedId, 'mic');
+        closeWebSocketInstance(selectedId, 'system');
       }
       
       // Close WebSocket connection

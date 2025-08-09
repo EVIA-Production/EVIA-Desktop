@@ -64,7 +64,9 @@ export const useWebSocketMessages = () => {
           }
 
           const transcriptData = msgData as TranscriptData;
-          speaker = transcriptData.speaker ?? 0;
+          // Do NOT default null to 0; use -1 as unknown so we can detect diarization/fallbacks
+          const sp = (transcriptData.speaker);
+          speaker = (typeof sp === 'number') ? sp : -1;
           text = (transcriptData.text || '').trim();
 
           if (!text) {
@@ -255,8 +257,12 @@ export const useWebSocketMessages = () => {
 
   // Build structured lines for rendering with labels
   const renderedLines = transcriptLines.map((line, idx) => {
-    const mapped = speakerLabels[String(line.speaker)] ?? `Speaker ${line.speaker}`;
-    const label = labelOverrides[idx] ?? mapped;
+    // Default mapping: local (1) => You, system (0) => Prospect, else fallback mapping
+    let baseLabel: string;
+    if (line.speaker === 1) baseLabel = 'You';
+    else if (line.speaker === 0) baseLabel = 'Prospect';
+    else baseLabel = speakerLabels[String(line.speaker)] ?? (line.speaker >= 0 ? `Speaker ${line.speaker}` : 'Unknown');
+    const label = labelOverrides[idx] ?? baseLabel;
     return { label, text: line.text, lineIndex: idx, speaker: line.speaker, isInterim: !!line.isInterim };
   });
 

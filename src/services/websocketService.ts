@@ -11,7 +11,7 @@ interface WebSocketMessage {
     speaker?: number | null;
     is_final?: boolean;
   } | string; // Update: data can be string for suggestions
-  content?: any;
+  content?: unknown;
   transcript?: string;
   suggestion?: string;
   error?: string;
@@ -19,14 +19,16 @@ interface WebSocketMessage {
 
 export class ChatWebSocket {
   private chatId: string;
+  private source?: 'mic' | 'system';
   private ws: WebSocket | null = null;
   private isConnectedFlag: boolean = false;
   private lastAudioLevel: number = 0;
   private silenceThreshold: number = 0.01;
   private audioDetected: boolean = false;
 
-  constructor(chatId: string) {
+  constructor(chatId: string, source?: 'mic' | 'system') {
     this.chatId = chatId;
+    this.source = source;
     console.log('ChatWebSocket initialized with chatId:', chatId);
   }
 
@@ -40,7 +42,8 @@ export class ChatWebSocket {
       }
 
       // Connect to the WebSocket server with chat_id and token as query parameters
-      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${this.chatId}&token=${token}`;
+      const sourceParam = this.source ? `&source=${this.source}` : '';
+      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${this.chatId}&token=${token}${sourceParam}`;
       this.ws = new WebSocket(wsUrl);
       
       // Set up event handlers
@@ -177,23 +180,22 @@ export class ChatWebSocket {
 // Map to store WebSocket instances by chat ID
 const wsInstances = new Map<string, ChatWebSocket>();
 
-export const getWebSocketInstance = (chatId: string): ChatWebSocket => {
-  // If we already have an instance for this chat, return it
-  if (wsInstances.has(chatId)) {
-    return wsInstances.get(chatId)!;
+export const getWebSocketInstance = (chatId: string, source?: 'mic' | 'system'): ChatWebSocket => {
+  const key = source ? `${chatId}:${source}` : chatId;
+  if (wsInstances.has(key)) {
+    return wsInstances.get(key)!;
   }
-
-  // Create a new instance for this chat
-  const ws = new ChatWebSocket(chatId);
-  wsInstances.set(chatId, ws);
+  const ws = new ChatWebSocket(chatId, source);
+  wsInstances.set(key, ws);
   return ws;
 };
 
-export const closeWebSocketInstance = (chatId: string) => {
-  const ws = wsInstances.get(chatId);
+export const closeWebSocketInstance = (chatId: string, source?: 'mic' | 'system') => {
+  const key = source ? `${chatId}:${source}` : chatId;
+  const ws = wsInstances.get(key);
   if (ws) {
     ws.disconnect();
-    wsInstances.delete(chatId);
+    wsInstances.delete(key);
   }
 };
 
