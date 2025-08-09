@@ -24,11 +24,17 @@ function createWindow() {
       contextIsolation: true,
       devTools: true,
     },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#00000000',
+      symbolColor: '#ffffff',
+      height: 24,
+    },
   })
 
   const url = process.env.NODE_ENV === 'development'
     ? 'http://localhost:5174'
-    : new URL('../renderer/index.html', 'file://' + __dirname + '/').toString()
+    : `file://${path.join(__dirname, '../renderer/index.html')}`
 
   mainWindow.loadURL(url)
   mainWindow.on('closed', () => { mainWindow = null })

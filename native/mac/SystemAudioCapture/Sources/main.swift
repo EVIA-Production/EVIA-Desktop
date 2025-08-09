@@ -34,7 +34,7 @@ final class AudioDumper: NSObject {
         let config = SCStreamConfiguration()
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = false
-        config.sampleRate = sampleRate
+        config.sampleRate = Int(sampleRate)
         config.channelCount = Int(channels)
 
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
@@ -47,7 +47,8 @@ final class AudioDumper: NSObject {
         try await stream.startCapture()
 
         // Keep running
-        RunLoop.current.run()
+        // Keep process alive
+        while true { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.25)) }
     }
 
     private final class StreamOutput: NSObject, SCStreamOutput {
@@ -137,7 +138,8 @@ struct Main {
             let dumper = AudioDumper()
             try await dumper.start()
         } catch {
-            let msg = "{\"error\":\"") + String(describing: error).replacingOccurrences(of: "\"", with: "'") + "\"}\n"
+            let s = String(describing: error).replacingOccurrences(of: "\"", with: "'")
+            let msg = "{\"error\":\"" + s + "\"}\n"
             FileHandle.standardError.write(msg.data(using: .utf8)!)
             exit(1)
         }

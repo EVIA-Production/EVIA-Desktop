@@ -8,14 +8,15 @@
 ## Dev
 
 ```sh
-cd apps/evia-desktop
+cd EVIA-Desktop
 npm i
-EVIA_DEV=1 npm run dev # in one terminal (Electron, dev paths enabled)
-# in another terminal
-npm run dev --prefix . # Vite server for renderer runs on :5174
+# terminal A (renderer)
+npm run dev:renderer
+# terminal B (Electron)
+EVIA_DEV=1 npm run dev:main
 ```
 
-Set backend URL, chat_id, and token when prompted to validate end-to-end WS.
+Set backend URL, chat_id, and token in the Electron window fields, then click Connect.
 
 ### macOS helper (Phase 1)
 

@@ -16,7 +16,10 @@
   </head>
   <body>
     <div id="app">
-      <div class="row">
+      <div class="row" style="flex-wrap: wrap; gap: 6px">
+        <input id="backend" placeholder="Backend URL" style="flex:1; min-width: 260px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
+        <input id="chatId" placeholder="Chat ID" style="width:140px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
+        <input id="token" placeholder="JWT Token" type="password" style="flex:1; min-width: 260px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
         <button id="connect">Connect</button>
         <button id="suggest">Suggest</button>
         <span class="status" id="status">Idle</span>
@@ -25,6 +28,6 @@
         <textarea id="log" placeholder="Transcript and events..." readonly></textarea>
       </div>
     </div>
-    <script type="module" src="./main.ts"></script>
+    <script type="module" src="/main.ts"></script>
   </body>
 </html>
