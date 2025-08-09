@@ -12,8 +12,10 @@ interface TranscriptSegment {
 
 export const useRecording = () => {
   const {
-    transcript,
-    transcriptSegments,
+    transcriptLines,
+    renderedLines,
+    speakerLabels,
+    labelOverrides,
     suggestion,
     suggestionsDisabled,
     fullHistory,
@@ -24,7 +26,10 @@ export const useRecording = () => {
     handleResetContext,
     requestHistory,
     setSuggestion,
-    setTranscriptSegments
+    setTranscriptLines,
+    applyLabelToAll,
+    applyLabelToLine,
+    loadSpeakerLabels,
   } = useWebSocketMessages();
 
   const {
@@ -36,18 +41,13 @@ export const useRecording = () => {
   } = useAudioCapture(handleWebSocketMessage);
 
   const [isRecordingState, setIsRecordingState] = useState(isRecording);
-  const [transcriptState, setTranscriptState] = useState(transcript);
-  const [transcriptSegmentsState, setTranscriptSegmentsState] = useState<TranscriptSegment[]>(transcriptSegments);
-  const [suggestionState, setSuggestionState] = useState(suggestion);
-  const [suggestionsDisabledState, setSuggestionsDisabledState] = useState(suggestionsDisabled);
-  const [fullHistoryState, setFullHistoryState] = useState<any[]>(fullHistory);
-  const [connectionStatusState, setConnectionStatusState] = useState(connectionStatus);
-  const [isConnectedState, setIsConnectedState] = useState(isConnected);
 
   return {
     isRecording,
-    transcript,
-    transcriptSegments,
+    transcriptLines,
+    renderedLines,
+    speakerLabels,
+    labelOverrides,
     suggestion,
     suggestionsDisabled,
     fullHistory,
@@ -61,7 +61,10 @@ export const useRecording = () => {
     requestHistory,
     setSuggestion,
     setIsConnected,
-    setTranscriptSegments
+    setTranscriptLines,
+    applyLabelToAll,
+    applyLabelToLine,
+    loadSpeakerLabels,
   };
 };
 

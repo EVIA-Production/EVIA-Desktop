@@ -56,5 +56,9 @@ export default defineConfig(({ mode }) => ({
   build: {
     rollupOptions: {},
     minify: true
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: 'src/tests/setup.ts'
   }
 }));

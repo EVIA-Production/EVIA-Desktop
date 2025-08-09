@@ -8,10 +8,11 @@ interface ChatResponse {
   user_id: string;
 }
 
-interface Transcript {
+export interface Transcript {
   id: number;
   chat_id: number;
   content: string;
+  speaker?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -287,5 +288,35 @@ export const chatService = {
       console.error('Error deleting chat:', error);
       throw error;
     }
+  },
+
+  async getSpeakerLabels(chatId: string): Promise<Record<string, string>> {
+    const token = localStorage.getItem('auth_token');
+    const tokenType = localStorage.getItem('token_type') || 'Bearer';
+    if (!token) throw new Error('No authentication token found');
+    const resp = await fetch(`${API_BASE_URL}/chat/${chatId}/speaker-labels`, {
+      headers: {
+        'Authorization': `${tokenType} ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    if (!resp.ok) throw new Error(`Failed to fetch speaker labels: ${resp.status}`);
+    return await resp.json();
+  },
+
+  async setSpeakerLabels(chatId: string, mapping: Record<string, string>): Promise<Record<string, string>> {
+    const token = localStorage.getItem('auth_token');
+    const tokenType = localStorage.getItem('token_type') || 'Bearer';
+    if (!token) throw new Error('No authentication token found');
+    const resp = await fetch(`${API_BASE_URL}/chat/${chatId}/speaker-labels`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `${tokenType} ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(mapping)
+    });
+    if (!resp.ok) throw new Error(`Failed to save speaker labels: ${resp.status}`);
+    return await resp.json();
   }
 };

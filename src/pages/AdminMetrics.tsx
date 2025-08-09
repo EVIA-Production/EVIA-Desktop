@@ -88,167 +88,83 @@ const AdminMetrics = () => {
           <div>No metrics available.</div>
         ) : (
           <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Sessions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_sessions ?? 0}</p>
-              </CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Top row priority KPIs */}
+            <Card className="lg:col-span-3">
+              <CardHeader><CardTitle>Total Sessions</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_sessions ?? 0}</p></CardContent>
             </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Average Duration</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_duration?.toFixed(2) ?? '0.00'} seconds</p>
-              </CardContent>
+            <Card className="lg:col-span-3">
+              <CardHeader><CardTitle>Avg. Time to First</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_time_to_first?.toFixed(2) ?? '0.00'} s</p></CardContent>
             </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Suggestions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_suggestions ?? 0}</p>
-              </CardContent>
+            <Card className="lg:col-span-3">
+              <CardHeader><CardTitle>Avg. Suggestions / Session</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_suggestions?.toFixed(2) ?? '0.00'}</p></CardContent>
             </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Average Suggestions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_suggestions?.toFixed(2) ?? '0.00'}</p>
-              </CardContent>
+            <Card className="lg:col-span-3">
+              <CardHeader><CardTitle>Retention Rate</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.retention_rate?.toFixed(2) ?? '0.00'}%</p></CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Errors</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_errors ?? 0}</p>
-              </CardContent>
+            {/* Usage & cost */}
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Total Suggestions</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_suggestions ?? 0}</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Total Token Usage</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Total API Cost (est.)</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">${metrics.total_api_cost?.toFixed(2) ?? '0.00'}</p></CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Transcription Latency</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_transcription_latency?.toFixed(2) ?? '0.00'} ms</p>
-              </CardContent>
+            {/* Reliability */}
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Total Errors</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_errors ?? 0}</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Avg. Error Rate</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_error_rate?.toFixed(2) ?? '0.00'}</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Avg. Sessions / Week</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_sessions_per_week?.toFixed(2) ?? '0.00'}</p></CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Suggestion Latency</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_suggestion_latency?.toFixed(2) ?? '0.00'} ms</p>
-              </CardContent>
+            {/* Performance */}
+            <Card className="lg:col-span-6">
+              <CardHeader><CardTitle>Avg. Suggestion Latency</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_suggestion_latency?.toFixed(2) ?? '0.00'} ms</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-6">
+              <CardHeader><CardTitle>Avg. Transcription Latency</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_transcription_latency?.toFixed(2) ?? '0.00'} ms</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Avg. Deepgram Time</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_deepgram_time?.toFixed(2) ?? '0.00'} s</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Avg. Groq Time</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_groq_time?.toFixed(2) ?? '0.00'} s</p></CardContent>
+            </Card>
+            <Card className="lg:col-span-4">
+              <CardHeader><CardTitle>Avg. Tokens / Suggestion</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.avg_tokens_per_suggestion?.toFixed(2) ?? '0.00'}</p></CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Token Usage</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p>
-              </CardContent>
+            {/* Provider calls (less prominent) */}
+            <Card className="lg:col-span-6">
+              <CardHeader><CardTitle>Total Deepgram Calls</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_deepgram_calls ?? 0}</p></CardContent>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Sessions / Week</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_sessions_per_week?.toFixed(2) ?? '0.00'}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Time to First Suggestion</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_time_to_first?.toFixed(2) ?? '0.00'} s</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Error Rate</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_error_rate?.toFixed(2) ?? '0.00'}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Deepgram Response Time</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_deepgram_time?.toFixed(2) ?? '0.00'} s</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Groq Response Time</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_groq_time?.toFixed(2) ?? '0.00'} s</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Avg. Tokens / Suggestion</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.avg_tokens_per_suggestion?.toFixed(2) ?? '0.00'}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Retention Rate</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.retention_rate?.toFixed(2) ?? '0.00'}%</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Total API Cost (est.)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">${metrics.total_api_cost?.toFixed(2) ?? '0.00'}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Deepgram Calls</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_deepgram_calls ?? 0}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Groq Calls</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{metrics.total_groq_calls ?? 0}</p>
-              </CardContent>
+            <Card className="lg:col-span-6">
+              <CardHeader><CardTitle>Total Groq Calls</CardTitle></CardHeader>
+              <CardContent><p className="text-3xl font-bold">{metrics.total_groq_calls ?? 0}</p></CardContent>
             </Card>
           </div>
 

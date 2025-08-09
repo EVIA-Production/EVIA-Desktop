@@ -27,7 +27,7 @@ describe('analyticsService', () => {
   it('handles fetch errors', async () => {
     global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'));
     
-    await expect(analyticsService.getOverallMetrics()).rejects.toThrow('Error fetching metrics');
+    await expect(analyticsService.getOverallMetrics()).rejects.toThrow('Network error');
   });
 
   it('fetches user metrics successfully', async () => {

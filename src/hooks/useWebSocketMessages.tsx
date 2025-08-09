@@ -1,13 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getWebSocketInstance } from '@/services/websocketService';
+import { chatService } from '@/services/chatService';
 
-interface TranscriptSegment {
+interface TranscriptLine {
   speaker: number;
-  text: string;
-  show_speaker_label: boolean;
-  is_new_speaker_turn: boolean;
-  is_final: boolean;
+  text: string; // accumulated text for this contiguous speaker block
+  isInterim?: boolean; // indicates the latest portion is interim (for rendering only)
 }
 
 interface WebSocketMessage {
@@ -27,20 +26,22 @@ interface HistoryItem {
 }
 
 export const useWebSocketMessages = () => {
-  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
+  const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([]);
   const [suggestion, setSuggestion] = useState('');
   const [suggestionsDisabled, setSuggestionsDisabled] = useState(false);
   const [fullHistory, setFullHistory] = useState<HistoryItem[]>([]);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [speakerLabels, setSpeakerLabels] = useState<Record<string, string>>({}); // persisted mapping
+  const [labelOverrides, setLabelOverrides] = useState<Record<number, string>>({}); // per line index
   const { toast } = useToast();
-  const showSpeakerNames = true; // Toggle to show/hide speaker names
 
-  // Helper function to split text into sentences
-  const splitSentences = (text: string): string[] => {
-    return text
-      .split(/(?<=[.!?])\s+/)
-      .filter(sentence => sentence.trim().length > 0);
+  // Helper: sanitize text spacing
+  const normalizeAppend = (prev: string, addition: string) => {
+    if (!prev) return addition.trim();
+    const a = addition.trim();
+    if (!a) return prev;
+    return /[\s]$/.test(prev) ? prev + a : prev + ' ' + a;
   };
 
   const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
@@ -70,63 +71,29 @@ export const useWebSocketMessages = () => {
             return; // Don't add empty segments
           }
 
-          setTranscriptSegments(prevSegments => {
-            const isFirstSegment = prevSegments.length === 0;
-            let lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
-            let sameSpeaker = lastSegment && lastSegment.speaker === speaker;
-            let showLabel = isFirstSegment || !sameSpeaker;
-            let isNewSpeakerTurn = true; // Force new line for new utterances
-
-            let updatedSegments = [...prevSegments];
-
+          setTranscriptLines(prev => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
             if (transcriptData.is_final) {
-                if (sameSpeaker && lastSegment && !lastSegment.is_final) {
-                    updatedSegments.pop(); // Remove pending interim
-                    lastSegment = updatedSegments.length > 0 ? updatedSegments[updatedSegments.length - 1] : null;
-                    sameSpeaker = lastSegment && lastSegment.speaker === speaker;
-                    showLabel = updatedSegments.length === 0 || !sameSpeaker;
-                    isNewSpeakerTurn = true;
-                }
-
-                const sentences = splitSentences(text);
-                sentences.forEach((sentence, index) => {
-                    const segmentShowLabel = index === 0 ? showLabel : false;
-                    const segmentNewTurn = index === 0 ? isNewSpeakerTurn : false;
-                    updatedSegments.push({
-                        speaker,
-                        text: sentence,
-                        show_speaker_label: segmentShowLabel && showSpeakerNames,
-                        is_new_speaker_turn: segmentNewTurn,
-                        is_final: true
-                    });
-                });
-                console.log('Appended new final segments from sentences, count:', sentences.length, ' total length:', updatedSegments.length);
-                return updatedSegments;
+              // Finalized text: append to same speaker line if same speaker as last line; otherwise create new line
+              if (last && last.speaker === speaker) {
+                last.text = normalizeAppend(last.text, text);
+                last.isInterim = false;
+              } else {
+                updated.push({ speaker, text, isInterim: false });
+              }
             } else {
-                // Existing interim logic remains
-                const sameSpeaker = lastSegment && lastSegment.speaker === speaker;
-                const showLabel = isFirstSegment || !sameSpeaker;
-                const isNewSpeakerTurn = showLabel && !isFirstSegment;
-
-                if (sameSpeaker && lastSegment && !lastSegment.is_final) {
-                    // Update existing interim segment
-                    const updatedSegments = [...prevSegments];
-                    updatedSegments[updatedSegments.length - 1].text = text;
-                    console.log('Updated existing interim segment, length:', updatedSegments.length);
-                    return updatedSegments;
-                } else {
-                    // Add new interim segment
-                    const updatedSegments = [...prevSegments, {
-                      speaker,
-                      text,
-                      show_speaker_label: showLabel,
-                      is_new_speaker_turn: isNewSpeakerTurn,
-                      is_final: false
-                    }];
-                    console.log('Appended new interim segment, length:', updatedSegments.length);
-                    return updatedSegments;
-                }
+              // Interim: show live without committing formatting changes later
+              if (last && last.speaker === speaker) {
+                // append interim tail visually (not mutating historical text beyond adding a temp tail)
+                last.text = normalizeAppend(last.text, text);
+                last.isInterim = true;
+              } else {
+                // new speaker interim becomes a new line immediately as per spec
+                updated.push({ speaker, text, isInterim: true });
+              }
             }
+            return updated;
           });
           break;
         }
@@ -176,6 +143,30 @@ export const useWebSocketMessages = () => {
     }
   }, [toast]);
 
+  // Speaker label helpers
+  const applyLabelToAll = useCallback(async (chatId: string, speakerNumber: number, newLabel: string) => {
+    try {
+      const next = { ...speakerLabels, [String(speakerNumber)]: newLabel };
+      setSpeakerLabels(next);
+      await chatService.setSpeakerLabels(chatId, next);
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to save speaker label', variant: 'destructive' });
+    }
+  }, [speakerLabels, toast]);
+
+  const applyLabelToLine = useCallback((lineIndex: number, newLabel: string) => {
+    setLabelOverrides(prev => ({ ...prev, [lineIndex]: newLabel }));
+  }, []);
+
+  const loadSpeakerLabels = useCallback(async (chatId: string) => {
+    try {
+      const mapping = await chatService.getSpeakerLabels(chatId);
+      setSpeakerLabels(mapping || {});
+    } catch (_) {
+      // ignore; default mapping will be used
+    }
+  }, []);
+
   const handleSuggest = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     console.log('handleSuggest called');
     setDebugLog(prev => [...prev, 'Suggestion requested']);
@@ -207,7 +198,7 @@ export const useWebSocketMessages = () => {
 
   const handleResetContext = (setDebugLog: React.Dispatch<React.SetStateAction<string[]>>) => {
     console.log('handleResetContext called');
-    setTranscriptSegments([]); // Clear segments
+    setTranscriptLines([]); // Clear lines
     setSuggestion('');
     setSuggestionsDisabled(false); // Enable suggestion button
     setFullHistory([]);
@@ -262,16 +253,18 @@ export const useWebSocketMessages = () => {
     }
   };
 
-  // Format transcript for display - exactly as in the original version but with space to prevent gluing
-  const formattedTranscript = transcriptSegments.map((segment, index) => {
-    const prefix = segment.show_speaker_label ? `Speaker ${segment.speaker}: ` : '';
-    const newline = segment.is_new_speaker_turn ? '\n' : '';
-    return `${newline}${prefix}${segment.text}`;
-  }).join(' ');
+  // Build structured lines for rendering with labels
+  const renderedLines = transcriptLines.map((line, idx) => {
+    const mapped = speakerLabels[String(line.speaker)] ?? `Speaker ${line.speaker}`;
+    const label = labelOverrides[idx] ?? mapped;
+    return { label, text: line.text, lineIndex: idx, speaker: line.speaker, isInterim: !!line.isInterim };
+  });
 
   return {
-    transcript: formattedTranscript,
-    transcriptSegments,
+    transcriptLines,
+    renderedLines,
+    speakerLabels,
+    labelOverrides,
     suggestion,
     suggestionsDisabled,
     fullHistory,
@@ -282,6 +275,9 @@ export const useWebSocketMessages = () => {
     handleResetContext,
     requestHistory,
     setSuggestion,
-    setTranscriptSegments
+    setTranscriptLines,
+    applyLabelToAll,
+    applyLabelToLine,
+    loadSpeakerLabels,
   };
 };

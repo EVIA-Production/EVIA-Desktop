@@ -5,7 +5,7 @@ import ChatStatus from '@/components/ChatStatus';
 import MainContent from '@/components/MainContent';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { chatService } from '@/services/chatService';
+import { chatService, Transcript as ApiTranscript } from '@/services/chatService';
 import { useRecording } from '@/hooks/useRecording';
 import { getWebSocketInstance, closeWebSocketInstance } from '@/services/websocketService';
 
@@ -20,7 +20,7 @@ const Index = () => {
   const navigate = useNavigate();
   const { 
     isRecording, 
-    transcript, 
+    renderedLines,
     suggestion, 
     handleStartRecording, 
     handleStopRecording, 
@@ -28,7 +28,10 @@ const Index = () => {
     handleResetContext,
     setSuggestion,
     setIsConnected: setRecordingIsConnected,
-    setTranscriptSegments
+    setTranscriptLines,
+    loadSpeakerLabels,
+    applyLabelToAll,
+    applyLabelToLine
   } = useRecording();
   
   // Add a debug logging function
@@ -45,23 +48,22 @@ const Index = () => {
         try {
             const showSpeakerNames = true;
             const transcripts = await chatService.getChatTranscripts(chatId);
-            const segments = [];
-            transcripts.forEach(transcript => {
-                const sentences = transcript.content
-                    .split(/(?<=[.!?])\s+/)
-                    .filter(sentence => sentence.trim().length > 0);
-                sentences.forEach((sentence, index) => {
-                    segments.push({
-                        speaker: 0, // Default for past
-                        text: sentence,
-                        show_speaker_label: index === 0 ? showSpeakerNames : false,
-                        is_new_speaker_turn: index === 0 ? true : false,
-                        is_final: true
-                    });
-                });
-            });
-            setTranscriptSegments(segments);
-            addDebugLog(`Loaded ${segments.length} transcript segments from ${transcripts.length} entries`);
+            // Fold past transcripts as a single running line per speaker turn; map speaker numbers if present
+            const lines = (transcripts as ApiTranscript[])
+              .map((t: ApiTranscript) => ({ speaker: (typeof t.speaker === 'number' ? (t.speaker as number) : 0), text: t.content }))
+              .reduce((acc: { speaker: number; text: string }[], cur) => {
+              if (acc.length > 0 && acc[acc.length - 1].speaker === cur.speaker) {
+                acc[acc.length - 1].text = acc[acc.length - 1].text + ' ' + cur.text;
+              } else {
+                acc.push({ speaker: cur.speaker, text: cur.text });
+              }
+              return acc;
+            }, [] as { speaker: number; text: string }[]);
+            // Seed live transcript with historical lines for the selected chat
+            setTranscriptLines(lines);
+            addDebugLog(`Loaded ${transcripts.length} transcript entries`);
+            // Load speaker labels mapping from backend
+            await loadSpeakerLabels(chatId);
         } catch (error) {
             console.error('Error loading past transcripts:', error);
             toast({
@@ -73,7 +75,7 @@ const Index = () => {
     };
 
     loadPastTranscripts();
-}, [chatId, refreshKey, toast]);
+}, [chatId, refreshKey, toast, loadSpeakerLabels, setTranscriptLines]);
   
   useEffect(() => {
     console.log('Index component mounted');
@@ -107,6 +109,21 @@ const Index = () => {
       return;
     }
   }, [isAuthenticated, isLoading, navigate]);
+
+  // Manage follow-live defaults: ON when recording, OFF when stopped
+  const [followLive, setFollowLive] = useState<boolean>(false);
+  useEffect(() => {
+    setFollowLive(isRecording ? true : false);
+  }, [isRecording]);
+
+  const handleRenameLabel = (mode: 'current' | 'all', lineIndex: number, speaker: number, newLabel: string) => {
+    if (!chatId) return;
+    if (mode === 'all') {
+      applyLabelToAll(chatId, speaker, newLabel);
+    } else {
+      applyLabelToLine(lineIndex, newLabel);
+    }
+  };
 
   // Monitor WebSocket connection status when chatId is available
   useEffect(() => {
@@ -170,7 +187,7 @@ const Index = () => {
       <div className="flex flex-col h-full">
         <MainContent
           isRecording={isRecording}
-          transcript={transcript}
+          renderedLines={renderedLines}
           suggestion={suggestion}
           onStartRecording={onStartRecordingWrapper}
           onStopRecording={onStopRecordingWrapper}
@@ -179,6 +196,9 @@ const Index = () => {
           isConnected={isConnected}
           chatId={chatId}
           hasAccessToken={hasAccessToken}
+          followLive={followLive}
+          onToggleFollow={setFollowLive}
+          onRenameLabel={handleRenameLabel}
         />
       </div>
     </AppLayout>

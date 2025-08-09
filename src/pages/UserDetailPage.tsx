@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { authService } from '@/services/authService';
@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -107,14 +108,19 @@ const UserDetailPage = () => {
     }
   });
 
+  // Load user details and metrics once callbacks are defined to avoid TDZ
   useEffect(() => {
-    if (username) {
-      loadUserDetails(username);
-      loadUserMetrics(username);
-    }
+    if (!username) return;
+    loadUserDetails(username);
+    loadUserMetrics(username);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  const loadUserDetails = async (username: string) => {
+  
+
+  // useEffect is placed after callback definitions to avoid TDZ issues
+
+  const loadUserDetails = useCallback(async (username: string) => {
     try {
       // TODO: Implement getUserDetails in authService
       // For now, we'll get all users and find the one we want
@@ -149,9 +155,9 @@ const UserDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [form, navigate, toast]);
 
-  const loadUserMetrics = async (username: string) => {
+  const loadUserMetrics = useCallback(async (username: string) => {
     setLoadingMetrics(true);
     try {
       const userMetrics = await analyticsService.getUserMetrics(username);
@@ -188,7 +194,7 @@ const UserDetailPage = () => {
     } finally {
       setLoadingMetrics(false);
     }
-  };
+  }, [toast]);
 
   const onSubmit = async (data: FormData) => {
     if (!user) return;
@@ -409,7 +415,7 @@ const UserDetailPage = () => {
         </DialogContent>
       </Dialog>
 
-      <div className="container mx-auto py-6 max-w-4xl">
+      <div className="container mx-auto py-6 max-w-6xl">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center">
             <Button
@@ -444,253 +450,248 @@ const UserDetailPage = () => {
           </div>
         </div>
 
-        <form onSubmit={(e) => {
-          console.log('Form submit event triggered');
-          console.log('Form state at submit:', {
-            isDirty: form.formState.isDirty,
-            dirtyFields: form.formState.dirtyFields,
-            values: form.getValues()
-          });
-          form.handleSubmit(onSubmit)(e);
-        }}>
-          <Card className="bg-card/50 border-border">
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center space-x-4">
-                <User className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <Label htmlFor="username" className="text-sm text-gray-400">Username</Label>
-                  <Input
-                    id="username"
-                    value={user.username}
-                    disabled
-                    className="mt-1 bg-card/50"
-                  />
-                </div>
-              </div>
+        <Tabs defaultValue="profile">
+          <TabsList className="mb-4">
+            <TabsTrigger value="profile">Profile Information</TabsTrigger>
+            <TabsTrigger value="metrics">User Metrics</TabsTrigger>
+          </TabsList>
 
-              <div className="flex items-center space-x-4">
-                <Mail className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <Label htmlFor="email" className="text-sm text-gray-400">Email</Label>
-                  <Input
-                    id="email"
-                    {...form.register("email", {
-                      onChange: (e) => {
-                        form.setValue("email", e.target.value, { shouldDirty: true });
-                      }
-                    })}
-                    className="mt-1 bg-card/50"
-                  />
-                  {form.formState.errors.email && (
-                    <p className="text-sm text-red-500 mt-1">{form.formState.errors.email.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <User className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <Label htmlFor="full_name" className="text-sm text-gray-400">Full Name</Label>
-                  <Input
-                    id="full_name"
-                    {...form.register("full_name", {
-                      onChange: (e) => {
-                        form.setValue("full_name", e.target.value, { shouldDirty: true });
-                      }
-                    })}
-                    className="mt-1 bg-card/50"
-                  />
-                  {form.formState.errors.full_name && (
-                    <p className="text-sm text-red-500 mt-1">{form.formState.errors.full_name.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <Shield className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="is_admin" className="text-sm text-gray-400">Admin Access</Label>
-                    <Switch
-                      id="is_admin"
-                      checked={form.watch("is_admin")}
-                      onCheckedChange={handleAdminChange}
-                    />
+          <TabsContent value="profile">
+            <form onSubmit={(e) => {
+              form.handleSubmit(onSubmit)(e);
+            }}>
+              <Card className="bg-card/50 border-border">
+                <CardHeader>
+                  <CardTitle>Profile Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex items-center space-x-4">
+                    <User className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <Label htmlFor="username" className="text-sm text-gray-400">Username</Label>
+                      <Input
+                        id="username"
+                        value={user.username}
+                        disabled
+                        className="mt-1 bg-card/50"
+                      />
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex items-center space-x-4">
-                <Shield className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
-                    <Switch
-                      id="disabled"
-                      checked={form.watch("disabled")}
-                      onCheckedChange={handleDisabledChange}
-                    />
+                  <div className="flex items-center space-x-4">
+                    <Mail className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <Label htmlFor="email" className="text-sm text-gray-400">Email</Label>
+                      <Input
+                        id="email"
+                        {...form.register("email", {
+                          onChange: (e) => {
+                            form.setValue("email", e.target.value, { shouldDirty: true });
+                          }
+                        })}
+                        className="mt-1 bg-card/50"
+                      />
+                      {form.formState.errors.email && (
+                        <p className="text-sm text-red-500 mt-1">{form.formState.errors.email.message}</p>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {form.watch("disabled") ? "Disabled" : "Active"}
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center space-x-4">
-                <Lock className="h-5 w-5 text-primary" />
-                <div className="flex-1">
+                  <div className="flex items-center space-x-4">
+                    <User className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <Label htmlFor="full_name" className="text-sm text-gray-400">Full Name</Label>
+                      <Input
+                        id="full_name"
+                        {...form.register("full_name", {
+                          onChange: (e) => {
+                            form.setValue("full_name", e.target.value, { shouldDirty: true });
+                          }
+                        })}
+                        className="mt-1 bg-card/50"
+                      />
+                      {form.formState.errors.full_name && (
+                        <p className="text-sm text-red-500 mt-1">{form.formState.errors.full_name.message}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    <Shield className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="is_admin" className="text-sm text-gray-400">Admin Access</Label>
+                        <Switch
+                          id="is_admin"
+                          checked={form.watch("is_admin")}
+                          onCheckedChange={handleAdminChange}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    <Shield className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="disabled" className="text-sm text-gray-400">Account Status</Label>
+                        <Switch
+                          id="disabled"
+                          checked={form.watch("disabled")}
+                          onCheckedChange={handleDisabledChange}
+                        />
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {form.watch("disabled") ? "Disabled" : "Active"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    <Lock className="h-5 w-5 text-primary" />
+                    <div className="flex-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setIsPasswordDialogOpen(true)}
+                        className="w-full"
+                      >
+                        Change Password
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="flex justify-end space-x-4">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setIsPasswordDialogOpen(true)}
-                    className="w-full"
+                    onClick={() => navigate('/admin/users')}
                   >
-                    Change Password
+                    Cancel
                   </Button>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-end space-x-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate('/admin/users')}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={saving || !form.formState.isDirty}
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save Changes
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </form>
+                  <Button
+                    type="submit"
+                    disabled={saving || !form.formState.isDirty}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                </CardFooter>
+              </Card>
+            </form>
+          </TabsContent>
 
-        <Card className="bg-card/50 border-border mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BarChart className="h-5 w-5 mr-2" />
-              User Metrics
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loadingMetrics ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : !metrics ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No metrics available for this user.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Sessions</h3>
-                  <p className="text-3xl font-bold">{metrics.session_count ?? 0}</p>
-                </div>
-                
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Session Duration</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_duration?.toFixed(2) ?? '0.00'} seconds</p>
-                </div>
-                
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Suggestions</h3>
-                  <p className="text-3xl font-bold">{metrics.total_suggestions ?? 0}</p>
-                </div>
-                
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestions per Session</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_suggestions?.toFixed(2) ?? '0.00'}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Errors</h3>
-                  <p className="text-3xl font-bold">{metrics.total_errors ?? 0}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Transcription Latency</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_transcription_latency?.toFixed(2) ?? '0.00'} ms</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestion Latency</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_suggestion_latency?.toFixed(2) ?? '0.00'} ms</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Token Usage</h3>
-                  <p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Sessions / Week</h3>
-                  <p className="text-3xl font-bold">{metrics.sessions_per_week?.toFixed(2) ?? '0.00'}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Time to First Suggestion</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_time_to_first?.toFixed(2) ?? '0.00'} s</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Error Rate</h3>
-                  <p className="text-3xl font-bold">{metrics.error_rate?.toFixed(2) ?? '0.00'}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Deepgram Time</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_deepgram_time?.toFixed(2) ?? '0.00'} s</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Groq Time</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_groq_time?.toFixed(2) ?? '0.00'} s</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Tokens / Suggestion</h3>
-                  <p className="text-3xl font-bold">{metrics.avg_tokens_per_suggestion?.toFixed(2) ?? '0.00'}</p>
-                </div>
-
-                <div className="bg-background/50 p-4 rounded-lg border border-border">
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Total API Cost (est.)</h3>
-                  <p className="text-3xl font-bold">${metrics.total_api_cost?.toFixed(2) ?? '0.00'}</p>
-                </div>
-              </div>
-            )}
-              {metrics && metrics.feature_usage && Object.keys(metrics.feature_usage).length > 0 && (
-                <div className="mt-6">
-                  <h3 className="text-lg font-semibold mb-2">Feature Usage</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Object.entries(metrics.feature_usage).map(([k, v]) => (
-                      <div key={k} className="bg-background/50 p-4 rounded-lg border border-border">
-                        <h4 className="text-sm font-medium text-muted-foreground mb-2">{k}</h4>
-                        <p className="text-2xl font-bold">{v}</p>
-                      </div>
-                    ))}
+          <TabsContent value="metrics">
+            <Card className="bg-card/50 border-border">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BarChart className="h-5 w-5 mr-2" />
+                  User Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingMetrics ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
-                </div>
-              )}
-          </CardContent>
-        </Card>
+                ) : !metrics ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No metrics available for this user.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* Top KPIs */}
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-3">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Sessions</h3>
+                      <p className="text-3xl font-bold">{metrics.session_count ?? 0}</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-3">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Session Duration</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_duration?.toFixed(2) ?? '0.00'} s</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-3">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Time to First</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_time_to_first?.toFixed(2) ?? '0.00'} s</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-3">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Error Rate</h3>
+                      <p className="text-3xl font-bold">{metrics.error_rate?.toFixed(2) ?? '0.00'}</p>
+                    </div>
+
+                    {/* Usage and cost */}
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Suggestions</h3>
+                      <p className="text-3xl font-bold">{metrics.total_suggestions ?? 0}</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestions / Session</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_suggestions?.toFixed(2) ?? '0.00'}</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Total API Cost (est.)</h3>
+                      <p className="text-3xl font-bold">${metrics.total_api_cost?.toFixed(2) ?? '0.00'}</p>
+                    </div>
+
+                    {/* Performance */}
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-6">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Suggestion Latency</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_suggestion_latency?.toFixed(2) ?? '0.00'} ms</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-6">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Transcription Latency</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_transcription_latency?.toFixed(2) ?? '0.00'} ms</p>
+                    </div>
+
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Deepgram Time</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_deepgram_time?.toFixed(2) ?? '0.00'} s</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Groq Time</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_groq_time?.toFixed(2) ?? '0.00'} s</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-4">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Avg. Tokens / Suggestion</h3>
+                      <p className="text-3xl font-bold">{metrics.avg_tokens_per_suggestion?.toFixed(2) ?? '0.00'}</p>
+                    </div>
+
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-6">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Token Usage</h3>
+                      <p className="text-3xl font-bold">{metrics.total_token_usage ?? 0}</p>
+                    </div>
+                    <div className="bg-background/50 p-4 rounded-lg border border-border lg:col-span-6">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-2">Sessions / Week</h3>
+                      <p className="text-3xl font-bold">{metrics.sessions_per_week?.toFixed(2) ?? '0.00'}</p>
+                    </div>
+                  </div>
+                )}
+
+                {metrics && metrics.feature_usage && Object.keys(metrics.feature_usage).length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-2">Feature Usage</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {Object.entries(metrics.feature_usage).map(([k, v]) => (
+                        <div key={k} className="bg-background/50 p-4 rounded-lg border border-border">
+                          <h4 className="text-sm font-medium text-muted-foreground mb-2">{k}</h4>
+                          <p className="text-2xl font-bold">{v}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );

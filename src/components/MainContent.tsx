@@ -7,9 +7,11 @@ import RecordingControls from '@/components/RecordingControls';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import StatusIndicator from '@/components/StatusIndicator';
 
+interface TranscriptRenderedLine { label: string; text: string; lineIndex: number; speaker: number; isInterim: boolean }
+
 interface MainContentProps {
   isRecording: boolean;
-  transcript: string;
+  renderedLines?: TranscriptRenderedLine[];
   suggestion: string;
   isConnected: boolean;
   chatId: string | null;
@@ -18,18 +20,24 @@ interface MainContentProps {
   onSuggest: () => void;
   onResetContext: () => void;
   hasAccessToken: boolean;
+  followLive?: boolean;
+  onToggleFollow?: (v: boolean) => void;
+  onRenameLabel?: (mode: 'current' | 'all', lineIndex: number, speaker: number, newLabel: string) => void;
 }
 
 const MainContent: React.FC<MainContentProps> = ({
   isRecording,
-  transcript,
+  renderedLines,
   suggestion,
   onStartRecording,
   onStopRecording,
   onSuggest,
   onResetContext,
   isConnected,
-  hasAccessToken
+  hasAccessToken,
+  followLive,
+  onToggleFollow,
+  onRenameLabel
 }) => {
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -61,7 +69,10 @@ const MainContent: React.FC<MainContentProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <TranscriptPanel 
           title="Live Transcript" 
-          content={transcript}
+          lines={renderedLines}
+          onRenameLabel={onRenameLabel}
+          followLive={followLive}
+          onToggleFollow={onToggleFollow}
           placeholder="Your transcript will appear here"
           className="bg-card border border-border shadow-lg order-2 md:order-1"
           defaultCollapsed={true}
