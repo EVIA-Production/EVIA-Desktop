@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src * ws: wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self' 'unsafe-eval';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EVIA Overlay</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      #app { position: absolute; inset: 8px; border-radius: 8px; background: rgba(30,30,30,0.5); color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen; padding: 12px; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      button { background: #2563eb; color: white; border: 0; padding: 6px 10px; border-radius: 6px; }
+      textarea { width: 100%; height: 160px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; }
+      .status { opacity: 0.8; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="row">
+        <button id="connect">Connect</button>
+        <button id="suggest">Suggest</button>
+        <span class="status" id="status">Idle</span>
+      </div>
+      <div style="margin-top:8px">
+        <textarea id="log" placeholder="Transcript and events..." readonly></textarea>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+.vite/
+out/
+release/
+*.log
+native/mac/SystemAudioCapture/.build/

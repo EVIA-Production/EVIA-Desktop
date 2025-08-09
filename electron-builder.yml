@@ -1,0 +1,15 @@
+appId: com.evia.desktop
+productName: EVIA Desktop
+files:
+  - dist/**
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  gatekeeperAssess: false
+  target:
+    - dmg
+extraResources:
+  - from: native/mac/SystemAudioCapture/.build/release/SystemAudioCapture
+    to: Resources/mac/SystemAudioCapture
