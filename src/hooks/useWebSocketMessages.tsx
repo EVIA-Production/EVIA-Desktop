@@ -102,6 +102,13 @@ export const useWebSocketMessages = () => {
 
         case 'suggestion': {
           console.log('Received Suggestion:', msgData);
+          if (typeof msgData === 'string' && msgData.startsWith('Error')) {
+            errorMsg = msgData;
+            setErrorMessage(errorMsg);
+            toast({ title: "Suggestion Error", description: errorMsg, variant: "destructive" });
+            setSuggestion(errorMsg); // Show in panel
+            break;
+          }
           setSuggestion(msgData as string);
           setSuggestionsDisabled(false);
           break;
@@ -121,6 +128,7 @@ export const useWebSocketMessages = () => {
         case 'error': {
           errorMsg = `Backend Error: ${String(msgData)}`;
           setErrorMessage(errorMsg);
+          setSuggestion(errorMsg); // Add this to update UI
           console.error('Backend Error Message:', msgData);
           toast({
             title: "Error",

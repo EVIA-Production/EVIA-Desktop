@@ -31,7 +31,8 @@ const Index = () => {
     setTranscriptLines,
     loadSpeakerLabels,
     applyLabelToAll,
-    applyLabelToLine
+    applyLabelToLine,
+    handleWebSocketMessage,
   } = useRecording();
   
   // Add a debug logging function
@@ -137,6 +138,8 @@ const Index = () => {
     
     const ws = getWebSocketInstance(chatId);
     ws.connect();
+    // Attach message handler for base ws as well
+    const detach = ws.onMessage(handleWebSocketMessage as unknown as (m: any) => void);
     const cleanup = ws.onConnectionChange((connected) => {
       setIsConnected(connected);
       setRecordingIsConnected(connected);
@@ -145,9 +148,15 @@ const Index = () => {
     
     return () => {
       cleanup();
-      // Don't close the WebSocket here as it might be needed for other components
+      detach && detach();
     };
-  }, [chatId, setRecordingIsConnected]);
+  }, [chatId, setRecordingIsConnected, handleWebSocketMessage]);
+
+  useEffect(() => {
+    if (suggestion) {
+      console.log('Index: suggestion updated ->', suggestion);
+    }
+  }, [suggestion]);
 
   // Show loading while checking authentication
   if (isLoading) {

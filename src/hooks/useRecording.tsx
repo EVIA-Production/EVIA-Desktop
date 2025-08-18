@@ -65,6 +65,7 @@ export const useRecording = () => {
     applyLabelToAll,
     applyLabelToLine,
     loadSpeakerLabels,
+    handleWebSocketMessage,
   };
 };
 
