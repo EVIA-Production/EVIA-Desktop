@@ -34,6 +34,10 @@ export class ChatWebSocket {
 
   connect() {
     try {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected');
+        return;
+      }
       // Get the authentication token
       const token = localStorage.getItem('auth_token');
       if (!token) {

@@ -136,6 +136,7 @@ const Index = () => {
     }
     
     const ws = getWebSocketInstance(chatId);
+    ws.connect();
     const cleanup = ws.onConnectionChange((connected) => {
       setIsConnected(connected);
       setRecordingIsConnected(connected);
