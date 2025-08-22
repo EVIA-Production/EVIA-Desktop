@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EVIA Audio Diagnostics</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 20px; }
+        .container { display: flex; flex-direction: column; gap: 20px; }
+        .card { border: 1px solid #ccc; padding: 15px; border-radius: 8px; }
+        .stats { font-family: monospace; white-space: pre; }
+        canvas { border: 1px solid #ddd; width: 100%; height: 200px; }
+        button { padding: 8px 16px; margin-right: 10px; }
+        .error { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>EVIA Audio Diagnostics</h1>
+    
+    <div class="container">
+        <div class="card">
+            <h2>Microphone Audio</h2>
+            <button id="startMic">Start Mic Test</button>
+            <button id="stopMic">Stop</button>
+            <div id="micStats" class="stats"></div>
+            <canvas id="micCanvas"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>System Audio</h2>
+            <button id="startSystem">Start System Test</button>
+            <button id="stopSystem">Stop</button>
+            <div id="sysStats" class="stats"></div>
+            <canvas id="sysCanvas"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Test Tone Generator</h2>
+            <button id="genTone">Generate 1kHz Test Tone</button>
+            <button id="stopTone">Stop</button>
+            <div>
+                <label>Frequency: <input type="range" id="freqSlider" min="200" max="5000" value="1000"> <span id="freqValue">1000</span> Hz</label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Audio context and analyzers
+        let audioCtx, micSource, micAnalyser, sysAnalyser;
+        let toneOsc, toneGain;
+        let micStream, micProcessor;
+        let sysBuffer = [];
+        
+        // Stats tracking
+        let micStats = {
+            sampleRate: 0,
+            bufferSize: 0,
+            rmsValues: [],
+            bufferCounts: []
+        };
+        
+        let sysStats = {
+            sampleRate: 16000, // Expected
+            bufferSize: 0,
+            rmsValues: [],
+            bufferCounts: []
+        };
+        
+        // Canvas contexts
+        const micCanvas = document.getElementById('micCanvas');
+        const micCtx = micCanvas.getContext('2d');
+        const sysCanvas = document.getElementById('sysCanvas');
+        const sysCtx = sysCanvas.getContext('2d');
+        
+        // Update stats displays
+        function updateMicStats() {
+            const avgRms = micStats.rmsValues.length > 0 ? 
+                micStats.rmsValues.reduce((a, b) => a + b, 0) / micStats.rmsValues.length : 0;
+            
+            const avgBufferSize = micStats.bufferCounts.length > 0 ?
+                micStats.bufferCounts.reduce((a, b) => a + b, 0) / micStats.bufferCounts.length : 0;
+                
+            let html = `Sample Rate: ${micStats.sampleRate} Hz\n`;
+            html += `Buffer Size: ${micStats.bufferSize} samples\n`;
+            html += `Avg RMS: ${avgRms.toFixed(6)}\n`;
+            html += `Avg Buffer Size: ${avgBufferSize.toFixed(2)} samples\n`;
+            
+            if (Math.abs(micStats.sampleRate - 48000) > 5000) {
+                html += `\n<span class="error">WARNING: Sample rate not near 48kHz!</span>`;
+            }
+            
+            document.getElementById('micStats').innerHTML = html;
+        }
+        
+        function updateSysStats() {
+            const avgRms = sysStats.rmsValues.length > 0 ? 
+                sysStats.rmsValues.reduce((a, b) => a + b, 0) / sysStats.rmsValues.length : 0;
+            
+            const avgBufferSize = sysStats.bufferCounts.length > 0 ?
+                sysStats.bufferCounts.reduce((a, b) => a + b, 0) / sysStats.bufferCounts.length : 0;
+                
+            let html = `Expected Sample Rate: ${sysStats.sampleRate} Hz\n`;
+            html += `Last Buffer Size: ${sysStats.bufferSize} samples\n`;
+            html += `Avg RMS: ${avgRms.toFixed(6)}\n`;
+            html += `Avg Buffer Size: ${avgBufferSize.toFixed(2)} samples\n`;
+            
+            if (Math.abs(avgBufferSize - 1600) > 50) {
+                html += `\n<span class="error">WARNING: Buffer size not near 1600 samples!</span>`;
+            } else {
+                html += `\n<span class="success">Buffer size looks good (≈1600)!</span>`;
+            }
+            
+            document.getElementById('sysStats').innerHTML = html;
+        }
+        
+        // Draw audio waveform
+        function drawMicWaveform(dataArray) {
+            const width = micCanvas.width;
+            const height = micCanvas.height;
+            
+            micCtx.fillStyle = 'rgb(240, 240, 240)';
+            micCtx.fillRect(0, 0, width, height);
+            micCtx.lineWidth = 2;
+            micCtx.strokeStyle = 'rgb(0, 123, 255)';
+            micCtx.beginPath();
+            
+            const sliceWidth = width / dataArray.length;
+            let x = 0;
+            
+            for (let i = 0; i < dataArray.length; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = (v * height / 2) + (height / 2);
+                
+                if (i === 0) {
+                    micCtx.moveTo(x, y);
+                } else {
+                    micCtx.lineTo(x, y);
+                }
+                
+                x += sliceWidth;
+            }
+            
+            micCtx.stroke();
+        }
+        
+        function drawSysWaveform(buffer) {
+            const width = sysCanvas.width;
+            const height = sysCanvas.height;
+            
+            sysCtx.fillStyle = 'rgb(240, 240, 240)';
+            sysCtx.fillRect(0, 0, width, height);
+            sysCtx.lineWidth = 2;
+            sysCtx.strokeStyle = 'rgb(0, 200, 100)';
+            sysCtx.beginPath();
+            
+            const sliceWidth = width / Math.min(buffer.length, 1600);
+            let x = 0;
+            
+            for (let i = 0; i < Math.min(buffer.length, 1600); i++) {
+                // Normalize 16-bit PCM to -1 to 1
+                const v = buffer[i] / 32768.0;
+                const y = (v * height / 2) + (height / 2);
+                
+                if (i === 0) {
+                    sysCtx.moveTo(x, y);
+                } else {
+                    sysCtx.lineTo(x, y);
+                }
+                
+                x += sliceWidth;
+            }
+            
+            sysCtx.stroke();
+        }
+        
+        // Calculate RMS of a buffer
+        function calculateRMS(buffer) {
+            let sum = 0;
+            for (let i = 0; i < buffer.length; i++) {
+                const sample = typeof buffer[i] === 'number' ? buffer[i] : 0;
+                const normalized = buffer instanceof Float32Array ? sample : sample / 32768.0;
+                sum += normalized * normalized;
+            }
+            return Math.sqrt(sum / buffer.length);
+        }
+        
+        // Start microphone capture
+        document.getElementById('startMic').addEventListener('click', async () => {
+            try {
+                audioCtx = new AudioContext();
+                micStats.sampleRate = audioCtx.sampleRate;
+                
+                // Get microphone stream
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1
+                    }
+                });
+                
+                // Create analyzer
+                micSource = audioCtx.createMediaStreamSource(micStream);
+                micAnalyser = audioCtx.createAnalyser();
+                micAnalyser.fftSize = 2048;
+                
+                // Create processor for RMS calculation
+                micProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+                micProcessor.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    micStats.bufferSize = input.length;
+                    micStats.bufferCounts.push(input.length);
+                    if (micStats.bufferCounts.length > 10) micStats.bufferCounts.shift();
+                    
+                    const rms = calculateRMS(input);
+                    micStats.rmsValues.push(rms);
+                    if (micStats.rmsValues.length > 10) micStats.rmsValues.shift();
+                    
+                    updateMicStats();
+                };
+                
+                micSource.connect(micAnalyser);
+                micSource.connect(micProcessor);
+                micProcessor.connect(audioCtx.destination);
+                
+                // Start visualization
+                visualizeMic();
+                
+                document.getElementById('startMic').disabled = true;
+                document.getElementById('stopMic').disabled = false;
+            } catch (err) {
+                console.error('Error starting microphone:', err);
+                document.getElementById('micStats').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        });
+        
+        // Stop microphone capture
+        document.getElementById('stopMic').addEventListener('click', () => {
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+            }
+            
+            if (micProcessor) {
+                micProcessor.disconnect();
+            }
+            
+            if (micSource) {
+                micSource.disconnect();
+            }
+            
+            document.getElementById('startMic').disabled = false;
+            document.getElementById('stopMic').disabled = true;
+        });
+        
+        // Start system audio test
+        document.getElementById('startSystem').addEventListener('click', () => {
+            if (window.evia && window.evia.systemAudio) {
+                window.evia.systemAudio.onData((line) => {
+                    try {
+                        // Check if line is valid JSON
+                        if (!line.trim().startsWith('{')) {
+                            console.warn('Received non-JSON line from system audio:', line);
+                            return;
+                        }
+                        
+                        const obj = JSON.parse(line);
+                        if (!obj.data) {
+                            console.warn('Received JSON without data field:', line);
+                            return;
+                        }
+                        
+                        const b = atob(obj.data);
+                        const buf = new ArrayBuffer(b.length);
+                        const view = new Uint8Array(buf);
+                        for (let i = 0; i < b.length; i++) view[i] = b.charCodeAt(i);
+                        
+                        const i16 = new Int16Array(buf);
+                        sysStats.bufferSize = i16.length;
+                        sysStats.bufferCounts.push(i16.length);
+                        if (sysStats.bufferCounts.length > 10) sysStats.bufferCounts.shift();
+                        
+                        const rms = calculateRMS(i16);
+                        sysStats.rmsValues.push(rms);
+                        if (sysStats.rmsValues.length > 10) sysStats.rmsValues.shift();
+                        
+                        // Keep a copy for visualization
+                        sysBuffer = Array.from(i16);
+                        
+                        updateSysStats();
+                        drawSysWaveform(i16);
+                    } catch (err) {
+                        console.error('Error processing system audio:', err, 'Line:', line);
+                    }
+                });
+                
+                window.evia.systemAudio.start()
+                    .then(() => {
+                        document.getElementById('startSystem').disabled = true;
+                        document.getElementById('stopSystem').disabled = false;
+                        document.getElementById('sysStats').innerHTML += '\n<span class="success">System audio started!</span>';
+                    })
+                    .catch(err => {
+                        document.getElementById('sysStats').innerHTML = `<span class="error">Error: ${err.message || err}</span>`;
+                    });
+            } else {
+                document.getElementById('sysStats').innerHTML = '<span class="error">System audio API not available</span>';
+            }
+        });
+        
+        // Stop system audio test
+        document.getElementById('stopSystem').addEventListener('click', () => {
+            if (window.evia && window.evia.systemAudio) {
+                window.evia.systemAudio.stop()
+                    .then(() => {
+                        document.getElementById('startSystem').disabled = false;
+                        document.getElementById('stopSystem').disabled = true;
+                        document.getElementById('sysStats').innerHTML += '\n<span class="success">System audio stopped!</span>';
+                    })
+                    .catch(err => {
+                        document.getElementById('sysStats').innerHTML += `\n<span class="error">Error stopping: ${err.message || err}</span>`;
+                    });
+            }
+        });
+        
+        // Generate test tone
+        document.getElementById('genTone').addEventListener('click', () => {
+            if (!audioCtx) audioCtx = new AudioContext();
+            
+            toneOsc = audioCtx.createOscillator();
+            toneGain = audioCtx.createGain();
+            
+            toneOsc.type = 'sine';
+            toneOsc.frequency.value = parseInt(document.getElementById('freqSlider').value);
+            toneGain.gain.value = 0.2;
+            
+            toneOsc.connect(toneGain);
+            toneGain.connect(audioCtx.destination);
+            toneOsc.start();
+            
+            document.getElementById('genTone').disabled = true;
+            document.getElementById('stopTone').disabled = false;
+        });
+        
+        // Stop test tone
+        document.getElementById('stopTone').addEventListener('click', () => {
+            if (toneOsc) {
+                toneOsc.stop();
+                toneOsc.disconnect();
+                toneGain.disconnect();
+                
+                document.getElementById('genTone').disabled = false;
+                document.getElementById('stopTone').disabled = true;
+            }
+        });
+        
+        // Update frequency display
+        document.getElementById('freqSlider').addEventListener('input', (e) => {
+            const freq = e.target.value;
+            document.getElementById('freqValue').textContent = freq;
+            if (toneOsc) toneOsc.frequency.value = parseInt(freq);
+        });
+        
+        // Visualize microphone input
+        function visualizeMic() {
+            const bufferLength = micAnalyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            function draw() {
+                requestAnimationFrame(draw);
+                micAnalyser.getByteTimeDomainData(dataArray);
+                drawMicWaveform(dataArray);
+            }
+            
+            draw();
+        }
+        
+        // Set initial button states
+        document.getElementById('stopMic').disabled = true;
+        document.getElementById('stopSystem').disabled = true;
+        document.getElementById('stopTone').disabled = true;
+    </script>
+</body>
+</html>

@@ -1,17 +1,20 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src * ws: wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self' 'unsafe-eval';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EVIA Overlay</title>
+    <title>EVIA Desktop Overlay</title>
     <style>
-      html, body { margin: 0; padding: 0; background: transparent; }
-      #app { position: absolute; inset: 8px; border-radius: 8px; background: rgba(30,30,30,0.5); color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen; padding: 12px; }
+      body { background: rgba(0,0,0,0.8); color: #fff; font-family: system-ui; padding: 16px; }
+      input, button { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 8px 12px; border-radius: 4px; }
+      button { cursor: pointer; }
+      button:hover { background: rgba(255,255,255,0.2); }
+      textarea { width: 100%; height: 200px; background: rgba(0,0,0,0.5); color: #ddd; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 8px; font-family: monospace; }
       .row { display: flex; gap: 8px; align-items: center; }
-      button { background: #2563eb; color: white; border: 0; padding: 6px 10px; border-radius: 6px; }
-      textarea { width: 100%; height: 160px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; }
       .status { opacity: 0.8; font-size: 12px; }
+      .transcript { margin-top: 16px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; }
+      .transcript h3 { margin: 0 0 4px 0; font-size: 14px; }
+      .transcript pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; }
     </style>
   </head>
   <body>
@@ -26,6 +29,14 @@
       </div>
       <div style="margin-top:8px">
         <textarea id="log" placeholder="Transcript and events..." readonly></textarea>
+      </div>
+      <div class="transcript">
+        <h3>Mic Transcript</h3>
+        <pre id="micTranscript"></pre>
+      </div>
+      <div class="transcript">
+        <h3>System Transcript</h3>
+        <pre id="sysTranscript"></pre>
       </div>
     </div>
     <script type="module" src="/main.ts"></script>

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EVIA Permissions Setup</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #0066cc;
+            margin-top: 0;
+        }
+        .step {
+            margin-bottom: 30px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f0f9ff;
+            border-left: 4px solid #0066cc;
+        }
+        .step h2 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #004499;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .warning {
+            background-color: #fff8e1;
+            color: #f57f17;
+        }
+        code {
+            background-color: #f1f1f1;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EVIA Permissions Setup</h1>
+        <p>To use EVIA with both microphone and system audio capture, you need to grant the necessary permissions. Follow the steps below:</p>
+        
+        <div class="step">
+            <h2>Step 1: Microphone Access</h2>
+            <p>EVIA needs access to your microphone to capture your voice.</p>
+            <button id="requestMicPermission">Request Microphone Access</button>
+            <div id="micStatus" class="status"></div>
+        </div>
+        
+        <div class="step">
+            <h2>Step 2: System Audio Capture</h2>
+            <p>To capture system audio, macOS requires Screen Recording permission for both the main app and the helper.</p>
+            <button id="openScreenRecordingSettings">Open Screen Recording Settings</button>
+            <p>In the settings window that opens:</p>
+            <ol>
+                <li>Click the lock icon in the bottom left to make changes (if needed)</li>
+                <li>Click the "+" button</li>
+                <li>Navigate to <code>/Applications/Electron.app</code> and add it</li>
+                <li>Run the helper test below to trigger its permission request</li>
+            </ol>
+            <button id="testSystemAudioHelper">Test System Audio Helper</button>
+            <button id="launchHelperDirectly">Launch Helper in Terminal</button>
+            <div id="helperStatus" class="status"></div>
+        </div>
+        
+        <div class="step">
+            <h2>Step 3: Verify Permissions</h2>
+            <button id="verifyPermissions">Verify All Permissions</button>
+            <div id="verifyStatus" class="status"></div>
+        </div>
+        
+        <div class="step">
+            <h2>Step 4: Launch EVIA</h2>
+            <p>Once all permissions are granted, you can launch the main application.</p>
+            <button id="launchMain">Launch EVIA</button>
+        </div>
+    </div>
+
+    <script>
+        // Execute a shell command via Node.js
+        function executeCommand(command) {
+            if (window.evia && window.evia.executeCommand) {
+                return window.evia.executeCommand(command);
+            } else {
+                console.error('Command execution API not available');
+                return Promise.reject(new Error('Command execution API not available'));
+            }
+        }
+        
+        // Microphone permission request
+        document.getElementById('requestMicPermission').addEventListener('click', async () => {
+            const statusEl = document.getElementById('micStatus');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                statusEl.textContent = 'Microphone access granted!';
+                statusEl.className = 'status success';
+                // Stop the stream after getting permission
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+                statusEl.className = 'status error';
+            }
+        });
+        
+        // Open Screen Recording settings
+        document.getElementById('openScreenRecordingSettings').addEventListener('click', () => {
+            if (window.evia && window.evia.openSystemPreferences) {
+                window.evia.openSystemPreferences('screen');
+            } else {
+                alert('System preferences API not available. Please open System Settings > Privacy & Security > Screen Recording manually.');
+            }
+        });
+        
+        // Test system audio helper
+        document.getElementById('testSystemAudioHelper').addEventListener('click', async () => {
+            const statusEl = document.getElementById('helperStatus');
+            statusEl.textContent = 'Testing system audio helper...';
+            statusEl.className = 'status warning';
+            
+            if (window.evia && window.evia.systemAudio) {
+                try {
+                    const result = await window.evia.systemAudio.start();
+                    if (result.ok) {
+                        statusEl.textContent = 'System audio helper started successfully! Permission granted.';
+                        statusEl.className = 'status success';
+                        // Stop after successful test
+                        setTimeout(() => window.evia.systemAudio.stop(), 2000);
+                    } else {
+                        statusEl.textContent = 'System audio helper failed to start. Permission may be denied.';
+                        statusEl.className = 'status error';
+                    }
+                } catch (error) {
+                    statusEl.textContent = `Error: ${error.message || 'Unknown error'}`;
+                    statusEl.className = 'status error';
+                }
+            } else {
+                statusEl.textContent = 'System audio API not available';
+                statusEl.className = 'status error';
+            }
+        });
+        
+        // Verify all permissions
+        document.getElementById('verifyPermissions').addEventListener('click', async () => {
+            const statusEl = document.getElementById('verifyStatus');
+            statusEl.textContent = 'Checking permissions...';
+            statusEl.className = 'status warning';
+            
+            let micPermission = false;
+            let systemPermission = false;
+            
+            // Check microphone
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micPermission = true;
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                micPermission = false;
+            }
+            
+            // Check system audio
+            if (window.evia && window.evia.systemAudio) {
+                try {
+                    const result = await window.evia.systemAudio.start();
+                    systemPermission = result.ok;
+                    if (systemPermission) {
+                        setTimeout(() => window.evia.systemAudio.stop(), 1000);
+                    }
+                } catch (error) {
+                    systemPermission = false;
+                }
+            }
+            
+            // Update status
+            if (micPermission && systemPermission) {
+                statusEl.textContent = '✅ All permissions granted! You can now launch EVIA.';
+                statusEl.className = 'status success';
+            } else {
+                let message = '❌ Missing permissions: ';
+                if (!micPermission) message += 'Microphone ';
+                if (!systemPermission) message += 'Screen Recording ';
+                statusEl.textContent = message;
+                statusEl.className = 'status error';
+            }
+        });
+        
+        // Launch helper directly in a terminal window
+        document.getElementById('launchHelperDirectly').addEventListener('click', async () => {
+            const statusEl = document.getElementById('helperStatus');
+            statusEl.textContent = 'Launching helper in a new Terminal window...';
+            statusEl.className = 'status warning';
+            
+            try {
+                if (window.evia && window.evia.openTerminal) {
+                    await window.evia.openTerminal('../native/mac/launch_helper.sh');
+                    statusEl.textContent = 'Helper launched in a new Terminal window. Please grant permissions when prompted.';
+                    statusEl.className = 'status success';
+                } else {
+                    statusEl.textContent = 'Terminal launch API not available';
+                    statusEl.className = 'status error';
+                }
+            } catch (error) {
+                statusEl.textContent = `Error launching helper: ${error.message || 'Unknown error'}`;
+                statusEl.className = 'status error';
+            }
+        });
+        
+        // Launch main app
+        document.getElementById('launchMain').addEventListener('click', () => {
+            if (window.evia && window.evia.launchMain) {
+                window.evia.launchMain();
+            } else {
+                window.location.href = 'http://localhost:5174';
+            }
+        });
+    </script>
+</body>
+</html>

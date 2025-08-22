@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.evia.SystemAudioCapture</string>
+    <key>CFBundleName</key>
+    <string>SystemAudioCapture</string>
+    <key>CFBundleDisplayName</key>
+    <string>EVIA System Audio Capture</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>EVIA needs access to your microphone to capture your voice.</string>
+    <key>NSCameraUseContinuityCameraDeviceType</key>
+    <true/>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>EVIA needs to capture system audio for transcription.</string>
+</dict>
+</plist>

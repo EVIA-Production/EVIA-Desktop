@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "outDir": "dist/main",
+    "rootDir": "src/main",
+    "types": ["node"]
+  },
+  "include": [
+    "src/main/main.ts",
+    "src/main/preload.ts"
+  ]
+}
+
+
