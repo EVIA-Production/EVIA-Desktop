@@ -14,6 +14,8 @@
     <string>1.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>EVIA needs access to your microphone to capture your voice.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>EVIA needs access to system audio for transcription.</string>
     <key>NSCameraUseContinuityCameraDeviceType</key>
     <true/>
     <key>NSSystemExtensionUsageDescription</key>

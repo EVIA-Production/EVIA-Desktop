@@ -269,30 +269,38 @@ async function connect() {
         }
       } catch {}
       try {
-        window.evia.systemAudio.onData((line: string) => {
+        window.evia.systemAudio.onData((data: string) => {
           try {
-            const obj = JSON.parse(line)
-            if (!obj || !obj.data) return
-            const b = atob(obj.data)
-            const buf = new ArrayBuffer(b.length)
-            const view = new Uint8Array(buf)
-            for (let i = 0; i < b.length; i++) view[i] = b.charCodeAt(i)
+            const json = JSON.parse(data);
+            const [_, rateStr, chStr] = json.mimeType.match(/rate=(\d+);channels=(\d+)/) || [];
+            const inputRate = parseInt(rateStr) || 48000;
+            const channels = parseInt(chStr) || 1;
+            const float32 = base64ToFloat32Array(json.data);
+            // Mix to mono if stereo
+            let mono = float32;
+            if (channels === 2) {
+              mono = new Float32Array(float32.length / 2);
+              for (let i = 0; i < mono.length; i++) {
+                mono[i] = (float32[i*2] + float32[i*2+1]) / 2;
+              }
+            }
+            // Downsample to 24000
+            const downsampled = downsampleLinear(mono, inputRate, SAMPLE_RATE);
+            sysAudioBuffer.push(...downsampled);
 
-            // Compute RMS for system
-            const i16 = new Int16Array(buf)
-            if (i16.length === 0) return
-            let rms = 0
-            for (let s of i16) rms += (s / 32768.0) ** 2
-            rms = Math.sqrt(rms / i16.length)
-            log(`[system] Chunk RMS=${rms.toFixed(4)} sampleCount=${i16.length}`)
-
-            wsSys?.sendBinary(buf)
-            sysBuffer.push(buf)
-            if (sysBuffer.length > 100) sysBuffer.shift()
+            while (sysAudioBuffer.length >= SAMPLES_PER_CHUNK) {
+              const chunkArr = sysAudioBuffer.splice(0, SAMPLES_PER_CHUNK);
+              const chunk = new Float32Array(chunkArr);
+              const pcm16 = convertFloat32ToInt16(chunk);
+              if (wsSys) (wsSys as any).sendBinary(pcm16.buffer as ArrayBuffer);
+              const rms = calculateRMS(pcm16);
+              log(`[system] Chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
+              sysBuffer.push(pcm16.buffer as ArrayBuffer);
+            }
           } catch (e) {
-            // ignore malformed line
+            console.error('Invalid system audio data:', e);
           }
-        })
+        });
       } catch {}
       sysIpcSubscribed = true
     }
@@ -539,3 +547,69 @@ function generateSinePCM16(freqHz: number, durationMs: number, sampleRate: numbe
   }
   return out
 }
+
+// Add at top (after imports)
+const SAMPLE_RATE = 24000;
+const AUDIO_CHUNK_DURATION = 0.1; // 100ms
+const SAMPLES_PER_CHUNK = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400
+
+// Helper functions (adapted from Glass)
+function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
+  const int16Array = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    int16Array[i] = Math.min(1, Math.max(-1, float32Array[i])) * 0x7FFF;
+  }
+  return int16Array;
+}
+
+function arrayBufferToBase64(buffer: ArrayBufferLike): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function base64ToInt16Array(base64: string): Int16Array {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new Int16Array(bytes.buffer);
+}
+
+function int16ToFloat32Array(int16Array: Int16Array): Float32Array {
+  const float32Array = new Float32Array(int16Array.length);
+  for (let i = 0; i < int16Array.length; i++) {
+    float32Array[i] = int16Array[i] / 0x8000;
+  }
+  return float32Array;
+}
+
+// Add calculateRMS (for Int16Array)
+function calculateRMS(samples: Int16Array): number {
+  let sum = 0;
+  for (let s of samples) {
+    const norm = s / 32768.0;
+    sum += norm * norm;
+  }
+  return Math.sqrt(sum / samples.length);
+}
+
+// Add base64ToFloat32Array function
+function base64ToFloat32Array(base64: string): Float32Array {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new Float32Array(bytes.buffer);
+}
+
+// In onData handler
+let sysAudioBuffer: number[] = [];

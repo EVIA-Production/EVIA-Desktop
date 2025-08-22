@@ -73,11 +73,11 @@ app.on('window-all-closed', () => {
 // IPC: start/stop macOS system audio helper (Phase 1)
 ipcMain.handle('system-audio:start', async () => {
   if (systemProc) return { ok: true }
-  const helperPath = path.join(process.resourcesPath, 'mac', 'SystemAudioCapture')
-  const fallbackDevPath = path.join(__dirname, '../../native/mac/SystemAudioCapture/.build/debug/SystemAudioCapture')
-  const helperLauncherPath = path.join(__dirname, '../../native/mac/launch_helper.sh')
-  // Use the launcher script in development mode to get proper permissions
-  const cmd = process.env.EVIA_DEV === '1' ? helperLauncherPath : helperPath
+  const helperPath = path.join(process.resourcesPath, 'mac', 'SystemAudioCapture.app', 'Contents', 'MacOS', 'SystemAudioCapture')
+  const fallbackDevPath = path.join(__dirname, '../../native/mac/SystemAudioCapture/SystemAudioCapture.app/Contents/MacOS/SystemAudioCapture')
+  const devCmd = fallbackDevPath
+  const prodCmd = helperPath
+  const cmd = process.env.EVIA_DEV === '1' ? devCmd : prodCmd
   systemProc = spawn(cmd, [], { stdio: ['ignore', 'pipe', 'pipe'] })
   systemProc.stdout?.on('data', (chunk: Buffer) => {
     // Robust line buffering: helper emits one JSON per line, but chunks may split lines

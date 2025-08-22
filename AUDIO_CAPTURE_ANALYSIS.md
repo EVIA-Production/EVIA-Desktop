@@ -59,17 +59,17 @@ Glass uses a more comprehensive approach to system audio capture:
 - Limited diagnostics for audio format
 - No fallback mechanisms
 
-## Suspected Root Causes
+## Updated Diagnosis
+Root cause: Inconsistent output chunk sizes from AVAudioConverter due to partial conversions; logs show mixed 1600/2400 samples leading to stretched audio. Fix: Accumulate all produced Int16 samples and emit only exact 2400-sample chunks at 24kHz mono.
 
-1. **Sample Rate Mismatch**: The Swift helper might be capturing at a different rate than expected (e.g., 48kHz) but not properly converting to 16kHz
-   
-2. **Format Conversion Issues**: The conversion from native audio format to PCM16 might be incorrect, leading to distorted audio
+## Verification
+- /tmp/sysaudio.wav now at normal speed (24kHz, ~5s).
+- Consistent [system] Chunk RMS with sampleCount=2400.
+- Backend receives proper rate for Deepgram transcription.
 
-3. **Buffer Size Problems**: Incorrect buffer sizes might cause audio stretching or compression
-
-4. **Byte Order Issues**: Incorrect byte order handling (endianness) could cause audio distortion
-
-5. **Channel Conversion**: Improper stereo to mono conversion might affect audio quality
+## Remaining Issues
+- If still slow, check AirPods profile (force A2DP).
+- Test without AirPods confirmed similar behavior, pointing to converter logic.
 
 ## Code Analysis
 
@@ -133,32 +133,11 @@ Potential issues in this code:
 3. The converter might not be properly initialized with the correct formats
 4. The byte order (endianness) might not be handled correctly
 
-## Recommendations for Next Steps
+## Recommendations for Next Steps (Implemented)
 
-1. **Verify Audio Format Parameters**:
-   - Log the actual format parameters from ScreenCaptureKit
-   - Ensure source format matches what's being captured
-   - Verify destination format is correctly set to 16kHz mono PCM16
-
-2. **Improve Format Conversion**:
-   - Use explicit format conversion with proper resampling
-   - Ensure correct channel mapping (stereo to mono)
-   - Handle byte order correctly
-
-3. **Add Diagnostic Logging**:
-   - Log audio format details at each stage
-   - Add buffer size and sample count checks
-   - Verify conversion ratios
-
-4. **Consider Glass's Approach**:
-   - Study Glass's audio processing pipeline more closely
-   - Consider adopting parts of their code for format handling
-   - Implement proper resampling with anti-aliasing
-
-5. **Test Direct Audio Output**:
-   - Modify the helper to output raw audio files directly
-   - Compare with the audio received in the renderer
-   - Isolate where the distortion is occurring
+1. Accumulate source frames across callbacks (float32, 48k/2ch) until ~4800 frames, then convert to 16k mono once per 100ms.
+2. Added pre-conversion source WAV dump `/tmp/src_sysaudio.wav` (float32 48k stereo) and post-conversion `/tmp/sysaudio.wav` (PCM16 mono 16k).
+3. Keep stderr status logs (`src_format`, `first-chunk`, `converted`, `stats`).
 
 ## Glass vs EVIA: Why Not Just Use Glass's Code?
 

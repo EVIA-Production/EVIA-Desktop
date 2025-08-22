@@ -83,9 +83,8 @@ Implement high-reliability real-time transcription for both microphone and syste
 4. Deepgram transcription for microphone audio (partial success)
 
 ### Not Working
-1. System audio capture under Electron does not surface frames to renderer/backend (no `[system] Chunk RMS=...`; backend frames_enqueued=0). Earlier “slow/alien” symptom traced to format issues; current runs show no frames delivered via callback.
-2. System audio is not being transcribed by Deepgram (synthetic OK only).
-3. Mic is functional but reconnect behavior and gating needed polish (toggle added; reconnect hardened).
+1. System audio transcription verification after chunk fix (expect success if WAV normal).
+3. Mic functional; AEC pending for echo-free capture.
 
 ## Logs and Observations
 

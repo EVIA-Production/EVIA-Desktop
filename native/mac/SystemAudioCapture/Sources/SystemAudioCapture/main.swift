@@ -5,8 +5,8 @@ import AudioToolbox
 
 // Phase 1: minimal CLI that captures system audio and writes base64 PCM16 mono 16kHz frames to stdout.
 
-// Config
-let sampleRate: Double = 16_000
+// Config (dst)
+let sampleRate: Double = 24000
 let frameDurationSec: Double = 0.1 // 100 ms
 let channels: AVAudioChannelCount = 1
 
@@ -30,6 +30,8 @@ final class AudioDumper: NSObject {
     private var lastStatsTs: TimeInterval = Date().timeIntervalSince1970
     private var wavBuffer = Data()
     private let wavMaxSeconds: Double = 5.0
+    private var srcWavBuffer = Data()
+    private let srcWavMaxSeconds: Double = 5.0
 
     override init() {
         self.dstFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: channels, interleaved: true)!
@@ -45,7 +47,8 @@ final class AudioDumper: NSObject {
         // Request capture permission explicitly with better error handling
         let content: SCShareableContent
         do {
-            content = try await SCShareableContent.current
+            // Using excludingDesktopWindows(false) and onScreenWindowsOnly(true) can affect audio availability
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             
             // Log success
             let permissionMsg = "{\"status\":\"permission_granted\",\"message\":\"Screen recording permission granted\"}\n"
@@ -67,13 +70,15 @@ final class AudioDumper: NSObject {
         let displayMsg = "{\"status\":\"display_found\",\"display_id\":\(display.displayID),\"width\":\(display.width),\"height\":\(display.height)}\n"
         FileHandle.standardError.write(displayMsg.data(using: .utf8)!)
 
-        // Configure stream for audio only
+        // Configure stream for audio (request typical 48k/2ch from SC) and enable video to encourage buffer delivery
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = false
-        config.sampleRate = Int(sampleRate)
-        config.channelCount = Int(channels)
+        config.sampleRate = 48000
+        config.channelCount = 2
+        config.width = display.width
+        config.height = display.height
 
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
         self.stream = stream
@@ -81,6 +86,8 @@ final class AudioDumper: NSObject {
         let output = StreamOutput(format: dstFormat, frameCapacity: dstFrameCapacity, parent: self)
         self.output = output
         try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: .global())
+        // Some environments require a screen output attached for audio delivery; attach the same output (no-op for .screen in our handler)
+        try? stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .global())
 
         let outputAddedMsg = "{\"status\":\"output_added\"}\n"
         FileHandle.standardError.write(outputAddedMsg.data(using: .utf8)!)
@@ -121,6 +128,14 @@ final class AudioDumper: NSObject {
         private var converter: AVAudioConverter?
         // Back-reference for stats/dump
         private weak var parent: AudioDumper?
+        // Emit state: accumulate to stable ~100ms chunks
+        private var emitBuffer: [Int16] = []
+        private var firstChunkLogged: Bool = false
+        // Accumulate source (float32) bytes until enough to yield ~100ms at 16k
+        private var srcAccum = Data()
+        private var srcAccumRate: Double = 0
+        private var srcAccumChannels: Int = 0
+        private var srcAccumNonInterleaved: Bool = true
 
         init(format: AVAudioFormat, frameCapacity: AVAudioFrameCount, parent: AudioDumper? = nil) {
             self.dstFormat = format
@@ -130,6 +145,8 @@ final class AudioDumper: NSObject {
 
         func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
             guard type == .audio, let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+            // Mark audio callback observed
+            FileHandle.standardError.write("{\"status\":\"audio_cb\"}\n".data(using: .utf8)!)
 
             // Extract ASBD from CMSampleBuffer
             guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
@@ -141,109 +158,53 @@ final class AudioDumper: NSObject {
                                           interleaved: false)!
 
             if converter == nil {
+                // Initialize converter; default algorithm/quality are sufficient on macOS
                 converter = AVAudioConverter(from: srcFormat, to: dstFormat)
             }
 
-            // Read audio into AVAudioPCMBuffer (float32)
+            // Copy raw float32 bytes out of blockBuffer
             let totalLength = CMBlockBufferGetDataLength(blockBuffer)
             var data = Data(count: totalLength)
             data.withUnsafeMutableBytes { (ptr: UnsafeMutableRawBufferPointer) in
                 _ = CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: totalLength, destination: ptr.baseAddress!)
             }
 
-            let frameCount = AVAudioFrameCount(totalLength) / (4 * AVAudioFrameCount(srcFormat.channelCount))
-            guard frameCount > 0 else { return }
-
-            guard let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: frameCount) else { return }
-            srcBuf.frameLength = frameCount
-
-            // Copy float32 samples into srcBuf honoring interleaved vs non-interleaved layout
+            // Emit raw float32 interleaved frames directly (Glass-style) and return
+            let numSamples = CMSampleBufferGetNumSamples(sampleBuffer)
             let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-            data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-                let base = ptr.baseAddress!.assumingMemoryBound(to: Float.self)
-                let channels = Int(srcFormat.channelCount)
-                let frames = Int(frameCount)
-                if isNonInterleaved {
-                    // Planar: [ch0 frames][ch1 frames]...
-                    let planeSamples = frames
-                    for ch in 0..<channels {
-                        let srcPlane = base.advanced(by: ch * planeSamples)
-                        let dst = srcBuf.floatChannelData![ch]
-                        dst.update(from: srcPlane, count: planeSamples)
-                    }
-                } else {
-                    // Interleaved: ch0, ch1, ch2 ... per frame
-                    for ch in 0..<channels {
-                        let dst = srcBuf.floatChannelData![ch]
-                        var i = ch
-                        for f in 0..<frames {
-                            dst[f] = base[i]
-                            i += channels
-                        }
-                    }
-                }
-            }
+            let chCount = Int(asbd.mChannelsPerFrame)
 
-            let jsonSrc = "{\"src_format\":{\"src_format_flags_hex\":\"00000029\",\"src_format_id_hex\":\"6C70636D\",\"src_bits_per_channel\":32,\"src_sample_rate\":\(Int(asbd.mSampleRate)),\"src_non_interleaved\":true,\"src_bytes_per_frame\":4,\"src_channels\":\(Int(asbd.mChannelsPerFrame))},\"status\":\"src_format\"}\n"
-            FileHandle.standardError.write(jsonSrc.data(using: .utf8)!)
+            // Log source format
+            let jsonSrc = "{\"src_format\":{\"src_format_flags_hex\":\"00000029\",\"src_format_id_hex\":\"6C70636D\",\"src_bits_per_channel\":32,\"src_sample_rate\":\(Int(asbd.mSampleRate)),\"src_non_interleaved\":\(isNonInterleaved),\"src_bytes_per_frame\":4,\"src_channels\":\(chCount)},\"status\":\"src_format\"}\n"
+            FileHandle.standardError.write(jsonSrc.data(using: String.Encoding.utf8)!)
 
-            // Convert to dst (int16 mono 16k)
-            guard let dstBuf = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: frameCapacity) else { return }
-            let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-                outStatus.pointee = .haveData
-                return srcBuf
-            }
-            // Convert without try-catch since convert doesn't throw when error param is nil
-            converter?.convert(to: dstBuf, error: nil, withInputFrom: inputBlock)
-
-            // Emit in chunks ~100ms
-            let frames = Int(dstBuf.frameLength)
-            guard frames > 0, let int16Ptr = dstBuf.int16ChannelData?.pointee else { return }
-            let jsonFirst = "{\"status\":\"first-chunk\"}\n"
-            FileHandle.standardError.write(jsonFirst.data(using: .utf8)!)
-
-            let bytesPerFrame = MemoryLayout<Int16>.size * Int(dstFormat.channelCount)
-            let byteCount = frames * bytesPerFrame
-            let b64 = Data(bytes: int16Ptr, count: byteCount).base64EncodedString()
-            // Write JSON line to stdout
-            let obj: [String: Any] = ["data": b64, "mimeType": "audio/pcm;rate=16000"]
+            // Interleave if needed and send
+            let interleaved = interleaveFloat32Data(data, channels: chCount, frames: numSamples, isNonInterleaved: isNonInterleaved)
+            let b64 = interleaved.base64EncodedString()
+            let obj: [String: Any] = ["data": b64, "mimeType": "audio/float32;rate=\(Int(asbd.mSampleRate));channels=\(chCount)"]
             if let json = try? JSONSerialization.data(withJSONObject: obj),
                let line = String(data: json, encoding: .utf8) {
                 FileHandle.standardOutput.write((line + "\n").data(using: .utf8)!)
             }
-            let jsonConverted = "{\"dst_frames\":\(frames),\"status\":\"converted\"}\n"
-            FileHandle.standardError.write(jsonConverted.data(using: .utf8)!)
 
-            // Update stats
-            parent?.totalFrames += frames
-            parent?.totalBytes += byteCount
-            parent?.totalChunks += 1
-            let now = Date().timeIntervalSince1970
-            if let last = parent?.lastStatsTs, now - last >= 1.0 {
-                let fps = parent!.totalChunks
-                let kbps = Double(parent!.totalBytes) / 1024.0
-                let stats = String(format: "{\"status\":\"stats\",\"chunks\":%d,\"bytes_kb\":%.2f}\n", fps, kbps)
-                FileHandle.standardError.write(stats.data(using: String.Encoding.utf8)!)
-                parent?.totalChunks = 0
-                parent?.totalBytes = 0
-                parent?.lastStatsTs = now
-            }
-
-            // Dump first few seconds to /tmp/sysaudio.wav for diagnosis
-            if let p = parent {
-                if p.wavBuffer.count < Int(p.wavMaxSeconds * sampleRate) * bytesPerFrame {
-                    p.wavBuffer.append(Data(bytes: int16Ptr, count: byteCount))
-                    if p.wavBuffer.count >= Int(p.wavMaxSeconds * sampleRate) * bytesPerFrame {
-                        // Write WAV once
-                        let path = "/tmp/sysaudio.wav"
-                        if let wavData = makeWav(pcmData: p.wavBuffer, sampleRate: Int(sampleRate), channels: Int(channels)) {
-                            try? wavData.write(to: URL(fileURLWithPath: path))
-                            let msg = "{\"status\":\"wav_dumped\",\"path\":\"/tmp/sysaudio.wav\",\"seconds\":\(Int(p.wavMaxSeconds))}\n"
-                            FileHandle.standardError.write(msg.data(using: .utf8)!)
-                        }
-                    }
+            // Optional RMS (float32)
+            interleaved.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+                let f32 = ptr.bindMemory(to: Float.self)
+                var sum: Double = 0
+                let count = f32.count
+                if count > 0 {
+                    for i in 0..<count { let v = Double(f32[i]); sum += v * v }
+                    let rms = sqrt(sum / Double(count))
+                    let rmsStr = String(format: "%.4f", rms)
+                    let rmsMsg = "[system] Chunk RMS=\(rmsStr) sampleCount=\(count)\n"
+                    FileHandle.standardError.write(rmsMsg.data(using: .utf8)!)
                 }
             }
+
+            // Converted status
+            let jsonConverted = "{\"dst_frames\":\(numSamples),\"status\":\"converted\"}\n"
+            FileHandle.standardError.write(jsonConverted.data(using: .utf8)!)
+            return
         }
     }
 }
@@ -318,3 +279,64 @@ struct Main {
        wav.append(pcmData)
        return wav
    }
+
+    func makeWavFloat(pcmFloatData: Data, sampleRate: Int, channels: Int) -> Data? {
+        var header = Data()
+        let bitsPerSample = 32
+        let format: UInt16 = 3 // IEEE float
+        let byteRate = sampleRate * channels * (bitsPerSample / 8)
+        let blockAlign = channels * (bitsPerSample / 8)
+        let dataSize = UInt32(pcmFloatData.count)
+        let riffChunkSize = 36 + dataSize
+
+        func write(_ value: UInt32) { var v = value.littleEndian; header.append(Data(bytes: &v, count: 4)) }
+        func write16(_ value: UInt16) { var v = value.littleEndian; header.append(Data(bytes: &v, count: 2)) }
+
+        header.append("RIFF".data(using: .ascii)!)
+        write(riffChunkSize)
+        header.append("WAVE".data(using: .ascii)!)
+        header.append("fmt ".data(using: .ascii)!)
+        write(16)
+        write16(format)
+        write16(UInt16(channels))
+        write(UInt32(sampleRate))
+        write(UInt32(byteRate))
+        write16(UInt16(blockAlign))
+        write16(UInt16(bitsPerSample))
+        header.append("data".data(using: .ascii)!)
+        write(dataSize)
+
+        var wav = Data()
+        wav.append(header)
+        wav.append(pcmFloatData)
+        return wav
+    }
+
+    func interleaveFloat32Data(_ data: Data, channels: Int, frames: Int, isNonInterleaved: Bool) -> Data {
+        if !isNonInterleaved { return data }
+        var interleaved = Data(capacity: frames * channels * 4)
+        data.withUnsafeBytes { ptr in
+            let floats = ptr.bindMemory(to: Float.self).baseAddress!
+            let planeSize = frames
+            for f in 0..<frames {
+                for ch in 0..<channels {
+                    let val = floats[ch * planeSize + f]
+                    var le = val
+                    withUnsafeBytes(of: &le) { raw in
+                        let u8 = raw.bindMemory(to: UInt8.self)
+                        interleaved.append(u8.baseAddress!, count: MemoryLayout<Float>.size)
+                    }
+                }
+            }
+        }
+        return interleaved
+    }
+
+    func calculateRMS(_ samples: [Int16]) -> Double {
+        var sum = 0.0
+        for s in samples {
+            let norm = Double(s) / 32768.0
+            sum += norm * norm
+        }
+        return sqrt(sum / Double(samples.count))
+    }

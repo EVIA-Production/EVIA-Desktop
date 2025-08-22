@@ -2,7 +2,7 @@
 
 ## Immediate Actions (Fast-Track)
 
-1. Vendor/port Glass macOS system audio capture core (ScreenCaptureKit + resampler) to emit PCM16 mono 16 kHz ~100 ms frames. Keep minimal IPC (stdout or domain socket). No AEC initially.
+1. Accumulate source audio in helper and emit proper 100ms chunks at 24k (done, with strict 2400-sample enforcement).
 
 2. Wire Electron main to subscribe once and forward frames to renderer; maintain counters, Test Tone, and sys WAV export.
 
@@ -12,7 +12,7 @@
    - Add format validation before processing
 
 4. **Test with Direct Audio Output**
-   - Keep short helper-side `/tmp/sysaudio.wav` dump for diagnosis
+   - Validate `/tmp/src_sysaudio.wav` (48k float32) and `/tmp/sysaudio.wav` (16k PCM16) for speed/quality
    - Validate renderer sys WAV export without Test Tone
    - Ensure backend frames_enqueued>0 and transcripts present
 
