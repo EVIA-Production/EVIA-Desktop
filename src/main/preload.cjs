@@ -34,6 +34,7 @@ try {
       return ipcRenderer.invoke('open-terminal', script)
     },
     launchMain: () => ipcRenderer.invoke('launch-main'),
+    launchAudioTest: () => ipcRenderer.invoke('launch-audio-test'),
   })
 } catch (e) {
   console.error('[preload.cjs] expose failed', e)

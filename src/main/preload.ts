@@ -4,14 +4,35 @@ type WsHandle = {
   sendBinary: (data: ArrayBuffer) => void
   sendCommand: (cmd: any) => void
   close: () => void
+  onMessage: (cb: (data: string | ArrayBuffer | Blob) => void) => void
+  onOpen: (cb: () => void) => void
+  onClose: (cb: (event: CloseEvent) => void) => void
+  onError: (cb: (event: Event) => void) => void
 }
 
 function createWs(url: string): WsHandle {
   const ws = new WebSocket(url)
+
+  let onMessageCb: ((data: string | ArrayBuffer | Blob) => void) | null = null
+  let onOpenCb: (() => void) | null = null
+  let onCloseCb: ((event: CloseEvent) => void) | null = null
+  let onErrorCb: ((event: Event) => void) | null = null
+
+  ws.onmessage = (ev: MessageEvent) => {
+    if (onMessageCb) onMessageCb(ev.data as any)
+  }
+  ws.onopen = () => { if (onOpenCb) onOpenCb() }
+  ws.onclose = (ev: CloseEvent) => { if (onCloseCb) onCloseCb(ev) }
+  ws.onerror = (ev: Event) => { if (onErrorCb) onErrorCb(ev) }
+
   return {
     sendBinary: (data: ArrayBuffer) => { if (ws.readyState === WebSocket.OPEN) ws.send(data) },
     sendCommand: (cmd: any) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd)) },
     close: () => ws.close(),
+    onMessage: (cb) => { onMessageCb = cb },
+    onOpen: (cb) => { onOpenCb = cb },
+    onClose: (cb) => { onCloseCb = cb },
+    onError: (cb) => { onErrorCb = cb },
   }
 }
 

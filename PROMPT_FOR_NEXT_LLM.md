@@ -1,134 +1,50 @@
-# PROMPT FOR NEXT LLM: Fast‑Track EVIA Desktop System Audio via Glass Capture (Keep EVIA Backend)
+# PROMPT FOR NEXT LLM: Comprehensive EVIA-Glass Merge and Audio Capture Analysis
 
-You are a senior engineer helping fix EVIA Desktop's system audio capture and transcription issues. I need your help to diagnose and solve a critical problem: **system audio is captured but sounds "alien-like" or "stretched" and cannot be transcribed by Deepgram**.
+You are a senior engineer tasked with advancing the EVIA Desktop audio capture system. This prompt provides a full, self-contained summary of the project, merging insights from EVIA and Glass, with detailed analysis of the audio pipeline, problems, solutions, and testing steps. Use this to diagnose, fix, or extend the system without needing additional clarification. Focus on achieving undistorted, real-time German transcription via Deepgram.
 
-## Project Context
+## 1. Verbose Project Context: EVIA and Glass Merge
 
-EVIA Desktop is an Electron overlay app that captures both microphone and system audio for real-time transcription. We're merging functionality from two codebases:
+EVIA is a real-time meeting assistant for transcribing mic/system audio and generating AI suggestions (via Groq). It's a monorepo with:
+- **EVIA-Desktop**: Electron overlay for capture (mic via WebAudio, system via macOS Swift helper). Streams PCM16 mono 16kHz to backend over two WebSockets (`source=mic`/`system`).
+- **EVIA-Backend**: FastAPI + SQLModel/PostgreSQL/Redis. Handles `/ws/transcribe`, Deepgram STT, transcript persistence, metrics. Deployed on Azure.
+- **EVIA-Frontend**: React/Vite for post-call dashboards, auth, chats.
 
-1. **EVIA**: A web app with FastAPI backend that uses Deepgram for STT and Groq for suggestions
-2. **Glass**: A reference implementation that successfully captures system audio
+We're merging Glass (OSS reference for capture/AEC/overlay) selectively: Adopt patterns for macOS system capture (ScreenCaptureKit, raw float32 emission) and JS processing (filtering/downsampling/chunking), but keep EVIA backend for centralized STT/AI. Merge extent: Concepts from Glass's `listenCapture.js` (e.g., stereo-to-mono, low-pass anti-aliasing) ported to EVIA's `main.ts`. Decisions: Prioritize macOS, defer AEC, reuse backend (see `desktop-migration/DECISIONS.md`).
 
-Our approach uses:
-- Electron main process spawns a native Swift helper using ScreenCaptureKit
-- Helper captures system audio and sends it as PCM16 mono 16kHz frames
-- Renderer process forwards audio to backend via WebSockets
-- Backend uses Deepgram for transcription
+## 2. Audio Capture Mini-Project Details
 
-## Current Status
+Goal: Capture macOS system audio (48kHz stereo float32), process to 16kHz mono PCM16 in 100ms chunks (1600 samples), stream to Deepgram without distortion.
 
-- ✅ Mic/system WS connect; `dg_open=true`. Synthetic “EVIA connection OK” appears for both.
-- ❌ System audio frames do not reach renderer/backend under Electron (no `[system] Chunk RMS=…`; backend `frames_enqueued=0`).
-- ❌ Deepgram has nothing real to transcribe for system beyond synthetic OK.
+**Pipeline**:
+1. Swift (`main.swift`): Captures raw float32, interleaves, base64-encodes as JSON.
+2. Electron main (`main.ts`): Spawns helper, IPC to renderer.
+3. Renderer (`main.ts`): Decodes, mixes mono, low-pass filters (`OfflineAudioContext`), downsamples to 16kHz, chunks, converts to PCM16, sends via WS.
+4. Backend (`websocket.py`): Buffers, forwards at 16kHz to Deepgram.
 
-## Detailed Problem Description
+## 3. Problems Faced
 
-1. The SystemAudioCapture helper successfully captures system audio
-2. The helper sends data to the Electron main process
-3. The main process forwards data to the renderer
-4. The renderer sends data to the backend via WebSocket
-5. When exported to WAV, the system audio sounds completely distorted ("alien-like" or "stretched")
-6. Deepgram receives the audio but cannot transcribe it
+- Distorted audio: Aliasing/stretching from downsampling without filters; old binary persistence (logs show 16kHz/1600-sample chunks).
+- Binary issues: Updated Swift not loading (cached processes).
+- Renderer errors: Unstable `BiquadFilterNode`; param mismatches.
+- Chunking: Inconsistent sizes cause timing errors.
+- Edges: Stereo handling, AirPods profiles, variable rates.
 
-## Key Files
+## 4. Plausible Solutions
 
-1. **Swift Helper**: `EVIA-Desktop/native/mac/SystemAudioCapture/Sources/SystemAudioCapture/main.swift`
-   - Uses ScreenCaptureKit to capture system audio
-   - Converts audio format and sends as base64-encoded PCM16
+- Reload binaries: Kill processes, rebuild, restart.
+- Stabilize: Use `AudioWorklet` for filtering.
+- Validate: Add stage-wise dumps/logs.
+- Adopt more Glass: Full AEC if needed.
 
-2. **Electron Main**: `EVIA-Desktop/src/main/main.ts`
-   - Spawns the helper process
-   - Forwards stdout data to renderer via IPC
+## 5. Codebase Scan
 
-3. **Electron Renderer**: `EVIA-Desktop/src/renderer/main.ts`
-   - Processes audio data
-   - Sends to backend via WebSocket
+Key files: `main.swift`, `main.ts`, `websocket.py`. Issues: Rate/chunking pitfalls.
 
-4. **Backend WebSocket**: `EVIA-Backend/backend/api/routes/websocket.py`
-   - Receives audio data
-   - Forwards to Deepgram for transcription
+## 6. Testing Plan
 
-## Suspected Issues
+1. Kill: `pkill -f Electron; pkill -f SystemAudioCapture`.
+2. Rebuild: `cd .../SystemAudioCapture && swift build -c debug`.
+3. Restart: `cd .../EVIA-Desktop && npm run dev:renderer | cat` (background), `EVIA_DEV=1 npm run dev:main`.
+4. Analyze: Play tone, export WAV, `ffprobe`; check logs/transcripts.
 
-1. **Sample rate mismatch**: The helper might be capturing at a different rate (e.g., 48kHz) but not properly converting to 16kHz
-2. **Format conversion issues**: The conversion from native format to PCM16 might be incorrect
-3. **Buffer size problems**: Incorrect buffer sizes might cause audio stretching
-4. **Byte order issues**: Incorrect endianness handling could cause distortion
-5. **Channel conversion**: Improper stereo to mono conversion might affect quality
-
-## Fast‑Track Plan (Adopt Glass Capture; Keep EVIA Backend)
-
-Goal: Restore reliable system audio quickly by reusing Glass’s proven macOS capture core and IPC framing while preserving EVIA’s backend WS protocol and data model.
-
-Do this:
-1. Vendor/port Glass macOS capture core (ScreenCaptureKit + robust resampling) to emit PCM16 mono 16 kHz ~100 ms frames.
-2. Keep IPC minimal (stdout or domain socket). Subscribe once in Electron main; forward to renderer unchanged.
-3. Renderer continues sending frames to `/ws/transcribe?source=system`. Retain Test Tone, counters, sys WAV export.
-4. Add helper-side per‑second stats and a short `/tmp/sysaudio.wav` dump for diagnosis (remove later).
-5. Validate A/B (tone/speech): helper→renderer→WS→Deepgram; expect non‑zero frames_enqueued and real transcripts.
-6. Defer AEC to a later flag. After stability, plan Windows loopback and macOS codesign/notarization.
-
-## Specific Requests
-
-1. Implement the source swap to Glass mac capture (minimal changes around helper/IPC), preserving EVIA’s two‑WS protocol.
-2. Ensure helper emits frames immediately under Electron (diagnostic logs: `first-chunk`, `converted`, `stats`).
-3. Confirm renderer sees `[system] Chunk RMS=…` and backend shows `frames_enqueued>0` and live transcripts.
-4. Keep security best practices (preload isolation, minimal IPC surface, CSP for packaged app).
-
-## Task for You
-
-Drive the fast‑track implementation above and verify end‑to‑end. Keep EVIA backend and WS protocol intact.
-
-## Key Code Snippet (Swift Helper Audio Conversion)
-
-```swift
-// In SystemAudioCapture/main.swift
-func convert(_ sampleBuffer: CMSampleBuffer) -> Data? {
-    guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
-    
-    var length: Int = 0
-    var dataPointer: UnsafeMutablePointer<Int8>?
-    CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer)
-    
-    guard let data = dataPointer else { return nil }
-    
-    let pcmBuffer = UnsafeBufferPointer<Int8>(start: data, count: length)
-    let srcData = Data(buffer: pcmBuffer)
-    
-    // Create AVAudioPCMBuffer with the source format
-    let srcFrameCapacity = AVAudioFrameCount(length) / srcFormat.streamDescription.pointee.mBytesPerFrame
-    guard let srcPCMBuffer = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: srcFrameCapacity) else { return nil }
-    
-    // Copy the data to the buffer
-    srcPCMBuffer.frameLength = srcFrameCapacity
-    let srcChannelData = srcPCMBuffer.int16ChannelData
-    srcData.withUnsafeBytes { rawBufferPtr in
-        let int16BufferPtr = rawBufferPtr.bindMemory(to: Int16.self)
-        for i in 0..<Int(srcFrameCapacity) {
-            for channel in 0..<Int(srcFormat.channelCount) {
-                srcChannelData?[channel][i] = int16BufferPtr[i * Int(srcFormat.channelCount) + channel]
-            }
-        }
-    }
-    
-    // Create a destination buffer
-    guard let dstPCMBuffer = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: dstFrameCapacity) else { return nil }
-    
-    // Convert the audio
-    var error: NSError?
-    converter?.convert(to: dstPCMBuffer, error: &error, withInputFrom: { _, _ in .haveData })
-    
-    if let error = error {
-        print("Conversion error: \(error)")
-        return nil
-    }
-    
-    // Get the converted data
-    guard let dstChannelData = dstPCMBuffer.int16ChannelData else { return nil }
-    let dstData = Data(bytes: dstChannelData[0], count: Int(dstPCMBuffer.frameLength * dstFormat.streamDescription.pointee.mBytesPerFrame))
-    
-    return dstData
-}
-```
-
-Thank you for your help in solving this critical issue!
+Use this to propose fixes, focusing on pipeline stability.

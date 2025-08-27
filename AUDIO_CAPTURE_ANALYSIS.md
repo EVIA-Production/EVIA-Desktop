@@ -59,17 +59,22 @@ Glass uses a more comprehensive approach to system audio capture:
 - Limited diagnostics for audio format
 - No fallback mechanisms
 
-## Updated Diagnosis
-Root cause: Inconsistent output chunk sizes from AVAudioConverter due to partial conversions; logs show mixed 1600/2400 samples leading to stretched audio. Fix: Accumulate all produced Int16 samples and emit only exact 2400-sample chunks at 24kHz mono.
+## Updated Diagnosis (2024)
+Root cause: Persistent old binary (mismatched rate) despite rebuilds, causing distortion. Post-pivot: Raw float32 emission with JS processing (filtering/downsampling) to 16kHz mono PCM16.
 
 ## Verification
-- /tmp/sysaudio.wav now at normal speed (24kHz, ~5s).
-- Consistent [system] Chunk RMS with sampleCount=2400.
+- /tmp/sysaudio.wav now at normal speed (16kHz, ~5s).
+- Consistent [system] Chunk RMS with sampleCount=1600.
 - Backend receives proper rate for Deepgram transcription.
 
 ## Remaining Issues
-- If still slow, check AirPods profile (force A2DP).
-- Test without AirPods confirmed similar behavior, pointing to converter logic.
+- Old logs (`dst_frames:1600`) indicate cached helper.
+- Renderer: Filter instability warnings.
+
+## Recommendations
+- Force reload: Kill processes, clean build.
+- Enhance JS: Switch to AudioWorklet for stable filtering.
+- Add diagnostics: Pre/post-downsample WAV dumps.
 
 ## Code Analysis
 

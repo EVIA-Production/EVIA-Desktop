@@ -1,20 +1,11 @@
 # EVIA Desktop: Next Steps for Audio Capture
 
-## Immediate Actions (Fast-Track)
-
-1. Accumulate source audio in helper and emit proper 100ms chunks at 24k (done, with strict 2400-sample enforcement).
-
-2. Wire Electron main to subscribe once and forward frames to renderer; maintain counters, Test Tone, and sys WAV export.
-
-3. **Improve Audio Processing in Renderer**
-   - Review the PCM data handling in `main.ts`
-   - Ensure correct interpretation of binary data
-   - Add format validation before processing
-
-4. **Test with Direct Audio Output**
-   - Validate `/tmp/src_sysaudio.wav` (48k float32) and `/tmp/sysaudio.wav` (16k PCM16) for speed/quality
-   - Validate renderer sys WAV export without Test Tone
-   - Ensure backend frames_enqueued>0 and transcripts present
+## Immediate Next Steps
+1. Kill running processes and rebuild Swift helper to ensure new binary loads.
+2. Restart Electron dev servers.
+3. Test pipeline with tone: Verify WAV format (16kHz mono PCM16), check logs for consistent chunks.
+4. If distortion persists, implement AudioWorklet for filtering.
+5. Extend to AEC using Glass WASM patterns.
 
 ## Medium-Term Improvements
 

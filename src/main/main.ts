@@ -1,14 +1,19 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import { spawn } from 'child_process'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+// Import process manager
+// @ts-ignore
+const processManager = require('./process-manager')
+
+// Import audio test window manager
+// @ts-ignore
+const audioTestWindow = require('./audio-test-window')
+
+// __dirname is available in CommonJS mode
 
 let mainWindow: BrowserWindow | null = null
-let systemProc: ReturnType<typeof spawn> | null = null
-let sysStdoutBuffer = ''
+// Process manager handles the helper processes
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -61,62 +66,98 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow()
+  
+  // Create application menu with audio test option and edit menu for copy/paste
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'EVIA',
+      submenu: [
+        { role: 'quit' }
+      ]
+    },
+    {
+      role: 'editMenu'  // Add standard Edit menu with copy/paste functionality
+    },
+    {
+      label: 'Tools',
+      submenu: [
+        {
+          label: 'Audio Test',
+          click: () => {
+            audioTestWindow.createAudioTestWindow()
+          }
+        }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    }
+  ])
+  
+  Menu.setApplicationMenu(menu)
+  
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // Clean up processes before quitting
+  processManager.cleanupAllProcesses();
+  if (process.platform !== 'darwin') app.quit();
+})
+
+// Also clean up on app quit
+app.on('quit', () => {
+  processManager.cleanupAllProcesses();
 })
 
 // IPC: start/stop macOS system audio helper (Phase 1)
 ipcMain.handle('system-audio:start', async () => {
-  if (systemProc) return { ok: true }
-  const helperPath = path.join(process.resourcesPath, 'mac', 'SystemAudioCapture.app', 'Contents', 'MacOS', 'SystemAudioCapture')
-  const fallbackDevPath = path.join(__dirname, '../../native/mac/SystemAudioCapture/SystemAudioCapture.app/Contents/MacOS/SystemAudioCapture')
-  const devCmd = fallbackDevPath
-  const prodCmd = helperPath
-  const cmd = process.env.EVIA_DEV === '1' ? devCmd : prodCmd
-  systemProc = spawn(cmd, [], { stdio: ['ignore', 'pipe', 'pipe'] })
-  systemProc.stdout?.on('data', (chunk: Buffer) => {
-    // Robust line buffering: helper emits one JSON per line, but chunks may split lines
-    sysStdoutBuffer += chunk.toString('utf8')
-    let idx
-    while ((idx = sysStdoutBuffer.indexOf('\n')) !== -1) {
-      const line = sysStdoutBuffer.slice(0, idx).trim()
-      sysStdoutBuffer = sysStdoutBuffer.slice(idx + 1)
-      if (line.length > 0) {
-        mainWindow?.webContents.send('system-audio:data', line)
+  // Use process manager to start the helper
+  const result = await processManager.startSystemAudioHelper();
+  
+  if (result.ok) {
+    // Register handlers for stdout and stderr
+    processManager.registerSystemAudioHandlers(
+      // Stdout handler - sends data to renderer
+      (line: string) => {
+        mainWindow?.webContents.send('system-audio:data', line);
+      },
+      // Stderr handler - logs and forwards status messages
+      (logLine: string) => {
+        console.warn('[SystemAudioCapture][stderr]', logLine);
+        
+        try {
+          // Try to parse as JSON to check for status messages
+          const data = JSON.parse(logLine);
+          if (data.status) {
+            mainWindow?.webContents.send('system-audio:status', logLine);
+          }
+        } catch (e) {
+          // Not JSON or couldn't parse, just a regular log line
+        }
       }
-    }
-  })
-  systemProc.stderr?.on('data', (d: Buffer) => {
-    const logLine = d.toString('utf8').trim()
-    console.warn('[SystemAudioCapture][stderr]', logLine)
-    
-    try {
-      // Try to parse as JSON to check for status messages
-      const data = JSON.parse(logLine)
-      if (data.status) {
-        mainWindow?.webContents.send('system-audio:status', logLine)
-      }
-    } catch (e) {
-      // Not JSON or couldn't parse, just a regular log line
-    }
-  })
-  systemProc.on('exit', (code) => {
-    systemProc = null
-    mainWindow?.webContents.send('system-audio:stopped', code ?? 0)
-  })
-  return { ok: true }
+    );
+  }
+  
+  return result;
 })
 
 ipcMain.handle('system-audio:stop', async () => {
-  if (!systemProc) return { ok: true }
-  try { systemProc.kill('SIGTERM') } catch {}
-  systemProc = null
-  return { ok: true }
+  // Use process manager to stop the helper
+  return await processManager.stopSystemAudioHelper();
 })
 
 // Handle launching main app from permissions page
@@ -129,6 +170,12 @@ ipcMain.handle('launch-main', () => {
     return { ok: true }
   }
   return { ok: false, error: 'No main window' }
+})
+
+// Handle launching audio test window
+ipcMain.handle('launch-audio-test', () => {
+  audioTestWindow.createAudioTestWindow()
+  return { ok: true }
 })
 
 // Handle opening a script in Terminal

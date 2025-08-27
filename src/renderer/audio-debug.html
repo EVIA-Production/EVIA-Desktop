@@ -1,383 +1,264 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EVIA Audio Diagnostics</title>
     <style>
-        body { font-family: system-ui, sans-serif; margin: 20px; }
-        .container { display: flex; flex-direction: column; gap: 20px; }
-        .card { border: 1px solid #ccc; padding: 15px; border-radius: 8px; }
-        .stats { font-family: monospace; white-space: pre; }
-        canvas { border: 1px solid #ddd; width: 100%; height: 200px; }
-        button { padding: 8px 16px; margin-right: 10px; }
-        .error { color: red; font-weight: bold; }
-        .success { color: green; font-weight: bold; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f7;
+      color: #333;
+    }
+    h1, h2, h3 {
+      margin-top: 0;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+    }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    button {
+      background-color: #0071e3;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #0077ed;
+    }
+    button:active {
+      background-color: #0068d1;
+    }
+    button.secondary {
+      background-color: #6c757d;
+    }
+    button.danger {
+      background-color: #dc3545;
+    }
+    button.success {
+      background-color: #28a745;
+    }
+    .status {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+    .status.active {
+      background-color: #28a745;
+    }
+    .status.inactive {
+      background-color: #dc3545;
+    }
+    .status-text {
+      font-weight: 500;
+    }
+    .logs {
+      background-color: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin-bottom: 10px;
+    }
+    .tabs {
+      display: flex;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      background-color: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-right: 5px;
+    }
+    .tab.active {
+      border-bottom-color: #0071e3;
+      font-weight: 500;
+      color: #0071e3;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    canvas {
+      width: 100%;
+      max-width: 100%;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table td {
+      padding: 6px;
+      border-bottom: 1px solid #eee;
+    }
+    table td:first-child {
+      font-weight: 500;
+      width: 40%;
+    }
+    .issue {
+      color: #dc3545;
+    }
+    #systemStatus, #micStatus {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    .status-good {
+      background-color: rgba(40, 167, 69, 0.1);
+      border: 1px solid rgba(40, 167, 69, 0.3);
+    }
+    .status-warning {
+      background-color: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+    .status-error {
+      background-color: rgba(220, 53, 69, 0.1);
+      border: 1px solid rgba(220, 53, 69, 0.3);
+    }
     </style>
 </head>
 <body>
-    <h1>EVIA Audio Diagnostics</h1>
-    
     <div class="container">
         <div class="card">
-            <h2>Microphone Audio</h2>
-            <button id="startMic">Start Mic Test</button>
-            <button id="stopMic">Stop</button>
-            <div id="micStats" class="stats"></div>
-            <canvas id="micCanvas"></canvas>
+      <h1>EVIA Audio Diagnostics</h1>
+      <p>This tool helps diagnose issues with audio capture and processing for EVIA Desktop.</p>
+      
+      <div class="buttons">
+        <button id="startMic">Start Mic Capture</button>
+        <button id="startSystem">Start System Audio</button>
+        <button id="stopCapture">Stop Capture</button>
+        <button id="exportMicWav" class="secondary">Export Mic WAV</button>
+        <button id="exportSystemWav" class="secondary">Export System WAV</button>
+        <button id="runDiagnostics" class="success">Run Full Diagnostics</button>
+        <button id="testTone" class="secondary">Play Test Tone</button>
+        <button id="launchMain" class="secondary">Launch Main App</button>
+      </div>
+      
+      <div class="tabs">
+        <button class="tab active" data-tab="visualizer">Live Visualizer</button>
+        <button class="tab" data-tab="metrics">Audio Metrics</button>
+        <button class="tab" data-tab="logs">Logs</button>
+        <button class="tab" data-tab="diagnostics">Diagnostics</button>
+        <button class="tab" data-tab="spectrograms">Spectrograms</button>
         </div>
 
-        <div class="card">
-            <h2>System Audio</h2>
-            <button id="startSystem">Start System Test</button>
-            <button id="stopSystem">Stop</button>
-            <div id="sysStats" class="stats"></div>
-            <canvas id="sysCanvas"></canvas>
+      <div id="visualizer" class="tab-content active">
+        <h2>Audio Visualizer</h2>
+        <div class="grid">
+          <div>
+            <h3>Microphone</h3>
+            <div id="micStatus"></div>
+            <div id="micVisualizerContainer"></div>
+          </div>
+          <div>
+            <h3>System Audio</h3>
+            <div id="systemStatus"></div>
+            <div id="systemVisualizerContainer"></div>
+          </div>
+        </div>
         </div>
 
-        <div class="card">
-            <h2>Test Tone Generator</h2>
-            <button id="genTone">Generate 1kHz Test Tone</button>
-            <button id="stopTone">Stop</button>
+      <div id="metrics" class="tab-content">
+        <h2>Audio Metrics</h2>
+        <div class="grid">
+          <div>
+            <h3>Microphone</h3>
+            <table id="micMetricsTable">
+              <tr><td>Sample Rate</td><td id="micSampleRate">-</td></tr>
+              <tr><td>RMS Level</td><td id="micRmsLevel">-</td></tr>
+              <tr><td>Buffer Size</td><td id="micBufferSize">-</td></tr>
+              <tr><td>WebSocket Status</td><td id="micWsStatus">Disconnected</td></tr>
+              <tr><td>Deepgram Status</td><td id="micDgStatus">Closed</td></tr>
+            </table>
+          </div>
             <div>
-                <label>Frequency: <input type="range" id="freqSlider" min="200" max="5000" value="1000"> <span id="freqValue">1000</span> Hz</label>
+            <h3>System Audio</h3>
+            <table id="systemMetricsTable">
+              <tr><td>Sample Rate</td><td id="systemSampleRate">-</td></tr>
+              <tr><td>RMS Level</td><td id="systemRmsLevel">-</td></tr>
+              <tr><td>Buffer Size</td><td id="systemBufferSize">-</td></tr>
+              <tr><td>WebSocket Status</td><td id="systemWsStatus">Disconnected</td></tr>
+              <tr><td>Deepgram Status</td><td id="systemDgStatus">Closed</td></tr>
+            </table>
             </div>
         </div>
     </div>
 
-    <script>
-        // Audio context and analyzers
-        let audioCtx, micSource, micAnalyser, sysAnalyser;
-        let toneOsc, toneGain;
-        let micStream, micProcessor;
-        let sysBuffer = [];
-        
-        // Stats tracking
-        let micStats = {
-            sampleRate: 0,
-            bufferSize: 0,
-            rmsValues: [],
-            bufferCounts: []
-        };
-        
-        let sysStats = {
-            sampleRate: 16000, // Expected
-            bufferSize: 0,
-            rmsValues: [],
-            bufferCounts: []
-        };
-        
-        // Canvas contexts
-        const micCanvas = document.getElementById('micCanvas');
-        const micCtx = micCanvas.getContext('2d');
-        const sysCanvas = document.getElementById('sysCanvas');
-        const sysCtx = sysCanvas.getContext('2d');
-        
-        // Update stats displays
-        function updateMicStats() {
-            const avgRms = micStats.rmsValues.length > 0 ? 
-                micStats.rmsValues.reduce((a, b) => a + b, 0) / micStats.rmsValues.length : 0;
-            
-            const avgBufferSize = micStats.bufferCounts.length > 0 ?
-                micStats.bufferCounts.reduce((a, b) => a + b, 0) / micStats.bufferCounts.length : 0;
-                
-            let html = `Sample Rate: ${micStats.sampleRate} Hz\n`;
-            html += `Buffer Size: ${micStats.bufferSize} samples\n`;
-            html += `Avg RMS: ${avgRms.toFixed(6)}\n`;
-            html += `Avg Buffer Size: ${avgBufferSize.toFixed(2)} samples\n`;
-            
-            if (Math.abs(micStats.sampleRate - 48000) > 5000) {
-                html += `\n<span class="error">WARNING: Sample rate not near 48kHz!</span>`;
-            }
-            
-            document.getElementById('micStats').innerHTML = html;
-        }
-        
-        function updateSysStats() {
-            const avgRms = sysStats.rmsValues.length > 0 ? 
-                sysStats.rmsValues.reduce((a, b) => a + b, 0) / sysStats.rmsValues.length : 0;
-            
-            const avgBufferSize = sysStats.bufferCounts.length > 0 ?
-                sysStats.bufferCounts.reduce((a, b) => a + b, 0) / sysStats.bufferCounts.length : 0;
-                
-            let html = `Expected Sample Rate: ${sysStats.sampleRate} Hz\n`;
-            html += `Last Buffer Size: ${sysStats.bufferSize} samples\n`;
-            html += `Avg RMS: ${avgRms.toFixed(6)}\n`;
-            html += `Avg Buffer Size: ${avgBufferSize.toFixed(2)} samples\n`;
-            
-            if (Math.abs(avgBufferSize - 1600) > 50) {
-                html += `\n<span class="error">WARNING: Buffer size not near 1600 samples!</span>`;
-            } else {
-                html += `\n<span class="success">Buffer size looks good (≈1600)!</span>`;
-            }
-            
-            document.getElementById('sysStats').innerHTML = html;
-        }
-        
-        // Draw audio waveform
-        function drawMicWaveform(dataArray) {
-            const width = micCanvas.width;
-            const height = micCanvas.height;
-            
-            micCtx.fillStyle = 'rgb(240, 240, 240)';
-            micCtx.fillRect(0, 0, width, height);
-            micCtx.lineWidth = 2;
-            micCtx.strokeStyle = 'rgb(0, 123, 255)';
-            micCtx.beginPath();
-            
-            const sliceWidth = width / dataArray.length;
-            let x = 0;
-            
-            for (let i = 0; i < dataArray.length; i++) {
-                const v = dataArray[i] / 128.0;
-                const y = (v * height / 2) + (height / 2);
-                
-                if (i === 0) {
-                    micCtx.moveTo(x, y);
-                } else {
-                    micCtx.lineTo(x, y);
-                }
-                
-                x += sliceWidth;
-            }
-            
-            micCtx.stroke();
-        }
-        
-        function drawSysWaveform(buffer) {
-            const width = sysCanvas.width;
-            const height = sysCanvas.height;
-            
-            sysCtx.fillStyle = 'rgb(240, 240, 240)';
-            sysCtx.fillRect(0, 0, width, height);
-            sysCtx.lineWidth = 2;
-            sysCtx.strokeStyle = 'rgb(0, 200, 100)';
-            sysCtx.beginPath();
-            
-            const sliceWidth = width / Math.min(buffer.length, 1600);
-            let x = 0;
-            
-            for (let i = 0; i < Math.min(buffer.length, 1600); i++) {
-                // Normalize 16-bit PCM to -1 to 1
-                const v = buffer[i] / 32768.0;
-                const y = (v * height / 2) + (height / 2);
-                
-                if (i === 0) {
-                    sysCtx.moveTo(x, y);
-                } else {
-                    sysCtx.lineTo(x, y);
-                }
-                
-                x += sliceWidth;
-            }
-            
-            sysCtx.stroke();
-        }
-        
-        // Calculate RMS of a buffer
-        function calculateRMS(buffer) {
-            let sum = 0;
-            for (let i = 0; i < buffer.length; i++) {
-                const sample = typeof buffer[i] === 'number' ? buffer[i] : 0;
-                const normalized = buffer instanceof Float32Array ? sample : sample / 32768.0;
-                sum += normalized * normalized;
-            }
-            return Math.sqrt(sum / buffer.length);
-        }
-        
-        // Start microphone capture
-        document.getElementById('startMic').addEventListener('click', async () => {
-            try {
-                audioCtx = new AudioContext();
-                micStats.sampleRate = audioCtx.sampleRate;
-                
-                // Get microphone stream
-                micStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        channelCount: 1
-                    }
-                });
-                
-                // Create analyzer
-                micSource = audioCtx.createMediaStreamSource(micStream);
-                micAnalyser = audioCtx.createAnalyser();
-                micAnalyser.fftSize = 2048;
-                
-                // Create processor for RMS calculation
-                micProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-                micProcessor.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
-                    micStats.bufferSize = input.length;
-                    micStats.bufferCounts.push(input.length);
-                    if (micStats.bufferCounts.length > 10) micStats.bufferCounts.shift();
-                    
-                    const rms = calculateRMS(input);
-                    micStats.rmsValues.push(rms);
-                    if (micStats.rmsValues.length > 10) micStats.rmsValues.shift();
-                    
-                    updateMicStats();
-                };
-                
-                micSource.connect(micAnalyser);
-                micSource.connect(micProcessor);
-                micProcessor.connect(audioCtx.destination);
-                
-                // Start visualization
-                visualizeMic();
-                
-                document.getElementById('startMic').disabled = true;
-                document.getElementById('stopMic').disabled = false;
-            } catch (err) {
-                console.error('Error starting microphone:', err);
-                document.getElementById('micStats').innerHTML = `<span class="error">Error: ${err.message}</span>`;
-            }
-        });
-        
-        // Stop microphone capture
-        document.getElementById('stopMic').addEventListener('click', () => {
-            if (micStream) {
-                micStream.getTracks().forEach(track => track.stop());
-            }
-            
-            if (micProcessor) {
-                micProcessor.disconnect();
-            }
-            
-            if (micSource) {
-                micSource.disconnect();
-            }
-            
-            document.getElementById('startMic').disabled = false;
-            document.getElementById('stopMic').disabled = true;
-        });
-        
-        // Start system audio test
-        document.getElementById('startSystem').addEventListener('click', () => {
-            if (window.evia && window.evia.systemAudio) {
-                window.evia.systemAudio.onData((line) => {
-                    try {
-                        // Check if line is valid JSON
-                        if (!line.trim().startsWith('{')) {
-                            console.warn('Received non-JSON line from system audio:', line);
-                            return;
-                        }
-                        
-                        const obj = JSON.parse(line);
-                        if (!obj.data) {
-                            console.warn('Received JSON without data field:', line);
-                            return;
-                        }
-                        
-                        const b = atob(obj.data);
-                        const buf = new ArrayBuffer(b.length);
-                        const view = new Uint8Array(buf);
-                        for (let i = 0; i < b.length; i++) view[i] = b.charCodeAt(i);
-                        
-                        const i16 = new Int16Array(buf);
-                        sysStats.bufferSize = i16.length;
-                        sysStats.bufferCounts.push(i16.length);
-                        if (sysStats.bufferCounts.length > 10) sysStats.bufferCounts.shift();
-                        
-                        const rms = calculateRMS(i16);
-                        sysStats.rmsValues.push(rms);
-                        if (sysStats.rmsValues.length > 10) sysStats.rmsValues.shift();
-                        
-                        // Keep a copy for visualization
-                        sysBuffer = Array.from(i16);
-                        
-                        updateSysStats();
-                        drawSysWaveform(i16);
-                    } catch (err) {
-                        console.error('Error processing system audio:', err, 'Line:', line);
-                    }
-                });
-                
-                window.evia.systemAudio.start()
-                    .then(() => {
-                        document.getElementById('startSystem').disabled = true;
-                        document.getElementById('stopSystem').disabled = false;
-                        document.getElementById('sysStats').innerHTML += '\n<span class="success">System audio started!</span>';
-                    })
-                    .catch(err => {
-                        document.getElementById('sysStats').innerHTML = `<span class="error">Error: ${err.message || err}</span>`;
-                    });
-            } else {
-                document.getElementById('sysStats').innerHTML = '<span class="error">System audio API not available</span>';
-            }
-        });
-        
-        // Stop system audio test
-        document.getElementById('stopSystem').addEventListener('click', () => {
-            if (window.evia && window.evia.systemAudio) {
-                window.evia.systemAudio.stop()
-                    .then(() => {
-                        document.getElementById('startSystem').disabled = false;
-                        document.getElementById('stopSystem').disabled = true;
-                        document.getElementById('sysStats').innerHTML += '\n<span class="success">System audio stopped!</span>';
-                    })
-                    .catch(err => {
-                        document.getElementById('sysStats').innerHTML += `\n<span class="error">Error stopping: ${err.message || err}</span>`;
-                    });
-            }
-        });
-        
-        // Generate test tone
-        document.getElementById('genTone').addEventListener('click', () => {
-            if (!audioCtx) audioCtx = new AudioContext();
-            
-            toneOsc = audioCtx.createOscillator();
-            toneGain = audioCtx.createGain();
-            
-            toneOsc.type = 'sine';
-            toneOsc.frequency.value = parseInt(document.getElementById('freqSlider').value);
-            toneGain.gain.value = 0.2;
-            
-            toneOsc.connect(toneGain);
-            toneGain.connect(audioCtx.destination);
-            toneOsc.start();
-            
-            document.getElementById('genTone').disabled = true;
-            document.getElementById('stopTone').disabled = false;
-        });
-        
-        // Stop test tone
-        document.getElementById('stopTone').addEventListener('click', () => {
-            if (toneOsc) {
-                toneOsc.stop();
-                toneOsc.disconnect();
-                toneGain.disconnect();
-                
-                document.getElementById('genTone').disabled = false;
-                document.getElementById('stopTone').disabled = true;
-            }
-        });
-        
-        // Update frequency display
-        document.getElementById('freqSlider').addEventListener('input', (e) => {
-            const freq = e.target.value;
-            document.getElementById('freqValue').textContent = freq;
-            if (toneOsc) toneOsc.frequency.value = parseInt(freq);
-        });
-        
-        // Visualize microphone input
-        function visualizeMic() {
-            const bufferLength = micAnalyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            
-            function draw() {
-                requestAnimationFrame(draw);
-                micAnalyser.getByteTimeDomainData(dataArray);
-                drawMicWaveform(dataArray);
-            }
-            
-            draw();
-        }
-        
-        // Set initial button states
-        document.getElementById('stopMic').disabled = true;
-        document.getElementById('stopSystem').disabled = true;
-        document.getElementById('stopTone').disabled = true;
-    </script>
+      <div id="logs" class="tab-content">
+        <h2>Debug Logs</h2>
+        <div class="logs" id="logOutput"></div>
+        <button id="clearLogs" class="secondary">Clear Logs</button>
+        <button id="exportLogs" class="secondary">Export Logs</button>
+      </div>
+      
+      <div id="diagnostics" class="tab-content">
+        <h2>System Diagnostics</h2>
+        <div id="diagnosticsOutput">
+          <p>Click "Run Full Diagnostics" to analyze the audio system.</p>
+        </div>
+      </div>
+      
+      <div id="spectrograms" class="tab-content">
+        <h2>Audio Spectrograms</h2>
+        <div class="grid">
+          <div>
+            <h3>Microphone</h3>
+            <div id="micSpectrogramContainer"></div>
+          </div>
+          <div>
+            <h3>System Audio</h3>
+            <div id="systemSpectrogramContainer"></div>
+          </div>
+        </div>
+        <button id="generateSpectrograms" class="secondary">Generate Spectrograms</button>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>Permissions</h2>
+      <p>This tool requires microphone and system audio capture permissions.</p>
+      <div class="buttons">
+        <button id="requestMicPermission">Request Mic Permission</button>
+        <button id="openSystemPrefs">Open System Preferences</button>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="./audio-debug.js"></script>
 </body>
 </html>

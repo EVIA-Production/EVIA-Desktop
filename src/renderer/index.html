@@ -5,38 +5,134 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EVIA Desktop Overlay</title>
     <style>
-      body { background: rgba(0,0,0,0.8); color: #fff; font-family: system-ui; padding: 16px; }
-      input, button { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 8px 12px; border-radius: 4px; }
-      button { cursor: pointer; }
-      button:hover { background: rgba(255,255,255,0.2); }
-      textarea { width: 100%; height: 200px; background: rgba(0,0,0,0.5); color: #ddd; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 8px; font-family: monospace; }
+      body { 
+        background: rgba(0,0,0,0.8); 
+        color: #fff; 
+        font-family: system-ui; 
+        padding: 16px; 
+        -webkit-user-select: text; /* Enable text selection */
+        user-select: text;
+      }
+      input, button { 
+        background: rgba(255,255,255,0.1); 
+        border: 1px solid rgba(255,255,255,0.2); 
+        color: #fff; 
+        padding: 8px 12px; 
+        border-radius: 4px;
+        -webkit-app-region: no-drag; /* Make inputs not draggable */
+      }
+      input:focus {
+        outline: 2px solid #4CAF50;
+        background: rgba(255,255,255,0.15);
+      }
+      button { 
+        cursor: pointer; 
+        transition: background-color 0.2s;
+      }
+      button:hover { 
+        background: rgba(255,255,255,0.2); 
+      }
+      button:active {
+        background: rgba(255,255,255,0.3);
+      }
+      textarea { 
+        width: 100%; 
+        height: 200px; 
+        background: rgba(0,0,0,0.5); 
+        color: #ddd; 
+        border: 1px solid rgba(255,255,255,0.15); 
+        border-radius: 4px; 
+        padding: 8px; 
+        font-family: monospace;
+        -webkit-user-select: text;
+        user-select: text;
+      }
       .row { display: flex; gap: 8px; align-items: center; }
-      .status { opacity: 0.8; font-size: 12px; }
-      .transcript { margin-top: 16px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; }
-      .transcript h3 { margin: 0 0 4px 0; font-size: 14px; }
-      .transcript pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; }
+      .status { 
+        opacity: 0.8; 
+        font-size: 12px; 
+        padding: 4px 8px;
+        border-radius: 4px;
+        background: rgba(0,0,0,0.3);
+      }
+      .status.connected {
+        background: rgba(76, 175, 80, 0.3);
+      }
+      .status.error {
+        background: rgba(244, 67, 54, 0.3);
+      }
+      .transcript { 
+        margin-top: 16px; 
+        padding: 8px; 
+        background: rgba(0,0,0,0.3); 
+        border-radius: 4px; 
+        height: 150px; 
+        overflow-y: auto;
+      }
+      .transcript h3 { 
+        margin: 0 0 4px 0; 
+        font-size: 14px; 
+        display: flex; 
+        justify-content: space-between;
+      }
+      .transcript h3 .status-indicator { 
+        font-size: 12px; 
+        color: #aaa;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(0,0,0,0.3);
+      }
+      .transcript h3 .status-indicator.active { 
+        color: #fff;
+        background: rgba(76, 175, 80, 0.3);
+      }
+      .transcript pre { 
+        white-space: pre-wrap; 
+        word-wrap: break-word; 
+        margin: 0; 
+        min-height: 100px;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      /* Make the window draggable except for controls */
+      .draggable {
+        -webkit-app-region: drag;
+      }
+      /* Ensure controls aren't draggable */
+      input, button, textarea, .transcript {
+        -webkit-app-region: no-drag;
+      }
     </style>
   </head>
-  <body>
-    <div id="app">
+  <body class="draggable">
+    <div id="app" class="draggable">
       <div class="row" style="flex-wrap: wrap; gap: 6px">
         <input id="backend" placeholder="Backend URL" style="flex:1; min-width: 260px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
         <input id="chatId" placeholder="Chat ID" style="width:140px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
         <input id="token" placeholder="JWT Token" type="password" style="flex:1; min-width: 260px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color:#fff;" />
         <button id="connect">Connect</button>
         <button id="suggest">Suggest</button>
+        <button id="audio-test">Audio Test</button>
+        <button id="mic-off">Mic Off</button>
+        <button id="export-system-wav">Export System WAV (10s)</button>
         <span class="status" id="status">Idle</span>
       </div>
       <div style="margin-top:8px">
         <textarea id="log" placeholder="Transcript and events..." readonly></textarea>
       </div>
       <div class="transcript">
-        <h3>Mic Transcript</h3>
-        <pre id="micTranscript"></pre>
+        <h3>
+          Mic Transcript
+          <span class="status-indicator" id="mic-status">Waiting to connect...</span>
+        </h3>
+        <pre id="mic-transcript"></pre>
       </div>
       <div class="transcript">
-        <h3>System Transcript</h3>
-        <pre id="sysTranscript"></pre>
+        <h3>
+          System Transcript
+          <span class="status-indicator" id="sys-status">Waiting to connect...</span>
+        </h3>
+        <pre id="sys-transcript"></pre>
       </div>
     </div>
     <script type="module" src="/main.ts"></script>

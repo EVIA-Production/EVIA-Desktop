@@ -201,9 +201,6 @@ final class AudioDumper: NSObject {
                 }
             }
 
-            // Converted status
-            let jsonConverted = "{\"dst_frames\":\(numSamples),\"status\":\"converted\"}\n"
-            FileHandle.standardError.write(jsonConverted.data(using: .utf8)!)
             return
         }
     }

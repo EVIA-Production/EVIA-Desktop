@@ -1,12 +1,35 @@
 export {}
 // Minimal overlay app: connects two WS sockets (mic and system) once JWT/chat info provided
-// For now, prompts via window.prompt and logs events. Later we will wire mic/system capture.
+
+// Import audio processing utilities
+// Import audio processing utilities dynamically to avoid TypeScript issues
+// @ts-ignore
+const audioProcessing = await import('./audio-processing.js');
+const {
+  SAMPLE_RATE,
+  AUDIO_CHUNK_DURATION,
+  SAMPLES_PER_CHUNK,
+  initAudioProcessing,
+  processSystemAudio,
+  convertFloat32ToInt16,
+  calculateRMS,
+  base64ToFloat32Array,
+  exportBufferToWav,
+  pcmBuffers
+} = audioProcessing;
+
+// Add imports
+import { getWebSocketInstance } from './services/websocketService';
 
 type EviaBridge = {
   createWs: (url: string) => {
     sendBinary: (data: ArrayBuffer) => void
     sendCommand: (cmd: any) => void
     close: () => void
+    onMessage?: (cb: (data: string | ArrayBuffer | Blob) => void) => void
+    onOpen?: (cb: () => void) => void
+    onClose?: (cb: (event: CloseEvent) => void) => void
+    onError?: (cb: (event: Event) => void) => void
   }
   systemAudio: {
     start: () => Promise<{ ok: boolean }>
@@ -27,9 +50,11 @@ function log(line: string) {
   logEl.scrollTop = logEl.scrollHeight
 }
 
+// Add micDisabled with other variables at top
 let wsMic: ReturnType<EviaBridge['createWs']> | null = null
 let wsSys: ReturnType<EviaBridge['createWs']> | null = null
 let sysConnected = false
+let micDisabled = false; // Add here
 
 let micTranscript = ''
 let sysTranscript = ''
@@ -47,218 +72,289 @@ let micEnabled = true
 let sysIpcSubscribed = false
 let sysHelperStarted = false
 
+// System audio buffer for processing
+let sysAudioBuffer: number[] = [];
+
+// Add state for transcripts, suggestions from useWebSocketMessages
+let transcriptLines: TranscriptLine[] = [];
+let suggestion = '';
+
+// Update transcript display every 250ms
+setInterval(updateTranscriptDisplay, 250)
+
+function updateTranscriptDisplay() {
+  const micEl = document.getElementById('mic-transcript')
+  const sysEl = document.getElementById('sys-transcript')
+  
+  if (micEl) micEl.textContent = micTranscript
+  if (sysEl) sysEl.textContent = sysTranscript
+  
+  // Auto-scroll to bottom if content is updated
+  if (micEl && micTranscript) {
+    const container = micEl.parentElement;
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+  
+  if (sysEl && sysTranscript) {
+    const container = sysEl.parentElement;
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+}
+
+function toWsBase(url: string): string {
+  if (!url) return ''
+  // Convert HTTP URL to WS URL with same host:port
+  return url.replace(/^http/, 'ws')
+}
+
 async function connect() {
   const backend = (document.getElementById('backend') as HTMLInputElement | null)?.value?.trim()
-  const chatIdInput = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
+  const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
   const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim()
-  if (!backend || !token) { alert('Enter backend and token'); return }
 
-  let chatId = chatIdInput
-  if (!chatId) {
-    // Create new chat if no ID provided
-    try {
-      const res = await fetch(`${backend}/chat/`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'New Chat ' + new Date().toISOString().slice(0,19) })
-      })
-      if (!res.ok) throw new Error(`Create chat failed: ${res.status}`)
-      const data = await res.json()
-      chatId = data.id.toString()
-      log(`[chat] Created new ID=${chatId}`)
-    } catch (e) {
-      alert(`Failed to create chat: ${e}`)
+  if (!backend || !chatId || !token) {
+    alert('Missing fields: backend, chatId, token are required')
       return
     }
-  } else {
-    // Verify existing ID
-    try {
-      const res = await fetch(`${backend}/chat/${chatId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.status === 404) {
-        log(`[chat] ID=${chatId} not found, creating new`)
-        // Create with provided ID? No, backend assigns IDs; create new
-        const createRes = await fetch(`${backend}/chat/`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'Recovered Chat ' + chatId })
-        })
-        if (!createRes.ok) throw new Error(`Create failed: ${createRes.status}`)
-        const data = await createRes.json()
-        chatId = data.id.toString()
-        log(`[chat] Created replacement ID=${chatId}`)
-      } else if (!res.ok) {
-        throw new Error(`Verify failed: ${res.status}`)
+
+  // Persist token for services that read from localStorage
+  try { localStorage.setItem('auth_token', token) } catch {}
+
+  // Disconnect any existing connections
+  if (wsMic) {
+    wsMic.close()
+    wsMic = null
+  }
+  if (wsSys) {
+    wsSys.close()
+    wsSys = null
+  }
+
+  // Reset transcripts
+  micTranscript = ''
+  sysTranscript = ''
+  updateTranscriptDisplay()
+
+  // Connect mic WS
+  try {
+    const base = toWsBase(backend)
+    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=mic`
+    const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=system&debug=1`
+
+    log(`Connecting mic WS: ${urlMic.split('?')[0]}`)
+    const ws = window.evia.createWs(urlMic)
+    
+    // Create a wrapper with similar API to frontend's WebSocket wrapper
+    wsMic = {
+      sendBinary: (data) => ws.sendBinary(data),
+      sendCommand: (cmd) => ws.sendCommand(cmd),
+      close: () => ws.close()
+    }
+    log('[mic] connected')
+
+    // Connect system WS
+    log(`Connecting system WS: ${urlSys.split('?')[0]}`)
+    const sys = window.evia.createWs(urlSys)
+    wsSys = {
+      sendBinary: (data) => sys.sendBinary(data),
+      sendCommand: (cmd) => sys.sendCommand(cmd),
+      close: () => sys.close()
+    }
+    log('[system] connected')
+
+    // Start mic capture only if not disabled
+    if (!micDisabled) {
+      await startMicCapture(chatId, token)
+    } else {
+      log('[mic] Skipped start due to disabled state');
+    }
+
+    if (statusEl) {
+      statusEl.textContent = 'Connected'
+      statusEl.className = 'connected'
+    }
+    
+    // System WS message handler (synthetic for now)
+    const onMessage = (msg: string) => {
+      try {
+        const data = JSON.parse(msg)
+        log(`[system msg:${data.type}] ${JSON.stringify(data).substring(0, 100)}${data.type === 'transcript_segment' ? '...' : ''}`)
+        
+        if (data.type === 'transcript_segment' && data.data && data.data.text) {
+          const text = data.data.text
+          log(`[system transcript] ${text}`)
+          sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text
+        } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+          const isOpen = Boolean(data.data.dg_open)
+          log(`[system status] dg_open=${isOpen ? 1 : 0}`)
+        }
+      } catch (e) {
+        log(`[system error] Failed to parse WebSocket message: ${e}`)
       }
-    } catch (e) {
-      alert(`Chat ID check failed: ${e}`)
-      return
-    }
-  }
-
-  // Proceed with connect using verified/created chatId
-  const base = backend.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  const scheme = backend.startsWith('https') ? 'wss' : 'ws'
-  const urlMic = `${scheme}://${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId!)}&token=${encodeURIComponent(token)}&source=mic`
-  const urlSys = `${scheme}://${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId!)}&token=${encodeURIComponent(token)}&source=system`
-
-  const rawMic = new WebSocket(urlMic)
-  const rawSys = new WebSocket(urlSys)
-
-  rawMic.onopen = () => { if (statusEl) statusEl.textContent = 'mic connected'; log('[mic] connected') }
-  rawSys.onopen = () => { if (statusEl) statusEl.textContent = 'system connected'; log('[system] connected') }
-
-  rawMic.onmessage = ev => {
-    log('[mic] ' + ev.data)
-    const msg = JSON.parse(ev.data)
-    if (msg.type === 'transcript_segment') {
-      micTranscript += msg.data.text + ' '
-      updateTranscriptDisplay()
-    }
-  }
-  rawSys.onmessage = ev => {
-    log('[system] ' + ev.data)
-    const msg = JSON.parse(ev.data)
-    if (msg.type === 'transcript_segment') {
-      sysTranscript += msg.data.text + ' '
-      updateTranscriptDisplay()
-    }
-  }
-
-  // Reconnect with exponential backoff
-  let micReconnectAttempts = 0
-  let sysReconnectAttempts = 0
-  const MAX_RECONNECT_ATTEMPTS = 5
-  const BASE_RECONNECT_DELAY_MS = 1000
-  
-  function getReconnectDelay(attempts: number): number {
-    return Math.min(30000, BASE_RECONNECT_DELAY_MS * Math.pow(1.5, attempts)) * (0.9 + Math.random() * 0.2)
-  }
-  
-  rawMic.onclose = ev => { 
-    log(`[mic] closed ${ev.code}${ev.reason ? ': ' + ev.reason : ''}`)
-    if (statusEl) statusEl.textContent = `mic closed (${ev.code})`
-    
-    // Reconnect with exponential backoff
-    if (!micEnabled || micReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      log('[mic] Max reconnect attempts reached')
-      return
     }
     
-    const delay = getReconnectDelay(micReconnectAttempts)
-    log(`[mic] Reconnecting in ${Math.round(delay/1000)}s (attempt ${micReconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`)
-    
-    setTimeout(() => {
-      micReconnectAttempts++
-      // Only reopen mic socket; do not re-register system listeners
+    // Mic WS message handler (synthetic for now)
+    const onMicMessage = (msg: string) => {
       try {
-        const backend = (document.getElementById('backend') as HTMLInputElement | null)?.value?.trim()
-        const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
-        const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim()
-        if (!backend || !token || !chatId) return
-        const base = backend.replace(/^https?:\/\//, '').replace(/\/$/, '')
-        const scheme = backend.startsWith('https') ? 'wss' : 'ws'
-        const urlMic = `${scheme}://${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=mic`
-        const newMic = new WebSocket(urlMic)
-        newMic.onopen = () => { if (statusEl) statusEl.textContent = 'mic connected'; log('[mic] connected') }
-        newMic.onmessage = ev => {
-          log('[mic] ' + ev.data)
-          const msg = JSON.parse(ev.data)
-          if (msg.type === 'transcript_segment') {
-            micTranscript += msg.data.text + ' '
+        const data = JSON.parse(msg)
+        log(`[mic msg:${data.type}] ${JSON.stringify(data).substring(0, 100)}${data.type === 'transcript_segment' ? '...' : ''}`)
+        
+        if (data.type === 'transcript_segment' && data.data && data.data.text) {
+          const text = data.data.text
+          log(`[mic transcript] ${text}`)
+          micTranscript = micTranscript ? `${micTranscript}\n${text}` : text
+        } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+          const isOpen = Boolean(data.data.dg_open)
+          log(`[mic status] dg_open=${isOpen ? 1 : 0}`)
+        }
+      } catch (e) {
+        log(`[mic error] Failed to parse WebSocket message: ${e}`)
+      }
+    }
+
+        // Override the WebSocket onmessage with improved error handling
+    const origSend = XMLHttpRequest.prototype.send
+    XMLHttpRequest.prototype.send = function(...args) {
+      const url = (this as any)['__url']
+      if (url && url.includes('/ws/transcribe')) {
+        console.log(`WebSocket connection to: ${url}`);
+        
+        // Set up message handler with better error handling
+        (this as any).onmessage = (e: any) => {
+          try {
+            const isSystem = url.includes('source=system');
+            const label = isSystem ? 'system' : 'mic';
+            
+            // Handle different message types
+            if (typeof e.data === 'string') {
+              try {
+                const data = JSON.parse(e.data);
+                console.log(`[${label} msg:${data.type}]`, data);
+                
+                if (data.type === 'transcript_segment' && data.data?.text) {
+                  const text = data.data.text;
+                  log(`[${label} transcript] ${text}`);
+                  if (isSystem) {
+                    sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text;
+                  } else {
+                    micTranscript = micTranscript ? `${micTranscript}\n${text}` : text;
+                  }
+                  // Update the transcript display immediately
+                  updateTranscriptDisplay();
+                } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+                  const isOpen = Boolean(data.data.dg_open);
+                  log(`[${label} status] dg_open=${isOpen ? 1 : 0}`);
+                  
+                  // Update UI to show connection status
+                  const statusEl = document.getElementById('status');
+                  if (statusEl) {
+                    if (isSystem) {
+                      statusEl.textContent = `Connected (${isOpen ? 'System Ready' : 'System Connecting...'})`;
+                    } else {
+                      statusEl.textContent = `Connected (${isOpen ? 'Mic Ready' : 'Mic Connecting...'})`;
+                    }
+                    statusEl.className = 'connected';
+                  }
+                  
+                  // Update transcript status indicators
+                  const statusIndicator = document.getElementById(`${label}-status`);
+                  if (statusIndicator) {
+                    statusIndicator.textContent = isOpen ? 'Connected ✓' : 'Connecting...';
+                    statusIndicator.className = isOpen ? 'status-indicator active' : 'status-indicator';
+                  }
+                }
+                
+                // Pass to original handlers for backward compatibility
+                if (isSystem) {
+                  onMessage(e.data);
+                } else {
+                  onMicMessage(e.data);
+                }
+              } catch (parseErr) {
+                console.error(`[${label} error] Failed to parse WebSocket message:`, parseErr, e.data);
+                log(`[${label} error] Failed to parse message: ${parseErr}`);
+              }
+            } else if (e.data instanceof Blob) {
+              // Handle binary data
+              e.data.arrayBuffer().then((buffer: ArrayBuffer) => {
+                console.log(`[${label}] Received binary data: ${buffer.byteLength} bytes`);
+              }).catch((err: Error) => {
+                console.error(`[${label}] Error processing binary data:`, err);
+              });
+            } else if (e.data instanceof ArrayBuffer) {
+              console.log(`[${label}] Received ArrayBuffer: ${e.data.byteLength} bytes`);
+            }
+          } catch (err) {
+            console.error('Error in WebSocket message handler:', err);
+            log(`[WebSocket error] ${err}`);
+          }
+        };
+      }
+      return origSend.apply(this, args);
+    }
+
+    // Wire native WebSocket handlers via preload bridge
+    sys.onMessage?.((payload) => {
+      try {
+        if (typeof payload === 'string') {
+          onMessage(payload)
+          const data = JSON.parse(payload)
+          if (data.type === 'transcript_segment' && data.data?.text) {
+            const text = data.data.text
+            sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text
             updateTranscriptDisplay()
+          } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+            const isOpen = Boolean(data.data.dg_open)
+            const statusIndicator = document.getElementById('sys-status')
+            if (statusIndicator) {
+              statusIndicator.textContent = isOpen ? 'Connected ✓' : 'Connecting...'
+              statusIndicator.className = isOpen ? 'status-indicator active' : 'status-indicator'
+            }
           }
         }
-        newMic.onerror = ev => { log(`[mic] error: ${ev}`) }
-        newMic.onclose = rawMic.onclose
-        wsMic = {
-          sendBinary: (data: ArrayBuffer) => { if (newMic.readyState === WebSocket.OPEN) newMic.send(data) },
-          sendCommand: (cmd: any) => { if (newMic.readyState === WebSocket.OPEN) newMic.send(JSON.stringify(cmd)) },
-          close: () => newMic.close(),
-        }
-        if (micEnabled && !micCtx) startMicCapture(wsMic).catch(() => {})
-      } catch {}
-    }, delay)
-  }
-  
-  rawSys.onclose = ev => { 
-    log(`[system] closed ${ev.code}${ev.reason ? ': ' + ev.reason : ''}`)
-    if (statusEl) statusEl.textContent = `system closed (${ev.code})`
-    
-    // Reconnect with exponential backoff
-    if (sysReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      log('[system] Max reconnect attempts reached')
-      return
-    }
-    
-    const delay = getReconnectDelay(sysReconnectAttempts)
-    log(`[system] Reconnecting in ${Math.round(delay/1000)}s (attempt ${sysReconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`)
-    
-    setTimeout(() => {
-      sysReconnectAttempts++
-      // Only reopen system socket; do not re-run full connect
+      } catch (err) {
+        console.error('[system] onMessage parse error:', err)
+      }
+    })
+    sys.onOpen?.(() => log('[system] ws open'))
+    sys.onClose?.((e) => log(`[system] ws close code=${e.code}`))
+    sys.onError?.(() => log('[system] ws error'))
+
+    ws.onMessage?.((payload) => {
       try {
-        const backend = (document.getElementById('backend') as HTMLInputElement | null)?.value?.trim()
-        const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
-        const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim()
-        if (!backend || !token || !chatId) return
-        const base = backend.replace(/^https?:\/\//, '').replace(/\/$/, '')
-        const scheme = backend.startsWith('https') ? 'wss' : 'ws'
-        const urlSys = `${scheme}://${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=system`
-        const newSys = new WebSocket(urlSys)
-        newSys.onopen = () => { if (statusEl) statusEl.textContent = 'system connected'; log('[system] connected') }
-        newSys.onmessage = ev => {
-          log('[system] ' + ev.data)
-          const msg = JSON.parse(ev.data)
-          if (msg.type === 'transcript_segment') {
-            sysTranscript += msg.data.text + ' '
+        if (typeof payload === 'string') {
+          onMicMessage(payload)
+          const data = JSON.parse(payload)
+          if (data.type === 'transcript_segment' && data.data?.text) {
+            const text = data.data.text
+            micTranscript = micTranscript ? `${micTranscript}\n${text}` : text
             updateTranscriptDisplay()
+          } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+            const isOpen = Boolean(data.data.dg_open)
+            const statusIndicator = document.getElementById('mic-status')
+            if (statusIndicator) {
+              statusIndicator.textContent = isOpen ? 'Connected ✓' : 'Connecting...'
+              statusIndicator.className = isOpen ? 'status-indicator active' : 'status-indicator'
+            }
           }
         }
-        newSys.onerror = ev => { log(`[system] error: ${ev}`) }
-        newSys.onclose = rawSys.onclose
-        wsSys = {
-          sendBinary: (data: ArrayBuffer) => { if (newSys.readyState === WebSocket.OPEN) newSys.send(data) },
-          sendCommand: (cmd: any) => { if (newSys.readyState === WebSocket.OPEN) newSys.send(JSON.stringify(cmd)) },
-          close: () => newSys.close(),
-        }
-        // Ensure helper remains started; listeners are already subscribed
-        if (!sysHelperStarted && (window as any).evia?.systemAudio) {
-          window.evia.systemAudio.start().catch(() => {})
-          sysHelperStarted = true
-        }
-      } catch {}
-    }, delay)
-  }
-  
-  // Add error handlers
-  rawMic.onerror = ev => {
-    log(`[mic] error: ${ev}`)
-    if (statusEl) statusEl.textContent = 'mic error'
-  }
-  
-  rawSys.onerror = ev => {
-    log(`[system] error: ${ev}`)
-    if (statusEl) statusEl.textContent = 'system error'
+      } catch (err) {
+        console.error('[mic] onMessage parse error:', err)
+      }
+    })
+    ws.onOpen?.(() => log('[mic] ws open'))
+    ws.onClose?.((e) => log(`[mic] ws close code=${e.code}`))
+    ws.onError?.(() => log('[mic] ws error'))
+  } catch (e) {
+    log(`Connection error: ${e}`)
+    if (statusEl) {
+      statusEl.textContent = `Error: ${e}`
+      statusEl.className = 'error'
+    }
+    return
   }
 
-  // Wrap to expose send helpers
-  wsMic = {
-    sendBinary: (data: ArrayBuffer) => { if (rawMic.readyState === WebSocket.OPEN) rawMic.send(data) },
-    sendCommand: (cmd: any) => { if (rawMic.readyState === WebSocket.OPEN) rawMic.send(JSON.stringify(cmd)) },
-    close: () => rawMic.close(),
-  }
-  wsSys = {
-    sendBinary: (data: ArrayBuffer) => { if (rawSys.readyState === WebSocket.OPEN) rawSys.send(data) },
-    sendCommand: (cmd: any) => { if (rawSys.readyState === WebSocket.OPEN) rawSys.send(JSON.stringify(cmd)) },
-    close: () => rawSys.close(),
-  }
-
-  // Start microphone capture → WS (source=mic)
-  if (micEnabled) startMicCapture(wsMic).catch(() => {})
-
-  // Start system audio helper and forward frames to WS (subscribe/start once)
+  // Start system audio helper and forward frames to WS
   if ((window as any).evia && (window as any).evia.systemAudio) {
     if (!sysIpcSubscribed) {
       try {
@@ -269,33 +365,33 @@ async function connect() {
         }
       } catch {}
       try {
-        window.evia.systemAudio.onData((data: string) => {
+        window.evia.systemAudio.onData(async (data: string) => {
           try {
             const json = JSON.parse(data);
             const [_, rateStr, chStr] = json.mimeType.match(/rate=(\d+);channels=(\d+)/) || [];
             const inputRate = parseInt(rateStr) || 48000;
             const channels = parseInt(chStr) || 1;
             const float32 = base64ToFloat32Array(json.data);
-            // Mix to mono if stereo
-            let mono = float32;
-            if (channels === 2) {
-              mono = new Float32Array(float32.length / 2);
-              for (let i = 0; i < mono.length; i++) {
-                mono[i] = (float32[i*2] + float32[i*2+1]) / 2;
-              }
-            }
-            // Downsample to 24000
-            const downsampled = downsampleLinear(mono, inputRate, SAMPLE_RATE);
-            sysAudioBuffer.push(...downsampled);
-
-            while (sysAudioBuffer.length >= SAMPLES_PER_CHUNK) {
-              const chunkArr = sysAudioBuffer.splice(0, SAMPLES_PER_CHUNK);
-              const chunk = new Float32Array(chunkArr);
-              const pcm16 = convertFloat32ToInt16(chunk);
-              if (wsSys) (wsSys as any).sendBinary(pcm16.buffer as ArrayBuffer);
+            
+            // Log source format info
+            log(`[system] Received float32 audio: rate=${inputRate}Hz, channels=${channels}, samples=${float32.length}`);
+            
+            // Process system audio (convert to 16kHz PCM16 mono with filtering)
+            const pcm16 = await processSystemAudio(float32, inputRate, channels);
+            
+            // Only send non-empty chunks to WebSocket
+            if (pcm16 && pcm16.length > 0) {
+              // Send processed audio to WebSocket
+              if (wsSys) wsSys.sendBinary(pcm16.buffer);
+              
+              // Log and store for diagnostics
               const rms = calculateRMS(pcm16);
-              log(`[system] Chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
-              sysBuffer.push(pcm16.buffer as ArrayBuffer);
+              log(`[system] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
+              
+              // Save to buffer for WAV export
+              sysBuffer.push(pcm16.buffer);
+              pcmBuffers.system.push(pcm16.buffer);
+              if (pcmBuffers.system.length > 100) pcmBuffers.system.shift(); // Keep ~10s
             }
           } catch (e) {
             console.error('Invalid system audio data:', e);
@@ -313,233 +409,403 @@ async function connect() {
   }
 }
 
+// After connect, add button setups
 const connectBtn = document.getElementById('connect') as HTMLButtonElement | null
 if (connectBtn) connectBtn.onclick = connect
+
 const suggestBtn = document.getElementById('suggest') as HTMLButtonElement | null
 if (suggestBtn) suggestBtn.onclick = () => {
   if (!wsMic) { alert('Connect first'); return }
   wsMic.sendCommand({ command: 'suggest' })
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+const audioTestBtn = document.getElementById('audio-test') as HTMLButtonElement | null
+if (audioTestBtn) audioTestBtn.onclick = startAudioTest
+
+const micOffBtn = document.getElementById('mic-off') as HTMLButtonElement | null
+if (micOffBtn) micOffBtn.onclick = () => {
+  micDisabled = true
+  log('[mic] Disabled')
+  if (micCtx || micStream) stopMicCapture('')
+}
+
+const exportSysWavBtn = document.getElementById('export-system-wav') as HTMLButtonElement | null
+if (exportSysWavBtn) exportSysWavBtn.onclick = () => exportSystemLastSeconds(10)
+
+// Define audio test function
+function startAudioTest() {
+  console.log('Starting Audio Test Tool');
+  // For now, open a new window or log; expand later
+  const testWindow = window.open('', 'AudioTest', 'width=600,height=400');
+  if (testWindow) {
+    testWindow.document.write('<h1>Audio Test Tool</h1><p>Testing audio capture...</p>');
+  }
+}
+
+// (removed duplicate static mic-off handler and duplicate startAudioTest/event listeners)
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize audio processing
+  const audioInitialized = await initAudioProcessing();
+  console.log(`Audio initialization ${audioInitialized ? 'successful' : 'failed'}`);
+  
+  // Improve form value persistence with better localStorage handling
   const inputs = ['backend', 'chatId', 'token']
   inputs.forEach(id => {
     const el = document.getElementById(id) as HTMLInputElement
     if (el) {
-      el.value = localStorage.getItem(id) || ''
-      el.addEventListener('input', () => localStorage.setItem(id, el.value))
+      // Load saved value
+      const savedValue = localStorage.getItem(`evia_${id}`) || ''
+      el.value = savedValue
+      
+      // Save on change with debounce
+      let saveTimeout: number | null = null
+      const saveValue = () => {
+        if (el.value) {
+          localStorage.setItem(`evia_${id}`, el.value)
+          console.log(`Saved ${id} value to localStorage`)
+        }
+      }
+      
+      // Save on input with debounce
+      el.addEventListener('input', () => {
+        if (saveTimeout) clearTimeout(saveTimeout)
+        saveTimeout = setTimeout(saveValue, 500) as unknown as number
+      })
+      
+      // Also save on blur for immediate persistence
+      el.addEventListener('blur', saveValue)
     }
   })
 
-  const micWavBtn = document.createElement('button')
-  micWavBtn.textContent = 'Export Mic WAV'
-  micWavBtn.onclick = () => exportWav(micBuffer, 16000, 'mic')
-  document.body.appendChild(micWavBtn)
-
-  const sysWavBtn = document.createElement('button')
-  sysWavBtn.textContent = 'Export Sys WAV'
-  sysWavBtn.onclick = () => exportWav(sysBuffer, 16000, 'system')
-  document.body.appendChild(sysWavBtn)
-
-  const testToneBtn = document.createElement('button')
-  testToneBtn.textContent = 'Test Tone (Sys)'
-  testToneBtn.onclick = () => {
-    const tone = generateSinePCM16(1000, 200, 16000, 0.25)
-    wsSys?.sendBinary(tone.buffer as ArrayBuffer)
-    sysBuffer.push(tone.buffer as ArrayBuffer)
-    if (sysBuffer.length > 100) sysBuffer.shift()
-    log('[system] Injected 1kHz 200ms test tone')
+  // Add audio test button handler
+  const audioTestBtn = document.getElementById('audio-test')
+  if (audioTestBtn) {
+    audioTestBtn.addEventListener('click', () => {
+      // Use any type assertion to bypass TypeScript checking
+      const evia = window.evia as any
+      if (typeof evia.launchAudioTest === 'function') {
+        evia.launchAudioTest()
+      } else {
+        console.error('launchAudioTest function not available')
+        alert('Audio test feature not available. Please check the console for details.')
+      }
+    })
   }
-  document.body.appendChild(testToneBtn)
 
-  const micToggleBtn = document.createElement('button')
-  micToggleBtn.textContent = 'Toggle Mic'
-  micToggleBtn.onclick = async () => {
+  // Create a container for the buttons with proper styling
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.position = 'fixed';
+  buttonContainer.style.bottom = '10px';
+  buttonContainer.style.left = '10px';
+  buttonContainer.style.zIndex = '1000';
+  buttonContainer.style.display = 'flex';
+  buttonContainer.style.gap = '10px';
+  buttonContainer.style.flexWrap = 'wrap';
+  ;(buttonContainer.style as any).webkitAppRegion = 'no-drag';
+  buttonContainer.style.pointerEvents = 'auto';
+  document.body.appendChild(buttonContainer);
+
+  // Create buttons with proper styling
+  const createButton = (text: string, onClick: () => void) => {
+    const button = document.createElement('button');
+    button.textContent = text;
+    button.style.padding = '8px 12px';
+    button.style.backgroundColor = '#4CAF50';
+    button.style.color = 'white';
+    button.style.border = 'none';
+    button.style.borderRadius = '4px';
+    button.style.cursor = 'pointer';
+    button.style.margin = '5px';
+    ;(button.style as any).webkitAppRegion = 'no-drag';
+    button.style.pointerEvents = 'auto';
+    button.onclick = onClick;
+    return button;
+  };
+
+  // Create all the buttons
+  const micWavBtn = createButton('Export Mic WAV', () => exportWav(micBuffer, SAMPLE_RATE, 'mic'));
+  const sysWavBtn = createButton('Export System WAV (10s)', () => exportSystemLastSeconds(10));
+  
+  const testToneBtn = createButton('Test Tone (Sys)', () => {
+    const tone = generateSinePCM16(1000, 200, SAMPLE_RATE, 0.25);
+    wsSys?.sendBinary(tone.buffer as ArrayBuffer);
+    sysBuffer.push(tone.buffer as ArrayBuffer);
+    if (sysBuffer.length > 100) sysBuffer.shift();
+    log('[system] Injected 1kHz 200ms test tone');
+  });
+  
+  const micToggleBtn = createButton('Toggle Mic', async () => {
+    const chatId = window.localStorage.getItem('selectedChatId') || 'default';
+    const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim() || localStorage.getItem('auth_token') || ''
     if (micEnabled) {
-      stopMicCapture()
-      log('[mic] toggled OFF')
+      stopMicCapture(chatId);
+      log('[mic] toggled OFF');
+      micToggleBtn.textContent = 'Enable Mic';
+      micToggleBtn.style.backgroundColor = '#f44336';
     } else {
-      await startMicCapture(wsMic)
-      log('[mic] toggled ON')
+      await startMicCapture(chatId, token);
+      log('[mic] toggled ON');
+      micToggleBtn.textContent = 'Disable Mic';
+      micToggleBtn.style.backgroundColor = '#4CAF50';
     }
+  });
+  
+  // Add diagnostic button
+  const diagBtn = createButton('Run Diagnostics', () => {
+    // Get references to global variables safely
+    const ctx = (window as any).audioContext;
+    const processor = (window as any).processorNode;
+    const sysBufManager = (window as any).systemBufferManager || { getBufferLength: () => 0, targetSampleRate: SAMPLE_RATE, targetChunkSize: SAMPLES_PER_CHUNK };
+    const micBufManager = (window as any).micBufferManager || { getBufferLength: () => 0, targetSampleRate: SAMPLE_RATE, targetChunkSize: SAMPLES_PER_CHUNK };
+    
+    // Show diagnostic info in a dialog
+    const diagnosticInfo = {
+      audioContext: ctx ? {
+        sampleRate: ctx.sampleRate,
+        state: ctx.state,
+        baseLatency: ctx.baseLatency,
+      } : 'Not initialized',
+      processorNode: processor ? 'Active' : 'Not created',
+      systemBufferManager: {
+        bufferLength: sysBufManager.getBufferLength(),
+        targetSampleRate: sysBufManager.targetSampleRate,
+        targetChunkSize: sysBufManager.targetChunkSize,
+      },
+      micBufferManager: {
+        bufferLength: micBufManager.getBufferLength(),
+        targetSampleRate: micBufManager.targetSampleRate,
+        targetChunkSize: micBufManager.targetChunkSize,
+      },
+      webSocketState: {
+        mic: wsMic ? 'Connected' : 'Not connected',
+        system: wsSys ? 'Connected' : 'Not connected',
+      },
+      localStorage: {
+        backend: localStorage.getItem('evia_backend') || 'Not set',
+        chatId: localStorage.getItem('evia_chatId') ? 'Set' : 'Not set',
+        token: localStorage.getItem('evia_token') ? 'Set' : 'Not set',
+      },
+      buffers: {
+        micBufferLength: micBuffer.length,
+        sysBufferLength: sysBuffer.length,
+      }
+    };
+    
+    log('===== DIAGNOSTICS =====');
+    log(JSON.stringify(diagnosticInfo, null, 2));
+    log('======================');
+    
+    // Check for common issues
+    if (!ctx) {
+      log('[ISSUE] AudioContext not initialized');
+    }
+    if (!processor) {
+      log('[ISSUE] AudioWorkletNode not created - check console for errors');
+    }
+    if (sysBufManager.getBufferLength() > 10000) {
+      log('[ISSUE] System buffer too large - possible audio processing bottleneck');
+    }
+    
+    // Display in a more visible way
+    alert('Diagnostic information logged to console.\n\nKey findings:\n' + 
+          `- AudioContext: ${ctx ? 'OK' : 'FAILED'}\n` +
+          `- AudioProcessor: ${processor ? 'OK' : 'FAILED'}\n` +
+          `- System Audio: ${wsSys ? 'Connected' : 'Not connected'}\n` +
+          `- Mic Audio: ${wsMic ? 'Connected' : 'Not connected'}`);
+  });
+
+  // Add buttons to the container
+  buttonContainer.appendChild(micWavBtn);
+  buttonContainer.appendChild(sysWavBtn);
+  buttonContainer.appendChild(testToneBtn);
+  buttonContainer.appendChild(micToggleBtn);
+  buttonContainer.appendChild(diagBtn);
+  
+  // Add a status indicator
+  const statusIndicator = document.createElement('div');
+  statusIndicator.style.position = 'fixed';
+  statusIndicator.style.top = '10px';
+  statusIndicator.style.right = '10px';
+  statusIndicator.style.padding = '5px 10px';
+  statusIndicator.style.backgroundColor = '#333';
+  statusIndicator.style.color = 'white';
+  statusIndicator.style.borderRadius = '4px';
+  statusIndicator.style.fontSize = '12px';
+  statusIndicator.textContent = 'Audio System: ' + (audioInitialized ? 'Ready' : 'Fallback Mode');
+  document.body.appendChild(statusIndicator);
+
+  // Wire static buttons if present in DOM
+  const staticMicOff = document.getElementById('mic-off');
+  if (staticMicOff) {
+    ;((staticMicOff as HTMLElement).style as any).webkitAppRegion = 'no-drag'
+    ;(staticMicOff as HTMLElement).style.pointerEvents = 'auto'
+    staticMicOff.addEventListener('click', async () => {
+      const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim() || '';
+      if (!chatId) { log('[mic] No chatId'); return; }
+      await stopMicCapture(chatId);
+      log('[mic] turned OFF');
+    });
   }
-  document.body.appendChild(micToggleBtn)
+  const staticExportSys = document.getElementById('export-system-wav');
+  if (staticExportSys) {
+    ;((staticExportSys as HTMLElement).style as any).webkitAppRegion = 'no-drag'
+    ;(staticExportSys as HTMLElement).style.pointerEvents = 'auto'
+    staticExportSys.addEventListener('click', () => exportSystemLastSeconds(10));
+  }
+  // Ensure core controls are clickable
+  const staticConnect = document.getElementById('connect') as HTMLElement | null
+  if (staticConnect) { ;(staticConnect.style as any).webkitAppRegion = 'no-drag'; staticConnect.style.pointerEvents = 'auto' }
+  const staticSuggest = document.getElementById('suggest') as HTMLElement | null
+  if (staticSuggest) { ;(staticSuggest.style as any).webkitAppRegion = 'no-drag'; staticSuggest.style.pointerEvents = 'auto' }
+  const staticAudioTest = document.getElementById('audio-test') as HTMLElement | null
+  if (staticAudioTest) { ;(staticAudioTest.style as any).webkitAppRegion = 'no-drag'; staticAudioTest.style.pointerEvents = 'auto' }
 })
 
-async function startMicCapture(ws: { sendBinary: (data: ArrayBuffer) => void } | null) {
+async function startMicCapture(chatId: string, token: string) {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    // Request mic access
+    micStream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        channelCount: 1,
-        sampleRate: { ideal: 48000 },
-      },
-      video: false,
-    })
-    const ctx = new AudioContext({ sampleRate: stream.getAudioTracks()[0].getSettings().sampleRate || 48000 })
-    const src = ctx.createMediaStreamSource(stream)
-    const proc = ctx.createScriptProcessor(4096, 1, 1)
+        sampleRate: { ideal: SAMPLE_RATE }
+      } 
+    });
 
-    // Add low-pass filter (Butterworth, cutoff at 3600 Hz to avoid aliasing)
-    const lowpass = ctx.createBiquadFilter()
-    lowpass.type = 'lowpass'
-    lowpass.frequency.value = 3600  // Fixed value instead of relative calculation
-    lowpass.Q.value = 0.7071  // Butterworth response (1/sqrt(2))
+    // Log mic settings
+    const track = micStream.getAudioTracks()[0];
+    const settings = track.getSettings();
+    console.log('[mic] Track settings:', settings);
+    log(`[mic] Started with sampleRate=${settings.sampleRate || 'default'}`);
 
-    src.connect(lowpass)
-    lowpass.connect(proc)
-    proc.connect(ctx.destination)
+    // Create context at target rate
+    micCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
 
-    const chunkMs = 100
-    const targetRate = 16000
-    let buffer: number[] = []
-    let gain = 1.0  // Initial gain
-    let maxGain = 12.0  // Max amplification (reduced from 24.0 to avoid distortion)
+    // Create source and processor
+    const source = micCtx.createMediaStreamSource(micStream);
+    micProc = micCtx.createScriptProcessor(1024, 1, 1); // Smaller buffer for lower latency
 
-    proc.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0)
-      for (let i = 0; i < input.length; i++) buffer.push(input[i])
+    // Connect but don't connect to destination to avoid feedback
+    source.connect(micProc);
+    // micProc.connect(micCtx.destination); // Comment out to prevent feedback
 
-      const samplesPerChunk = Math.floor((ctx.sampleRate / 1000) * chunkMs)
-      while (buffer.length >= samplesPerChunk) {
-        const chunk = buffer.splice(0, samplesPerChunk)
+    // Mic buffer for chunking
+    let micAccumulated = new Float32Array(0);
 
-        // Compute RMS for VAD and gain
-        let rms = 0
-        for (let s of chunk) rms += s * s
-        rms = Math.sqrt(rms / chunk.length)
-        log(`[mic] Processing chunk RMS=${rms.toFixed(4)}`)
-        // if (rms < 0.005) {  // Lowered from 0.01
-        //   log(`[mic] Skipped silent chunk RMS=${rms.toFixed(4)}`)
-        //   continue
-        // }
+    micProc.onaudioprocess = (e) => {
+      const inputChannelData = e.inputBuffer.getChannelData(0);
+      
+      // Accumulate samples
+      const newLength = micAccumulated.length + inputChannelData.length;
+      const newAccumulated = new Float32Array(newLength);
+      newAccumulated.set(micAccumulated);
+      newAccumulated.set(inputChannelData, micAccumulated.length);
+      micAccumulated = newAccumulated;
 
-        if (rms > 0) {
-          gain = Math.min(maxGain, Math.max(1.0, gain * (0.1 / rms)))
+      // Process complete chunks
+      while (micAccumulated.length >= SAMPLES_PER_CHUNK) {
+        const chunk = micAccumulated.slice(0, SAMPLES_PER_CHUNK);
+        micAccumulated = micAccumulated.slice(SAMPLES_PER_CHUNK);
+
+        // Convert to PCM16
+        const pcm16 = new Int16Array(SAMPLES_PER_CHUNK);
+        for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32767));
         }
 
-        // Apply gain with more conservative soft limiting
-        // Use tanh for soft limiting but with gentler curve to avoid distortion
-        const processed = chunk.map(s => {
-          const amplified = s * gain
-          return Math.tanh(amplified * 0.8) * 1.2  // Gentler curve with slight boost to compensate
-        })
+        // Send to WS via overlay WS
+        if (wsMic) {
+          wsMic.sendBinary(pcm16.buffer as ArrayBuffer);
+        }
 
-        const down = downsampleLinear(new Float32Array(processed), ctx.sampleRate, targetRate)
-        const i16 = floatTo16BitPCM(down)
-        ws?.sendBinary(i16.buffer as ArrayBuffer)
-        micBuffer.push(i16.buffer as ArrayBuffer)
-        if (micBuffer.length > 100) micBuffer.shift()  // Keep ~10s
+        // Log RMS and first samples for diagnostics
+        const rms = calculateRMS(pcm16);
+        log(`[mic] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
+        console.log('[mic] First 5 samples:', pcm16.slice(0,5));
+
+        // Store for export
+        micBuffer.push(pcm16.buffer);
+        if (micBuffer.length > 100) micBuffer.shift(); // ~10s
       }
+    };
+
+    micEnabled = true;
+    log('[mic] Capture started');
+  } catch (err) {
+    console.error('[mic] Start failed:', err);
+    log(`[mic] Error: ${err}`);
+  }
+}
+
+// System capture
+async function startSystemCapture(chatId: string) {
+  // Existing native start
+  await window.evia.systemAudio.start();
+  
+  // Listen for data
+  // ipcRenderer.on('system-audio-data', (event, data) => { // This line is commented out as ipcRenderer is not defined in this file
+  //   // Process like mic
+  //   const audioContext = new AudioContext({ sampleRate: 16000 });
+  //   // Assume data is Float32 or convert, then process
+  //   const inputData = new Float32Array(data); // Adapt based on native format
+  //   const int16Data = new Int16Array(inputData.length);
+  //   for (let i = 0; i < inputData.length; i++) {
+  //     int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+  //   }
+  //   const wsSys = getWebSocketInstance(chatId, 'system');
+  //   if (wsSys.isConnected()) wsSys.sendBinaryData(int16Data.buffer);
+  // });
+
+  const wsSys = getWebSocketInstance(chatId, 'system');
+  wsSys.connect();
+  wsSys.onMessage(handleWebSocketMessage);
+}
+
+// Start both in UI flow
+// ... existing code ...
+
+// Add handleWebSocketMessage from user's code
+function handleWebSocketMessage(message: any) {
+  // Logic from useWebSocketMessages.tsx
+  const msgType = message.type;
+  const msgData = message.data;
+
+  if (msgType === 'transcript_segment') {
+    const transcriptData = msgData;
+    const speaker = transcriptData.speaker ?? -1;
+    const text = transcriptData.text.trim();
+
+    if (text) {
+      transcriptLines = [...transcriptLines];
+      const last = transcriptLines[transcriptLines.length - 1];
+      if (transcriptData.is_final) {
+        if (last && last.speaker === speaker) {
+          last.text = normalizeAppend(last.text, text);
+          last.isInterim = false;
+        } else {
+          transcriptLines.push({ speaker, text, isInterim: false });
+        }
+      } else {
+        if (last && last.speaker === speaker) {
+          last.text = normalizeAppend(last.text, text);
+          last.isInterim = true;
+        } else {
+          transcriptLines.push({ speaker, text, isInterim: true });
+        }
+      }
+      // Update UI with transcriptLines
     }
-    // Save state for toggle
-    micCtx = ctx
-    micProc = proc
-    micStream = stream
-    micEnabled = true
-  } catch (e) {
-    log('[mic] capture unavailable: ' + String(e))
-  }
+  } else if (msgType === 'suggestion') {
+    suggestion = msgData;
+    // Update UI
+  } // ... other cases
 }
 
-function stopMicCapture() {
-  try {
-    micProc?.disconnect()
-  } catch {}
-  try {
-    micCtx?.close()
-  } catch {}
-  try {
-    micStream?.getTracks().forEach(t => t.stop())
-  } catch {}
-  micCtx = null
-  micProc = null
-  micStream = null
-  micEnabled = false
-}
-
-function updateTranscriptDisplay() {
-  // Assume UI elements micDisplay and sysDisplay
-  const micEl = document.getElementById('micTranscript')
-  const sysEl = document.getElementById('sysTranscript')
-  if (micEl) micEl.textContent = micTranscript
-  if (sysEl) sysEl.textContent = sysTranscript
-}
-
-function downsampleLinear(input: Float32Array, inRate: number, outRate: number): Float32Array {
-  if (outRate === inRate) return input
-  const ratio = inRate / outRate
-  const newLen = Math.floor(input.length / ratio)
-  const output = new Float32Array(newLen)
-  let pos = 0
-  for (let i = 0; i < newLen; i++) {
-    const nextPos = (i + 1) * ratio
-    const start = Math.floor(pos)
-    const end = Math.min(Math.floor(nextPos), input.length - 1)
-    let sum = 0
-    let count = 0
-    for (let j = start; j <= end; j++) { sum += input[j]; count++ }
-    output[i] = count ? sum / count : 0
-    pos = nextPos
-  }
-  return output
-}
-
-function floatTo16BitPCM(input: Float32Array): Int16Array {
-  const out = new Int16Array(input.length)
-  for (let i = 0; i < input.length; i++) {
-    let s = Math.max(-1, Math.min(1, input[i]))
-    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-  }
-  return out
-}
-
-function exportWav(buffers: ArrayBuffer[], sampleRate: number, label: string) {
-  const totalSamples = buffers.reduce((sum, b) => sum + (b.byteLength / 2), 0)
-  const wav = new ArrayBuffer(44 + totalSamples * 2)
-  const view = new DataView(wav)
-
-  // RIFF header
-  view.setUint32(0, 0x52494646, false)  // 'RIFF'
-  view.setUint32(4, 36 + totalSamples * 2, true)
-  view.setUint32(8, 0x57415645, false)  // 'WAVE'
-
-  // fmt chunk
-  view.setUint32(12, 0x666d7420, false)  // 'fmt '
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)  // PCM
-  view.setUint16(22, 1, true)  // Mono
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)  // Byte rate
-  view.setUint16(32, 2, true)  // Block align
-  view.setUint16(34, 16, true)  // Bits per sample
-
-  // data chunk
-  view.setUint32(36, 0x64617461, false)  // 'data'
-  view.setUint32(40, totalSamples * 2, true)
-
-  let offset = 44
-  for (let buf of buffers) {
-    const viewBuf = new Int16Array(buf)
-    for (let s of viewBuf) {
-      view.setInt16(offset, s, true)
-      offset += 2
-    }
-  }
-
-  const blob = new Blob([wav], { type: 'audio/wav' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${label}-audio.wav`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
+// Generate sine wave PCM16 tone for testing
 function generateSinePCM16(freqHz: number, durationMs: number, sampleRate: number, amplitude: number): Int16Array {
-  const samples = Math.floor(sampleRate * (durationMs / 1000))
+  const samples = Math.floor(sampleRate * durationMs / 1000)
   const out = new Int16Array(samples)
   for (let i = 0; i < samples; i++) {
     const s = Math.sin(2 * Math.PI * freqHz * (i / sampleRate)) * amplitude
@@ -548,68 +814,208 @@ function generateSinePCM16(freqHz: number, durationMs: number, sampleRate: numbe
   return out
 }
 
-// Add at top (after imports)
-const SAMPLE_RATE = 24000;
-const AUDIO_CHUNK_DURATION = 0.1; // 100ms
-const SAMPLES_PER_CHUNK = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400
-
-// Helper functions (adapted from Glass)
-function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
-  const int16Array = new Int16Array(float32Array.length);
-  for (let i = 0; i < float32Array.length; i++) {
-    int16Array[i] = Math.min(1, Math.max(-1, float32Array[i])) * 0x7FFF;
+// Export WAV file from buffer
+function exportWav(buffers: ArrayBuffer[], sampleRate: number, name: string): void {
+  if (!buffers || buffers.length === 0) {
+    log(`[Export] No buffers to export for ${name}`);
+    return;
   }
-  return int16Array;
+
+  // Concatenate PCM16 buffers
+  let totalLength = 0;
+  for (const buf of buffers) totalLength += new Int16Array(buf).length;
+  const combined = new Int16Array(totalLength);
+  let offset = 0;
+  for (const buf of buffers) {
+    const view = new Int16Array(buf);
+    combined.set(view, offset);
+    offset += view.length;
+  }
+
+  // Build WAV header (mono, 16-bit)
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = combined.byteLength;
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+
+  // RIFF chunk descriptor
+  view.setUint32(0, 0x52494646, false); // 'RIFF'
+  view.setUint32(4, 36 + dataSize, true);
+  view.setUint32(8, 0x57415645, false); // 'WAVE'
+
+  // fmt subchunk
+  view.setUint32(12, 0x666d7420, false); // 'fmt '
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat=1 (PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+
+  // data subchunk
+  view.setUint32(36, 0x64617461, false); // 'data'
+  view.setUint32(40, dataSize, true);
+
+  // Combine header + data
+  const wavBuffer = new Uint8Array(44 + dataSize);
+  wavBuffer.set(new Uint8Array(header), 0);
+  wavBuffer.set(new Uint8Array(combined.buffer), 44);
+
+  // Download
+  const blob = new Blob([wavBuffer.buffer], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const now = new Date().toISOString().replace(/[:.]/g, '-');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `evia-${name}-${now}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log(`[Export] Saved ${name}.wav (${(dataSize/2)|0} samples @ ${sampleRate}Hz)`);
 }
 
-function arrayBufferToBase64(buffer: ArrayBufferLike): string {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+// Add WAV export function
+function exportMicToWAV() {
+  if (pcmBuffers.mic.length === 0) {
+    console.log('[Export] No mic audio data available');
+    return;
   }
-  return window.btoa(binary);
+
+  // Combine all buffers
+  let totalLength = 0;
+  pcmBuffers.mic.forEach((buf: ArrayBuffer) => totalLength += new Int16Array(buf).length);
+  
+  const combined = new Int16Array(totalLength);
+  let offset = 0;
+  pcmBuffers.mic.forEach((buf: ArrayBuffer) => {
+    const view = new Int16Array(buf);
+    combined.set(view, offset);
+    offset += view.length;
+  });
+
+  // Create WAV header
+  const wavHeader = new ArrayBuffer(44);
+  const view = new DataView(wavHeader);
+  
+  // RIFF header
+  view.setUint32(0, 0x52494646, false); // 'RIFF'
+  view.setUint32(4, 36 + totalLength * 2, true);
+  view.setUint32(8, 0x57415645, false); // 'WAVE'
+  
+  // fmt chunk
+  view.setUint32(12, 0x666d7420, false); // 'fmt '
+  view.setUint32(16, 16, true); // chunk size
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, SAMPLE_RATE, true);
+  view.setUint32(28, SAMPLE_RATE * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  
+  // data chunk
+  view.setUint32(36, 0x64617461, false); // 'data'
+  view.setUint32(40, totalLength * 2, true);
+
+  // Combine header and data
+  const wavBuffer = new ArrayBuffer(44 + totalLength * 2);
+  const wavView = new Uint8Array(wavBuffer);
+  wavView.set(new Uint8Array(wavHeader), 0);
+  wavView.set(new Uint8Array(combined.buffer), 44);
+
+  // Save file
+  const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `evia_mic_export_${new Date().toISOString()}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  
+  console.log('[Export] Mic audio exported to WAV');
 }
 
-function base64ToInt16Array(base64: string): Int16Array {
-  const binaryString = window.atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return new Int16Array(bytes.buffer);
+// Add types and function
+interface TranscriptLine {
+  speaker: number;
+  text: string;
+  isInterim?: boolean;
 }
 
-function int16ToFloat32Array(int16Array: Int16Array): Float32Array {
-  const float32Array = new Float32Array(int16Array.length);
-  for (let i = 0; i < int16Array.length; i++) {
-    float32Array[i] = int16Array[i] / 0x8000;
-  }
-  return float32Array;
+// Add normalizeAppend from user's code
+function normalizeAppend(prev: string, addition: string) {
+  if (!prev) return addition.trim();
+  const a = addition.trim();
+  if (!a) return prev;
+  return /[\s]$/.test(prev) ? prev + a : prev + ' ' + a;
 }
 
-// Add calculateRMS (for Int16Array)
-function calculateRMS(samples: Int16Array): number {
-  let sum = 0;
-  for (let s of samples) {
-    const norm = s / 32768.0;
-    sum += norm * norm;
+// Add stop functions
+async function stopMicCapture(chatId: string) {
+  if (micProc) micProc.disconnect();
+  if (micCtx) await micCtx.close();
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  micProc = null;
+  micCtx = null;
+  micStream = null;
+  micEnabled = false;
+  
+  if (chatId && wsMic) {
+    wsMic.close();
+    wsMic = null;
   }
-  return Math.sqrt(sum / samples.length);
+  log('[mic] Stopped');
 }
 
-// Add base64ToFloat32Array function
-function base64ToFloat32Array(base64: string): Float32Array {
-  const binaryString = window.atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return new Float32Array(bytes.buffer);
+async function stopSystemCapture(chatId: string) {
+  await window.evia.systemAudio.stop();
+  const wsSys = getWebSocketInstance(chatId, 'system');
+  wsSys.disconnect();
 }
 
-// In onData handler
-let sysAudioBuffer: number[] = [];
+function exportSystemLastSeconds(seconds: number) {
+  try {
+    // Prefer already processed PCM16 buffers at target SAMPLE_RATE
+    if (pcmBuffers && pcmBuffers.system && pcmBuffers.system.length) {
+      const chunksNeeded = Math.max(1, Math.ceil(seconds / AUDIO_CHUNK_DURATION));
+      const recent = pcmBuffers.system.slice(-chunksNeeded);
+      let total = 0;
+      for (const b of recent) total += new Int16Array(b).length;
+      const combined = new Int16Array(total);
+      let off = 0;
+      for (const b of recent) { const v = new Int16Array(b); combined.set(v, off); off += v.length; }
+      exportWav([combined.buffer], SAMPLE_RATE, `system_last_${seconds}s`);
+      log(`[Export] Exported last ~${seconds}s of system audio`);
+      return;
+    }
+
+    // Fallback: use systemBufferManager recent float samples (may be at input rate)
+    const sysBufManager = (window as any).systemBufferManager;
+    if (sysBufManager && typeof sysBufManager.getLastNSeconds === 'function') {
+      const floatSamples: Float32Array = sysBufManager.getLastNSeconds(seconds);
+      if (!floatSamples || floatSamples.length === 0) {
+        log('[Export] No recent system audio to export');
+        return;
+      }
+      const int16 = new Int16Array(floatSamples.length);
+      for (let i = 0; i < floatSamples.length; i++) {
+        const s = Math.max(-1, Math.min(1, floatSamples[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      exportWav([int16.buffer], SAMPLE_RATE, `system_last_${seconds}s_fallback`);
+      log(`[Export] Exported last ${seconds}s of system audio (fallback)`);
+      return;
+    }
+
+    log('[Export] No system audio buffered');
+  } catch (err) {
+    console.error('[Export] System WAV export failed:', err);
+    log('[Export] Failed to export system WAV');
+  }
+}

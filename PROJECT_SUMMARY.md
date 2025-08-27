@@ -75,16 +75,12 @@ Implement high-reliability real-time transcription for both microphone and syste
 4. Added version info and debug output to the helper
 
 ## Current Status
+- Pivot to Glass-style: Raw capture in Swift, processing in JS renderer.
+- Changes: Updated main.swift for float32 emission; main.ts for filtering/downsampling/chunking.
+- Issues: Old binary persistence; filter instability.
 
-### Working
-1. Microphone capture is mostly working (with some interruptions)
-2. Permission granting for both microphone and screen recording
-3. WebSocket connections to backend for both sources
-4. Deepgram transcription for microphone audio (partial success)
-
-### Not Working
-1. System audio transcription verification after chunk fix (expect success if WAV normal).
-3. Mic functional; AEC pending for echo-free capture.
+## Next Steps
+See NEXT_STEPS.md for detailed plan.
 
 ## Logs and Observations
 

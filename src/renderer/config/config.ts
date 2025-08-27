@@ -1,0 +1,1 @@
+export const WS_BASE_URL = 'wss://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io';
