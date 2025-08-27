@@ -117,6 +117,13 @@ async function connect() {
       return
     }
 
+  // Enforce numeric chat id to avoid 403/404 from backend
+  const chatIdNum = Number(chatId)
+  if (!Number.isFinite(chatIdNum) || !/^[0-9]+$/.test(chatId)) {
+    alert('Chat ID must be a numeric ID')
+    return
+  }
+
   // Persist token for services that read from localStorage
   try { localStorage.setItem('auth_token', token) } catch {}
 
@@ -138,8 +145,9 @@ async function connect() {
   // Connect mic WS
   try {
     const base = toWsBase(backend)
-    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=mic`
-    const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}&source=system&debug=1`
+    log(`[connect] backend=${base} chat_id=${chatIdNum}`)
+    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=16000`
+    const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=system&debug=1&sample_rate=16000`
 
     log(`Connecting mic WS: ${urlMic.split('?')[0]}`)
     const ws = window.evia.createWs(urlMic)
@@ -212,87 +220,6 @@ async function connect() {
       }
     }
 
-        // Override the WebSocket onmessage with improved error handling
-    const origSend = XMLHttpRequest.prototype.send
-    XMLHttpRequest.prototype.send = function(...args) {
-      const url = (this as any)['__url']
-      if (url && url.includes('/ws/transcribe')) {
-        console.log(`WebSocket connection to: ${url}`);
-        
-        // Set up message handler with better error handling
-        (this as any).onmessage = (e: any) => {
-          try {
-            const isSystem = url.includes('source=system');
-            const label = isSystem ? 'system' : 'mic';
-            
-            // Handle different message types
-            if (typeof e.data === 'string') {
-              try {
-                const data = JSON.parse(e.data);
-                console.log(`[${label} msg:${data.type}]`, data);
-                
-                if (data.type === 'transcript_segment' && data.data?.text) {
-                  const text = data.data.text;
-                  log(`[${label} transcript] ${text}`);
-                  if (isSystem) {
-                    sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text;
-                  } else {
-                    micTranscript = micTranscript ? `${micTranscript}\n${text}` : text;
-                  }
-                  // Update the transcript display immediately
-                  updateTranscriptDisplay();
-                } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
-                  const isOpen = Boolean(data.data.dg_open);
-                  log(`[${label} status] dg_open=${isOpen ? 1 : 0}`);
-                  
-                  // Update UI to show connection status
-                  const statusEl = document.getElementById('status');
-                  if (statusEl) {
-                    if (isSystem) {
-                      statusEl.textContent = `Connected (${isOpen ? 'System Ready' : 'System Connecting...'})`;
-                    } else {
-                      statusEl.textContent = `Connected (${isOpen ? 'Mic Ready' : 'Mic Connecting...'})`;
-                    }
-                    statusEl.className = 'connected';
-                  }
-                  
-                  // Update transcript status indicators
-                  const statusIndicator = document.getElementById(`${label}-status`);
-                  if (statusIndicator) {
-                    statusIndicator.textContent = isOpen ? 'Connected ✓' : 'Connecting...';
-                    statusIndicator.className = isOpen ? 'status-indicator active' : 'status-indicator';
-                  }
-                }
-                
-                // Pass to original handlers for backward compatibility
-                if (isSystem) {
-                  onMessage(e.data);
-                } else {
-                  onMicMessage(e.data);
-                }
-              } catch (parseErr) {
-                console.error(`[${label} error] Failed to parse WebSocket message:`, parseErr, e.data);
-                log(`[${label} error] Failed to parse message: ${parseErr}`);
-              }
-            } else if (e.data instanceof Blob) {
-              // Handle binary data
-              e.data.arrayBuffer().then((buffer: ArrayBuffer) => {
-                console.log(`[${label}] Received binary data: ${buffer.byteLength} bytes`);
-              }).catch((err: Error) => {
-                console.error(`[${label}] Error processing binary data:`, err);
-              });
-            } else if (e.data instanceof ArrayBuffer) {
-              console.log(`[${label}] Received ArrayBuffer: ${e.data.byteLength} bytes`);
-            }
-          } catch (err) {
-            console.error('Error in WebSocket message handler:', err);
-            log(`[WebSocket error] ${err}`);
-          }
-        };
-      }
-      return origSend.apply(this, args);
-    }
-
     // Wire native WebSocket handlers via preload bridge
     sys.onMessage?.((payload) => {
       try {
@@ -317,8 +244,23 @@ async function connect() {
       }
     })
     sys.onOpen?.(() => log('[system] ws open'))
-    sys.onClose?.((e) => log(`[system] ws close code=${e.code}`))
-    sys.onError?.(() => log('[system] ws error'))
+    sys.onClose?.((e) => {
+      const hint = (e.code === 1008 || e.code === 1006) ? ' (auth/chat mismatch or server policy violation)' : ''
+      log(`[system] ws close code=${e.code}${hint}`)
+      const status = document.getElementById('sys-status')
+      if (status) {
+        ;(status as HTMLElement).textContent = `Disconnected (${e.code})`
+        status.className = 'status-indicator'
+      }
+    })
+    sys.onError?.(() => {
+      log('[system] ws error')
+      const status = document.getElementById('sys-status')
+      if (status) {
+        ;(status as HTMLElement).textContent = 'Error'
+        status.className = 'status-indicator'
+      }
+    })
 
     ws.onMessage?.((payload) => {
       try {
@@ -343,8 +285,23 @@ async function connect() {
       }
     })
     ws.onOpen?.(() => log('[mic] ws open'))
-    ws.onClose?.((e) => log(`[mic] ws close code=${e.code}`))
-    ws.onError?.(() => log('[mic] ws error'))
+    ws.onClose?.((e) => {
+      const hint = (e.code === 1008 || e.code === 1006) ? ' (auth/chat mismatch or server policy violation)' : ''
+      log(`[mic] ws close code=${e.code}${hint}`)
+      const status = document.getElementById('mic-status')
+      if (status) {
+        ;(status as HTMLElement).textContent = `Disconnected (${e.code})`
+        status.className = 'status-indicator'
+      }
+    })
+    ws.onError?.(() => {
+      log('[mic] ws error')
+      const status = document.getElementById('mic-status')
+      if (status) {
+        ;(status as HTMLElement).textContent = 'Error'
+        status.className = 'status-indicator'
+      }
+    })
   } catch (e) {
     log(`Connection error: ${e}`)
     if (statusEl) {
