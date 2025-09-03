@@ -19,6 +19,9 @@ import PromptsManagement from "./pages/PromptsManagement";
 import About from "./pages/About";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import AdminMetrics from "./pages/AdminMetrics";
+import Welcome from "./pages/Welcome";
+import Desktop from "./pages/Desktop";
+import Download from "./pages/Download";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +45,9 @@ const App = () => {
               <Route path="/register" element={<Register />} />
               <Route path="/about" element={<About />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/welcome" element={<Welcome />} />
+              <Route path="/desktop" element={<Desktop />} />
+              <Route path="/download" element={<Download />} />
               <Route
                 path="/admin"
                 element={
