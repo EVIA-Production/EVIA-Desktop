@@ -121,8 +121,8 @@ async function connect() {
   const chatIdNum = Number(chatId)
   if (!Number.isFinite(chatIdNum) || !/^[0-9]+$/.test(chatId)) {
     alert('Chat ID must be a numeric ID')
-    return
-  }
+      return
+    }
 
   // Persist token for services that read from localStorage
   try { localStorage.setItem('auth_token', token) } catch {}
