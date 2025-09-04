@@ -58,6 +58,8 @@ let micDisabled = false; // Add here
 
 let micTranscript = ''
 let sysTranscript = ''
+let micInterim = ''
+let sysInterim = ''
 
 let micBuffer: ArrayBuffer[] = []  // For WAV export
 let sysBuffer: ArrayBuffer[] = []  // For system
@@ -86,8 +88,14 @@ function updateTranscriptDisplay() {
   const micEl = document.getElementById('mic-transcript')
   const sysEl = document.getElementById('sys-transcript')
   
-  if (micEl) micEl.textContent = micTranscript
-  if (sysEl) sysEl.textContent = sysTranscript
+  if (micEl) {
+    const micText = micTranscript + (micInterim ? (micTranscript ? '\n' : '') + micInterim : '')
+    micEl.textContent = micText
+  }
+  if (sysEl) {
+    const sysText = sysTranscript + (sysInterim ? (sysTranscript ? '\n' : '') + sysInterim : '')
+    sysEl.textContent = sysText
+  }
   
   // Auto-scroll to bottom if content is updated
   if (micEl && micTranscript) {
@@ -146,8 +154,9 @@ async function connect() {
   try {
     const base = toWsBase(backend)
     log(`[connect] backend=${base} chat_id=${chatIdNum}`)
-    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=16000`
-    const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=system&debug=1&sample_rate=16000`
+    // Default Deepgram language to English during copy phase; switch to 'de' after verification
+    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=16000&dg_lang=en`
+    const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=system&debug=1&sample_rate=16000&dg_lang=en`
 
     log(`Connecting mic WS: ${urlMic.split('?')[0]}`)
     const ws = window.evia.createWs(urlMic)
@@ -224,11 +233,16 @@ async function connect() {
     sys.onMessage?.((payload) => {
       try {
         if (typeof payload === 'string') {
-          onMessage(payload)
           const data = JSON.parse(payload)
           if (data.type === 'transcript_segment' && data.data?.text) {
-            const text = data.data.text
-            sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text
+            const text = String(data.data.text)
+            const isFinal = Boolean(data.data.is_final)
+            if (isFinal) {
+              sysTranscript = sysTranscript ? `${sysTranscript}\n${text}` : text
+              sysInterim = ''
+            } else {
+              sysInterim = text
+            }
             updateTranscriptDisplay()
           } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
             const isOpen = Boolean(data.data.dg_open)
@@ -265,11 +279,16 @@ async function connect() {
     ws.onMessage?.((payload) => {
       try {
         if (typeof payload === 'string') {
-          onMicMessage(payload)
           const data = JSON.parse(payload)
           if (data.type === 'transcript_segment' && data.data?.text) {
-            const text = data.data.text
-            micTranscript = micTranscript ? `${micTranscript}\n${text}` : text
+            const text = String(data.data.text)
+            const isFinal = Boolean(data.data.is_final)
+            if (isFinal) {
+              micTranscript = micTranscript ? `${micTranscript}\n${text}` : text
+              micInterim = ''
+            } else {
+              micInterim = text
+            }
             updateTranscriptDisplay()
           } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
             const isOpen = Boolean(data.data.dg_open)
@@ -597,18 +616,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (staticMicOff) {
     ;((staticMicOff as HTMLElement).style as any).webkitAppRegion = 'no-drag'
     ;(staticMicOff as HTMLElement).style.pointerEvents = 'auto'
+    // Repurpose as System Off to test mic-only path
+    ;(staticMicOff as HTMLElement).textContent = 'System Off'
     staticMicOff.addEventListener('click', async () => {
       const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim() || '';
-      if (!chatId) { log('[mic] No chatId'); return; }
-      await stopMicCapture(chatId);
-      log('[mic] turned OFF');
+      if (!chatId) { log('[system] No chatId'); return; }
+      await stopSystemCapture(chatId);
+      sysInterim = ''
+      log('[system] turned OFF');
+      updateTranscriptDisplay()
     });
   }
   const staticExportSys = document.getElementById('export-system-wav');
   if (staticExportSys) {
     ;((staticExportSys as HTMLElement).style as any).webkitAppRegion = 'no-drag'
     ;(staticExportSys as HTMLElement).style.pointerEvents = 'auto'
-    staticExportSys.addEventListener('click', () => exportSystemLastSeconds(10));
+    ;(staticExportSys as HTMLElement).textContent = 'Export Mic WAV'
+    staticExportSys.addEventListener('click', () => exportMicToWAV());
   }
   // Ensure core controls are clickable
   const staticConnect = document.getElementById('connect') as HTMLElement | null
