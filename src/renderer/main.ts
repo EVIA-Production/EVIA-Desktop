@@ -385,6 +385,54 @@ async function connect() {
   }
 }
 
+// Quick mic-only connect helper for testing
+async function connectMicOnly() {
+  try {
+    const backend = (document.getElementById('backend') as HTMLInputElement | null)?.value?.trim()
+    const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
+    const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim()
+    if (!backend || !chatId || !token) { alert('Missing fields: backend/chatId/token'); return }
+
+    // Close any existing
+    if (wsMic) { wsMic.close(); wsMic = null }
+    if (wsSys) { wsSys.close(); wsSys = null }
+
+    // Reset transcripts
+    micTranscript = ''
+    sysTranscript = ''
+    micInterim = ''
+    sysInterim = ''
+    updateTranscriptDisplay()
+
+    const base = toWsBase(backend)
+    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=16000&dg_lang=en`
+    log(`[mic-only] connecting ${urlMic.split('?')[0]}`)
+    const ws = window.evia.createWs(urlMic)
+    wsMic = { sendBinary: (d) => ws.sendBinary(d), sendCommand: (c) => ws.sendCommand(c), close: () => ws.close() }
+    ws.onOpen?.(() => log('[mic-only] ws open'))
+    ws.onMessage?.((payload) => {
+      if (typeof payload !== 'string') return
+      try {
+        const data = JSON.parse(payload)
+        if (data.type === 'transcript_segment' && data.data?.text) {
+          const text = String(data.data.text)
+          const isFinal = Boolean(data.data.is_final)
+          if (isFinal) { micTranscript = micTranscript ? `${micTranscript}\n${text}` : text; micInterim = '' }
+          else { micInterim = text }
+          updateTranscriptDisplay()
+        } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+          log(`[mic-only status] dg_open=${data.data.dg_open ? 1 : 0}`)
+        }
+      } catch {}
+    })
+    // Start mic capture
+    await startMicCapture(chatId, token || '')
+    log('[mic-only] started')
+  } catch (e) {
+    log(`[mic-only] error: ${e}`)
+  }
+}
+
 // After connect, add button setups
 const connectBtn = document.getElementById('connect') as HTMLButtonElement | null
 if (connectBtn) connectBtn.onclick = connect
@@ -400,13 +448,15 @@ if (audioTestBtn) audioTestBtn.onclick = startAudioTest
 
 const micOffBtn = document.getElementById('mic-off') as HTMLButtonElement | null
 if (micOffBtn) micOffBtn.onclick = () => {
-  micDisabled = true
-  log('[mic] Disabled')
-  if (micCtx || micStream) stopMicCapture('')
+  // No-op here; repurposed to 'System Off' in DOMContentLoaded to avoid conflicting handlers
 }
 
 const exportSysWavBtn = document.getElementById('export-system-wav') as HTMLButtonElement | null
 if (exportSysWavBtn) exportSysWavBtn.onclick = () => exportSystemLastSeconds(10)
+
+// Wire a visible button for mic-only if present
+const micOnlyBtnStatic = document.getElementById('mic-only') as HTMLButtonElement | null
+if (micOnlyBtnStatic) micOnlyBtnStatic.onclick = connectMicOnly
 
 // Define audio test function
 function startAudioTest() {
@@ -502,6 +552,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Create all the buttons
   const micWavBtn = createButton('Export Mic WAV', () => exportWav(micBuffer, SAMPLE_RATE, 'mic'));
   const sysWavBtn = createButton('Export System WAV (10s)', () => exportSystemLastSeconds(10));
+  const micOnlyBtn = createButton('Connect Mic Only', async () => {
+    try {
+      const backend = (document.getElementById('backend') as HTMLInputElement | null)?.value?.trim()
+      const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim()
+      const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim()
+      if (!backend || !chatId || !token) { alert('Missing fields'); return }
+
+      // Close any existing
+      if (wsMic) { wsMic.close(); wsMic = null }
+      if (wsSys) { wsSys.close(); wsSys = null }
+
+      // Reset transcripts
+      micTranscript = ''
+      sysTranscript = ''
+      micInterim = ''
+      sysInterim = ''
+      updateTranscriptDisplay()
+
+      const base = toWsBase(backend)
+      const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=16000&dg_lang=en`
+      log(`[mic-only] connecting ${urlMic.split('?')[0]}`)
+      const ws = window.evia.createWs(urlMic)
+      wsMic = { sendBinary: (d) => ws.sendBinary(d), sendCommand: (c) => ws.sendCommand(c), close: () => ws.close() }
+      ws.onOpen?.(() => log('[mic-only] ws open'))
+      ws.onMessage?.((payload) => {
+        if (typeof payload !== 'string') return
+        try {
+          const data = JSON.parse(payload)
+          if (data.type === 'transcript_segment' && data.data?.text) {
+            const text = String(data.data.text)
+            const isFinal = Boolean(data.data.is_final)
+            if (isFinal) { micTranscript = micTranscript ? `${micTranscript}\n${text}` : text; micInterim = '' }
+            else { micInterim = text }
+            updateTranscriptDisplay()
+          } else if (data.type === 'status' && data.data && 'dg_open' in data.data) {
+            log(`[mic-only status] dg_open=${data.data.dg_open ? 1 : 0}`)
+          }
+        } catch {}
+      })
+      // Start mic capture
+      await startMicCapture(chatId, token || '')
+      log('[mic-only] started')
+    } catch (e) {
+      log(`[mic-only] error: ${e}`)
+    }
+  });
   
   const testToneBtn = createButton('Test Tone (Sys)', () => {
     const tone = generateSinePCM16(1000, 200, SAMPLE_RATE, 0.25);
@@ -512,10 +608,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   
   const micToggleBtn = createButton('Toggle Mic', async () => {
-    const chatId = window.localStorage.getItem('selectedChatId') || 'default';
+    const chatId = (document.getElementById('chatId') as HTMLInputElement | null)?.value?.trim() || ''
     const token = (document.getElementById('token') as HTMLInputElement | null)?.value?.trim() || localStorage.getItem('auth_token') || ''
     if (micEnabled) {
-      stopMicCapture(chatId);
+      if (chatId) { await stopMicCapture(chatId) } else { await stopMicCapture('') }
       log('[mic] toggled OFF');
       micToggleBtn.textContent = 'Enable Mic';
       micToggleBtn.style.backgroundColor = '#f44336';
@@ -594,6 +690,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Add buttons to the container
   buttonContainer.appendChild(micWavBtn);
   buttonContainer.appendChild(sysWavBtn);
+  buttonContainer.appendChild(micOnlyBtn);
   buttonContainer.appendChild(testToneBtn);
   buttonContainer.appendChild(micToggleBtn);
   buttonContainer.appendChild(diagBtn);
@@ -651,7 +748,8 @@ async function startMicCapture(chatId: string, token: string) {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: { ideal: SAMPLE_RATE }
+        sampleRate: { ideal: SAMPLE_RATE },
+        channelCount: { ideal: 1 }
       } 
     });
 
@@ -663,18 +761,23 @@ async function startMicCapture(chatId: string, token: string) {
 
     // Create context at target rate
     micCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+    try { await micCtx.resume() } catch {}
 
     // Create source and processor
     const source = micCtx.createMediaStreamSource(micStream);
     micProc = micCtx.createScriptProcessor(1024, 1, 1); // Smaller buffer for lower latency
 
-    // Connect but don't connect to destination to avoid feedback
+    // Connect graph and ensure processor runs; route through zero-gain to avoid feedback
     source.connect(micProc);
-    // micProc.connect(micCtx.destination); // Comment out to prevent feedback
+    const zero = micCtx.createGain();
+    zero.gain.value = 0.0;
+    micProc.connect(zero);
+    zero.connect(micCtx.destination);
 
     // Mic buffer for chunking
     let micAccumulated = new Float32Array(0);
 
+    let firstChunkLogged = false;
     micProc.onaudioprocess = (e) => {
       const inputChannelData = e.inputBuffer.getChannelData(0);
       
@@ -703,6 +806,7 @@ async function startMicCapture(chatId: string, token: string) {
 
         // Log RMS and first samples for diagnostics
         const rms = calculateRMS(pcm16);
+        if (!firstChunkLogged) { log('[mic] audio flow active'); firstChunkLogged = true }
         log(`[mic] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
         console.log('[mic] First 5 samples:', pcm16.slice(0,5));
 
