@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { 
   Mic, 
   MicOff, 
@@ -11,12 +11,13 @@ import {
   Maximize2,
   Square
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
-import EviaBar from '@/components/GlassUI/EviaBar';
-import ListenView from '@/components/GlassUI/ListenView';
-import AskView from '@/components/GlassUI/AskView';
-import SettingsView from '@/components/GlassUI/SettingsView';
-import { glassUIService } from '@/services/glassUIService';
+// Temporär deaktiviert für Testing ohne Anmeldung
+// import { useAuth } from '@/contexts/AuthContext';
+import EviaBar from '../components/GlassUI/EviaBar';
+import ListenView from '../components/GlassUI/ListenView';
+import AskView from '../components/GlassUI/AskView';
+import SettingsView from '../components/GlassUI/SettingsView';
+import { glassUIService } from '../services/glassUIService';
 
 // Mock data for development
 const mockTranscript = [
@@ -68,7 +69,9 @@ const mockInsights = [
 ];
 
 const Desktop: React.FC = () => {
-  const { user } = useAuth();
+  // Temporär deaktiviert für Testing ohne Anmeldung
+  // const { user } = useAuth();
+  const user = { id: 'demo', username: 'demo', email: 'demo@evia.com' }; // Mock user
   const [currentView, setCurrentView] = useState<'listen' | 'ask' | 'settings' | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isConnected, setIsConnected] = useState(true);
@@ -141,18 +144,21 @@ const Desktop: React.FC = () => {
       // Ctrl/Cmd + \ to show/hide
       if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
         e.preventDefault();
+        console.log('Keyboard shortcut: Toggle visibility');
         handleToggleVisibility();
       }
       
       // Ctrl/Cmd + Enter to open Ask view
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
+        console.log('Keyboard shortcut: Open Ask view');
         handleOpenAsk();
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    // Add event listener to window instead of document
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleToggleVisibility, handleOpenAsk]);
 
   if (!user) {
@@ -314,6 +320,7 @@ const Desktop: React.FC = () => {
           </div>
         </div>
       )}
+
 
       {/* Welcome Message - When no view is open */}
       {isVisible && !currentView && (

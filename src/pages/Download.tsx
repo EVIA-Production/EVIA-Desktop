@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { 
-  Download, 
+  Download as DownloadIcon, 
   Apple, 
   Monitor, 
   CheckCircle, 
@@ -63,7 +63,7 @@ const Download: React.FC = () => {
         <div className="text-center mb-12">
           <div className="flex justify-center mb-6">
             <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-              <Download className="h-12 w-12 text-white" />
+              <DownloadIcon className="h-12 w-12 text-white" />
             </div>
           </div>
           <h1 className="text-4xl font-bold mb-4">
@@ -161,7 +161,7 @@ const Download: React.FC = () => {
                     className="bg-green-600 hover:bg-green-700 text-white text-lg px-8 py-4"
                     size="lg"
                   >
-                    <Download className="h-6 w-6 mr-2" />
+                    <DownloadIcon className="h-6 w-6 mr-2" />
                     Für macOS herunterladen
                   </Button>
                   

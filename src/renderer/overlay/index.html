@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIA Desktop Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-app-region: drag;
+        }
+        
+        #root {
+            width: 100vw;
+            height: 100vh;
+            background: transparent;
+        }
+        
+        /* Glass UI Styles */
+        .glass-overlay {
+            background: rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+        }
+        
+        .evia-bar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            -webkit-app-region: no-drag;
+        }
+        
+        .glass-window {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 999;
+            -webkit-app-region: no-drag;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+</body>
+</html>

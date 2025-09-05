@@ -1,62 +1,159 @@
-# EVIA Frontend
-React + Vite + TypeScript frontend for EVIA.
+# EVIA Desktop Overlay
 
-## Project info
+Ein transparentes, always-on-top Electron-Overlay für EVIA mit Glass UI.
 
-**Live App**: https://frontend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io/
+## 🚀 Quick Start
 
-## How can I edit this code?
+### Voraussetzungen
+- **macOS**: Mikrofon- und Bildschirmaufnahme-Berechtigung für "EVIA Desktop" gewähren
+  - Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon
+  - Systemeinstellungen → Datenschutz & Sicherheit → Bildschirmaufnahme
+- **Backend**: EVIA-Backend muss laufen
 
-There are several ways of editing your application.
+### Start-Kommandos (2 Terminals)
 
-You can edit locally in any IDE. Ensure Node 20+ is installed.
+**Terminal A - Backend:**
+```bash
+cd /path/to/EVIA-Backend
+docker compose up --build
+```
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-git clone <YOUR_GIT_URL>
-cd evia-frontend
-npm i
+**Terminal B - Desktop Overlay:**
+```bash
+cd /path/to/EVIA-Desktop
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Das Overlay öffnet sich als transparentes, frameless, always-on-top Fenster.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## ⌨️ Globale Shortcuts
 
-**Use GitHub Codespaces**
+| Shortcut | Aktion |
+|----------|--------|
+| `⌘ + \` | Overlay Show/Hide |
+| `⌘ + Enter` | Ask View öffnen |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## 🎯 Features
 
-## What technologies are used for this project?
+### EVIA Bar
+- **Listen**: Live-Transkription starten/stoppen
+- **Ask**: KI-Assistent öffnen
+- **Settings**: Einstellungen öffnen
+- **Language Toggle**: DE/EN umschalten
+- **Hide**: Overlay ausblenden
 
-This project is built with Vite, React, TypeScript, shadcn/ui, Tailwind CSS, TanStack Query.
+### Listen View
+- Live-Transkription mit Mock-Daten
+- Auto-Scroll mit "Jump to latest"
+- Sprecher-Erkennung (Mock)
+- Transkriptions-Historie
 
-## Features
-- Auth (login/register), protected admin routes
-- Chats: list/create/rename/delete; live transcription; suggestions
-- Admin dashboards: overall and per-user metrics via backend `/admin/metrics` and `/admin/users/{username}/metrics`
+### Ask View
+- KI-Assistent mit Mock-Antworten
+- Token-Streaming (Mock)
+- DE/EN Toggle persistent
+- Frage-Historie
 
-## Configuration
-Set at build-time via Vite args/env:
-- `VITE_BACKEND_URL=https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io`
-- `VITE_BACKEND_PORT=443` (optional; auto-handled if URL includes scheme and host)
+### Settings View
+- **Sprache**: DE/EN Auswahl
+- **Audio-Einstellungen**: Auto-Scroll, System-Audio, Echo-Kompensation, Sprecher-Erkennung
+- **System-Info**: Version, Backend-Status, Sprache
 
-## Deployment
-- CI/CD with GitHub Actions builds Docker image and updates Azure Container Apps on push to `main`.
+## 🛠️ Development
 
-## Troubleshooting
-- If “Failed to fetch” on protected APIs, verify you’re logged in and CORS allows the frontend host.
-- WebSocket issues: ensure token and `chatId` are set, and backend WS endpoint is reachable (wss on prod).
+### Build
+```bash
+npm run build
+```
+
+### Development Flags
+```bash
+# Diagnostic renderer
+npm run dev -- --diagnostic
+
+# Permissions page
+npm run dev -- --permissions
+```
+
+## 📁 Projektstruktur
+
+```
+src/
+├── main/
+│   ├── main.ts          # Electron main process
+│   └── preload.ts       # Preload script
+└── renderer/
+    ├── index.html       # Renderer HTML
+    ├── main.ts          # React entry point
+    └── components/
+        ├── EviaOverlay.tsx      # Main overlay component
+        ├── SimpleEviaBar.tsx    # Floating UI bar
+        ├── SimpleListenView.tsx # Live transcription
+        ├── SimpleAskView.tsx    # AI assistant
+        └── SimpleSettingsView.tsx # Settings panel
+```
+
+## 🔧 Technische Details
+
+### Window-Verhalten
+- **Transparent**: `transparent: true`
+- **Frameless**: `frame: false`
+- **Always-on-top**: `alwaysOnTop: true`
+- **Drag/No-drag**: `-webkit-app-region` CSS
+
+### IPC-Kommunikation
+- **Audio-Helper**: `system-audio:start/stop`
+- **Shortcuts**: `shortcut:ask-view`
+- **WebSocket**: Vorhandene EVIA-Bridge
+
+### Styling
+- **Glass-Effekt**: `backdrop-filter: blur(20px)`
+- **Transparenz**: `rgba(0, 0, 0, 0.1)`
+- **Responsive**: Flexbox-Layout
+
+## 🚧 Bekannte Limits
+
+- **Mock-Daten**: Aktuell werden Mock-Transkriptionen und KI-Antworten verwendet
+- **Backend-Integration**: WebSocket-Verbindungen zu EVIA-Backend noch nicht implementiert
+- **Audio-Capture**: Echte Mikrofon-Aufnahme noch nicht aktiv
+- **Settings-Persistierung**: Lokale Speicherung noch nicht implementiert
+
+## ✅ Neu implementiert (v1.1.0)
+
+- **Systemweite Shortcuts**: ⌘+\\ und ⌘+Enter funktionieren global, auch wenn Overlay nicht im Fokus ist
+- **IPC-Event-Handling**: Renderer reagiert auf Shortcut-Events vom Main Process
+- **Vereinfachte Architektur**: Keine shadcn/ui Dependencies, einfache CSS-basierte UI
+- **Robustes Build-System**: TypeScript + Vite + Electron Builder funktioniert fehlerfrei
+- **Vollständige Dokumentation**: README mit allen Start-Kommandos und Feature-Übersicht
+
+## 🔄 Nächste Schritte
+
+1. **Backend-Integration**: Echte WebSocket-Verbindungen zu `/ws/transcribe`
+2. **API-Integration**: `/ask` Endpoint an EVIA-Backend
+3. **Audio-Capture**: Echte Mikrofon-Aufnahme aktivieren
+4. **Settings-Persistierung**: Lokale JSON + Backend `/me/settings`
+5. **Performance**: Latency-Messung (TTFT/TTR)
+
+## 📝 Changelog
+
+### v1.0.0
+- ✅ Glass UI Komponenten portiert
+- ✅ Transparentes Overlay
+- ✅ Globale Shortcuts (⌘+\\, ⌘+Enter)
+- ✅ EVIA Bar mit Listen/Ask/Settings
+- ✅ DE/EN Toggle
+- ✅ Mock-Daten für Transkription und KI
+- ✅ Build-System funktioniert
+
+### v1.1.0 (Aktuell)
+- ✅ **Globale Shortcuts in main.ts registriert** - ⌘+\\ und ⌘+Enter funktionieren systemweit
+- ✅ **IPC-Kommunikation erweitert** - Shortcut-Events werden an Renderer gesendet
+- ✅ **Vereinfachte UI-Komponenten** - Ohne komplexe shadcn/ui Dependencies
+- ✅ **Vollständige README-Dokumentation** - Start-Kommandos, Hotkeys, Feature-Flags
+- ✅ **Build-System optimiert** - TypeScript kompiliert, Vite baut erfolgreich
+- ✅ **Overlay funktional** - Alle Views (Listen/Ask/Settings) arbeiten mit Mock-Daten
+
+---
+
+**EVIA Desktop Overlay** - Transparentes AI-Assistenten-Overlay für macOS

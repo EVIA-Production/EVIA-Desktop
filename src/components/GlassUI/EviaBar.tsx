@@ -12,7 +12,8 @@ import {
   ChevronDown,
   Zap
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+// Temporär deaktiviert für Testing ohne Anmeldung
+// import { useAuth } from '@/contexts/AuthContext';
 
 interface EviaBarProps {
   isListening: boolean;
@@ -41,7 +42,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 100 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const { user } = useAuth();
+  // Temporär deaktiviert für Testing ohne Anmeldung
+  // const { user } = useAuth();
+  const user = { id: 'demo', username: 'demo', email: 'demo@evia.com' }; // Mock user
 
   // Handle drag and drop
   useEffect(() => {
