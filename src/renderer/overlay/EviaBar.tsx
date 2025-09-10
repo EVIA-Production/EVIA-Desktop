@@ -1,12 +1,9 @@
 import React from 'react';
 import './overlay-tokens.css';
-// Vite will handle raw SVG imports; assert type via any to satisfy TS without SVGR
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const ListenIcon: any = require('./assets/Listen.svg');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const SettingsIcon: any = require('./assets/setting.svg');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const CommandIcon: any = require('./assets/command.svg');
+// Use ESM-safe asset URLs under Vite (no require in browser)
+const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
+const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
+const CommandIcon = new URL('./assets/command.svg', import.meta.url).href;
 
 interface EviaBarProps {
   currentView: 'listen' | 'ask' | 'settings' | 'shortcuts' | null;
