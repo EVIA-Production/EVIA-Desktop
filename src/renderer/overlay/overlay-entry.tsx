@@ -57,7 +57,7 @@ const OverlayApp: React.FC = () => {
   if (view === 'header') {
     return (
       <div
-        style={{ position: 'fixed', left: 20, top: 20, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
+        style={{ position: 'fixed', left: 0, top: 0, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
         onMouseEnter={() => { try { (window as any).evia?.overlay?.setClickThrough(false) } catch {} }}
         onMouseLeave={() => { try { (window as any).evia?.overlay?.setClickThrough(true) } catch {} }}
       >

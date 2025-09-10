@@ -244,6 +244,13 @@ function registerIpc() {
   // Window control IPC
   ipcMain.handle('win:show', (_e, name: FeatureName) => {
     const win = ensureChildWindow(name)
+    // toggle behavior: hide if already visible
+    if (win.isVisible()) {
+      try { if (process.platform === 'darwin') win.setAlwaysOnTop(false, 'screen-saver'); else win.setAlwaysOnTop(false) } catch {}
+      try { win.hide() } catch {}
+      setExclusiveClicks(undefined)
+      return { ok: true, toggled: 'hidden' }
+    }
     setExclusiveClicks(win)
     try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
     const vis: Partial<Record<FeatureName, boolean>> = {}
@@ -252,7 +259,7 @@ function registerIpc() {
     const b = (layout as any)[name]
     if (b) { try { win.setBounds(b) } catch {} }
     try { win.show() } catch {}
-    return { ok: true }
+    return { ok: true, toggled: 'shown' }
   })
 
   ipcMain.handle('win:hide', (_e, name: FeatureName) => {
