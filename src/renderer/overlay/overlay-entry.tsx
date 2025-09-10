@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../overlay/overlay-tokens.css'
 import EviaBar from './EviaBar'
@@ -14,13 +14,40 @@ const OverlayApp: React.FC = () => {
   const [isListening, setIsListening] = useState(false)
   const [language, setLanguage] = useState<'de' | 'en'>('de')
   const [followLive, setFollowLive] = useState(true)
+  const [lines, setLines] = useState<{ speaker: number | null, text: string, isFinal?: boolean }[]>([])
+  const chatIdRef = useRef<string | null>(null)
 
-  const lines = useMemo(() => (
-    [
-      { speaker: 1, text: 'Willkommen bei EVIA Overlay.', isFinal: true },
-      { speaker: 2, text: 'Dies ist eine Platzhalter-Transkription.' },
-    ]
-  ), [])
+  useEffect(() => {
+    // Read chat id + token from localStorage (temporary dev wiring)
+    chatIdRef.current = window.localStorage.getItem('chat_id') || '1'
+    const token = window.localStorage.getItem('auth_token')
+    if (!token) return
+
+    // Build WS URL; default to mic for visible transcripts
+    const base = (window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + (new URL(window.location.href)).host
+    // If backend URL is configured elsewhere, prefer it; else use current host for dev proxy
+    const backend = (window as any).EVIA_BACKEND_WS || undefined
+    const host = backend || base
+    const url = `${host}/ws/transcribe?chat_id=${chatIdRef.current}&token=${token}&source=mic&dg_lang=${language}`
+
+    let handle: any | null = null
+    try {
+      if (window.evia && typeof window.evia.createWs === 'function') {
+        handle = window.evia.createWs(url)
+        handle.onMessage((data: any) => {
+          try {
+            const msg = typeof data === 'string' ? JSON.parse(data) : data
+            if (msg && msg.type === 'transcript_segment' && msg.data) {
+              const d = msg.data as any
+              setLines(prev => [...prev, { speaker: typeof d.speaker === 'number' ? d.speaker : null, text: String(d.text || ''), isFinal: !!d.is_final }])
+            }
+          } catch { /* ignore */ }
+        })
+      }
+    } catch { /* ignore */ }
+
+    return () => { try { handle?.close?.() } catch {} }
+  }, [language])
 
   return (
     <div style={{ position: 'fixed', left: 20, top: 80, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -44,8 +71,8 @@ const OverlayApp: React.FC = () => {
         <AskView language={language} />
       )}
       {view === 'settings' && (
-        <SettingsView language={language} onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')} />)
-      }
+        <SettingsView language={language} onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')} />
+      )}
       {view === 'shortcuts' && (
         <ShortCutSettingsView />
       )}

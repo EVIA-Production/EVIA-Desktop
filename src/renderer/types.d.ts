@@ -31,6 +31,7 @@ interface EviaBridge {
 declare global {
   interface Window {
     evia: EviaBridge;
+    EVIA_BACKEND_WS?: string;
     audioTest?: {
       init: () => Promise<boolean>;
       play: (seconds?: number) => void;

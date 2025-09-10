@@ -1,5 +1,12 @@
 import React from 'react';
 import './overlay-tokens.css';
+// Vite will handle raw SVG imports; assert type via any to satisfy TS without SVGR
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const ListenIcon: any = require('./assets/Listen.svg');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const SettingsIcon: any = require('./assets/setting.svg');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const CommandIcon: any = require('./assets/command.svg');
 
 interface EviaBarProps {
   currentView: 'listen' | 'ask' | 'settings' | 'shortcuts' | null;
@@ -26,71 +33,85 @@ const EviaBar: React.FC<EviaBarProps> = ({
       style={{
         position: 'fixed',
         left: 20,
-        top: 120,
-        padding: '10px',
+        top: 40,
+        padding: '8px 10px',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--gap)'
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: '8px'
       }}
     >
       <button
         className="no-drag"
         style={{
-          width: 44,
-          height: 44,
+          width: 36,
+          height: 36,
           borderRadius: 'var(--button-radius)',
           border: 'none',
-          background: isListening ? '#ef4444' : 'rgba(255,255,255,0.12)',
+          background: isListening ? 'rgba(239,68,68,0.8)' : 'rgba(255,255,255,0.12)',
           color: 'var(--text-color)',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
         }}
         title={isListening ? 'Stop' : 'Listen'}
         onClick={onToggleListening}
       >
-        ●
+        <img src={ListenIcon} alt="listen" width={12} height={12} />
       </button>
 
       <button
         className="no-drag"
         style={{
-          width: 44,
-          height: 44,
-          borderRadius: 'var(--button-radius)',
+          height: 28,
+          borderRadius: 6,
           border: 'none',
-          background: currentView === 'ask' ? '#3b82f6' : 'rgba(255,255,255,0.12)',
+          padding: '0 10px',
+          background: currentView === 'ask' ? 'rgba(59,130,246,0.9)' : 'rgba(255,255,255,0.12)',
           color: 'var(--text-color)',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12
         }}
         title="Ask"
         onClick={() => onViewChange(currentView === 'ask' ? null : 'ask')}
       >
-        ?
+        <img src={CommandIcon} alt="ask" width={11} height={12} />
+        <span>Ask</span>
       </button>
 
       <button
         className="no-drag"
         style={{
-          width: 44,
-          height: 44,
-          borderRadius: 'var(--button-radius)',
+          height: 28,
+          borderRadius: 6,
           border: 'none',
-          background: currentView === 'settings' ? '#3b82f6' : 'rgba(255,255,255,0.12)',
+          padding: '0 10px',
+          background: currentView === 'settings' ? 'rgba(59,130,246,0.9)' : 'rgba(255,255,255,0.12)',
           color: 'var(--text-color)',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12
         }}
         title="Settings"
         onClick={() => onViewChange(currentView === 'settings' ? null : 'settings')}
       >
-        ⚙
+        <img src={SettingsIcon} alt="settings" width={12} height={12} />
+        <span>Settings</span>
       </button>
 
       <button
         className="no-drag"
         style={{
-          width: 44,
-          height: 24,
+          height: 28,
           borderRadius: 6,
           border: 'none',
+          padding: '0 8px',
           background: 'rgba(255,255,255,0.12)',
           color: 'var(--text-color)',
           cursor: 'pointer',
@@ -106,10 +127,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
         <button
           className="no-drag"
           style={{
-            width: 44,
-            height: 24,
+            height: 28,
             borderRadius: 6,
             border: 'none',
+            padding: '0 8px',
             background: 'rgba(255,255,255,0.12)',
             color: 'var(--text-color)',
             cursor: 'pointer',
@@ -118,7 +139,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           title="Hide"
           onClick={onToggleVisibility}
         >
-          Ⓧ
+          Hide
         </button>
       )}
     </div>
