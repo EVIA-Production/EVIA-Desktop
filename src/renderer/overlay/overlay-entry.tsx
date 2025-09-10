@@ -54,13 +54,13 @@ const OverlayApp: React.FC = () => {
     return () => { try { handle?.close?.() } catch {} }
   }, [language])
 
-  return (
-    <div
-      style={{ position: 'fixed', left: 20, top: view === 'header' ? 20 : 80, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
-      onMouseEnter={() => { try { (window as any).evia?.overlay?.setClickThrough(false) } catch {} }}
-      onMouseLeave={() => { try { (window as any).evia?.overlay?.setClickThrough(true) } catch {} }}
-    >
-      {view === 'header' ? (
+  if (view === 'header') {
+    return (
+      <div
+        style={{ position: 'fixed', left: 20, top: 20, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
+        onMouseEnter={() => { try { (window as any).evia?.overlay?.setClickThrough(false) } catch {} }}
+        onMouseLeave={() => { try { (window as any).evia?.overlay?.setClickThrough(true) } catch {} }}
+      >
         <EviaBar
           currentView={'listen'}
           onViewChange={(next) => {
@@ -73,17 +73,12 @@ const OverlayApp: React.FC = () => {
           language={language}
           onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')}
         />
-      ) : (
-        <EviaBar
-          currentView={view}
-          onViewChange={setView}
-          isListening={isListening}
-          onToggleListening={() => setIsListening(v => !v)}
-          language={language}
-          onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')}
-        />
-      )}
+      </div>
+    )
+  }
 
+  return (
+    <div style={{ position: 'fixed', left: 20, top: 80, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'auto' }}>
       {view === 'listen' && (
         <ListenView
           lines={lines}
