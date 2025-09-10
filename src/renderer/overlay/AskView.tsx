@@ -19,18 +19,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    marked.setOptions({
-      highlight(code, lang) {
-        if (lang && hljs.getLanguage(lang)) {
-          return hljs.highlight(code, { language: lang }).value;
-        }
-        return hljs.highlightAuto(code).value;
-      }
+    // After answer renders, highlight any code blocks
+    if (!scrollRef.current) return;
+    const codes = scrollRef.current.querySelectorAll('pre code');
+    codes.forEach((el) => {
+      try { hljs.highlightElement(el as HTMLElement); } catch {}
     });
-  }, []);
+  }, [answer]);
 
   const rendered = useMemo(() => {
-    const html = marked.parse(answer || '');
+    const html = marked.parse(answer || '') as string; // marked is sync here
     return { __html: DOMPurify.sanitize(html) };
   }, [answer]);
 
@@ -41,7 +39,34 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setLoading(true);
     try {
       onSubmitPrompt?.(prompt);
-      // streaming JSONL will append to setAnswer in future step
+      // JSONL streaming from backend /ask (dev wiring)
+      const token = window.localStorage.getItem('auth_token');
+      const chatId = window.localStorage.getItem('chat_id') || '1';
+      const backend = (window as any).EVIA_BACKEND_HTTP || 'http://localhost:8000';
+      const resp = await fetch(`${backend}/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ chat_id: Number(chatId), prompt, language })
+      });
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split(/\n+/)) {
+          const s = line.trim();
+          if (!s) continue;
+          try {
+            const obj = JSON.parse(s) as { delta?: string; done?: boolean };
+            if (obj.delta) setAnswer(prev => prev + obj.delta);
+          } catch {}
+        }
+      }
     } finally {
       setLoading(false);
     }

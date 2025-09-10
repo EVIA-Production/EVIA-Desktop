@@ -24,6 +24,10 @@ function createWindow() {
     alwaysOnTop: true,
     hasShadow: false,
     resizable: true,
+    movable: true,
+    backgroundColor: '#00000000',
+    // Prevent screenshots/screen recording from capturing the window contents
+    contentProtection: true,
     webPreferences: {
       preload: process.env.NODE_ENV === 'development'
         ? path.join(process.cwd(), 'src/main/preload.cjs')
@@ -39,6 +43,9 @@ function createWindow() {
       height: 24,
     },
   })
+
+  // Keep the window truly on top of full-screen apps when desired
+  try { mainWindow.setAlwaysOnTop(true, 'screen-saver') } catch {}
 
   // Check for diagnostic mode
   // Check for diagnostic or permissions mode
@@ -163,6 +170,12 @@ ipcMain.handle('system-audio:start', async () => {
 ipcMain.handle('system-audio:stop', async () => {
   // Use process manager to stop the helper
   return await processManager.stopSystemAudioHelper();
+})
+
+// Overlay behavior controls
+ipcMain.on('overlay:setClickThrough', (_e, enabled: boolean) => {
+  if (!mainWindow) return
+  try { mainWindow.setIgnoreMouseEvents(Boolean(enabled), { forward: true }) } catch {}
 })
 
 // Handle launching main app from permissions page

@@ -28,7 +28,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     <div className="glass-panel evia-glass">
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Listening</div>
-        <div className="glass-controls no-drag">
+        <div className="glass-controls no-drag" style={{ gap: 8 }}>
+          <button className="glass-button" onClick={() => { if (viewportRef.current) viewportRef.current.scrollTop = viewportRef.current.scrollHeight; }}>Jump to latest</button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input type="checkbox" checked={followLive} onChange={onToggleFollow} />
             <span style={{ fontSize: 12, color: '#fff' }}>Follow live</span>

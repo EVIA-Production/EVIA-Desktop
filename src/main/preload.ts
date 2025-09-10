@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld('evia', {
     stop: () => ipcRenderer.invoke('system-audio:stop'),
     onData: (cb: (jsonLine: string) => void) => ipcRenderer.on('system-audio:data', (_e, line) => cb(line)),
   },
+  overlay: {
+    setClickThrough: (enabled: boolean) => ipcRenderer.send('overlay:setClickThrough', enabled),
+  },
 })
 
 export {}
