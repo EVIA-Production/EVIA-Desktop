@@ -7,10 +7,14 @@ import AskView from './AskView'
 import SettingsView from './SettingsView'
 import ShortCutSettingsView from './ShortCutSettingsView'
 
-type View = 'listen' | 'ask' | 'settings' | 'shortcuts' | null
+type View = 'header' | 'listen' | 'ask' | 'settings' | 'shortcuts' | null
 
 const OverlayApp: React.FC = () => {
-  const [view, setView] = useState<View>('listen')
+  const [view, setView] = useState<View>(() => {
+    const qp = new URLSearchParams(window.location.search)
+    const v = (qp.get('view') as View) || 'listen'
+    return v
+  })
   const [isListening, setIsListening] = useState(false)
   const [language, setLanguage] = useState<'de' | 'en'>('de')
   const [followLive, setFollowLive] = useState(true)
@@ -32,8 +36,9 @@ const OverlayApp: React.FC = () => {
 
     let handle: any | null = null
     try {
-      if (window.evia && typeof window.evia.createWs === 'function') {
-        handle = window.evia.createWs(url)
+      const w: any = window as any
+      if (w.evia && typeof w.evia.createWs === 'function') {
+        handle = w.evia.createWs(url)
         handle.onMessage((data: any) => {
           try {
             const msg = typeof data === 'string' ? JSON.parse(data) : data
@@ -51,18 +56,34 @@ const OverlayApp: React.FC = () => {
 
   return (
     <div
-      style={{ position: 'fixed', left: 20, top: 80, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
-      onMouseEnter={() => { try { window.evia?.overlay?.setClickThrough(false) } catch {} }}
-      onMouseLeave={() => { try { window.evia?.overlay?.setClickThrough(true) } catch {} }}
+      style={{ position: 'fixed', left: 20, top: view === 'header' ? 20 : 80, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
+      onMouseEnter={() => { try { (window as any).evia?.overlay?.setClickThrough(false) } catch {} }}
+      onMouseLeave={() => { try { (window as any).evia?.overlay?.setClickThrough(true) } catch {} }}
     >
-      <EviaBar
-        currentView={view}
-        onViewChange={setView}
-        isListening={isListening}
-        onToggleListening={() => setIsListening(v => !v)}
-        language={language}
-        onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')}
-      />
+      {view === 'header' ? (
+        <EviaBar
+          currentView={'listen'}
+          onViewChange={(next) => {
+            if (next === 'listen' || next === 'ask' || next === 'settings' || next === 'shortcuts') {
+              // ask main process to show the window
+              try { (window as any).electron?.ipcRenderer?.invoke('win:show', next) } catch {}
+            }
+          }}
+          isListening={isListening}
+          onToggleListening={() => setIsListening(v => !v)}
+          language={language}
+          onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')}
+        />
+      ) : (
+        <EviaBar
+          currentView={view}
+          onViewChange={setView}
+          isListening={isListening}
+          onToggleListening={() => setIsListening(v => !v)}
+          language={language}
+          onToggleLanguage={() => setLanguage(prev => prev === 'de' ? 'en' : 'de')}
+        />
+      )}
 
       {view === 'listen' && (
         <ListenView

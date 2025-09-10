@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import path from 'path'
 import { spawn } from 'child_process'
+import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 
 // Import process manager
 // @ts-ignore
@@ -88,7 +89,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow()
+  if (process.env.EVIA_OVERLAY === '1') {
+    createHeaderWindow()
+  } else {
+    createWindow()
+  }
   
   // Create application menu with audio test option and edit menu for copy/paste
   const menu = Menu.buildFromTemplate([
@@ -185,17 +190,19 @@ ipcMain.handle('system-audio:stop', async () => {
 
 // Overlay behavior controls
 ipcMain.on('overlay:setClickThrough', (_e, enabled: boolean) => {
-  if (!mainWindow) return
-  try { mainWindow.setIgnoreMouseEvents(Boolean(enabled), { forward: true }) } catch {}
+  const target = process.env.EVIA_OVERLAY === '1' ? getHeaderWindow() : mainWindow
+  if (!target) return
+  try { target.setIgnoreMouseEvents(Boolean(enabled), { forward: true }) } catch {}
 })
 
 // Handle launching main app from permissions page
 ipcMain.handle('launch-main', () => {
-  if (mainWindow) {
+  const target = process.env.EVIA_OVERLAY === '1' ? getHeaderWindow() : mainWindow
+  if (target) {
     const url = process.env.NODE_ENV === 'development'
       ? 'http://localhost:5174'
       : `file://${path.join(__dirname, '../renderer/index.html')}`
-    mainWindow.loadURL(url)
+    target.loadURL(url)
     return { ok: true }
   }
   return { ok: false, error: 'No main window' }
