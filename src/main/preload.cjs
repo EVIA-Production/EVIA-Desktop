@@ -45,6 +45,16 @@ try {
       onData: (cb) => ipcRenderer.on('system-audio:data', (_e, line) => cb(line)),
       onStatus: (cb) => ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
     },
+    overlay: {
+      setClickThrough: (enabled) => ipcRenderer.send('overlay:setClickThrough', !!enabled),
+    },
+    windows: {
+      show: (name) => ipcRenderer.invoke('win:show', name),
+      hide: (name) => ipcRenderer.invoke('win:hide', name),
+      getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
+      moveHeaderTo: (x, y) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
+      resizeHeader: (w, h) => ipcRenderer.invoke('win:resizeHeader', w, h),
+    },
     prefs: {
       get: () => ipcRenderer.invoke('prefs:get'),
       set: (prefs) => ipcRenderer.invoke('prefs:set', prefs),

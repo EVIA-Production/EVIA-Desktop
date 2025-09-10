@@ -52,7 +52,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
           justifyContent: 'center'
         }}
         title={isListening ? 'Stop' : 'Listen'}
-        onClick={onToggleListening}
+        onClick={() => {
+          try { (window as any).evia?.windows?.show('listen') } catch {}
+          onToggleListening()
+        }}
       >
         <img src={ListenIcon} alt="listen" width={12} height={12} />
       </button>
@@ -73,7 +76,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           fontSize: 12
         }}
         title="Ask"
-        onClick={() => onViewChange(currentView === 'ask' ? null : 'ask')}
+        onClick={() => { try { (window as any).evia?.windows?.show('ask') } catch {}; onViewChange(currentView === 'ask' ? null : 'ask') }}
       >
         <img src={CommandIcon} alt="ask" width={11} height={12} />
         <span>Ask</span>
@@ -95,7 +98,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           fontSize: 12
         }}
         title="Settings"
-        onClick={() => onViewChange(currentView === 'settings' ? null : 'settings')}
+        onClick={() => { try { (window as any).evia?.windows?.show('settings') } catch {}; onViewChange(currentView === 'settings' ? null : 'settings') }}
       >
         <img src={SettingsIcon} alt="settings" width={12} height={12} />
         <span>Settings</span>

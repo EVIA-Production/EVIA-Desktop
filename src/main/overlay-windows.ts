@@ -143,7 +143,7 @@ function ensureChildWindow(name: FeatureName) {
   // reinforce z-order
   try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
   try { win.moveTop() } catch {}
-
+ 
   // Reassert on-top when focus changes or window is shown
   const reassert = () => {
     try {
@@ -177,7 +177,7 @@ export function getHeaderWindow() {
 export function createHeaderWindow() {
   headerWindow = new BrowserWindow({
     width: 640,
-    height: 100,
+    height: 54,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -214,6 +214,15 @@ export function createHeaderWindow() {
 
   headerWindow.on('moved', () => { updateChildLayouts() })
   headerWindow.on('resize', () => { updateChildLayouts() })
+  // Maintain all-spaces visibility aggressively
+  headerWindow.on('focus', () => {
+    try {
+      if (!headerWindow) return
+      if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
+      headerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      headerWindow.moveTop()
+    } catch {}
+  })
   headerWindow.on('blur', () => {
     try {
       if (!headerWindow) return
