@@ -46,6 +46,13 @@ contextBridge.exposeInMainWorld('evia', {
   overlay: {
     setClickThrough: (enabled: boolean) => ipcRenderer.send('overlay:setClickThrough', enabled),
   },
+  windows: {
+    show: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:show', name),
+    hide: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:hide', name),
+    getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
+    moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
+    resizeHeader: (w: number, h: number) => ipcRenderer.invoke('win:resizeHeader', w, h),
+  },
 })
 
 export {}

@@ -24,7 +24,8 @@
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: var(--glass-border-width) solid var(--glass-border);
   border-radius: var(--panel-radius);
-  box-shadow: var(--glass-shadow);
+  /* Remove outer shadow around the Evia bar to match Glass flat edge look */
+  box-shadow: none;
 }
 
 .drag-zone {

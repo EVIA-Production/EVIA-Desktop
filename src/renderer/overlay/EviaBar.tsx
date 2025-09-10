@@ -28,9 +28,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     <div
       className="evia-glass drag-zone"
       style={{
-        position: 'fixed',
-        left: 20,
-        top: 40,
+        position: 'relative',
         padding: '8px 10px',
         display: 'flex',
         flexDirection: 'row',

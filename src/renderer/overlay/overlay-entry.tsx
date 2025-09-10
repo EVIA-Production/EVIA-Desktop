@@ -65,8 +65,7 @@ const OverlayApp: React.FC = () => {
           currentView={'listen'}
           onViewChange={(next) => {
             if (next === 'listen' || next === 'ask' || next === 'settings' || next === 'shortcuts') {
-              // ask main process to show the window
-              try { (window as any).electron?.ipcRenderer?.invoke('win:show', next) } catch {}
+              try { (window as any).evia?.windows?.show(next) } catch {}
             }
           }}
           isListening={isListening}

@@ -99,7 +99,6 @@ function childCommonOptions(parent?: BrowserWindow) {
     show: false,
     frame: false,
     transparent: true,
-    vibrancy: false,
     hasShadow: false,
     skipTaskbar: true,
     resizable: false,
@@ -141,6 +140,9 @@ function ensureChildWindow(name: FeatureName) {
   try { win.loadURL(file) } catch {}
   if (dev) { try { win.webContents.openDevTools({ mode: 'detach' }) } catch {} }
   childWindows.set(name, win)
+  // reinforce z-order
+  try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
+  try { win.moveTop() } catch {}
   return win
 }
 
@@ -195,6 +197,7 @@ export function createHeaderWindow() {
   const url = dev ? 'http://localhost:5174/overlay.html?view=header' : `file://${path.join(__dirname, '../renderer/overlay.html')}?view=header`
   try { headerWindow.loadURL(url) } catch {}
   if (dev) { try { headerWindow.webContents.openDevTools({ mode: 'detach' }) } catch {} }
+  try { headerWindow.moveTop() } catch {}
 
   headerWindow.on('moved', () => { updateChildLayouts() })
   headerWindow.on('resize', () => { updateChildLayouts() })
