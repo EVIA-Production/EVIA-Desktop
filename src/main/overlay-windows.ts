@@ -121,11 +121,14 @@ function ensureChildWindow(name: FeatureName) {
   let win: BrowserWindow
   const common = childCommonOptions(parent)
   if (name === 'listen') {
-    win = new BrowserWindow({ ...common, width: 400, minWidth: 400, maxWidth: 900, maxHeight: 900 })
+    // Match Glass listen width ~353 and natural height; allow content to manage size
+    win = new BrowserWindow({ ...common, width: 353, height: 540 })
   } else if (name === 'ask') {
-    win = new BrowserWindow({ ...common, width: 600 })
+    // Match Glass ask width ~560, height ~520
+    win = new BrowserWindow({ ...common, width: 560, height: 520 })
   } else if (name === 'settings') {
-    win = new BrowserWindow({ ...common, width: 240, maxHeight: 400, parent: undefined })
+    // Match Glass settings width ~240, height ~360-400
+    win = new BrowserWindow({ ...common, width: 240, height: 360, parent: undefined })
   } else {
     win = new BrowserWindow({ ...common, width: 353, height: 720, parent: undefined })
   }
@@ -156,6 +159,11 @@ function ensureChildWindow(name: FeatureName) {
   }
   win.on('blur', reassert)
   win.on('show', reassert)
+  // Place stacking order: settings above ask; listen above settings
+  try {
+    if (name === 'settings') win.setAlwaysOnTop(true, 'screen-saver')
+    if (name === 'listen') win.setAlwaysOnTop(true, 'screen-saver')
+  } catch {}
   return win
 }
 
@@ -223,6 +231,20 @@ export function createHeaderWindow() {
       headerWindow.moveTop()
     } catch {}
   })
+
+  // Periodic reassert while any child is visible
+  const bump = setInterval(() => {
+    try {
+      if (!headerWindow) { clearInterval(bump); return }
+      let anyVisible = false
+      for (const [, w] of childWindows) { if (!w.isDestroyed() && w.isVisible()) { anyVisible = true; break } }
+      if (anyVisible) {
+        if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
+        headerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+        headerWindow.moveTop()
+      }
+    } catch {}
+  }, 1000)
   headerWindow.on('blur', () => {
     try {
       if (!headerWindow) return

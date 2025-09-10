@@ -53,7 +53,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
         }}
         title={isListening ? 'Stop' : 'Listen'}
         onClick={() => {
+          // Toggle window visibility first
           try { (window as any).evia?.windows?.show('listen') } catch {}
+          // Reflect state based on visibility toggle
           onToggleListening()
         }}
       >
