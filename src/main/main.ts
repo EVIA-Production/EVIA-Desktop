@@ -31,6 +31,9 @@ function createWindow() {
     useContentSize: true,
     fullscreenable: false,
     skipTaskbar: true,
+    // On macOS, hint panel-like behavior for resilience over fullscreen apps
+    // @ts-ignore
+    type: process.platform === 'darwin' ? 'panel' : undefined,
     webPreferences: {
       preload: process.env.NODE_ENV === 'development'
         ? path.join(process.cwd(), 'src/main/preload.cjs')

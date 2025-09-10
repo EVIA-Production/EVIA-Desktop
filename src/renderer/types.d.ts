@@ -26,6 +26,12 @@ interface EviaBridge {
   openTerminal: (script: string) => Promise<any>;
   launchMain: () => Promise<any>;
   launchAudioTest: () => Promise<any>;
+  // Add windows
+  windows: {
+    show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
+    hide: (name: string) => Promise<{ ok: boolean }>;
+    cancelHideSettings: () => void;
+  };
 }
 
 declare global {

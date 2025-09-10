@@ -22,14 +22,11 @@ const OverlayApp: React.FC = () => {
   const chatIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    // Read chat id + token from localStorage (temporary dev wiring)
     chatIdRef.current = window.localStorage.getItem('chat_id') || '1'
     const token = window.localStorage.getItem('auth_token')
     if (!token) return
 
-    // Build WS URL; default to mic for visible transcripts
     const base = (window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + (new URL(window.location.href)).host
-    // If backend URL is configured elsewhere, prefer it; else use current host for dev proxy
     const backend = (window as any).EVIA_BACKEND_WS || undefined
     const host = backend || base
     const url = `${host}/ws/transcribe?chat_id=${chatIdRef.current}&token=${token}&source=mic&dg_lang=${language}`
@@ -55,19 +52,34 @@ const OverlayApp: React.FC = () => {
   }, [language])
 
   if (view === 'header') {
+    const [current, setCurrent] = useState<'listen' | 'ask' | 'settings' | 'shortcuts' | null>(null)
     return (
       <div
-        style={{ position: 'fixed', left: 0, top: 0, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
-        onMouseEnter={() => { try { (window as any).evia?.overlay?.setClickThrough(false) } catch {} }}
-        onMouseLeave={() => { try { (window as any).evia?.overlay?.setClickThrough(true) } catch {} }}
+        style={{ position: 'fixed', left: 0, top: 0, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'auto' }}
+        onMouseDown={async (e) => {
+          try {
+            const pos = await (window as any).evia?.windows?.getHeaderPosition?.()
+            const startX = e.screenX
+            const startY = e.screenY
+            const baseX = pos?.x ?? 0
+            const baseY = pos?.y ?? 0
+            const onMove = (ev: MouseEvent) => {
+              const nx = baseX + (ev.screenX - startX)
+              const ny = baseY + (ev.screenY - startY)
+              ;(window as any).evia?.windows?.moveHeaderTo?.(nx, ny)
+            }
+            const onUp = () => {
+              window.removeEventListener('mousemove', onMove, true)
+              window.removeEventListener('mouseup', onUp, true)
+            }
+            window.addEventListener('mousemove', onMove, true)
+            window.addEventListener('mouseup', onUp, true)
+          } catch {}
+        }}
       >
         <EviaBar
-          currentView={'listen'}
-          onViewChange={(next) => {
-            if (next === 'listen' || next === 'ask' || next === 'settings' || next === 'shortcuts') {
-              try { (window as any).evia?.windows?.show(next) } catch {}
-            }
-          }}
+          currentView={current}
+          onViewChange={(next) => setCurrent(next)}
           isListening={isListening}
           onToggleListening={() => setIsListening(v => !v)}
           language={language}

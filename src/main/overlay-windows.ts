@@ -7,6 +7,7 @@ let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
 const PAD = 8
+let settingsHideTimer: NodeJS.Timeout | null = null
 
 function getHeaderBounds() {
   if (!headerWindow || headerWindow.isDestroyed()) return null
@@ -18,6 +19,22 @@ function getWorkAreaForHeader() {
   const b = headerWindow.getBounds()
   const display = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 })
   return display.workArea
+}
+
+function determineLayoutStrategy(headerBounds: Electron.Rectangle, screenWidth: number, screenHeight: number, workAreaX: number, workAreaY: number) {
+  const headerRelX = headerBounds.x - workAreaX
+  const headerRelY = headerBounds.y - workAreaY
+  const spaceBelow = screenHeight - (headerRelY + headerBounds.height)
+  const spaceAbove = headerRelY
+  const spaceLeft = headerRelX
+  const spaceRight = screenWidth - (headerRelX + headerBounds.width)
+  const headerCenterXRel = headerBounds.x - workAreaX + headerBounds.width / 2
+  const relativeX = headerCenterXRel / screenWidth
+  if (spaceBelow >= 400) return { primary: 'below', secondary: relativeX < 0.5 ? 'right' : 'left' }
+  if (spaceAbove >= 400) return { primary: 'above', secondary: relativeX < 0.5 ? 'right' : 'left' }
+  if (relativeX < 0.3 && spaceRight >= 800) return { primary: 'right', secondary: spaceBelow > spaceAbove ? 'below' : 'above' }
+  if (relativeX > 0.7 && spaceLeft >= 800) return { primary: 'left', secondary: spaceBelow > spaceAbove ? 'below' : 'above' }
+  return { primary: spaceBelow > spaceAbove ? 'below' : 'above', secondary: spaceRight > spaceLeft ? 'right' : 'left' }
 }
 
 function calculateFeatureLayout(visible: Partial<Record<FeatureName, boolean>>) {
@@ -38,7 +55,8 @@ function calculateFeatureLayout(visible: Partial<Record<FeatureName, boolean>>) 
   const listenB = listenVis ? listen!.getBounds() : null
 
   const headerCenterXRel = headerBounds.x - workAreaX + headerBounds.width / 2
-  const placeAbove = false // minimal: default below
+  const strategy = determineLayoutStrategy(headerBounds, work.width, work.height, workAreaX, workAreaY)
+  const placeAbove = strategy.primary === 'above'
 
   const layout: any = {}
   if (askVis && listenVis && askB && listenB) {
@@ -52,14 +70,19 @@ function calculateFeatureLayout(visible: Partial<Record<FeatureName, boolean>>) 
       askXRel = screenWidth - PAD - askB.width
       listenXRel = askXRel - listenB.width - PAD
     }
+    // Clamp Y to work area
     if (placeAbove) {
       const yAbs = headerBounds.y - PAD
-      layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(yAbs - askB.height), width: askB.width, height: askB.height }
-      layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(yAbs - listenB.height), width: listenB.width, height: listenB.height }
+      const askY = Math.max(workAreaY, Math.min(yAbs - askB.height, workAreaY + work.height - askB.height))
+      const listenY = Math.max(workAreaY, Math.min(yAbs - listenB.height, workAreaY + work.height - listenB.height))
+      layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(askY), width: askB.width, height: askB.height }
+      layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(listenY), width: listenB.width, height: listenB.height }
     } else {
       const yAbs = headerBounds.y + headerBounds.height + PAD
-      layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(yAbs), width: askB.width, height: askB.height }
-      layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(yAbs), width: listenB.width, height: listenB.height }
+      const askY = Math.max(workAreaY, Math.min(yAbs, workAreaY + work.height - askB.height))
+      const listenY = Math.max(workAreaY, Math.min(yAbs, workAreaY + work.height - listenB.height))
+      layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(askY), width: askB.width, height: askB.height }
+      layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(listenY), width: listenB.width, height: listenB.height }
     }
   } else {
     const name = askVis ? 'ask' : 'listen'
@@ -72,9 +95,93 @@ function calculateFeatureLayout(visible: Partial<Record<FeatureName, boolean>>) 
     } else {
       yPos = (headerBounds.y - workAreaY) + headerBounds.height + PAD
     }
-    layout[name] = { x: Math.round(xRel + workAreaX), y: Math.round(yPos + workAreaY), width: winB.width, height: winB.height }
+    // Clamp Y within work area
+    const yClamped = Math.max(0, Math.min(yPos, work.height - winB.height))
+    layout[name] = { x: Math.round(xRel + workAreaX), y: Math.round(yClamped + workAreaY), width: winB.width, height: winB.height }
   }
   return layout
+}
+
+function clampBounds(bounds: Electron.Rectangle) {
+  const work = getWorkAreaForHeader()
+  const maxX = work.x + work.width - bounds.width
+  const maxY = work.y + work.height - bounds.height
+  const clamped = {
+    x: Math.max(work.x, Math.min(bounds.x, maxX)),
+    y: Math.max(work.y, Math.min(bounds.y, maxY)),
+    width: bounds.width,
+    height: bounds.height,
+  }
+  return clamped
+}
+
+function getVisibleChildren(): FeatureName[] {
+  const vis: FeatureName[] = []
+  for (const [name, w] of childWindows) {
+    if (!w.isDestroyed() && w.isVisible()) vis.push(name)
+  }
+  return vis
+}
+
+// Enforce deterministic stacking: listen > settings > ask
+function enforceZOrder(active?: FeatureName) {
+  const orderBase: FeatureName[] = ['ask', 'settings', 'listen']
+  const visible = getVisibleChildren()
+  const ordered = orderBase.filter(n => visible.includes(n))
+  // If an active is specified and visible, bring it to top among children
+  if (active && ordered.includes(active)) {
+    const idx = ordered.indexOf(active)
+    ordered.splice(idx, 1)
+    ordered.push(active)
+  }
+  // Move in ascending order so last is on top
+  for (const name of ordered) {
+    const w = childWindows.get(name)
+    if (!w || w.isDestroyed()) continue
+    try {
+      if (process.platform === 'darwin') w.setAlwaysOnTop(true, 'screen-saver'); else w.setAlwaysOnTop(true)
+      w.moveTop()
+    } catch {}
+  }
+  // Keep header above children
+  try { headerWindow?.moveTop() } catch {}
+  console.log('[overlay] enforceZOrder', { ordered, active })
+}
+
+function showWithAnimation(win: BrowserWindow, finalBounds: Electron.Rectangle) {
+  try { win.setOpacity(0) } catch {}
+  // Start a few pixels up for a subtle slide-down
+  const start = { x: finalBounds.x, y: Math.max(finalBounds.y - 6, getWorkAreaForHeader().y), width: finalBounds.width, height: finalBounds.height }
+  try { win.setBounds(clampBounds(start)) } catch {}
+  try { win.showInactive() } catch {}
+  const steps = 6
+  let i = 0
+  const dy = (finalBounds.y - start.y) / steps
+  const step = () => {
+    i++
+    const y = Math.round(start.y + dy * i)
+    try { win.setBounds(clampBounds({ ...finalBounds, y })) } catch {}
+    try { win.setOpacity(Math.min(1, i / steps)) } catch {}
+    if (i < steps) setTimeout(step, 16)
+  }
+  setTimeout(step, 16)
+}
+
+function hideWithAnimation(win: BrowserWindow) {
+  const steps = 6
+  let i = steps
+  const startOpacity = win.getOpacity?.() ?? 1
+  const tick = () => {
+    i--
+    const op = Math.max(0, (i / steps) * startOpacity)
+    try { win.setOpacity(op) } catch {}
+    if (i > 0) setTimeout(tick, 16)
+    else {
+      try { win.hide() } catch {}
+      try { win.setOpacity(1) } catch {}
+    }
+  }
+  setTimeout(tick, 0)
 }
 
 function updateChildLayouts() {
@@ -88,9 +195,107 @@ function updateChildLayouts() {
     const bounds = (layout as any)[name]
     const win = childWindows.get(name)
     if (win && !win.isDestroyed()) {
-      try { win.setBounds(bounds) } catch {}
+      try { win.setBounds(clampBounds(bounds)) } catch {}
     }
   }
+  enforceZOrder()
+}
+
+function handleWindowVisibilityRequest(name: FeatureName, shouldBeVisible: boolean) {
+  console.log(`[WindowManager] Request: set '${name}' visibility to ${shouldBeVisible}`)
+  const win = childWindows.get(name)
+  if (!win || win.isDestroyed()) return { ok: false }
+
+  if (name !== 'settings') {
+    const isCurrentlyVisible = win.isVisible()
+    if (isCurrentlyVisible === shouldBeVisible) {
+      console.log(`[WindowManager] Window '${name}' is already in the desired state.`)
+      return { ok: true }
+    }
+  }
+
+  // Settings special-case (hover show/hide with delay)
+  if (name === 'settings') {
+    if (shouldBeVisible) {
+      if (settingsHideTimer) { clearTimeout(settingsHideTimer); settingsHideTimer = null }
+      const pos = calculateSettingsWindowPosition()
+      if (pos) { try { win.setBounds(pos) } catch {} }
+      try { win.show() } catch {}
+      try { win.moveTop() } catch {}
+    } else {
+      if (settingsHideTimer) clearTimeout(settingsHideTimer)
+      settingsHideTimer = setTimeout(() => {
+        try { if (!win.isDestroyed()) win.hide() } catch {}
+        settingsHideTimer = null
+      }, 200)
+    }
+    enforceZOrder()
+    return { ok: true }
+  }
+
+  // Listen/Ask coordinated placement
+  const other: FeatureName | null = name === 'listen' ? 'ask' : name === 'ask' ? 'listen' : null
+  const otherWin = other ? childWindows.get(other) : null
+  const visibility: any = {}
+  visibility[name] = shouldBeVisible
+  if (other && otherWin && !otherWin.isDestroyed() && otherWin.isVisible()) {
+    visibility[other] = true
+  }
+  const layout = calculateFeatureLayout(visibility)
+  const target = (layout as any)[name]
+
+  if (shouldBeVisible) {
+    if (!target) return { ok: false }
+    const startPos = { ...target }
+    // Glass offsets: listen slides in from left, ask slides in from top
+    if (name === 'listen') startPos.x -= 50
+    if (name === 'ask') startPos.y -= 20
+    try { win.setOpacity(0) } catch {}
+    try { win.setBounds(clampBounds(startPos)) } catch {}
+    try { win.show() } catch {}
+    try { win.moveTop() } catch {}
+    // snap to final and fade in (simple mimic of movement manager)
+    try { win.setBounds(clampBounds(target)) } catch {}
+    try { win.setOpacity(1) } catch {}
+  } else {
+    if (!win.isVisible()) return { ok: true }
+    const cur = win.getBounds()
+    const endPos = { ...cur }
+    if (name === 'listen') endPos.x -= 50
+    if (name === 'ask') endPos.y -= 20
+    try { win.setOpacity(0) } catch {}
+    try { win.setBounds(clampBounds(endPos)) } catch {}
+    try { win.hide() } catch {}
+  }
+
+  // Apply layout to any other visible windows
+  Object.keys(layout).forEach((n) => {
+    if (n === name) return
+    const w = childWindows.get(n as FeatureName)
+    if (w && !w.isDestroyed()) {
+      const b = (layout as any)[n]
+      console.log(`[Layout Debug] ${n === 'ask' ? 'Ask' : 'Listen'} Window Bounds: height=${b.height}, width=${b.width}`)
+      try { w.setBounds(clampBounds(b)) } catch {}
+    }
+  })
+  enforceZOrder(name)
+  return { ok: true }
+}
+
+function calculateSettingsWindowPosition() {
+  const header = getHeaderBounds()
+  if (!header) return null
+  const settings = childWindows.get('settings')
+  if (!settings || settings.isDestroyed()) return null
+  const settingsB = settings.getBounds()
+  const display = screen.getDisplayNearestPoint({ x: header.x + header.width / 2, y: header.y + header.height / 2 })
+  const { x: workAreaX, y: workAreaY, width: screenWidth, height: screenHeight } = display.workArea
+  const buttonPadding = 170
+  const x = header.x + header.width - settingsB.width + buttonPadding
+  const y = header.y + header.height + 5
+  const clampedX = Math.max(workAreaX + 10, Math.min(workAreaX + screenWidth - settingsB.width - 10, x))
+  const clampedY = Math.max(workAreaY + 10, Math.min(workAreaY + screenHeight - settingsB.height - 10, y))
+  return { x: Math.round(clampedX), y: Math.round(clampedY), width: settingsB.width, height: settingsB.height }
 }
 
 function childCommonOptions(parent?: BrowserWindow) {
@@ -121,13 +326,13 @@ function ensureChildWindow(name: FeatureName) {
   let win: BrowserWindow
   const common = childCommonOptions(parent)
   if (name === 'listen') {
-    // Match Glass listen width ~353 and natural height; allow content to manage size
-    win = new BrowserWindow({ ...common, width: 353, height: 540 })
+    // Match Glass listen width 400
+    win = new BrowserWindow({ ...common, width: 400, height: 540 })
   } else if (name === 'ask') {
-    // Match Glass ask width ~560, height ~520
-    win = new BrowserWindow({ ...common, width: 560, height: 520 })
+    // Match Glass ask width 600
+    win = new BrowserWindow({ ...common, width: 600, height: 520 })
   } else if (name === 'settings') {
-    // Match Glass settings width ~240, height ~360-400
+    // Match Glass settings width 240, maxHeight 400
     win = new BrowserWindow({ ...common, width: 240, height: 360, parent: undefined })
   } else {
     win = new BrowserWindow({ ...common, width: 353, height: 720, parent: undefined })
@@ -141,7 +346,7 @@ function ensureChildWindow(name: FeatureName) {
   const base = dev ? 'http://localhost:5174' : `file://${path.join(__dirname, '../renderer')}`
   const file = dev ? `${base}/overlay.html?view=${name}` : `${base}/overlay.html?view=${name}`
   try { win.loadURL(file) } catch {}
-  if (dev) { try { win.webContents.openDevTools({ mode: 'detach' }) } catch {} }
+  // Do not auto-open DevTools for overlay child windows; it interferes with UX
   childWindows.set(name, win)
   // reinforce z-order
   try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
@@ -183,9 +388,19 @@ export function getHeaderWindow() {
 }
 
 export function createHeaderWindow() {
+  // Match Glass defaults precisely
+  const primary = screen.getPrimaryDisplay()
+  const { x: workAreaX, y: workAreaY, width: workAreaWidth } = primary.workArea
+  const DEFAULT_WINDOW_WIDTH = 353
+  const HEADER_HEIGHT = 47
+  const initialX = Math.round(workAreaX + (workAreaWidth - DEFAULT_WINDOW_WIDTH) / 2)
+  const initialY = workAreaY + 21
+
   headerWindow = new BrowserWindow({
-    width: 640,
-    height: 54,
+    width: DEFAULT_WINDOW_WIDTH,
+    height: HEADER_HEIGHT,
+    x: initialX,
+    y: initialY,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -222,8 +437,10 @@ export function createHeaderWindow() {
 
   headerWindow.on('moved', () => { updateChildLayouts() })
   headerWindow.on('resize', () => { updateChildLayouts() })
+  screen.on('display-metrics-changed', () => { updateChildLayouts() })
   // Maintain all-spaces visibility aggressively
   headerWindow.on('focus', () => {
+    console.log('[WindowManager] Header gained focus');
     try {
       if (!headerWindow) return
       if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
@@ -236,16 +453,14 @@ export function createHeaderWindow() {
   const bump = setInterval(() => {
     try {
       if (!headerWindow) { clearInterval(bump); return }
-      let anyVisible = false
-      for (const [, w] of childWindows) { if (!w.isDestroyed() && w.isVisible()) { anyVisible = true; break } }
-      if (anyVisible) {
-        if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
-        headerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-        headerWindow.moveTop()
-      }
+      // Always keep header on top, even with no child visible
+      if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
+      headerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      headerWindow.moveTop()
     } catch {}
   }, 1000)
   headerWindow.on('blur', () => {
+    console.log('[WindowManager] Header lost focus');
     try {
       if (!headerWindow) return
       if (process.platform === 'darwin') headerWindow.setAlwaysOnTop(true, 'screen-saver'); else headerWindow.setAlwaysOnTop(true)
@@ -266,33 +481,16 @@ function registerIpc() {
   // Window control IPC
   ipcMain.handle('win:show', (_e, name: FeatureName) => {
     const win = ensureChildWindow(name)
-    // toggle behavior: hide if already visible
-    if (win.isVisible()) {
-      try { if (process.platform === 'darwin') win.setAlwaysOnTop(false, 'screen-saver'); else win.setAlwaysOnTop(false) } catch {}
-      try { win.hide() } catch {}
-      setExclusiveClicks(undefined)
-      return { ok: true, toggled: 'hidden' }
+    const result = handleWindowVisibilityRequest(name, !win.isVisible())
+    if (result.ok) {
+      return { ok: true, toggled: win.isVisible() ? 'hidden' : 'shown', name }
     }
-    setExclusiveClicks(win)
-    try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
-    const vis: Partial<Record<FeatureName, boolean>> = {}
-    vis[name] = true
-    const layout = calculateFeatureLayout(vis)
-    const b = (layout as any)[name]
-    if (b) { try { win.setBounds(b) } catch {} }
-    try { win.show() } catch {}
-    return { ok: true, toggled: 'shown' }
+    return { ok: false }
   })
 
   ipcMain.handle('win:hide', (_e, name: FeatureName) => {
-    const win = childWindows.get(name)
-    if (!win) return { ok: false }
-    try {
-      if (process.platform === 'darwin') win.setAlwaysOnTop(false, 'screen-saver'); else win.setAlwaysOnTop(false)
-      win.hide()
-    } catch {}
-    setExclusiveClicks(undefined)
-    return { ok: true }
+    const res = handleWindowVisibilityRequest(name, false)
+    return { ok: !!res.ok }
   })
 
   ipcMain.handle('win:getHeaderPosition', () => {
@@ -324,6 +522,51 @@ function registerIpc() {
     if (!wasResizable) try { headerWindow.setResizable(false) } catch {}
     updateChildLayouts()
     return { ok: true }
+  })
+
+  // Glass-compatible aliases and additional controls
+  ipcMain.handle('get-header-position', () => {
+    const b = getHeaderBounds()
+    return b || { x: 0, y: 0, width: 0, height: 0 }
+  })
+  ipcMain.handle('move-header-to', (_e, x: number, y: number) => {
+    if (!headerWindow) return { ok: false }
+    const work = getWorkAreaForHeader()
+    const b = headerWindow.getBounds()
+    const clampedX = Math.max(work.x, Math.min(x, work.x + work.width - b.width))
+    const clampedY = Math.max(work.y, Math.min(y, work.y + work.height - b.height))
+    try { headerWindow.setPosition(clampedX, clampedY) } catch {}
+    updateChildLayouts()
+    return { ok: true }
+  })
+
+  // Settings hover lifecycle (Glass parity)
+  ipcMain.on('show-settings-window', () => { handleWindowVisibilityRequest('settings', true) })
+  ipcMain.on('hide-settings-window', () => { handleWindowVisibilityRequest('settings', false) })
+  ipcMain.on('cancel-hide-settings-window', () => { if (settingsHideTimer) { clearTimeout(settingsHideTimer); settingsHideTimer = null } })
+
+  // Header animation finished (no-op but log for parity)
+  ipcMain.on('header-animation-finished', (_e, state) => {
+    console.log('[WindowManager] Header animation finished with state:', state)
+  })
+
+  // Dynamic height adjustment from renderer (Ask/Listen)
+  ipcMain.handle('adjust-window-height', (_e, { winName, height }: { winName: FeatureName, height: number }) => {
+    try {
+      const name = String(winName) as FeatureName
+      const win = childWindows.get(name)
+      if (!win || win.isDestroyed()) return { ok: false }
+      const targetHeight = Math.max(40, Math.min(800, Math.round(height)))
+      console.log('[Layout Debug] adjustWindowHeight: targetHeight=' + targetHeight)
+      const b = win.getBounds()
+      const newBounds = { x: b.x, y: b.y, width: b.width, height: targetHeight }
+      console.log('[Layout Debug] calculateWindowHeightAdjustment: targetHeight=' + targetHeight)
+      win.setBounds(clampBounds(newBounds))
+      updateChildLayouts()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as any)?.message }
+    }
   })
 }
 

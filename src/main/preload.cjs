@@ -51,9 +51,18 @@ try {
     windows: {
       show: (name) => ipcRenderer.invoke('win:show', name),
       hide: (name) => ipcRenderer.invoke('win:hide', name),
+      // EVIA handlers
       getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
       moveHeaderTo: (x, y) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
       resizeHeader: (w, h) => ipcRenderer.invoke('win:resizeHeader', w, h),
+      // Glass-compatible aliases
+      getHeaderPositionCompat: () => ipcRenderer.invoke('get-header-position'),
+      moveHeaderToCompat: (x, y) => ipcRenderer.invoke('move-header-to', x, y),
+      adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+      showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
+      hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
+      cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
+      headerAnimationFinished: (state) => ipcRenderer.send('header-animation-finished', state),
     },
     prefs: {
       get: () => ipcRenderer.invoke('prefs:get'),

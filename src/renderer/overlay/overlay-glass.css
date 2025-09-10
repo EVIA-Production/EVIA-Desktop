@@ -62,9 +62,11 @@
 
 .glass-scroll {
   overflow-y: auto;
-  height: calc(100% - 40px);
+  height: calc(100% - 36px);
   padding: 8px 12px;
   background: transparent;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
 }
 .bubble {
   display: inline-block;
