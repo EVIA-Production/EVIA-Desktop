@@ -1,0 +1,36 @@
+/* Overlay design tokens (Glass-aligned) */
+:root {
+  --glass-blur: 20px;
+  --glass-bg: rgba(20, 20, 20, 0.55);
+  --glass-bg-strong: rgba(20, 20, 20, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-width: 1px;
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+
+  --panel-radius: 12px;
+  --button-radius: 10px;
+  --gap: 8px;
+
+  --font-size-label: 12px;
+  --font-size-body: 14px;
+  --font-size-title: 16px;
+
+  --text-color: #ffffff;
+}
+
+.evia-glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border-width) solid var(--glass-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--glass-shadow);
+}
+
+.drag-zone {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}

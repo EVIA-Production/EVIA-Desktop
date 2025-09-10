@@ -1,0 +1,72 @@
+/* Minimal Glass-like overlay styles for Listen/Ask scaffolds */
+.glass-panel {
+  color: #ffffff;
+  position: relative;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  width: 480px;
+  height: 560px;
+}
+.glass-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(169deg, rgba(255,255,255,0.17) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.17) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.glass-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 16px;
+  min-height: 32px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.glass-topbar-title {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.glass-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.glass-button {
+  background: transparent;
+  color: rgba(255,255,255,0.9);
+  border: none;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  height: 24px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.glass-button:hover { background: rgba(255,255,255,0.1); }
+
+.glass-scroll {
+  overflow-y: auto;
+  height: calc(100% - 40px);
+  padding: 8px 12px;
+}
+.bubble {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+.bubble.me { background: rgba(0, 122, 255, 0.25); }
+.bubble.them { background: rgba(255, 255, 255, 0.1); }
+
+

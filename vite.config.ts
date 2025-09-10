@@ -7,5 +7,11 @@ export default defineConfig({
     target: 'es2022',
     outDir: '../../dist/renderer',
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        index: 'src/renderer/index.html',
+        overlay: 'src/renderer/overlay.html',
+      },
+    },
   },
 })

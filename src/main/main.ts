@@ -53,10 +53,15 @@ function createWindow() {
     // Load permissions request page
     url = `file://${path.join(process.cwd(), 'src/renderer/permissions.html')}`
   } else {
+    const useOverlay = process.env.EVIA_OVERLAY === '1'
     // Normal renderer
-    url = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:5174'
-      : `file://${path.join(__dirname, '../renderer/index.html')}`
+    if (process.env.NODE_ENV === 'development') {
+      url = useOverlay ? 'http://localhost:5174/overlay.html' : 'http://localhost:5174'
+    } else {
+      url = useOverlay
+        ? `file://${path.join(__dirname, '../renderer/overlay.html')}`
+        : `file://${path.join(__dirname, '../renderer/index.html')}`
+    }
   }
 
   mainWindow.loadURL(url)
