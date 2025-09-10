@@ -25,7 +25,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, [lines, followLive]);
 
   return (
-    <div className="glass-panel evia-glass">
+    <div className="glass-panel evia-glass" style={{ pointerEvents: 'auto' }}>
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Listening</div>
         <div className="glass-controls no-drag" style={{ gap: 8 }}>

@@ -50,7 +50,11 @@ const OverlayApp: React.FC = () => {
   }, [language])
 
   return (
-    <div style={{ position: 'fixed', left: 20, top: 80, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+    <div
+      style={{ position: 'fixed', left: 20, top: 80, display: 'flex', gap: 12, alignItems: 'flex-start', pointerEvents: 'none' }}
+      onMouseEnter={() => { try { window.evia?.overlay?.setClickThrough(false) } catch {} }}
+      onMouseLeave={() => { try { window.evia?.overlay?.setClickThrough(true) } catch {} }}
+    >
       <EviaBar
         currentView={view}
         onViewChange={setView}

@@ -73,7 +73,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   return (
-    <div className="glass-panel evia-glass" style={{ width: 560, height: 520 }}>
+    <div className="glass-panel evia-glass" style={{ width: 560, height: 520, pointerEvents: 'auto' }}>
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Ask</div>
         <div className="glass-controls no-drag">

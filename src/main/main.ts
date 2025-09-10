@@ -26,12 +26,10 @@ function createWindow() {
     resizable: true,
     movable: true,
     backgroundColor: '#00000000',
-    // Prevent screenshots/screen recording from capturing the window contents
-    contentProtection: true,
+    // Content protection will be enabled via API after creation
     useContentSize: true,
     fullscreenable: false,
     skipTaskbar: true,
-    visibleOnAllWorkspaces: true,
     webPreferences: {
       preload: process.env.NODE_ENV === 'development'
         ? path.join(process.cwd(), 'src/main/preload.cjs')
@@ -49,9 +47,14 @@ function createWindow() {
     },
   })
 
+  // Enable content protection (prevents screenshots/screen recording)
+  try { mainWindow.setContentProtection(true) } catch {}
+
   // Keep the window truly on top of full-screen apps when desired
   try { mainWindow.setAlwaysOnTop(true, 'screen-saver') } catch {}
   try { mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
+  // Hide macOS traffic light buttons entirely
+  try { mainWindow.setWindowButtonVisibility(false) } catch {}
 
   // Check for diagnostic mode
   // Check for diagnostic or permissions mode

@@ -35,7 +35,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: '8px'
+        gap: '8px',
+        pointerEvents: 'auto'
       }}
     >
       <button
