@@ -17,8 +17,8 @@ let mainWindow: BrowserWindow | null = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
+    width: 640,
+    height: 620,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -28,6 +28,10 @@ function createWindow() {
     backgroundColor: '#00000000',
     // Prevent screenshots/screen recording from capturing the window contents
     contentProtection: true,
+    useContentSize: true,
+    fullscreenable: false,
+    skipTaskbar: true,
+    visibleOnAllWorkspaces: true,
     webPreferences: {
       preload: process.env.NODE_ENV === 'development'
         ? path.join(process.cwd(), 'src/main/preload.cjs')
@@ -35,6 +39,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       devTools: true,
+      backgroundThrottling: false,
     },
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -46,6 +51,7 @@ function createWindow() {
 
   // Keep the window truly on top of full-screen apps when desired
   try { mainWindow.setAlwaysOnTop(true, 'screen-saver') } catch {}
+  try { mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
 
   // Check for diagnostic mode
   // Check for diagnostic or permissions mode
@@ -72,7 +78,9 @@ function createWindow() {
   }
 
   mainWindow.loadURL(url)
-  mainWindow.webContents.openDevTools()
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  }
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
