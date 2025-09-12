@@ -512,6 +512,16 @@ function registerIpc() {
     return { ok: false }
   })
 
+  // Idempotent show (ensure visible regardless of current state)
+  ipcMain.handle('win:ensureShown', (_e, name: FeatureName) => {
+    ensureChildWindow(name)
+    const result = handleWindowVisibilityRequest(name, true)
+    if (result.ok) {
+      return { ok: true, toggled: 'shown', name }
+    }
+    return { ok: false }
+  })
+
   ipcMain.handle('win:hide', (_e, name: FeatureName) => {
     const res = handleWindowVisibilityRequest(name, false)
     return { ok: !!res.ok }

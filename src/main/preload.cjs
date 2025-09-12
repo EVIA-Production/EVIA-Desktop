@@ -50,6 +50,7 @@ try {
     },
     windows: {
       show: (name) => ipcRenderer.invoke('win:show', name),
+      ensureShown: (name) => ipcRenderer.invoke('win:ensureShown', name),
       hide: (name) => ipcRenderer.invoke('win:hide', name),
       // EVIA handlers
       getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),

@@ -29,6 +29,7 @@ interface EviaBridge {
   // Add windows
   windows: {
     show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
+    ensureShown: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
     hide: (name: string) => Promise<{ ok: boolean }>;
     cancelHideSettingsWindow: () => void;
   };

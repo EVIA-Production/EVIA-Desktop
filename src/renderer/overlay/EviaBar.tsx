@@ -78,8 +78,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
           } catch (e) {
             console.error('[EviaBar] ensure chat failed', e)
           }
-          // Explicitly show listen (avoid double-toggle quirks)
-          try { await (window as any).evia?.windows?.show?.('listen') } catch {}
+          // Explicitly ensure listen is visible (idempotent)
+          try { await (window as any).evia?.windows?.ensureShown?.('listen') } catch {}
           onToggleListening()
         }}
       >

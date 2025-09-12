@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('evia', {
   },
   windows: {
     show: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:show', name),
+    ensureShown: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:ensureShown', name),
     hide: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:hide', name),
     getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
     moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
