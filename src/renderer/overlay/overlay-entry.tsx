@@ -22,14 +22,14 @@ const OverlayApp: React.FC = () => {
   const chatIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    chatIdRef.current = window.localStorage.getItem('chat_id') || '1'
+    chatIdRef.current = window.localStorage.getItem('current_chat_id') || window.localStorage.getItem('chat_id') || '1'
+    const prefsToken = (window as any).evia?.prefs ? undefined : undefined
     const token = window.localStorage.getItem('auth_token')
     if (!token) return
 
-    const base = (window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + (new URL(window.location.href)).host
-    const backend = (window as any).EVIA_BACKEND_WS || undefined
-    const host = backend || base
-    const url = `${host}/ws/transcribe?chat_id=${chatIdRef.current}&token=${token}&source=mic&dg_lang=${language}`
+    const httpBase = (window as any).EVIA_BACKEND_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
+    const wsBase = httpBase.replace(/^http/, 'ws')
+    const url = `${wsBase.replace(/\/$/, '')}/ws/transcribe?chat_id=${chatIdRef.current}&token=${token}&source=mic&dg_lang=${language}`
 
     let handle: any | null = null
     try {
