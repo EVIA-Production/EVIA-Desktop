@@ -20,6 +20,7 @@ const OverlayApp: React.FC = () => {
   const [followLive, setFollowLive] = useState(true)
   const [lines, setLines] = useState<{ speaker: number | null, text: string, isFinal?: boolean }[]>([])
   const chatIdRef = useRef<string | null>(null)
+  const [storageTick, setStorageTick] = useState(0)
 
   useEffect(() => {
     // Only connect WS in the listen window
@@ -34,40 +35,62 @@ const OverlayApp: React.FC = () => {
     }
     chatIdRef.current = cid
 
-    // Prefer prefs JWT; fallback to localStorage
-    let token: string | null = window.localStorage.getItem('auth_token')
-    try {
-      const p = (window as any).evia?.prefs ? undefined : undefined
-      // preload TS bridge returns only via invoke; cjs exposes get().then
-    } catch {}
-    if (!token) {
-      console.warn('[overlay] No auth token; skipping WS connect')
-      return
-    }
-
-    const httpBase = (window as any).EVIA_BACKEND_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
-    const wsBase = httpBase.replace(/^http/, 'ws')
-    const url = `${wsBase.replace(/\/$/, '')}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=mic&dg_lang=${language}`
-
+    // Wrap async logic
     let handle: any | null = null
-    try {
-      const w: any = window as any
-      if (w.evia && typeof w.evia.createWs === 'function') {
-        handle = w.evia.createWs(url)
-        handle.onMessage((data: any) => {
-          try {
-            const msg = typeof data === 'string' ? JSON.parse(data) : data
-            if (msg && msg.type === 'transcript_segment' && msg.data) {
-              const d = msg.data as any
-              setLines(prev => [...prev, { speaker: typeof d.speaker === 'number' ? d.speaker : null, text: String(d.text || ''), isFinal: !!d.is_final }])
-            }
-          } catch { /* ignore */ }
-        })
+    ;(async () => {
+      // Prefer prefs JWT; fallback to localStorage
+      let token: string | null = null
+      try {
+        const resp = await (window as any).evia?.prefs?.get?.()
+        const fromPrefs = resp?.prefs?.auth_token
+        token = fromPrefs || window.localStorage.getItem('auth_token')
+      } catch {
+        token = window.localStorage.getItem('auth_token')
       }
-    } catch { /* ignore */ }
+      if (!token) { console.warn('[overlay] No auth token; skipping WS connect'); return }
+
+      const httpBase = (window as any).EVIA_BACKEND_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
+      const wsBase = httpBase.replace(/^http/, 'ws')
+      const url = `${wsBase.replace(/\/$/, '')}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=mic&dg_lang=${language}`
+
+      try {
+        const w: any = window as any
+        if (w.evia && typeof w.evia.createWs === 'function') {
+          handle = w.evia.createWs(url)
+          handle.onOpen?.(() => { console.log('[listen] WS open for chat', cid) })
+          handle.onMessage((data: any) => {
+            try {
+              const msg = typeof data === 'string' ? JSON.parse(data) : data
+              if (msg && msg.type === 'transcript_segment' && msg.data) {
+                const d = msg.data as any
+                setLines(prev => [...prev, { speaker: typeof d.speaker === 'number' ? d.speaker : null, text: String(d.text || ''), isFinal: !!d.is_final }])
+              } else if (msg && msg.type === 'status' && msg.data) {
+                const d = msg.data as any
+                if (typeof d.echo_text === 'string') {
+                  setLines(prev => [...prev, { speaker: null, text: String(d.echo_text), isFinal: true }])
+                }
+              }
+            } catch { /* ignore */ }
+          })
+          handle.onError?.(() => { console.warn('[listen] WS error') })
+          handle.onClose?.(() => { console.log('[listen] WS closed') })
+        }
+      } catch { /* ignore */ }
+    })()
 
     return () => { try { handle?.close?.() } catch {} }
-  }, [language])
+  }, [language, storageTick])
+
+  // React to storage changes (token/chat id updates from header window)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'current_chat_id' || e.key === 'auth_token') {
+        setStorageTick(t => t + 1)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   if (view === 'header') {
     const [current, setCurrent] = useState<'listen' | 'ask' | 'settings' | 'shortcuts' | null>(null)
