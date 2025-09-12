@@ -22,14 +22,32 @@ const OverlayApp: React.FC = () => {
   const chatIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    chatIdRef.current = window.localStorage.getItem('current_chat_id') || window.localStorage.getItem('chat_id') || '1'
-    const prefsToken = (window as any).evia?.prefs ? undefined : undefined
-    const token = window.localStorage.getItem('auth_token')
-    if (!token) return
+    // Only connect WS in the listen window
+    const qp = new URLSearchParams(window.location.search)
+    const currentView = (qp.get('view') as View) || 'listen'
+    if (currentView !== 'listen') return
+
+    const cid = window.localStorage.getItem('current_chat_id') || null
+    if (!cid) {
+      console.warn('[overlay] No current_chat_id; skipping WS connect')
+      return
+    }
+    chatIdRef.current = cid
+
+    // Prefer prefs JWT; fallback to localStorage
+    let token: string | null = window.localStorage.getItem('auth_token')
+    try {
+      const p = (window as any).evia?.prefs ? undefined : undefined
+      // preload TS bridge returns only via invoke; cjs exposes get().then
+    } catch {}
+    if (!token) {
+      console.warn('[overlay] No auth token; skipping WS connect')
+      return
+    }
 
     const httpBase = (window as any).EVIA_BACKEND_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
     const wsBase = httpBase.replace(/^http/, 'ws')
-    const url = `${wsBase.replace(/\/$/, '')}/ws/transcribe?chat_id=${chatIdRef.current}&token=${token}&source=mic&dg_lang=${language}`
+    const url = `${wsBase.replace(/\/$/, '')}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=mic&dg_lang=${language}`
 
     let handle: any | null = null
     try {

@@ -25,6 +25,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   onToggleVisibility,
 }) => {
   const [listenPressed, setListenPressed] = useState(false)
+  const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before')
   const [askPressed, setAskPressed] = useState(false)
   const [settingsPressed, setSettingsPressed] = useState(false)
   const [isTogglingSession, setIsTogglingSession] = useState(false); // Ported from Glass
@@ -52,39 +53,51 @@ const EviaBar: React.FC<EviaBarProps> = ({
   return (
     <div className="evia-header">
       <button
-        className={`listen-button ${(listenPressed || isListening) ? 'active' : ''}`}
+        className={`listen-button ${(listenPressed || listenStatus === 'in' || isListening) ? 'active' : ''}`}
         aria-pressed={listenPressed}
-        title={isListening ? 'Stop' : 'Listen'}
+        title={listenStatus === 'before' ? 'Listen' : listenStatus === 'in' ? 'Stop' : 'Done'}
         onClick={async () => {
           try {
-            // Ensure chat id exists (Glass-like: session starts on Listen)
-            let token = localStorage.getItem('auth_token') || ''
-            try { const p = await (window as any).evia?.prefs?.get?.(); const fromPrefs = p?.prefs?.auth_token; if (fromPrefs) token = fromPrefs } catch {}
-            const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000'
-            let chatId = Number(localStorage.getItem('current_chat_id') || '0')
-            if (!token) { console.warn('[EviaBar] Missing auth token'); }
-            if (!chatId || Number.isNaN(chatId)) {
-              if (token) {
-                const res = await fetch(`${String(baseUrl).replace(/\/$/, '')}/chat/`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
-                if (res.ok) {
-                  const data = await res.json()
-                  chatId = Number(data?.id)
-                  if (chatId && !Number.isNaN(chatId)) { try { localStorage.setItem('current_chat_id', String(chatId)) } catch {} }
-                } else {
-                  console.warn('[EviaBar] Failed to create chat', res.status)
+            if (listenStatus === 'before') {
+              // Ensure chat id exists before starting session
+              let token = localStorage.getItem('auth_token') || ''
+              try { const p = await (window as any).evia?.prefs?.get?.(); const fromPrefs = p?.prefs?.auth_token; if (fromPrefs) token = fromPrefs } catch {}
+              const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000'
+              let chatId = Number(localStorage.getItem('current_chat_id') || '0')
+              if (!token) { console.warn('[EviaBar] Missing auth token'); }
+              if (!chatId || Number.isNaN(chatId)) {
+                if (token) {
+                  const res = await fetch(`${String(baseUrl).replace(/\/$/, '')}/chat/`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+                  if (res.ok) {
+                    const data = await res.json()
+                    chatId = Number(data?.id)
+                    if (chatId && !Number.isNaN(chatId)) { try { localStorage.setItem('current_chat_id', String(chatId)) } catch {} }
+                  } else {
+                    console.warn('[EviaBar] Failed to create chat', res.status)
+                  }
                 }
               }
+              // Show listen window and enter session
+              try { await (window as any).evia?.windows?.ensureShown?.('listen') } catch {}
+              setListenStatus('in')
+              onToggleListening()
+            } else if (listenStatus === 'in') {
+              // Stop session; keep window for post-call affordances
+              setListenStatus('after')
+              // Note: do not toggle visibility or onToggleListening here
+            } else {
+              // Done: hide window and reset to before
+              try { await (window as any).evia?.windows?.hide?.('listen') } catch {}
+              setListenStatus('before')
+              onToggleListening()
             }
           } catch (e) {
-            console.error('[EviaBar] ensure chat failed', e)
+            console.error('[EviaBar] Listen button flow failed', e)
           }
-          // Explicitly ensure listen is visible (idempotent)
-          try { await (window as any).evia?.windows?.ensureShown?.('listen') } catch {}
-          onToggleListening()
         }}
       >
         <div className="action-text">
-          <div className="action-text-content">{isListening ? 'Stop' : 'Listen'}</div>
+          <div className="action-text-content">{listenStatus === 'before' ? 'Listen' : listenStatus === 'in' ? 'Stop' : 'Done'}</div>
         </div>
         <div className="listen-icon" aria-hidden>
           {isListening ? (
