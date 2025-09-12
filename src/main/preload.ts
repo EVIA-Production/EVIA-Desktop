@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('evia', {
     getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
     moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
     resizeHeader: (w: number, h: number) => ipcRenderer.invoke('win:resizeHeader', w, h),
+    cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
   },
 })
 

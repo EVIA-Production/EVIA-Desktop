@@ -30,7 +30,7 @@ interface EviaBridge {
   windows: {
     show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
     hide: (name: string) => Promise<{ ok: boolean }>;
-    cancelHideSettings: () => void;
+    cancelHideSettingsWindow: () => void;
   };
 }
 

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import fs from 'fs'
 import path from 'path'
 
 export type FeatureName = 'listen' | 'ask' | 'settings' | 'shortcuts'
@@ -8,6 +9,26 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
 const PAD = 8
 let settingsHideTimer: NodeJS.Timeout | null = null
+
+// Simple prefs store (persisted under userData/prefs.json)
+type Prefs = { [key: string]: any }
+let prefs: Prefs = {}
+const prefsPath = path.join(app.getPath('userData'), 'prefs.json')
+function loadPrefs() {
+  try {
+    if (fs.existsSync(prefsPath)) {
+      const raw = fs.readFileSync(prefsPath, 'utf8')
+      prefs = JSON.parse(raw || '{}')
+    }
+  } catch {}
+}
+function savePrefs() {
+  try {
+    fs.mkdirSync(path.dirname(prefsPath), { recursive: true })
+    fs.writeFileSync(prefsPath, JSON.stringify(prefs || {}, null, 2), 'utf8')
+  } catch {}
+}
+loadPrefs()
 
 function getHeaderBounds() {
   if (!headerWindow || headerWindow.isDestroyed()) return null
@@ -346,7 +367,7 @@ function ensureChildWindow(name: FeatureName) {
   const base = dev ? 'http://localhost:5174' : `file://${path.join(__dirname, '../renderer')}`
   const file = dev ? `${base}/overlay.html?view=${name}` : `${base}/overlay.html?view=${name}`
   try { win.loadURL(file) } catch {}
-  // Do not auto-open DevTools for overlay child windows; it interferes with UX
+  // Do not auto-open DevTools for child windows; it can affect visibility toggles
   childWindows.set(name, win)
   // reinforce z-order
   try { if (process.platform === 'darwin') win.setAlwaysOnTop(true, 'screen-saver'); else win.setAlwaysOnTop(true) } catch {}
@@ -481,9 +502,12 @@ function registerIpc() {
   // Window control IPC
   ipcMain.handle('win:show', (_e, name: FeatureName) => {
     const win = ensureChildWindow(name)
-    const result = handleWindowVisibilityRequest(name, !win.isVisible())
+    const wasVisible = win.isVisible()
+    const desired = !wasVisible
+    const result = handleWindowVisibilityRequest(name, desired)
     if (result.ok) {
-      return { ok: true, toggled: win.isVisible() ? 'hidden' : 'shown', name }
+      const nowVisible = desired
+      return { ok: true, toggled: nowVisible ? 'shown' : 'hidden', name }
     }
     return { ok: false }
   })
@@ -567,6 +591,23 @@ function registerIpc() {
     } catch (e) {
       return { ok: false, error: (e as any)?.message }
     }
+  })
+
+  // Prefs IPC
+  ipcMain.handle('prefs:get', () => {
+    return { ok: true, prefs }
+  })
+  ipcMain.handle('prefs:set', (_e, patch: Prefs) => {
+    try {
+      if (patch && typeof patch === 'object') {
+        prefs = { ...prefs, ...patch }
+        savePrefs()
+        return { ok: true }
+      }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+    return { ok: false }
   })
 }
 

@@ -10,7 +10,7 @@ interface SettingsViewProps {
 
 const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
   return (
-    <div className="glass-panel evia-glass" style={{ width: 240, height: 360, pointerEvents: 'auto' }} onMouseEnter={() => window.evia.windows.cancelHideSettings()} >
+    <div className="glass-panel evia-glass" style={{ width: 240, height: 360, pointerEvents: 'auto' }} onMouseEnter={() => window.evia.windows.cancelHideSettingsWindow()} >
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Settings</div>
         {onClose && (

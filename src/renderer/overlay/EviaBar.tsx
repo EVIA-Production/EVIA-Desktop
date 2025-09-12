@@ -56,6 +56,27 @@ const EviaBar: React.FC<EviaBarProps> = ({
         aria-pressed={listenPressed}
         title={isListening ? 'Stop' : 'Listen'}
         onClick={async () => {
+          try {
+            // Ensure chat id exists (Glass-like: session starts on Listen)
+            const token = localStorage.getItem('auth_token') || ''
+            const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000'
+            let chatId = Number(localStorage.getItem('current_chat_id') || '0')
+            if (!token) { console.warn('[EviaBar] Missing auth token'); }
+            if (!chatId || Number.isNaN(chatId)) {
+              if (token) {
+                const res = await fetch(`${String(baseUrl).replace(/\/$/, '')}/chat/`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+                if (res.ok) {
+                  const data = await res.json()
+                  chatId = Number(data?.id)
+                  if (chatId && !Number.isNaN(chatId)) { try { localStorage.setItem('current_chat_id', String(chatId)) } catch {} }
+                } else {
+                  console.warn('[EviaBar] Failed to create chat', res.status)
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[EviaBar] ensure chat failed', e)
+          }
           const shown = await toggleWindow('listen')
           if (shown !== undefined) onToggleListening()
         }}
