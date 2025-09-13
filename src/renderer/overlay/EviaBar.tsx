@@ -59,24 +59,58 @@ const EviaBar: React.FC<EviaBarProps> = ({
         onClick={async () => {
           try {
             if (listenStatus === 'before') {
-              // Ensure chat id exists before starting session
+              // Ensure chat id exists and is valid before starting session
               let token = localStorage.getItem('auth_token') || ''
               try { const p = await (window as any).evia?.prefs?.get?.(); const fromPrefs = p?.prefs?.auth_token; if (fromPrefs) token = fromPrefs } catch {}
               const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000'
-              let chatId = Number(localStorage.getItem('current_chat_id') || '0')
+              const apiBase = String(baseUrl).replace(/\/$/, '')
+              // Prefer prefs current_chat_id
+              let chatIdStr: string | null = null
+              try { const p = await (window as any).evia?.prefs?.get?.(); const fromPrefsCid = p?.prefs?.current_chat_id; if (fromPrefsCid) chatIdStr = String(fromPrefsCid) } catch {}
+              if (!chatIdStr) { try { chatIdStr = localStorage.getItem('current_chat_id') } catch {} }
+              let chatId = Number(chatIdStr || '0')
               if (!token) { console.warn('[EviaBar] Missing auth token'); }
-              if (!chatId || Number.isNaN(chatId)) {
-                if (token) {
-                  const res = await fetch(`${String(baseUrl).replace(/\/$/, '')}/chat/`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+              // Validate existing chat id if present; otherwise create
+              const ensureValidChat = async (): Promise<number> => {
+                if (token && chatId && !Number.isNaN(chatId)) {
+                  try {
+                    const v = await fetch(`${apiBase}/chat/${encodeURIComponent(String(chatId))}/`, { headers: { 'Authorization': `Bearer ${token}` } })
+                    if (v.ok) return chatId
+                  } catch {}
+                }
+                if (!token) return chatId
+                // Create new chat if missing or invalid
+                try {
+                  const res = await fetch(`${apiBase}/chat/`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                   if (res.ok) {
                     const data = await res.json()
-                    chatId = Number(data?.id)
-                    if (chatId && !Number.isNaN(chatId)) { try { localStorage.setItem('current_chat_id', String(chatId)) } catch {} }
+                    let newId = Number((data && (data.id ?? (data as any).chat_id)) ?? NaN)
+                    // Fallback: list chats and pick the most recent
+                    if (!newId || Number.isNaN(newId)) {
+                      try {
+                        const list = await fetch(`${apiBase}/chat/`, { headers: { 'Authorization': `Bearer ${token}` } })
+                        if (list.ok) {
+                          const chats = await list.json()
+                          if (Array.isArray(chats) && chats.length) {
+                            newId = Number(chats[0]?.id)
+                          }
+                        }
+                      } catch {}
+                    }
+                    if (newId && !Number.isNaN(newId)) {
+                      try { localStorage.setItem('current_chat_id', String(newId)) } catch {}
+                      try { await (window as any).evia?.prefs?.set?.({ current_chat_id: String(newId) }) } catch {}
+                      return newId
+                    }
                   } else {
                     console.warn('[EviaBar] Failed to create chat', res.status)
                   }
+                } catch (e) {
+                  console.warn('[EviaBar] Error creating chat', e)
                 }
+                return chatId
               }
+              chatId = await ensureValidChat()
               // Show listen window and enter session
               try { await (window as any).evia?.windows?.ensureShown?.('listen') } catch {}
               setListenStatus('in')
