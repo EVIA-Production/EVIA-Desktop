@@ -67,6 +67,9 @@ const OverlayApp: React.FC = () => {
 
       const httpBase = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
       const wsBase = httpBase.replace(/^http/, 'ws').replace(/\/$/, '')
+      const SAMPLE_RATE = 16000
+      const CHUNK_MS = 100
+      const SAMPLES_PER_CHUNK = Math.floor(SAMPLE_RATE * CHUNK_MS / 1000)
 
       const w: any = window as any
       if (!(w.evia && typeof w.evia.createWs === 'function')) return
@@ -89,7 +92,7 @@ const OverlayApp: React.FC = () => {
 
       // Open system WS and stream system audio
       try {
-        const urlSys = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=system&dg_lang=${language}`
+        const urlSys = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=system&sample_rate=${SAMPLE_RATE}&debug=1&dg_lang=${language}`
         handleSys = w.evia.createWs(urlSys)
         sysWsRef.current = handleSys
         handleSys.onOpen?.(() => {
@@ -113,7 +116,7 @@ const OverlayApp: React.FC = () => {
 
       // Open mic WS and stream mic audio
       try {
-        const urlMic = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=mic&dg_lang=${language}`
+        const urlMic = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(cid)}&token=${encodeURIComponent(token)}&source=mic&sample_rate=${SAMPLE_RATE}&dg_lang=${language}`
         handleMic = w.evia.createWs(urlMic)
         micWsRef.current = handleMic
         handleMic.onOpen?.(async () => {
@@ -178,65 +181,61 @@ const OverlayApp: React.FC = () => {
   }
 
   async function startMicStreaming(onChunk: (buf: ArrayBuffer) => void) {
-    // Request mic
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false })
+    // Request mic (enable EC/NS/AGC like the working branch)
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: { ideal: SAMPLE_RATE },
+        channelCount: { ideal: 1 }
+      }, 
+      video: false 
+    })
     micStreamRef.current = stream
-    // Use AudioContext, resample to 16k, PCM16 frames (~100ms)
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: SAMPLE_RATE })
     micAudioContextRef.current = ctx
     const source = ctx.createMediaStreamSource(stream)
-    const processor = ctx.createScriptProcessor(4096, 1, 1)
+    const processor = ctx.createScriptProcessor(1024, 1, 1)
     micProcessorRef.current = processor
 
-    const targetRate = 16000
-    let resampleBuffer: Float32Array | null = null
+    // route through zero gain to keep processor running without audio out
+    const zero = ctx.createGain(); zero.gain.value = 0.0
+    processor.connect(zero); zero.connect(ctx.destination)
+    source.connect(processor)
 
+    let acc = new Float32Array(0)
     processor.onaudioprocess = (ev) => {
       const input = ev.inputBuffer.getChannelData(0)
-      const inputRate = ctx.sampleRate
-      const out = resampleFloat32(input, inputRate, targetRate)
-      const pcm = floatTo16BitPCM(out)
-      onChunk(pcm.buffer)
+      // accumulate
+      const next = new Float32Array(acc.length + input.length)
+      next.set(acc, 0)
+      next.set(input, acc.length)
+      acc = next
+      // send fixed ~100ms chunks
+      while (acc.length >= SAMPLES_PER_CHUNK) {
+        const chunk = acc.slice(0, SAMPLES_PER_CHUNK)
+        acc = acc.slice(SAMPLES_PER_CHUNK)
+        const pcm16 = new Int16Array(SAMPLES_PER_CHUNK)
+        for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
+          const s = Math.max(-1, Math.min(1, chunk[i]))
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+        }
+        onChunk(pcm16.buffer)
+      }
     }
-    source.connect(processor)
-    processor.connect(ctx.destination)
 
     stopMicRef.current = () => {
       try { processor.disconnect() } catch {}
       try { source.disconnect() } catch {}
+      try { zero.disconnect() } catch {}
       try { ctx.close() } catch {}
       try { stream.getTracks().forEach(t => t.stop()) } catch {}
       micProcessorRef.current = null
       micAudioContextRef.current = null
       micStreamRef.current = null
     }
-  }
-
-  function resampleFloat32(input: Float32Array, inRate: number, outRate: number): Float32Array {
-    if (inRate === outRate) return input
-    const ratio = inRate / outRate
-    const newLen = Math.max(1, Math.floor(input.length / ratio))
-    const output = new Float32Array(newLen)
-    let pos = 0
-    for (let i = 0; i < newLen; i++) {
-      const idx = i * ratio
-      const i0 = Math.floor(idx)
-      const i1 = Math.min(i0 + 1, input.length - 1)
-      const frac = idx - i0
-      output[i] = input[i0] * (1 - frac) + input[i1] * frac
-    }
-    return output
-  }
-
-  function floatTo16BitPCM(input: Float32Array): Uint8Array {
-    const out = new Uint8Array(input.length * 2)
-    const view = new DataView(out.buffer)
-    let offset = 0
-    for (let i = 0; i < input.length; i++, offset += 2) {
-      let s = Math.max(-1, Math.min(1, input[i]))
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
-    }
-    return out
   }
 
   if (view === 'header') {
