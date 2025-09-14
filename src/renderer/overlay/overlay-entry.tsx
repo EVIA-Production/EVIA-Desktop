@@ -29,6 +29,35 @@ const OverlayApp: React.FC = () => {
   // WS handles
   const micWsRef = useRef<any | null>(null)
   const sysWsRef = useRef<any | null>(null)
+  // Prevent repeated permission prompts: start system helper once per session
+  const systemStartAttemptedRef = useRef(false)
+  // Audio constants (component scope so helpers can access)
+  const SAMPLE_RATE = 16000
+  const CHUNK_MS = 100
+  const SAMPLES_PER_CHUNK = Math.floor(SAMPLE_RATE * CHUNK_MS / 1000)
+
+  // Load initial language from prefs/localStorage
+  useEffect(() => {
+    (async () => {
+      try {
+        const prefLang = (await (window as any).evia?.prefs?.get?.())?.prefs?.language
+        const lsLang = window.localStorage.getItem('dg_lang')
+        const initial = (prefLang === 'en' || prefLang === 'de') ? prefLang : (lsLang === 'en' || lsLang === 'de') ? lsLang : null
+        if (initial && initial !== language) {
+          console.log('[overlay] init language from prefs/localStorage →', initial)
+          setLanguage(initial as 'en' | 'de')
+        }
+      } catch {}
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist language changes
+  useEffect(() => {
+    try { window.localStorage.setItem('dg_lang', language) } catch {}
+    try { (window as any).evia?.prefs?.set?.({ language }) } catch {}
+    console.log('[overlay] language set →', language)
+  }, [language])
 
   useEffect(() => {
     // Only connect WS and start streaming in the listen window
@@ -67,9 +96,6 @@ const OverlayApp: React.FC = () => {
 
       const httpBase = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || window.localStorage.getItem('evia_backend') || 'http://localhost:8000'
       const wsBase = httpBase.replace(/^http/, 'ws').replace(/\/$/, '')
-      const SAMPLE_RATE = 16000
-      const CHUNK_MS = 100
-      const SAMPLES_PER_CHUNK = Math.floor(SAMPLE_RATE * CHUNK_MS / 1000)
 
       const w: any = window as any
       if (!(w.evia && typeof w.evia.createWs === 'function')) return
@@ -97,7 +123,10 @@ const OverlayApp: React.FC = () => {
         sysWsRef.current = handleSys
         handleSys.onOpen?.(() => {
           console.log('[listen] WS open (system) for chat', cid)
-          try { w.evia.systemAudio.start() } catch {}
+          if (!systemStartAttemptedRef.current) {
+            systemStartAttemptedRef.current = true
+            try { w.evia.systemAudio.start() } catch {}
+          }
         })
         // Forward system audio frames
         try {
