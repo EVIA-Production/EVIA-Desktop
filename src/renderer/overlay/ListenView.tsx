@@ -274,6 +274,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             opacity: 1;
             transform: translate(-50%, -50%) scale(1);
           }
+
+          .insights-placeholder {
+            color: rgba(255, 255, 255, 0.7); /* Match text color */
+            text-align: center;
+            padding: 16px;
+            font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; /* Match font family */
+            font-size: 12px; /* Slightly smaller font size */
+            font-weight: 400; /* Match font weight */
+            font-style: italic; /* Make the text cursive */
+          }
         `}
       </style>
       <div className="assistant-container">
