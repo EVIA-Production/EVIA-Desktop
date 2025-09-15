@@ -111,7 +111,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         width: '800px',
         maxWidth: '90%',
         margin: '0 auto',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)', // Adjusted shadow for depth
         border: '1px solid rgba(255, 255, 255, 0.2)', // Slightly more visible border
       }}
     >
