@@ -109,10 +109,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const displayText = isHovering
     ? viewMode === 'transcript'
       ? 'Copy Transcript'
-      : 'Copy Glass Analysis'
+      : 'Copy EVIA Analysis'
     : viewMode === 'insights'
     ? 'Live insights'
-    : `Glass is Listening ${elapsedTime}`;
+    : `EVIA is Listening ${elapsedTime}`;
 
   return (
     <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
