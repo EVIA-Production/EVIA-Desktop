@@ -100,10 +100,63 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         )}
       </div>
       <div className="glass-scroll no-drag">
-        <form onSubmit={onAsk}>
-          <input type="text" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Type your question..." className="ask-input" />
-          <button type="submit" className="ask-button" disabled={isStreaming}>Ask</button>
-          <button type="button" className="ask-button" onClick={onAbort} disabled={!isStreaming}>Abort</button>
+        <form onSubmit={onAsk} className="text-input-container">
+          <input
+            type="text"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Ask about your screen or audio"
+            id="textInput"
+            className="ask-input"
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              background: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '20px',
+              outline: 'none',
+              border: 'none',
+              color: 'white',
+              fontSize: '14px',
+              fontFamily: "'Helvetica Neue', sans-serif",
+              fontWeight: 400,
+            }}
+          />
+          <button
+            type="submit"
+            className="submit-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              background: 'transparent',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              marginLeft: '8px',
+              fontSize: '13px',
+              fontFamily: "'Helvetica Neue', sans-serif",
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'background 0.15s',
+              height: '32px',
+              padding: '0 10px',
+            }}
+          >
+            <span className="btn-label" style={{ marginRight: '8px' }}>Submit</span>
+            <span
+              className="btn-icon"
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '13%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+              }}
+            >
+              ↵
+            </span>
+          </button>
         </form>
         <div className="response-area">
           {isStreaming && !hasFirstDelta ? (
