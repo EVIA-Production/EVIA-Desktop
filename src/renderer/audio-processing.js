@@ -2,7 +2,12 @@
 // Improved from Glass patterns for stable audio processing
 
 // Import buffer manager
-import { AudioBufferManager, SAMPLE_RATE, AUDIO_CHUNK_DURATION, SAMPLES_PER_CHUNK } from './audio-buffer-manager.js';
+import {
+  AudioBufferManager,
+  SAMPLE_RATE,
+  AUDIO_CHUNK_DURATION,
+  SAMPLES_PER_CHUNK,
+} from "./audio-buffer-manager.js";
 
 // Audio context and processor references
 let audioContext = null;
@@ -12,22 +17,28 @@ let processorNode = null;
 // Audio buffers
 const pcmBuffers = {
   system: [],
-  mic: []
+  mic: [],
 };
 
 // Create buffer managers
-const systemBufferManager = new AudioBufferManager(SAMPLE_RATE, AUDIO_CHUNK_DURATION);
-const micBufferManager = new AudioBufferManager(SAMPLE_RATE, AUDIO_CHUNK_DURATION);
+const systemBufferManager = new AudioBufferManager(
+  SAMPLE_RATE,
+  AUDIO_CHUNK_DURATION
+);
+const micBufferManager = new AudioBufferManager(
+  SAMPLE_RATE,
+  AUDIO_CHUNK_DURATION
+);
 
 // Expose buffer managers for diagnostics/export helpers
 try {
-  if (typeof window !== 'undefined') {
-    (window).systemBufferManager = systemBufferManager;
-    (window).micBufferManager = micBufferManager;
+  if (typeof window !== "undefined") {
+    window.systemBufferManager = systemBufferManager;
+    window.micBufferManager = micBufferManager;
   }
 } catch {}
 
-console.log('[Audio] SAMPLES_PER_CHUNK value:', SAMPLES_PER_CHUNK);
+console.log("[Audio] SAMPLES_PER_CHUNK value:", SAMPLES_PER_CHUNK);
 
 /**
  * Initialize the audio processing context and worklet
@@ -36,47 +47,53 @@ async function initAudioProcessing() {
   try {
     // Create audio context with the highest sample rate available
     audioContext = new AudioContext();
-    console.log('[Audio] Context created with sample rate:', audioContext.sampleRate);
-    
+    console.log(
+      "[Audio] Context created with sample rate:",
+      audioContext.sampleRate
+    );
+
     let workletUrl;
     try {
-      workletUrl = new URL('./audio-processor.js', import.meta.url).href;
-      console.log('[Audio] Attempting to load worklet from import.meta URL:', workletUrl);
+      workletUrl = new URL("./audio-processor.js", import.meta.url).href;
+      console.log(
+        "[Audio] Attempting to load worklet from import.meta URL:",
+        workletUrl
+      );
       await audioContext.audioWorklet.addModule(workletUrl);
-      console.log('[Audio] AudioWorklet loaded from import.meta URL');
+      console.log("[Audio] AudioWorklet loaded from import.meta URL");
     } catch (err) {
-      console.error('[Audio] import.meta URL failed:', err);
+      console.error("[Audio] import.meta URL failed:", err);
       try {
-        workletUrl = '/audio-processor.js'; // Vite dev server path
-        console.log('[Audio] Attempting Vite dev server path:', workletUrl);
+        workletUrl = "/audio-processor.js"; // Vite dev server path
+        console.log("[Audio] Attempting Vite dev server path:", workletUrl);
         await audioContext.audioWorklet.addModule(workletUrl);
-        console.log('[Audio] AudioWorklet loaded from Vite path');
+        console.log("[Audio] AudioWorklet loaded from Vite path");
       } catch (viteErr) {
-        console.error('[Audio] Vite path failed:', viteErr);
+        console.error("[Audio] Vite path failed:", viteErr);
         try {
-          workletUrl = window.location.origin + '/audio-processor.js';
-          console.log('[Audio] Attempting origin-relative path:', workletUrl);
+          workletUrl = window.location.origin + "/audio-processor.js";
+          console.log("[Audio] Attempting origin-relative path:", workletUrl);
           await audioContext.audioWorklet.addModule(workletUrl);
-          console.log('[Audio] AudioWorklet loaded from origin path');
+          console.log("[Audio] AudioWorklet loaded from origin path");
         } catch (originErr) {
-          console.error('[Audio] All paths failed:', originErr);
+          console.error("[Audio] All paths failed:", originErr);
           throw originErr;
         }
       }
     }
-    
-    console.log('[Audio] Processing initialized successfully');
+
+    console.log("[Audio] Processing initialized successfully");
     return true;
   } catch (err) {
-    console.error('[Audio] Failed to initialize processing:', err);
+    console.error("[Audio] Failed to initialize processing:", err);
     // Try to create a fallback audio context
     try {
       if (!audioContext) {
         audioContext = new AudioContext();
-        console.log('[Audio] Created fallback context');
+        console.log("[Audio] Created fallback context");
       }
     } catch (e) {
-      console.error('[Audio] Failed to create fallback context:', e);
+      console.error("[Audio] Failed to create fallback context:", e);
     }
     return false;
   }
@@ -115,11 +132,15 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
     const offlineCtx = new OfflineAudioContext({
       numberOfChannels: 1,
       length: SAMPLES_PER_CHUNK,
-      sampleRate: SAMPLE_RATE
+      sampleRate: SAMPLE_RATE,
     });
 
     // Create buffer source with input data
-    const sourceBuffer = offlineCtx.createBuffer(1, chunk.length, inputSampleRate);
+    const sourceBuffer = offlineCtx.createBuffer(
+      1,
+      chunk.length,
+      inputSampleRate
+    );
     sourceBuffer.copyToChannel(chunk, 0);
 
     const source = offlineCtx.createBufferSource();
@@ -127,7 +148,7 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
 
     // Create low-pass filter for anti-aliasing
     const filter = offlineCtx.createBiquadFilter();
-    filter.type = 'lowpass';
+    filter.type = "lowpass";
     filter.frequency.value = SAMPLE_RATE / 2; // Nyquist frequency
     filter.Q.value = 0.7071; // Butterworth response
 
@@ -147,11 +168,15 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
 
     // Log for diagnostics
     const rms = calculateRMS(pcm16);
-    console.log(`[system] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${pcm16.length}`);
+    console.log(
+      `[system] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
+        pcm16.length
+      }`
+    );
 
     return pcm16;
   } catch (err) {
-    console.error('[Audio] Processing error:', err);
+    console.error("[Audio] Processing error:", err);
     return fallbackProcessAudio(float32Data, inputSampleRate, channels);
   }
 }
@@ -164,14 +189,14 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
  * @returns {Int16Array} - Processed PCM16 data
  */
 function fallbackProcessAudio(float32Data, inputSampleRate, channels) {
-  console.log('[Audio] Using fallback processing');
-  console.log('[Fallback] Target chunk size:', SAMPLES_PER_CHUNK);
-  
+  console.log("[Audio] Using fallback processing");
+  console.log("[Fallback] Target chunk size:", SAMPLES_PER_CHUNK);
+
   // If empty data, return empty buffer
   if (!float32Data || float32Data.length === 0) {
     return new Int16Array(0);
   }
-  
+
   // Mix to mono if stereo
   let monoData = float32Data;
   if (channels === 2) {
@@ -180,7 +205,7 @@ function fallbackProcessAudio(float32Data, inputSampleRate, channels) {
       monoData[i] = (float32Data[i * 2] + float32Data[i * 2 + 1]) / 2;
     }
   }
-  
+
   // Ensure consistent chunk sizes even in fallback mode
   const chunkSize = SAMPLES_PER_CHUNK;
   if (monoData.length < chunkSize) {
@@ -194,25 +219,29 @@ function fallbackProcessAudio(float32Data, inputSampleRate, channels) {
     monoData = monoData.slice(0, chunkSize);
     console.log(`[Audio] Fallback: Truncated data to ${chunkSize} samples`);
   }
-  
+
   // Apply better low-pass filter
   const nyquist = SAMPLE_RATE / 2;
   const filtered = applyLowPassFilter(monoData, inputSampleRate, nyquist);
-  
+
   // Downsample
   const downsampled = downsampleLinear(filtered, inputSampleRate, SAMPLE_RATE);
-  
+
   // Apply soft limiting to prevent clipping
   const limited = new Float32Array(downsampled.length);
   for (let i = 0; i < downsampled.length; i++) {
     // Soft limiting using tanh
     limited[i] = Math.tanh(downsampled[i] * 0.8) * 0.95;
   }
-  
+
   // Log the RMS value for diagnostics
   const rms = calculateRMS(limited);
-  console.log(`[Audio] Fallback: Processed chunk RMS=${rms.toFixed(4)} sampleCount=${limited.length}`);
-  
+  console.log(
+    `[Audio] Fallback: Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
+      limited.length
+    }`
+  );
+
   // Convert to PCM16
   return convertFloat32ToInt16(limited);
 }
@@ -229,14 +258,14 @@ function applyLowPassFilter(input, sampleRate, cutoffFreq) {
   const dt = 1 / sampleRate;
   const RC = 1 / (2 * Math.PI * cutoffFreq);
   const alpha = dt / (RC + dt);
-  
+
   const output = new Float32Array(input.length);
   output[0] = input[0];
-  
+
   for (let i = 1; i < input.length; i++) {
-    output[i] = output[i-1] + alpha * (input[i] - output[i-1]);
+    output[i] = output[i - 1] + alpha * (input[i] - output[i - 1]);
   }
-  
+
   return output;
 }
 
@@ -249,7 +278,7 @@ function convertFloat32ToInt16(float32Array) {
   const int16Array = new Int16Array(float32Array.length);
   for (let i = 0; i < float32Array.length; i++) {
     // Clamp to range [-1, 1] and convert to int16
-    int16Array[i] = Math.min(1, Math.max(-1, float32Array[i])) * 0x7FFF;
+    int16Array[i] = Math.min(1, Math.max(-1, float32Array[i])) * 0x7fff;
   }
   return int16Array;
 }
@@ -263,29 +292,30 @@ function convertFloat32ToInt16(float32Array) {
  */
 function downsampleLinear(input, inputRate, outputRate) {
   if (outputRate === inputRate) return input;
-  
+
   // Apply a simple low-pass filter first to prevent aliasing
   // Cut-off at Nyquist frequency of target rate
   const cutoff = outputRate / 2;
   const filtered = applyLowPassFilter(input, inputRate, cutoff);
-  
+
   const ratio = inputRate / outputRate;
   const outputLength = Math.floor(input.length / ratio);
   const output = new Float32Array(outputLength);
-  
+
   for (let i = 0; i < outputLength; i++) {
     const srcPos = i * ratio;
     const srcIndex = Math.floor(srcPos);
     const fraction = srcPos - srcIndex;
-    
+
     // Linear interpolation with bounds checking
     if (srcIndex + 1 < filtered.length) {
-      output[i] = filtered[srcIndex] * (1 - fraction) + filtered[srcIndex + 1] * fraction;
+      output[i] =
+        filtered[srcIndex] * (1 - fraction) + filtered[srcIndex + 1] * fraction;
     } else {
       output[i] = filtered[srcIndex];
     }
   }
-  
+
   return output;
 }
 
@@ -297,17 +327,17 @@ function downsampleLinear(input, inputRate, outputRate) {
 function calculateRMS(buffer) {
   let sum = 0;
   let divisor = 0x8000;
-  
+
   // Adjust divisor based on buffer type
   if (buffer instanceof Float32Array) {
     divisor = 1;
   }
-  
+
   for (let i = 0; i < buffer.length; i++) {
     const normalized = buffer[i] / divisor;
     sum += normalized * normalized;
   }
-  
+
   return Math.sqrt(sum / buffer.length);
 }
 
@@ -319,11 +349,11 @@ function calculateRMS(buffer) {
 function base64ToFloat32Array(base64) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
-  
+
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  
+
   return new Float32Array(bytes.buffer);
 }
 
@@ -333,13 +363,13 @@ function base64ToFloat32Array(base64) {
  * @returns {string} - Base64 encoded string
  */
 function arrayBufferToBase64(buffer) {
-  let binary = '';
+  let binary = "";
   const bytes = new Uint8Array(buffer);
-  
+
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  
+
   return btoa(binary);
 }
 
@@ -352,17 +382,17 @@ function arrayBufferToBase64(buffer) {
 function exportBufferToWav(type, sampleRate = SAMPLE_RATE) {
   const buffers = pcmBuffers[type] || [];
   if (buffers.length === 0) return null;
-  
+
   // Concatenate buffers
   const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
   const concatenated = new Int16Array(totalLength / 2);
-  
+
   let offset = 0;
   for (const buffer of buffers) {
     concatenated.set(new Int16Array(buffer), offset);
     offset += buffer.byteLength / 2;
   }
-  
+
   return makeWav(concatenated.buffer, sampleRate);
 }
 
@@ -375,22 +405,22 @@ function exportBufferToWav(type, sampleRate = SAMPLE_RATE) {
 function makeWav(pcmBuffer, sampleRate) {
   const numChannels = 1;
   const bitsPerSample = 16;
-  const blockAlign = numChannels * bitsPerSample / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
   const byteRate = sampleRate * blockAlign;
   const dataSize = pcmBuffer.byteLength;
   const totalSize = 44 + dataSize;
-  
+
   const buffer = new ArrayBuffer(totalSize);
   const view = new DataView(buffer);
-  
+
   // Write WAV header
   // "RIFF" chunk descriptor
-  writeString(view, 0, 'RIFF');
+  writeString(view, 0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
-  writeString(view, 8, 'WAVE');
-  
+  writeString(view, 8, "WAVE");
+
   // "fmt " sub-chunk
-  writeString(view, 12, 'fmt ');
+  writeString(view, 12, "fmt ");
   view.setUint32(16, 16, true); // fmt chunk size
   view.setUint16(20, 1, true); // PCM format
   view.setUint16(22, numChannels, true);
@@ -398,18 +428,18 @@ function makeWav(pcmBuffer, sampleRate) {
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
   view.setUint16(34, bitsPerSample, true);
-  
+
   // "data" sub-chunk
-  writeString(view, 36, 'data');
+  writeString(view, 36, "data");
   view.setUint32(40, dataSize, true);
-  
+
   // Copy PCM data
   const pcmData = new Uint8Array(pcmBuffer);
   const outputData = new Uint8Array(buffer, 44);
   outputData.set(pcmData);
-  
+
   // Create data URL
-  const blob = new Blob([buffer], { type: 'audio/wav' });
+  const blob = new Blob([buffer], { type: "audio/wav" });
   return URL.createObjectURL(blob);
 }
 
@@ -420,6 +450,51 @@ function writeString(view, offset, string) {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
+}
+
+// ===== Unified resample & framing helpers (for cross-platform AEC prep) =====
+/**
+ * General purpose resampling with simple anti-alias (down) and linear interpolation (up)
+ * @param {Float32Array} input
+ * @param {number} inRate
+ * @param {number} outRate
+ * @returns {Float32Array}
+ */
+function resampleAudio(input, inRate, outRate) {
+  if (!input || input.length === 0 || inRate === outRate) return input;
+  if (outRate <= 0 || inRate <= 0) return input;
+  // If downsampling, pre-filter with low-pass at Nyquist(outRate)
+  let work = input;
+  if (outRate < inRate) {
+    const cutoff = outRate / 2;
+    work = applyLowPassFilter(input, inRate, cutoff);
+  }
+  const ratio = inRate / outRate;
+  const outLen = Math.max(1, Math.round(work.length / ratio));
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcPos = i * ratio;
+    const i0 = Math.floor(srcPos);
+    const i1 = Math.min(work.length - 1, i0 + 1);
+    const t = srcPos - i0;
+    out[i] = work[i0] * (1 - t) + work[i1] * t;
+  }
+  return out;
+}
+
+/**
+ * Slice a Float32Array into fixed frame windows
+ * @param {Float32Array} samples
+ * @param {number} frameSize number of samples per frame
+ * @returns {Float32Array[]} array of frame views (copies)
+ */
+function sliceIntoFrames(samples, frameSize) {
+  const frames = [];
+  if (!samples || frameSize <= 0) return frames;
+  for (let i = 0; i + frameSize <= samples.length; i += frameSize) {
+    frames.push(samples.slice(i, i + frameSize));
+  }
+  return frames;
 }
 
 // Export the functions and constants
@@ -437,5 +512,7 @@ export {
   exportBufferToWav,
   pcmBuffers,
   systemBufferManager,
-  micBufferManager
+  micBufferManager,
 };
+
+export { resampleAudio, sliceIntoFrames };

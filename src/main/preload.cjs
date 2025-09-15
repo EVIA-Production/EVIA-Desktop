@@ -44,6 +44,7 @@ try {
       stop: () => ipcRenderer.invoke('system-audio:stop'),
       onData: (cb) => ipcRenderer.on('system-audio:data', (_e, line) => cb(line)),
       onStatus: (cb) => ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
+      getSources: () => ipcRenderer.invoke('system-audio:get-sources'),
     },
     overlay: {
       setClickThrough: (enabled) => ipcRenderer.send('overlay:setClickThrough', !!enabled),
