@@ -357,13 +357,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 </div>
               ))
             ) : (
-              <div className="insights-placeholder">
-                <p>Waiting for speech...</p>
+              <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+                Waiting for speech...
               </div>
             )
           ) : (
-            <div className="insights-placeholder">
-              <p>No insights yet</p>
+            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              No insights yet
             </div>
           )}
         </div>
