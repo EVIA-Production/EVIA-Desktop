@@ -171,9 +171,24 @@ const EviaBar: React.FC<EviaBarProps> = ({
         title="Settings"
         onMouseEnter={async () => { try { await (window as any).evia?.windows?.show('settings') } catch {} }}
         onMouseLeave={async () => { try { await (window as any).evia?.windows?.hide('settings') } catch {} }}
+        style={{
+          width: '20px', // Adjusted width to match Glass
+          height: '20px', // Adjusted height to match Glass
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
       >
         <div className="settings-icon" aria-hidden>
-          <img src={SettingsIcon} alt="" width={16} height={16} />
+          <img
+            src={SettingsIcon}
+            alt=""
+            width={12} // Adjusted size to match Glass
+            height={12} // Adjusted size to match Glass
+            style={{
+              margin: '0 auto', // Centered positioning
+            }}
+          />
         </div>
       </button>
     </div>
