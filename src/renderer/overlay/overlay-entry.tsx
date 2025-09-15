@@ -597,6 +597,14 @@ const OverlayApp: React.FC = () => {
       "[mic] stream acquired. tracks=",
       stream.getAudioTracks().length
     );
+    // Log applied track settings + constraints for verification of WebRTC APM (AEC/NS/AGC)
+    try {
+      const track = stream.getAudioTracks()[0];
+      console.log("[mic] settings:", track.getSettings?.());
+      console.log("[mic] constraints:", track.getConstraints?.());
+    } catch (e) {
+      console.warn("[mic] unable to read track settings/constraints", e);
+    }
     try {
       navigator.mediaDevices.enumerateDevices().then((devs) => {
         const inputs = devs.filter((d) => d.kind === "audioinput");
