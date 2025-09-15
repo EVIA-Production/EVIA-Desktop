@@ -92,7 +92,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   return (
-    <div className="glass-panel evia-glass" style={{ pointerEvents: 'auto' }}>
+    <div
+      className="glass-panel evia-glass"
+      style={{
+        pointerEvents: 'auto',
+        width: '800px', // Increased width for a larger view
+        maxWidth: '90%', // Ensure it doesn't exceed the viewport width
+        margin: '0 auto', // Center the view horizontally
+      }}
+    >
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Ask</div>
         {onClose && (
@@ -100,7 +108,18 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         )}
       </div>
       <div className="glass-scroll no-drag">
-        <form onSubmit={onAsk} className="text-input-container">
+        <form
+          onSubmit={onAsk}
+          className="text-input-container"
+          style={{
+            display: 'flex', // Ensure input and button are on the same line
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 16px',
+            background: 'rgba(0, 0, 0, 0.1)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          }}
+        >
           <input
             type="text"
             value={prompt}
@@ -131,14 +150,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              marginLeft: '8px',
               fontSize: '13px',
               fontFamily: "'Helvetica Neue', sans-serif",
               fontWeight: 500,
               cursor: 'pointer',
               transition: 'background 0.15s',
-              height: '32px',
-              padding: '0 10px',
+              height: '40px', // Adjusted height for better alignment
+              padding: '0 16px',
             }}
           >
             <span className="btn-label" style={{ marginRight: '8px' }}>Submit</span>
