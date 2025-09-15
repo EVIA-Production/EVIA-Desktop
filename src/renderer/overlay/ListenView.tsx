@@ -199,6 +199,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             animation: slideIn 0.3s ease forwards;
           }
 
+          .bar-controls {
+            display: flex;
+            gap: 8px; /* Adjust spacing between buttons */
+            align-items: center;
+            flex-shrink: 0;
+            flex-wrap: nowrap; /* Prevent buttons from wrapping */
+            justify-content: flex-end;
+            box-sizing: border-box;
+            padding: 4px;
+          }
+
           .toggle-button {
             display: flex;
             align-items: center;
@@ -218,6 +229,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             transition: background-color 0.15s ease, color 0.15s ease;
             justify-content: center;
             z-index: 2; /* Ensure it stays above pseudo-elements */
+            flex-shrink: 0; /* Prevent buttons from shrinking */
           }
 
           .toggle-button:hover {
@@ -265,14 +277,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
           }
 
-          .copy-button.copied .copy-icon {
-            opacity: 0;
-            transform: translate(-50%, -50%) scale(0.5);
+          .copy-button .copy-icon {
+            opacity: ${copyState === 'copied' ? '0' : '1'};
+            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(0.5)' : 'translate(-50%, -50%) scale(1)'};
           }
 
-          .copy-button.copied .check-icon {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
+          .copy-button .check-icon {
+            opacity: ${copyState === 'copied' ? '1' : '0'};
+            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.5)'};
           }
 
           .insights-placeholder {
