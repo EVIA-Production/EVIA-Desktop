@@ -296,6 +296,36 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             font-weight: 400; /* Match font weight */
             font-style: italic; /* Make the text cursive */
           }
+
+          .follow-button {
+            position: absolute;
+            bottom: 8px; /* Further reduced margin */
+            right: 8px; /* Further reduced margin */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+            border: none;
+            outline: none;
+            box-shadow: none;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+          }
+
+          .follow-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            transform: scale(1.05);
+          }
+
+          .follow-button:active {
+            transform: scale(0.95);
+          }
         `}
       </style>
       <div className="assistant-container">
