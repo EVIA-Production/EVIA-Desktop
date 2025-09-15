@@ -53,7 +53,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   return (
     <div className="evia-header">
       <button
-        className={`listen-button ${(listenPressed || listenStatus === 'in' || isListening) ? 'active' : ''}`}
+        className={`listen-button ${(listenPressed || listenStatus === 'in' || isListening) ? 'active' : ''} ${listenStatus === 'after' ? 'done' : ''}`}
         aria-pressed={listenPressed}
         title={listenStatus === 'before' ? 'Listen' : listenStatus === 'in' ? 'Stop' : 'Done'}
         onClick={async () => {

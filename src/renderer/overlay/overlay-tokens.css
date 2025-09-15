@@ -129,6 +129,28 @@
 .listen-button.active::before { background: rgba(215,0,0,0.5); }
 .listen-button.active:hover::before { background: rgba(255,20,20,0.6); }
 
+.listen-button.done {
+  background-color: rgba(255, 255, 255, 0.6);
+  transition: background-color 0.15s ease;
+}
+
+.listen-button.done .action-text-content {
+  color: black;
+}
+
+.listen-button.done .listen-icon svg rect,
+.listen-button.done .listen-icon svg path {
+  fill: black;
+}
+
+.listen-button.done:hover {
+  background-color: #f0f0f0;
+}
+
+.listen-button.done::after {
+  display: none;
+}
+
 .header-actions {
   -webkit-app-region: no-drag;
   height: 26px;
