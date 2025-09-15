@@ -124,7 +124,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             color: #ffffff;
             box-sizing: border-box;
             position: relative;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.3); /* Lightened background */
             overflow: hidden;
             border-radius: 12px;
             width: 100%;
@@ -145,6 +145,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             -webkit-mask-composite: destination-out;
             mask-composite: exclude;
             pointer-events: none;
+            z-index: 0; /* Ensure it does not overlap buttons */
           }
 
           .assistant-container::before {
@@ -159,7 +160,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             background: rgba(0, 0, 0, 0.15);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             border-radius: 12px;
-            z-index: -1;
+            z-index: -1; /* Ensure it stays behind all content */
           }
 
           .top-bar {
@@ -169,7 +170,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             padding: 6px 16px;
             min-height: 32px;
             position: relative;
-            z-index: 1;
+            z-index: 1; /* Ensure it stays above pseudo-elements */
             width: 100%;
             box-sizing: border-box;
             flex-shrink: 0;
@@ -178,9 +179,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
           .bar-left-text {
             color: white;
-            font-size: 13px;
-            font-family: 'Helvetica Neue', sans-serif;
-            font-weight: 500;
+            font-size: 13px; /* Match font size */
+            font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; /* Match font family */
+            font-weight: 500; /* Match font weight */
             position: relative;
             overflow: hidden;
             white-space: nowrap;
@@ -196,17 +197,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
           .bar-left-text-content.slide-in {
             animation: slideIn 0.3s ease forwards;
-          }
-
-          .bar-controls {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-            flex-shrink: 0;
-            width: 120px;
-            justify-content: flex-end;
-            box-sizing: border-box;
-            padding: 4px;
           }
 
           .toggle-button {
@@ -225,12 +215,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             cursor: pointer;
             height: 24px;
             white-space: nowrap;
-            transition: background-color 0.15s ease;
+            transition: background-color 0.15s ease, color 0.15s ease;
             justify-content: center;
+            z-index: 2; /* Ensure it stays above pseudo-elements */
           }
 
           .toggle-button:hover {
             background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
           }
 
           .toggle-button svg {
@@ -254,13 +246,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             min-width: 24px;
             height: 24px;
             flex-shrink: 0;
-            transition: background-color 0.15s ease;
+            transition: background-color 0.15s ease, color 0.15s ease;
             position: relative;
             overflow: hidden;
+            z-index: 2; /* Ensure it stays above pseudo-elements */
           }
 
           .copy-button:hover {
             background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
           }
 
           .copy-button svg {
@@ -279,91 +273,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           .copy-button.copied .check-icon {
             opacity: 1;
             transform: translate(-50%, -50%) scale(1);
-          }
-
-          .glass-scroll {
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px;
-          }
-
-          .bubble {
-            margin: 8px;
-            padding: 8px 12px;
-            border-radius: 12px;
-            max-width: 80%;
-            display: inline-block;
-          }
-
-          .bubble.me {
-            background: rgba(255, 255, 255, 0.2);
-            margin-left: auto;
-          }
-
-          .bubble.them {
-            background: rgba(0, 0, 0, 0.3);
-          }
-
-          .bubble-text {
-            font-size: 14px;
-          }
-
-          .insights-placeholder {
-            color: rgba(255, 255, 255, 0.7);
-            text-align: center;
-            padding: 16px;
-          }
-
-          .follow-button {
-            background: transparent;
-            color: rgba(255, 255, 255, 0.9);
-            border: none;
-            outline: none;
-            padding: 8px;
-            border-radius: 5px;
-            font-size: 11px;
-            cursor: pointer;
-            margin: 8px;
-            transition: background-color 0.15s ease;
-          }
-
-          .follow-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-          }
-
-          @keyframes slideIn {
-            from {
-              transform: translateY(100%);
-            }
-            to {
-              transform: translateY(0);
-            }
-          }
-
-          /* Glass bypass styles */
-          body.has-glass .assistant-container,
-          body.has-glass .top-bar,
-          body.has-glass .toggle-button,
-          body.has-glass .copy-button,
-          body.has-glass .follow-button {
-            background: transparent !important;
-            border: none !important;
-            outline: none !important;
-            box-shadow: none !important;
-            filter: none !important;
-            backdrop-filter: none !important;
-          }
-
-          body.has-glass .assistant-container::before,
-          body.has-glass .assistant-container::after {
-            display: none !important;
-          }
-
-          body.has-glass .toggle-button:hover,
-          body.has-glass .copy-button:hover,
-          body.has-glass .follow-button:hover {
-            background: transparent !important;
-            transform: none !important;
           }
         `}
       </style>
