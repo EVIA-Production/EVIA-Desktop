@@ -150,14 +150,17 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
       <div className="header-actions ask-action no-drag" onClick={async () => { await toggleWindow('ask') }}>
         <div className="action-text"><div className="action-text-content">Ask</div></div>
-        <div className="icon-container">
+        <div className="icon-container" style={{ gap: '6px' /* Adjusted gap for consistent spacing */ }}>
+          <div className="icon-box">
+            <img src={CommandIcon} alt="Command Icon" width={12} height={12} />
+          </div>
           <div className="icon-box">↵</div>
         </div>
       </div>
 
       <div className="header-actions no-drag" onClick={onToggleVisibility}>
         <div className="action-text"><div className="action-text-content">Show/Hide</div></div>
-        <div className="icon-container">
+        <div className="icon-container" style={{ gap: '6px' /* Adjusted gap for consistent spacing */ }}>
           <div className="icon-box">⌘</div>
           <div className="icon-box">\</div>
         </div>
