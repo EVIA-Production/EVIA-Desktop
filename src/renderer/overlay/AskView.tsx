@@ -106,13 +106,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         alignItems: 'center',
         gap: '8px',
         padding: '12px 16px',
-        background: 'rgba(0, 0, 0, 0.8)', // Darker background for AskView
+        background: 'rgba(0, 0, 0, 0.65)', // Slightly lighter background
         borderRadius: '12px',
         width: '800px',
         maxWidth: '90%',
         margin: '0 auto',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)', // Stronger shadow for depth
-        border: '1px solid rgba(255, 255, 255, 0.1)', // Subtle border for contrast
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)', // Adjusted shadow for depth
+        border: '1px solid rgba(255, 255, 255, 0.2)', // Slightly more visible border
       }}
     >
       <input
@@ -124,11 +124,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         style={{
           flex: 1,
           padding: '10px 14px',
-          background: 'rgba(0, 0, 0, 0.6)', // Darker input background
+          background: 'rgba(0, 0, 0, 0.45)', // Slightly lighter input background
           borderRadius: '12px',
           outline: 'none',
           border: 'none',
-          color: 'rgba(255, 255, 255, 0.9)', // Lighter text color for contrast
+          color: 'rgba(255, 255, 255, 0.97)', // Slightly brighter text color
           fontSize: '14px',
           fontFamily: "'Helvetica Neue', sans-serif",
           fontWeight: 400,
@@ -139,8 +139,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         style={{
           display: 'flex',
           alignItems: 'center',
-          background: 'rgba(255, 255, 255, 0.1)', // Subtle button background
-          color: 'rgba(255, 255, 255, 0.9)', // Lighter text color for contrast
+          background: 'rgba(255, 255, 255, 0.2)', // Slightly lighter button background
+          color: 'rgba(255, 255, 255, 0.97)', // Slightly brighter text color
           border: 'none',
           borderRadius: '6px',
           fontSize: '13px',
@@ -155,7 +155,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         <span style={{ marginRight: '8px' }}>Submit</span>
         <span
           style={{
-            background: 'rgba(255,255,255,0.2)', // Slightly lighter icon background
+            background: 'rgba(255,255,255,0.3)', // Slightly lighter icon background
             borderRadius: '13%',
             display: 'flex',
             alignItems: 'center',
