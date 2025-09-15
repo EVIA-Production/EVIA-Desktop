@@ -17,7 +17,18 @@ interface ListenViewProps {
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript'); // Added toggle from Glass
+  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
+
+  const adjustWindowHeight = () => {
+    if (window.api) {
+      const fixedHeight = 500; // Set a fixed height for the window
+      window.api.listenView.adjustWindowHeight('listen', fixedHeight);
+    }
+  };
+
+  useEffect(() => {
+    adjustWindowHeight(); // Set the fixed height when the component mounts
+  }, []);
 
   useEffect(() => {
     if (followLive && viewportRef.current) {
@@ -30,7 +41,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   return (
-    <div className="glass-panel evia-glass" style={{ pointerEvents: 'auto' }}>
+    <div className="glass-panel evia-glass" style={{ pointerEvents: 'auto', height: '500px' /* Fixed height */ }}>
       <div className="glass-topbar drag-zone">
         <div className="glass-topbar-title">Listen</div>
         <button onClick={toggleView} className="glass-button no-drag">
@@ -41,11 +52,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         )}
       </div>
       <div className="glass-scroll no-drag" ref={viewportRef}>
-        {viewMode === 'transcript' ? lines.map((line, i) => (
-          <div key={i} className={`bubble ${line.speaker === 1 ? 'me' : 'them'}`} style={{ opacity: line.isFinal ? 1 : 0.7 }}>
-            <span className="bubble-text">{line.text}</span>
+        {viewMode === 'transcript' ? (
+          lines.length > 0 ? (
+            lines.map((line, i) => (
+              <div key={i} className={`bubble ${line.speaker === 1 ? 'me' : 'them'}`} style={{ opacity: line.isFinal ? 1 : 0.7 }}>
+                <span className="bubble-text">{line.text}</span>
+              </div>
+            ))
+          ) : (
+            <div className="insights-placeholder">
+              <p>Waiting for speech...</p>
+            </div>
+          )
+        ) : (
+          <div className="insights-placeholder">
+            <p>No insights yet</p>
           </div>
-        )) : <div>Insights Placeholder - Port from Glass summary</div>}
+        )}
       </div>
       <button onClick={onToggleFollow} className="follow-button no-drag">
         {followLive ? 'Stop Following' : 'Follow Live'}
