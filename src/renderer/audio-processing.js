@@ -20,6 +20,60 @@ const pcmBuffers = {
   mic: [],
 };
 
+// ===== Runtime-configurable debug / logging flags =====
+// These can be toggled at runtime via configureAudioDebug() or localStorage keys.
+// localStorage keys (read once on module load):
+//   evia_debug_mic_frames = "1" to log mic frame events
+//   evia_debug_system_frames = "1" to log system frame events
+//   evia_debug_first_heard = "0" to suppress first-heard log
+let DEBUG_MIC_FRAMES = false;
+let DEBUG_SYSTEM_FRAMES = false;
+let DEBUG_FIRST_HEARD = true;
+try {
+  if (typeof window !== "undefined" && window.localStorage) {
+    DEBUG_MIC_FRAMES =
+      window.localStorage.getItem("evia_debug_mic_frames") === "1";
+    DEBUG_SYSTEM_FRAMES =
+      window.localStorage.getItem("evia_debug_system_frames") === "1";
+    const fh = window.localStorage.getItem("evia_debug_first_heard");
+    if (fh === "0") DEBUG_FIRST_HEARD = false;
+  }
+} catch {}
+
+let micFirstHeardLogged = false;
+let systemFirstHeardLogged = false;
+
+function configureAudioDebug(opts = {}) {
+  if (typeof opts.micFrames === "boolean") DEBUG_MIC_FRAMES = opts.micFrames;
+  if (typeof opts.systemFrames === "boolean")
+    DEBUG_SYSTEM_FRAMES = opts.systemFrames;
+  if (typeof opts.firstHeard === "boolean") DEBUG_FIRST_HEARD = opts.firstHeard;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(
+        "evia_debug_mic_frames",
+        DEBUG_MIC_FRAMES ? "1" : "0"
+      );
+      window.localStorage.setItem(
+        "evia_debug_system_frames",
+        DEBUG_SYSTEM_FRAMES ? "1" : "0"
+      );
+      window.localStorage.setItem(
+        "evia_debug_first_heard",
+        DEBUG_FIRST_HEARD ? "1" : "0"
+      );
+    }
+  } catch {}
+  console.log(
+    "[Audio][debug] micFrames=",
+    DEBUG_MIC_FRAMES,
+    "systemFrames=",
+    DEBUG_SYSTEM_FRAMES,
+    "firstHeard=",
+    DEBUG_FIRST_HEARD
+  );
+}
+
 // Create buffer managers
 const systemBufferManager = new AudioBufferManager(
   SAMPLE_RATE,
@@ -166,13 +220,16 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
     // Convert to PCM16
     const pcm16 = convertFloat32ToInt16(processedFloat32);
 
-    // Log for diagnostics
     const rms = calculateRMS(pcm16);
-    console.log(
-      `[system] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
-        pcm16.length
-      }`
-    );
+    if (DEBUG_SYSTEM_FRAMES) {
+      console.log(
+        `[system][frame] RMS=${rms.toFixed(4)} samples=${pcm16.length}`
+      );
+    }
+    if (DEBUG_FIRST_HEARD && !systemFirstHeardLogged && rms > 0.01) {
+      systemFirstHeardLogged = true;
+      console.log(`[system] first audio detected RMS=${rms.toFixed(4)}`);
+    }
 
     return pcm16;
   } catch (err) {
@@ -236,11 +293,17 @@ function fallbackProcessAudio(float32Data, inputSampleRate, channels) {
 
   // Log the RMS value for diagnostics
   const rms = calculateRMS(limited);
-  console.log(
-    `[Audio] Fallback: Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
-      limited.length
-    }`
-  );
+  if (DEBUG_SYSTEM_FRAMES) {
+    console.log(
+      `[system][frame:fallback] RMS=${rms.toFixed(4)} samples=${limited.length}`
+    );
+  }
+  if (DEBUG_FIRST_HEARD && !systemFirstHeardLogged && rms > 0.01) {
+    systemFirstHeardLogged = true;
+    console.log(
+      `[system] first audio detected RMS=${rms.toFixed(4)} (fallback)`
+    );
+  }
 
   // Convert to PCM16
   return convertFloat32ToInt16(limited);
@@ -513,6 +576,7 @@ export {
   pcmBuffers,
   systemBufferManager,
   micBufferManager,
+  configureAudioDebug,
 };
 
 export { resampleAudio, sliceIntoFrames };

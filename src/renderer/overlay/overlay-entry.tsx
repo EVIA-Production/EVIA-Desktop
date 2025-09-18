@@ -686,10 +686,136 @@ const OverlayApp: React.FC = () => {
     }
 
     // Placeholder AEC routine – replace with actual implementation
+    // --- Simple Software AEC (NLMS) Prototype ---
+    // NOTE: This is a lightweight, non-optimized educational implementation.
+    // It assumes the provided ref (system) chunk is approximately time-aligned with the mic chunk.
+    // Real AEC needs precise delay estimation, nonlinear processing, and comfort noise.
+    const ENABLE_SOFTWARE_AEC = true; // toggle to disable quickly if performance issues arise
+    const AEC_FILTER_LEN = 512; // taps (32 ms @16k) – compromise between adaptation and CPU
+    const AEC_MU = 0.25; // adaptation step size (normalized LMS); tune 0.05–0.5
+    const AEC_EPS = 1e-6; // stability term
+    const AEC_REF_MIN_RMS = 0.005; // below this system ref considered silent
+    const AEC_MAX_SUPPRESSION_DB = 35; // cap to avoid over-suppression artifacts
+
+    // AEC state stored on window to persist across chunks (avoid re-init each 100ms)
+    const aecState: any = (window as any).__eviaAecState || {
+      w: new Float32Array(AEC_FILTER_LEN), // filter coefficients
+      refHist: new Float32Array(AEC_FILTER_LEN), // circular history for reference samples
+    };
+    (window as any).__eviaAecState = aecState;
+
+    function rmsF32(buf: Float32Array) {
+      let s = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = buf[i];
+        s += v * v;
+      }
+      return Math.sqrt(s / Math.max(1, buf.length));
+    }
+
     function runAecSync(mic: Float32Array, ref: Float32Array): Float32Array {
-      // Placeholder: future implementation should operate internally on 160-sample (10ms @16k) frames.
-      // For now passthrough. Keep signature so we can drop in real AEC easily.
-      return mic as Float32Array;
+      if (!ENABLE_SOFTWARE_AEC) return mic;
+      if (ref.length === 0) return mic; // no reference available
+
+      // If reference shorter than needed, pad (simple alignment assumption)
+      let refUse = ref;
+      if (refUse.length < mic.length) {
+        const padded = new Float32Array(mic.length);
+        padded.set(refUse);
+        refUse = padded;
+      } else if (refUse.length > mic.length) {
+        refUse = refUse.subarray(0, mic.length);
+      }
+
+      // Check reference energy; skip if too low (prevents adaptation noise)
+      const refRms = rmsF32(refUse);
+      if (refRms < AEC_REF_MIN_RMS) return mic;
+
+      const { w, refHist } = aecState;
+      const out = new Float32Array(mic.length);
+
+      // Append refUse into history sliding window (keep last FILTER_LEN samples)
+      if (refUse.length >= refHist.length) {
+        refHist.set(refUse.subarray(refUse.length - refHist.length));
+      } else {
+        const shift = Math.min(refUse.length, refHist.length);
+        refHist.copyWithin(0, shift); // shift left
+        refHist.set(refUse, refHist.length - shift);
+      }
+
+      // NLMS adaptation per sample (using most recent FILTER_LEN reference segment)
+      // Build a working buffer of concatenated ref history + current ref chunk for indexing efficiency.
+      const concatRef = new Float32Array(refHist.length + refUse.length);
+      concatRef.set(refHist, 0);
+      concatRef.set(refUse, refHist.length);
+      const baseIndex = concatRef.length - refUse.length; // start of current ref portion
+
+      let accumEnergy = 0; // running energy for normalization window
+      // Precompute energy of first FILTER_LEN segment
+      const startWindowIdx = baseIndex - (AEC_FILTER_LEN - 1);
+      if (startWindowIdx < 0) {
+        // Not enough history yet
+        return mic;
+      }
+      for (let i = 0; i < AEC_FILTER_LEN; i++) {
+        const v = concatRef[startWindowIdx + i];
+        accumEnergy += v * v;
+      }
+
+      for (let n = 0; n < mic.length; n++) {
+        // Reference window for this sample ends at (startWindowIdx + n + FILTER_LEN - 1)
+        const winEnd = startWindowIdx + n + (AEC_FILTER_LEN - 1);
+        const winStart = winEnd - (AEC_FILTER_LEN - 1);
+        if (winStart < 0 || winEnd >= concatRef.length) {
+          out[n] = mic[n];
+          continue;
+        }
+        // Compute filter output y = w^T x
+        let y = 0;
+        for (let k = 0; k < AEC_FILTER_LEN; k++) {
+          y += w[k] * concatRef[winStart + k];
+        }
+        const e = mic[n] - y; // error signal (ideally near-end speech)
+        out[n] = e;
+
+        // Update adaptation energy: subtract oldest, add newest (sliding window)
+        if (n > 0) {
+          const oldSample = concatRef[winStart - 1] || 0;
+          const newSample = concatRef[winEnd] || 0;
+          accumEnergy += newSample * newSample - oldSample * oldSample;
+          if (accumEnergy < 0) accumEnergy = 0; // numerical guard
+        }
+        const norm = accumEnergy + AEC_EPS;
+        const step = AEC_MU / norm;
+        // Coefficient update
+        for (let k = 0; k < AEC_FILTER_LEN; k++) {
+          w[k] += step * e * concatRef[winStart + k];
+        }
+      }
+
+      // Simple suppression cap: if residual still very correlated (rough heuristic) we limit suppression to avoid distortion
+      // Compute rough residual vs mic energy ratio
+      let micEnergy = 0;
+      let outEnergy = 0;
+      for (let i = 0; i < mic.length; i++) {
+        const m = mic[i];
+        micEnergy += m * m;
+        const r = out[i];
+        outEnergy += r * r;
+      }
+      if (outEnergy > 0 && micEnergy > 0) {
+        const suppressionDb = 10 * Math.log10(micEnergy / outEnergy);
+        if (suppressionDb > AEC_MAX_SUPPRESSION_DB) {
+          // Scale residual up slightly to avoid over-suppression artifacts
+          const scale = Math.pow(
+            10,
+            (suppressionDb - AEC_MAX_SUPPRESSION_DB) / 20
+          );
+          for (let i = 0; i < out.length; i++) out[i] *= scale;
+        }
+      }
+
+      return out;
     }
 
     processor.onaudioprocess = (ev) => {

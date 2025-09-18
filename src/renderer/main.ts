@@ -1566,7 +1566,8 @@ async function startWindowsLoopbackRenderer16kChunks(
               const av = v < 0 ? -v : v;
               if (av > peak) peak = av;
             }
-            log("[system][loopback] peak16=" + peak);
+            // just momentarily comment
+            // log("[system][loopback] peak16=" + peak);
           }
         } catch {}
         onChunk16k(pcm16.buffer);
