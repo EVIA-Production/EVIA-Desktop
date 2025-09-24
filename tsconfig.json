@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/main/**/*.ts"],
+  "include": ["src/main/**/*"],
   "exclude": ["dist", "src/renderer/**"]
 }

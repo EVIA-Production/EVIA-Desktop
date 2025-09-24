@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { app } = require('electron');
 
 class ProcessManager {
   constructor() {
@@ -139,8 +140,8 @@ class ProcessManager {
    * @returns {string} Path to the helper binary
    */
   getHelperPath() {
-    // In dev mode, use the debug build
-    if (process.env.EVIA_DEV === '1') {
+    if (!app.isPackaged) {
+      // Dev paths...
       const devPath = path.join(
         __dirname, 
         '../../native/mac/SystemAudioCapture/.build/debug/SystemAudioCapture'
@@ -159,14 +160,11 @@ class ProcessManager {
       if (fs.existsSync(altDevPath)) {
         return altDevPath;
       }
+    } else {
+      const prodPath = path.join(process.resourcesPath, 'mac', 'SystemAudioCapture.app/Contents/MacOS/SystemAudioCapture');
+      console.log(`[SystemAudioCapture] Using bundled production path: ${prodPath}`);
+      return prodPath;
     }
-    
-    // In production, use the bundled helper
-    return path.join(
-      process.resourcesPath,
-      'mac',
-      'SystemAudioCapture.app/Contents/MacOS/SystemAudioCapture'
-    );
   }
   
   /**
@@ -182,6 +180,7 @@ class ProcessManager {
     
     // Register stdout handler with line buffering
     this.processes.systemAudio.stdout.on('data', (chunk) => {
+      console.log('[system-audio] stdout:', chunk.toString().trim());
       // Append to buffer
       this.stdoutBuffers.systemAudio += chunk.toString('utf8');
       
@@ -200,9 +199,20 @@ class ProcessManager {
     // Register stderr handler
     if (stderrHandler) {
       this.processes.systemAudio.stderr.on('data', (data) => {
+        console.log('[system-audio] stderr:', data.toString().trim());
         stderrHandler(data.toString('utf8').trim());
       });
     }
+
+    this.processes.systemAudio.on('spawn', () => {
+      console.log('[system-audio] Helper spawned successfully');
+    });
+    this.processes.systemAudio.on('error', (err) => {
+      console.error('[system-audio] Helper error:', err);
+    });
+    this.processes.systemAudio.on('exit', (code) => {
+      console.log('[system-audio] Helper exited with code', code);
+    });
     
     return true;
   }

@@ -26,6 +26,9 @@ interface EviaBridge {
   openTerminal: (script: string) => Promise<any>;
   launchMain: () => Promise<any>;
   launchAudioTest: () => Promise<any>;
+  eviaExport?: {
+    saveLatestSystemWav: () => void;
+  };
   // Add windows
   windows: {
     show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
@@ -33,12 +36,16 @@ interface EviaBridge {
     hide: (name: string) => Promise<{ ok: boolean }>;
     cancelHideSettingsWindow: () => void;
   };
+  closeWindow: (name: string) => void;
 }
 
 declare global {
   interface Window {
     evia: EviaBridge;
     EVIA_BACKEND_WS?: string;
+    eviaExport?: {
+      saveLatestSystemWav: () => void;
+    };
     audioTest?: {
       init: () => Promise<boolean>;
       play: (seconds?: number) => void;

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, desktopCapturer } from 'electron'
 
 type WsHandle = {
   sendBinary: (data: ArrayBuffer) => void
@@ -18,9 +18,7 @@ function createWs(url: string): WsHandle {
   let onCloseCb: ((event: CloseEvent) => void) | null = null
   let onErrorCb: ((event: Event) => void) | null = null
 
-  ws.onmessage = (ev: MessageEvent) => {
-    if (onMessageCb) onMessageCb(ev.data as any)
-  }
+  ws.onmessage = (ev: MessageEvent) => { if (onMessageCb) onMessageCb(ev.data as any) }
   ws.onopen = () => { if (onOpenCb) onOpenCb() }
   ws.onclose = (ev: CloseEvent) => { if (onCloseCb) onCloseCb(ev) }
   ws.onerror = (ev: Event) => { if (onErrorCb) onErrorCb(ev) }
@@ -38,10 +36,12 @@ function createWs(url: string): WsHandle {
 
 contextBridge.exposeInMainWorld('evia', {
   createWs,
+  getDesktopCapturerSources: (options: Electron.SourcesOptions) => desktopCapturer.getSources(options),
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),
     stop: () => ipcRenderer.invoke('system-audio:stop'),
     onData: (cb: (jsonLine: string) => void) => ipcRenderer.on('system-audio:data', (_e, line) => cb(line)),
+    onStatus: (cb: (line: string) => void) => ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
   },
   overlay: {
     setClickThrough: (enabled: boolean) => ipcRenderer.send('overlay:setClickThrough', enabled),
@@ -53,8 +53,22 @@ contextBridge.exposeInMainWorld('evia', {
     getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
     moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
     resizeHeader: (w: number, h: number) => ipcRenderer.invoke('win:resizeHeader', w, h),
+    adjustWindowHeight: (winName: 'listen' | 'ask' | 'settings' | 'shortcuts', height: number) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
+    hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
   },
+  prefs: {
+    get: () => ipcRenderer.invoke('prefs:get'),
+    set: (prefs: Record<string, any>) => ipcRenderer.invoke('prefs:set', prefs),
+  },
+  closeWindow: (name: string) => ipcRenderer.send('close-window', name),
+})
+
+// Export/WAV helpers
+contextBridge.exposeInMainWorld('eviaExport', {
+  saveSystemWav: () => ipcRenderer.send('export:save-system-wav'),
+  onSaveSystemWav: (cb: () => void) => ipcRenderer.on('export:save-system-wav', cb),
 })
 
 export {}

@@ -8,8 +8,10 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
+  extendInfo:
+    ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
   target:
     - dmg
 extraResources:
-  - from: native/mac/SystemAudioCapture/.build/release/SystemAudioCapture
-    to: Resources/mac/SystemAudioCapture
+  - from: native/mac/SystemAudioCapture/SystemAudioCapture.app
+    to: mac/SystemAudioCapture.app

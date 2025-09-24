@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
+import { getWebSocketInstance } from '../services/websocketService';
+
+declare global {
+  interface Window {
+    api: {
+      listenView: {
+        adjustWindowHeight: (view: string, height: number) => void;
+      };
+      // Add other methods as needed
+    };
+  }
+}
 
 interface TranscriptLine {
   speaker: number | null;
@@ -16,6 +28,8 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
+  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean}[]>([]);
+  const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
   const [isHovering, setIsHovering] = useState(false);
@@ -28,8 +42,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
 
-    const topBar = document.querySelector('.top-bar');
-    const activeContent = viewportRef.current;
+    const topBar = document.querySelector('.top-bar') as HTMLElement;
+    const activeContent = viewportRef.current as HTMLElement;
     if (!topBar || !activeContent) return;
 
     const topBarHeight = topBar.offsetHeight;
@@ -71,11 +85,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, []);
 
   useEffect(() => {
-    if (followLive && viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+    const cid = localStorage.getItem('current_chat_id');
+    if (!cid || cid === 'undefined') {
+      console.error('No valid chat_id; create one first');
+      return () => {};
     }
-    adjustWindowHeight();
-  }, [lines, followLive, viewMode]);
+    // WebSocket setup for receiving transcripts
+    const ws = getWebSocketInstance(cid, 'mic');
+    ws.connect();
+    const unsub = ws.onMessage((msg: any) => {
+      if (msg.type === 'transcript_segment' && msg.data) {
+        const { text = '', speaker = null, is_final = false } = msg.data;
+        setTranscripts(prev => [...prev, { text, speaker, isFinal: is_final }]);
+        if (localFollowLive && viewportRef.current) {
+          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        }
+      }
+    });
+    return () => { unsub(); ws.disconnect(); };
+  }, [localFollowLive]);
 
   const toggleView = () => {
     setViewMode(prev => prev === 'transcript' ? 'insights' : 'transcript');
@@ -398,7 +426,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           )}
         </div>
         <button onClick={onToggleFollow} className="follow-button">
-          {followLive ? 'Stop Following' : 'Follow Live'}
+          {localFollowLive ? 'Stop Following' : 'Follow Live'}
         </button>
       </div>
     </div>

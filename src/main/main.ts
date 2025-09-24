@@ -1,232 +1,79 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron'
-import path from 'path'
-import { spawn } from 'child_process'
+import { app, ipcMain } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
-
-// Import process manager
-// @ts-ignore
-const processManager = require('./process-manager')
-
-// Import audio test window manager
-// @ts-ignore
-const audioTestWindow = require('./audio-test-window')
-
-// __dirname is available in CommonJS mode
-
-let mainWindow: BrowserWindow | null = null
-// Process manager handles the helper processes
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 640,
-    height: 620,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    hasShadow: false,
-    resizable: true,
-    movable: true,
-    backgroundColor: '#00000000',
-    // Content protection will be enabled via API after creation
-    useContentSize: true,
-    fullscreenable: false,
-    skipTaskbar: true,
-    // On macOS, hint panel-like behavior for resilience over fullscreen apps
-    // @ts-ignore
-    type: process.platform === 'darwin' ? 'panel' : undefined,
-    webPreferences: {
-      preload: process.env.NODE_ENV === 'development'
-        ? path.join(process.cwd(), 'src/main/preload.cjs')
-        : path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      devTools: true,
-      backgroundThrottling: false,
-    },
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#00000000',
-      symbolColor: '#ffffff',
-      height: 24,
-    },
-  })
-
-  // Enable content protection (prevents screenshots/screen recording)
-  try { mainWindow.setContentProtection(true) } catch {}
-
-  // Keep the window truly on top of full-screen apps when desired
-  try { mainWindow.setAlwaysOnTop(true, 'screen-saver') } catch {}
-  try { mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
-  // Hide macOS traffic light buttons entirely
-  try { mainWindow.setWindowButtonVisibility(false) } catch {}
-
-  // Check for diagnostic mode
-  // Check for diagnostic or permissions mode
-  const isDiagnostic = process.argv.includes('--diagnostic');
-  const isPermissions = process.argv.includes('--permissions');
-  
-  let url;
-  if (isDiagnostic) {
-    // Load diagnostic page
-    url = `file://${path.join(process.cwd(), 'src/renderer/audio-debug.html')}`
-  } else if (isPermissions) {
-    // Load permissions request page
-    url = `file://${path.join(process.cwd(), 'src/renderer/permissions.html')}`
-  } else {
-    const useOverlay = process.env.EVIA_OVERLAY === '1'
-    // Normal renderer
-    if (process.env.NODE_ENV === 'development') {
-      url = useOverlay ? 'http://localhost:5174/overlay.html' : 'http://localhost:5174'
-    } else {
-      url = useOverlay
-        ? `file://${path.join(__dirname, '../renderer/overlay.html')}`
-        : `file://${path.join(__dirname, '../renderer/index.html')}`
-    }
-  }
-
-  mainWindow.loadURL(url)
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
-  }
-  mainWindow.on('closed', () => { mainWindow = null })
+import os from 'os'
+import { spawn } from 'child_process'
+// process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
+// Use require() to import it as a value
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const processManager = require('./process-manager') as {
+  startSystemAudioHelper: () => Promise<{ ok: boolean; pid?: number; error?: string }>
+  stopSystemAudioHelper: () => Promise<{ ok: boolean; error?: string }>
+  registerSystemAudioHandlers: (
+    stdoutHandler: (line: string) => void,
+    stderrHandler?: (line: string) => void,
+  ) => boolean
+  cleanupAllProcesses: () => void
 }
 
-app.whenReady().then(() => {
-  if (process.env.EVIA_OVERLAY === '1') {
-    createHeaderWindow()
-  } else {
-    createWindow()
-  }
-  
-  // Create application menu with audio test option and edit menu for copy/paste
-  const menu = Menu.buildFromTemplate([
-    {
-      label: 'EVIA',
-      submenu: [
-        { role: 'quit' }
-      ]
-    },
-    {
-      role: 'editMenu'  // Add standard Edit menu with copy/paste functionality
-    },
-    {
-      label: 'Tools',
-      submenu: [
-        {
-          label: 'Audio Test',
-          click: () => {
-            audioTestWindow.createAudioTestWindow()
-          }
-        }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
-    }
-  ])
-  
-  Menu.setApplicationMenu(menu)
-  
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+const isDev = process.env.NODE_ENV === 'development'
+const platform = os.platform()
 
 app.on('window-all-closed', () => {
-  // Clean up processes before quitting
-  processManager.cleanupAllProcesses();
-  if (process.platform !== 'darwin') app.quit();
+  if (platform !== 'darwin') app.quit()
 })
 
-// Also clean up on app quit
+app.on('activate', () => {
+  // Re-create header if needed
+  if (!getHeaderWindow()) createHeaderWindow()
+})
+
 app.on('quit', () => {
-  processManager.cleanupAllProcesses();
+  processManager.cleanupAllProcesses()
 })
 
-// IPC: start/stop macOS system audio helper (Phase 1)
+async function killExisting(name: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn('pkill', ['-f', name], { stdio: 'ignore' })
+    child.on('close', () => resolve(true))
+    child.on('error', () => resolve(false))
+  })
+}
+
 ipcMain.handle('system-audio:start', async () => {
-  // Use process manager to start the helper
-  const result = await processManager.startSystemAudioHelper();
-  
+  const result = await processManager.startSystemAudioHelper()
   if (result.ok) {
-    // Register handlers for stdout and stderr
     processManager.registerSystemAudioHandlers(
-      // Stdout handler - sends data to renderer
       (line: string) => {
-        mainWindow?.webContents.send('system-audio:data', line);
-      },
-      // Stderr handler - logs and forwards status messages
-      (logLine: string) => {
-        console.warn('[SystemAudioCapture][stderr]', logLine);
-        
-        try {
-          // Try to parse as JSON to check for status messages
-          const data = JSON.parse(logLine);
-          if (data.status) {
-            mainWindow?.webContents.send('system-audio:status', logLine);
-          }
-        } catch (e) {
-          // Not JSON or couldn't parse, just a regular log line
+        const hw = getHeaderWindow()
+        if (hw && !hw.isDestroyed()) {
+          hw.webContents.send('system-audio:data', line)
         }
+      },
+      (logLine: string) => {
+        console.warn('[SystemAudioCapture][stderr]', logLine)
+        try {
+          const data = JSON.parse(logLine)
+          const hw = getHeaderWindow()
+          if (data.status && hw && !hw.isDestroyed()) {
+            hw.webContents.send('system-audio:status', logLine)
+          }
+        } catch (e) {}
       }
-    );
+    )
   }
-  
-  return result;
+  return result
 })
 
 ipcMain.handle('system-audio:stop', async () => {
-  // Use process manager to stop the helper
-  return await processManager.stopSystemAudioHelper();
+  return await processManager.stopSystemAudioHelper()
 })
 
-// Overlay behavior controls
-ipcMain.on('overlay:setClickThrough', (_e, enabled: boolean) => {
-  const target = process.env.EVIA_OVERLAY === '1' ? getHeaderWindow() : mainWindow
-  if (!target) return
-  try { target.setIgnoreMouseEvents(Boolean(enabled), { forward: true }) } catch {}
-})
+// Add your other handlers here...
 
-// Handle launching main app from permissions page
-ipcMain.handle('launch-main', () => {
-  const target = process.env.EVIA_OVERLAY === '1' ? getHeaderWindow() : mainWindow
-  if (target) {
-    const url = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:5174'
-      : `file://${path.join(__dirname, '../renderer/index.html')}`
-    target.loadURL(url)
-    return { ok: true }
-  }
-  return { ok: false, error: 'No main window' }
+app.whenReady().then(() => {
+  createHeaderWindow()
+  const hw = getHeaderWindow()
+  // Ensure debug visibility
+  try { hw?.show() } catch {}
+  try { hw?.focus() } catch {}
 })
-
-// Handle launching audio test window
-ipcMain.handle('launch-audio-test', () => {
-  audioTestWindow.createAudioTestWindow()
-  return { ok: true }
-})
-
-// Handle opening a script in Terminal
-ipcMain.handle('open-terminal', async (_, scriptPath) => {
-  try {
-    const fullPath = path.join(process.cwd(), scriptPath)
-    const terminalCommand = `open -a Terminal "${fullPath}"`
-    spawn('bash', ['-c', terminalCommand], { stdio: 'ignore' })
-    return { ok: true }
-  } catch (error) {
-    console.error('Failed to open Terminal:', error)
-    return { ok: false, error: String(error) }
-  }
-})
-

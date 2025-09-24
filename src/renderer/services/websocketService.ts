@@ -15,6 +15,57 @@ interface WebSocketMessage {
   error?: string;
 }
 
+function getBackendHttpBase(): string {
+  const fromWin = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL;
+  if (typeof fromWin === 'string' && fromWin.trim()) return String(fromWin).replace(/\/$/, '');
+  return 'http://localhost:8000';
+}
+
+export async function getOrCreateChatId(backendUrl: string, token: string): Promise<string> {
+  let chatId = localStorage.getItem('current_chat_id');
+  if (!chatId) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`${backendUrl}/chat/`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          if (res.status === 401) {
+            console.error('[WS] Auth failed - token expired?');
+            // Prompt refresh or handle
+            throw new Error('Auth failed - please relogin');
+          }
+          throw new Error(`Status ${res.status}`);
+        }
+        const raw = await res.text();
+        console.log('[WS] Chat create raw response:', raw);
+        let data: any = null;
+        try {
+          data = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          console.warn('[WS] Chat create JSON parse failed; raw=', raw);
+          throw e;
+        }
+        const newId = data?.id ?? data?.chat_id ?? data?.chatId;
+        if (typeof newId !== 'number' || newId <= 0) {
+          throw new Error(`Invalid chat id from create: ${JSON.stringify(data)}`);
+        }
+        chatId = String(newId);
+        localStorage.setItem('current_chat_id', chatId);
+        try { await (window as any).evia?.prefs?.set?.({ current_chat_id: chatId }); } catch {}
+        console.log(`[WS] Created chat ID: ${chatId.slice(0,4)}...`);
+        break;
+      } catch (e) {
+        console.error(`[WS] Chat create failed (attempt ${attempt+1}):`, e);
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+    if (!chatId) throw new Error('Failed to create chat after retries');
+  }
+  return chatId;
+}
+
 export class ChatWebSocket {
   private chatId: string;
   private source?: 'mic' | 'system';
@@ -23,6 +74,10 @@ export class ChatWebSocket {
   private lastAudioLevel: number = 0;
   private silenceThreshold: number = 0.01;
   private audioDetected: boolean = false;
+  private reconnectAttempts: number = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private shouldReconnect: boolean = true;
+  private queue: ArrayBuffer[] = [];
 
   constructor(chatId: string, source?: 'mic' | 'system') {
     this.chatId = chatId;
@@ -30,81 +85,68 @@ export class ChatWebSocket {
     console.log('ChatWebSocket initialized with chatId:', chatId);
   }
 
-  connect() {
+  async connect(attempt: number = 1): Promise<void> {
     try {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        console.log('WebSocket already connected');
+        console.warn('WebSocket already connected');
         return;
       }
-      // Get the authentication token
-      const token = window.localStorage.getItem('auth_token');
+      const token = localStorage.getItem('auth_token') || '';
       if (!token) {
-        console.error('No authentication token found');
+        console.error('[WS] Missing auth token. Please login.');
         return;
       }
-
-      // Connect to the WebSocket server with chat_id and token as query parameters
+      const backendUrl = getBackendHttpBase();
+      const chatId = await getOrCreateChatId(backendUrl, token);
+      if (!chatId) {
+        console.error('[WS] Missing chat ID even after creation');
+        return;
+      }
+      this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
-      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${this.chatId}&token=${token}${sourceParam}`;
-      this.ws = new WebSocket(wsUrl);
-      
-      // Set up event handlers
-      this.ws.onopen = () => {
-        console.log('WebSocket connection established');
-        this.isConnectedFlag = true;
-        // Notify any connection change listeners
-        this.connectionChangeHandlers.forEach(handler => handler(true));
-      };
-
-      this.ws.onclose = (event) => {
-        console.log('WebSocket connection closed:', event.code, event.reason || 'No reason provided');
-        this.isConnectedFlag = false;
-        // Notify any connection change listeners
-        this.connectionChangeHandlers.forEach(handler => handler(false));
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.isConnectedFlag = false;
-        // Notify any connection change listeners
-        this.connectionChangeHandlers.forEach(handler => handler(false));
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          // Handle both text and binary messages
-          if (typeof event.data === 'string') {
-            const message = JSON.parse(event.data) as WebSocketMessage;
-            console.log('WebSocket message received:', message);
-            // Notify any message listeners
-            this.messageHandlers.forEach(handler => handler(message));
-            if (message.type === 'transcript_segment' && typeof message.data === 'object') {
-              const d: any = message.data;
-              const speaker = typeof d.speaker === 'number' ? d.speaker : null;
-              const text = typeof d.text === 'string' ? d.text : '';
-              const isFinal = Boolean((d as any).is_final);
-              console.log('[WS] transcript_segment:', { speaker, isFinal, textPreview: text.slice(0, 80) });
-            } else if (message.type === 'suggestion') {
-              console.log('[WS] suggestion:', message.suggestion ?? message.data);
-            } else if (message.type === 'status') {
-              console.log('[WS] status:', message.data ?? message.content);
-            } else if (message.type === 'error') {
-              console.log('[WS] error:', message.error ?? message.data);
-            } else {
-              console.log('[WS] message:', message);
+      const wsBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}`;
+      return new Promise((resolve, reject) => {
+        this.ws = new WebSocket(wsUrl);
+        this.ws.binaryType = 'arraybuffer';
+        const timeout = setTimeout(() => reject(new Error('Connect timeout')), 10000);
+        this.ws.onopen = () => {
+          clearTimeout(timeout);
+          this.flushQueue();
+          resolve();
+        };
+        this.ws.onclose = (event) => {
+          console.log(`[WS] Closed: code=${event.code} reason=${event.reason}`);
+          this.isConnectedFlag = false;
+          this.connectionChangeHandlers.forEach(h => h(false));
+          if (this.shouldReconnect) this.scheduleReconnect();
+        };
+        this.ws.onerror = (ev: Event) => {
+          console.error('[WS] Error:', ev);
+          this.isConnectedFlag = false;
+          const errorMsg = (ev as ErrorEvent).message || 'Unknown error';
+          reject(new Error(`WS Error: ${errorMsg}`));
+        };
+        this.ws.onmessage = (event) => {
+          try {
+            let payload: any = event.data;
+            if (typeof payload === 'string') {
+              payload = JSON.parse(payload);
             }
-          } else {
-            console.log('Received binary data');
-            // Currently we don't expect binary responses from the server,
-            // but we could handle them here if needed
+            this.messageHandlers.forEach(h => h(payload));
+          } catch (e) {
+            console.warn('[WS] Failed to parse message', e);
           }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-    } catch (error) {
-      console.error('Error connecting to WebSocket:', error);
-      this.isConnectedFlag = false;
+        };
+      });
+    } catch (err: unknown) {
+      if (attempt < 3 && err instanceof Error && err.message === 'Connect timeout') {
+        const delay = 1000 * Math.pow(2, attempt-1);
+        console.log(`[WS] Timeout, retry ${attempt} after ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        return this.connect(attempt+1);
+      }
+      throw err;
     }
   }
 
@@ -121,31 +163,41 @@ export class ChatWebSocket {
   }
 
   sendBinaryData(data: ArrayBuffer) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      // Check audio levels in the buffer to detect audio
-      const int16Data = new Int16Array(data);
-      const audioLevel = this.calculateAudioLevel(int16Data);
-      
-      // Detect if audio is present
-      const hasAudio = audioLevel > this.silenceThreshold;
-      
-      // Log when audio state changes (from silence to sound or vice versa)
-      if (hasAudio && !this.audioDetected) {
-        console.log(`[Audio Logger] Audio detected - Level: ${audioLevel.toFixed(4)}`);
-        this.audioDetected = true;
-      } else if (!hasAudio && this.audioDetected) {
-        console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
-        this.audioDetected = false;
-      }
-      
-      // Update last audio level
-      this.lastAudioLevel = audioLevel;
-      
-      // Send the data
-      this.ws.send(data);
-      console.log(`[Audio Logger] Audio data sent - Size: ${data.byteLength} bytes, Level: ${audioLevel.toFixed(4)}`);
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.queue.push(data);
+      return;
+    }
+    // Check audio levels in the buffer to detect audio
+    const int16Data = new Int16Array(data);
+    const audioLevel = this.calculateAudioLevel(int16Data);
+    
+    // Detect if audio is present
+    const hasAudio = audioLevel > this.silenceThreshold;
+    
+    // Log when audio state changes (from silence to sound or vice versa)
+    if (hasAudio && !this.audioDetected) {
+      console.log(`[Audio Logger] Audio detected - Level: ${audioLevel.toFixed(4)}`);
+      this.audioDetected = true;
+    } else if (!hasAudio && this.audioDetected) {
+      console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
+      this.audioDetected = false;
+    }
+    
+    // Update last audio level
+    this.lastAudioLevel = audioLevel;
+    
+    // Send the data
+    this.ws.send(data);
+    console.log(`[Audio Logger] Audio data sent - Size: ${data.byteLength} bytes, Level: ${audioLevel.toFixed(4)}`);
+  }
+
+  sendAudio(chunk: ArrayBuffer) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(chunk);
     } else {
-      console.warn('WebSocket is not connected, cannot send binary data');
+      console.warn('WS not open; queueing audio chunk');
+      // Basic queue: for prod add proper buffering
+      setTimeout(() => this.sendAudio(chunk), 100);
     }
   }
 
@@ -178,19 +230,35 @@ export class ChatWebSocket {
     };
   }
 
+  private scheduleReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 32000);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectAttempts++;
+      console.log(`Reconnecting attempt ${this.reconnectAttempts}...`);
+      this.connect();
+    }, delay);
+  }
+
   disconnect() {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.ws) {
-      console.log('Actively closing WebSocket connection');
-      this.ws.close(1000, 'User stopped recording');
+      this.ws.close(1000, 'User stopped');
       this.ws = null;
       this.isConnectedFlag = false;
-      // Notify any connection change listeners
-      this.connectionChangeHandlers.forEach(handler => handler(false));
+      this.connectionChangeHandlers.forEach(h => h(false));
     }
   }
 
   isConnected(): boolean {
     return this.isConnectedFlag;
+  }
+
+  private flushQueue() {
+    while (this.queue.length > 0) {
+      this.ws!.send(this.queue.shift()!);
+    }
   }
 }
 

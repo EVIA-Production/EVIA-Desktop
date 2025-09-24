@@ -223,84 +223,86 @@ function updateChildLayouts() {
 }
 
 function handleWindowVisibilityRequest(name: FeatureName, shouldBeVisible: boolean) {
-  console.log(`[WindowManager] Request: set '${name}' visibility to ${shouldBeVisible}`)
-  const win = childWindows.get(name)
-  if (!win || win.isDestroyed()) return { ok: false }
+  console.log(`[WindowManager] Request: set '${name}' visibility to ${shouldBeVisible}`);
+  const win = childWindows.get(name);
+  if (!win || win.isDestroyed()) return { ok: false };
 
   if (name !== 'settings') {
-    const isCurrentlyVisible = win.isVisible()
+    const isCurrentlyVisible = win.isVisible();
     if (isCurrentlyVisible === shouldBeVisible) {
-      console.log(`[WindowManager] Window '${name}' is already in the desired state.`)
-      return { ok: true }
+      console.log(`[WindowManager] Window '${name}' is already in the desired state.`);
+      return { ok: true };
     }
   }
 
   // Settings special-case (hover show/hide with delay)
   if (name === 'settings') {
     if (shouldBeVisible) {
-      if (settingsHideTimer) { clearTimeout(settingsHideTimer); settingsHideTimer = null }
-      const pos = calculateSettingsWindowPosition()
-      if (pos) { try { win.setBounds(pos) } catch {} }
-      try { win.show() } catch {}
-      try { win.moveTop() } catch {}
+      if (settingsHideTimer) { clearTimeout(settingsHideTimer); settingsHideTimer = null; }
+      const pos = calculateSettingsWindowPosition();
+      if (pos) { try { win.setBounds(pos); } catch {} }
+      try { win.show(); } catch {}
+      try { win.moveTop(); } catch {}
     } else {
-      if (settingsHideTimer) clearTimeout(settingsHideTimer)
+      if (settingsHideTimer) clearTimeout(settingsHideTimer);
       settingsHideTimer = setTimeout(() => {
-        try { if (!win.isDestroyed()) win.hide() } catch {}
-        settingsHideTimer = null
-      }, 200)
+        try { if (!win.isDestroyed()) win.hide(); } catch {}
+        settingsHideTimer = null;
+      }, 200);
     }
-    enforceZOrder()
-    return { ok: true }
+    enforceZOrder();
+    updateChildLayouts();  // Ensure layout update for settings
+    return { ok: true };
   }
 
   // Listen/Ask coordinated placement
-  const other: FeatureName | null = name === 'listen' ? 'ask' : name === 'ask' ? 'listen' : null
-  const otherWin = other ? childWindows.get(other) : null
-  const visibility: any = {}
-  visibility[name] = shouldBeVisible
+  const other: FeatureName | null = name === 'listen' ? 'ask' : name === 'ask' ? 'listen' : null;
+  const otherWin = other ? childWindows.get(other) : null;
+  const visibility: any = {};
+  visibility[name] = shouldBeVisible;
   if (other && otherWin && !otherWin.isDestroyed() && otherWin.isVisible()) {
-    visibility[other] = true
+    visibility[other] = true;
   }
-  const layout = calculateFeatureLayout(visibility)
-  const target = (layout as any)[name]
+  const layout = calculateFeatureLayout(visibility);
+  const target = (layout as any)[name];
 
   if (shouldBeVisible) {
-    if (!target) return { ok: false }
-    const startPos = { ...target }
+    if (!target) return { ok: false };
+    const startPos = { ...target };
     // Glass offsets: listen slides in from left, ask slides in from top
-    if (name === 'listen') startPos.x -= 50
-    if (name === 'ask') startPos.y -= 20
-    try { win.setOpacity(0) } catch {}
-    try { win.setBounds(clampBounds(startPos)) } catch {}
-    try { win.show() } catch {}
-    try { win.moveTop() } catch {}
+    if (name === 'listen') startPos.x -= 50;
+    if (name === 'ask') startPos.y -= 20;
+    try { win.setOpacity(0); } catch {}
+    try { win.setBounds(clampBounds(startPos)); } catch {}
+    try { win.show(); } catch {}
+    try { win.moveTop(); } catch {}
     // snap to final and fade in (simple mimic of movement manager)
-    try { win.setBounds(clampBounds(target)) } catch {}
-    try { win.setOpacity(1) } catch {}
+    try { win.setBounds(clampBounds(target)); } catch {}
+    try { win.setOpacity(1); } catch {}
   } else {
-    if (!win.isVisible()) return { ok: true }
-    const cur = win.getBounds()
-    const endPos = { ...cur }
-    if (name === 'listen') endPos.x -= 50
-    if (name === 'ask') endPos.y -= 20
-    try { win.setOpacity(0) } catch {}
-    try { win.setBounds(clampBounds(endPos)) } catch {}
-    try { win.hide() } catch {}
+    if (!win.isVisible()) return { ok: true };
+    const cur = win.getBounds();
+    const endPos = { ...cur };
+    if (name === 'listen') endPos.x -= 50;
+    if (name === 'ask') endPos.y -= 20;
+    try { win.setOpacity(0); } catch {}
+    try { win.setBounds(clampBounds(endPos)); } catch {}
+    try { win.hide(); } catch {}
   }
 
   // Apply layout to any other visible windows
   Object.keys(layout).forEach((n) => {
-    if (n === name) return
-    const w = childWindows.get(n as FeatureName)
+    if (n === name) return;
+    const w = childWindows.get(n as FeatureName);
     if (w && !w.isDestroyed()) {
-      const b = (layout as any)[n]
-      console.log(`[Layout Debug] ${n === 'ask' ? 'Ask' : 'Listen'} Window Bounds: height=${b.height}, width=${b.width}`)
-      try { w.setBounds(clampBounds(b)) } catch {}
+      const b = (layout as any)[n];
+      console.log(`[Layout Debug] ${n === 'ask' ? 'Ask' : 'Listen'} Window Bounds: height=${b.height}, width=${b.width}`);
+      try { w.setBounds(clampBounds(b)); } catch {}
     }
-  })
-  enforceZOrder(name)
-  return { ok: true }
+  });
+  enforceZOrder(name);
+  updateChildLayouts();  // Explicitly call after visibility change
+  return { ok: true };
 }
 
 function calculateSettingsWindowPosition() {
@@ -365,8 +367,9 @@ function ensureChildWindow(name: FeatureName) {
   }
   const dev = process.env.NODE_ENV === 'development'
   const base = dev ? 'http://localhost:5174' : `file://${path.join(__dirname, '../renderer')}`
+  // Ensure we load the overlay entry in dev
   const file = dev ? `${base}/overlay.html?view=${name}` : `${base}/overlay.html?view=${name}`
-  try { win.loadURL(file) } catch {}
+  try { win.loadURL(file) } catch (e) { console.error(`[Load Error] ${name}:`, e) }
   // Do not auto-open DevTools for child windows; it can affect visibility toggles
   childWindows.set(name, win)
   // reinforce z-order
@@ -432,6 +435,7 @@ export function createHeaderWindow() {
     useContentSize: true,
     fullscreenable: false,
     skipTaskbar: true,
+    show: true,  // Explicitly show the window
     webPreferences: {
       preload: process.env.NODE_ENV === 'development'
         ? path.join(process.cwd(), 'src/main/preload.cjs')
@@ -451,8 +455,13 @@ export function createHeaderWindow() {
   if (process.platform === 'darwin') { try { headerWindow.setWindowButtonVisibility(false) } catch {} }
 
   const dev = process.env.NODE_ENV === 'development'
+  // Load overlay entry explicitly in dev
   const url = dev ? 'http://localhost:5174/overlay.html?view=header' : `file://${path.join(__dirname, '../renderer/overlay.html')}?view=header`
-  try { headerWindow.loadURL(url) } catch {}
+  try { headerWindow.loadURL(url) } catch (e) { console.error('[Load Error] Header:', e) }
+  headerWindow.show()
+  headerWindow.focus()
+  headerWindow.moveTop()
+  headerWindow.webContents.openDevTools({ mode: 'detach' })  // Force open DevTools for debugging
   if (dev) { try { headerWindow.webContents.openDevTools({ mode: 'detach' }) } catch {} }
   try { headerWindow.moveTop() } catch {}
 
@@ -619,6 +628,11 @@ function registerIpc() {
     }
     return { ok: false }
   })
+
+  ipcMain.on('close-window', (event, name) => {
+    const win = childWindows.get(name);
+    if (win) win.hide(); // Instead of ensureChildWindow(false)
+  });
 }
 
 
