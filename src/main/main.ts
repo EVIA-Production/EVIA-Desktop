@@ -3,7 +3,12 @@ import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar';
-import { getBackendHttpBase } from '../renderer/services/websocketService';
+
+function getBackendHttpBase(): string {
+  const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
+  if (env && env.trim()) return String(env).replace(/\/$/, '');
+  return 'http://localhost:8000';
+}
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
 // eslint-disable-next-line @typescript-eslint/no-var-requires
