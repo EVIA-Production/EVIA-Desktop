@@ -3,6 +3,7 @@ import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar';
+import { getBackendHttpBase } from '../renderer/services/websocketService';
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -81,8 +82,8 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
     const data = await res.json();
     await keytar.setPassword('evia', 'token', data.access_token);
     return {success: true};
-  } catch (err) {
-    return {success: false, error: err.message};
+  } catch (err: unknown) {
+    return {success: false, error: (err as Error).message};
   }
 });
 

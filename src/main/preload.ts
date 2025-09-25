@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('evia', {
   },
   closeWindow: (name: string) => ipcRenderer.send('close-window', name),
   auth: {
-    login: (username, password) => ipcRenderer.invoke('auth:login', {username, password}),
+    login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
     getToken: () => ipcRenderer.invoke('auth:getToken')
   }
 })
