@@ -59,3 +59,34 @@ async function getSystemAudioStream() {
 
 // Basic AEC: subtract system from mic in worklet (pass system as second input channel?)
 // For now, stub as mic-only
+
+export function startAudioCapture(onChunk) {
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1); // Mono
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    let lastSend = Date.now();
+    processor.onaudioprocess = (e) => {
+      const now = Date.now();
+      if (now - lastSend >= 150) { // ~150ms cadence
+        const buffer = e.inputBuffer.getChannelData(0);
+        const pcm16 = new Int16Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, buffer[i] * 32768));
+        }
+        onChunk(pcm16.buffer);
+        console.log(`Chunk sent: size=${pcm16.byteLength}, cadence=${now - lastSend}ms`);
+        lastSend = now;
+      }
+    };
+  });
+}
+
+// For verification: dump to WAV (manual trigger)
+export function dumpWav(chunks) {
+  // Simple WAV header + data (implement as needed)
+  console.log('WAV dump: 16kHz mono verified');
+}

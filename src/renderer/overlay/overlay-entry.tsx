@@ -6,6 +6,8 @@ import AskView from './AskView'
 import SettingsView from './SettingsView'
 import ShortCutSettingsView from './ShortCutSettingsView'
 import '../overlay/overlay-glass.css'
+import { getOrCreateChatId } from '../services/websocketService';
+import { startAudioCapture } from '../audio-processor'; // Assume this exists or add if needed
 
 // Types for linter
 interface WsHandle {
@@ -143,6 +145,32 @@ const OverlayEntry: React.FC = () => {
     // Your connect logic with Glass integration
     await getAec();
     // ... implement full connect as per previous
+  };
+
+  const handleListenClick = async () => {
+    console.log('Listen button clicked');
+    const chatId = await getOrCreateChatId();
+    console.log(`Chat ID ${chatId ? 'reused/created' : 'failed'}: ${chatId}`);
+    if (!chatId) return;
+
+    // Open WS (mic-only)
+    const wsUrl = `ws://localhost:8000/ws/transcribe?chat_id=${chatId}&token=${localStorage.getItem('auth_token')}&source=mic&dg_lang=de${process.env.FAST_MODE === 'true' ? '&fast_mode=true' : ''}`;
+    const ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      console.log('Mic WS opened');
+      startAudioCapture((chunk) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(chunk);
+          console.log(`Sent chunk size: ${chunk.byteLength}, cadence: 150ms`); // Approx log
+        }
+      });
+    };
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      console.log(`Received segment: ${JSON.stringify(msg)}`);
+      // Pass to ListenView for rendering (assume prop or context)
+    };
+    // ... error/close handling
   };
 
   return (

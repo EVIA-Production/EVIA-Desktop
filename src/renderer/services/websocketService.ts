@@ -23,46 +23,57 @@ function getBackendHttpBase(): string {
 
 export async function getOrCreateChatId(backendUrl: string, token: string): Promise<string> {
   let chatId = localStorage.getItem('current_chat_id');
-  if (!chatId) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const res = await fetch(`${backendUrl}/chat/`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!res.ok) {
-          if (res.status === 401) {
-            console.error('[WS] Auth failed - token expired?');
-            // Prompt refresh or handle
-            throw new Error('Auth failed - please relogin');
-          }
-          throw new Error(`Status ${res.status}`);
-        }
-        const raw = await res.text();
-        console.log('[WS] Chat create raw response:', raw);
-        let data: any = null;
-        try {
-          data = raw ? JSON.parse(raw) : null;
-        } catch (e) {
-          console.warn('[WS] Chat create JSON parse failed; raw=', raw);
-          throw e;
-        }
-        const newId = data?.id ?? data?.chat_id ?? data?.chatId;
-        if (typeof newId !== 'number' || newId <= 0) {
-          throw new Error(`Invalid chat id from create: ${JSON.stringify(data)}`);
-        }
-        chatId = String(newId);
-        localStorage.setItem('current_chat_id', chatId);
-        try { await (window as any).evia?.prefs?.set?.({ current_chat_id: chatId }); } catch {}
-        console.log(`[WS] Created chat ID: ${chatId.slice(0,4)}...`);
-        break;
-      } catch (e) {
-        console.error(`[WS] Chat create failed (attempt ${attempt+1}):`, e);
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
-      }
-    }
-    if (!chatId) throw new Error('Failed to create chat after retries');
+  if (chatId) {
+    console.log('[Chat] Reusing existing chat id', chatId);
+    return chatId;
   }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      console.log(`[Chat] Attempt ${attempt + 1} to create chat`);
+      const res = await fetch(`${backendUrl}/chat/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      console.log('[Chat] Response status', res.status, res.type);
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Auth failed (401) - please re-login');
+        }
+        if (res.type === 'opaque') {
+          throw new Error('CORS blocked request to backend');
+        }
+        throw new Error(`Chat create failed with status ${res.status}`);
+      }
+      const raw = await res.text();
+      console.log('[Chat] Raw response', raw);
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        console.error('[Chat] JSON parse failed', err);
+        throw new Error('Invalid JSON from chat create');
+      }
+      const newId = data?.id ?? data?.chat_id ?? data?.chatId;
+      if (typeof newId !== 'number' || newId <= 0) {
+        throw new Error(`Invalid chat id: ${JSON.stringify(data)}`);
+      }
+      chatId = String(newId);
+      localStorage.setItem('current_chat_id', chatId);
+      try { await (window as any).evia?.prefs?.set?.({ current_chat_id: chatId }); } catch {}
+      console.log('[Chat] Created chat id', chatId);
+      break;
+    } catch (err) {
+      console.error(`[Chat] Create failed attempt ${attempt + 1}`, err);
+      if (attempt === 2) throw err instanceof Error ? err : new Error(String(err));
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    }
+  }
+
+  if (!chatId) throw new Error('Failed to create chat after retries');
   return chatId;
 }
 
