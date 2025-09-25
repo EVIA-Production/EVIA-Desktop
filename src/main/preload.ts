@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, desktopCapturer } from 'electron'
+import * as keytar from 'keytar';
 
 type WsHandle = {
   sendBinary: (data: ArrayBuffer) => void
@@ -63,6 +64,10 @@ contextBridge.exposeInMainWorld('evia', {
     set: (prefs: Record<string, any>) => ipcRenderer.invoke('prefs:set', prefs),
   },
   closeWindow: (name: string) => ipcRenderer.send('close-window', name),
+  auth: {
+    login: (username, password) => ipcRenderer.invoke('auth:login', {username, password}),
+    getToken: () => ipcRenderer.invoke('auth:getToken')
+  }
 })
 
 // Export/WAV helpers

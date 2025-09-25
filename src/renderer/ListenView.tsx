@@ -1,8 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 
-const ListenView = ({ segments }) => { // Assume segments prop from parent
+interface Segment {
+  speaker: number;
+  text: string;
+  isInterim?: boolean;
+}
+
+const ListenView = ({ segments }: { segments: Segment[] }) => {
   const [followLive, setFollowLive] = useState(true);
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (followLive && scrollRef.current) {
@@ -15,16 +21,16 @@ const ListenView = ({ segments }) => { // Assume segments prop from parent
   };
 
   return (
-    <div>
-      <label>
+    <div className="transcription-container" style={{ backdropFilter: 'blur(10px)', padding: '16px' }}>
+      <label className="toggle-label">
         <input type="checkbox" checked={followLive} onChange={(e) => setFollowLive(e.target.checked)} />
         Follow live
       </label>
-      {!followLive && <button onClick={jumpToLatest}>Jump to latest</button>}
+      {!followLive && <button className="jump-button" onClick={jumpToLatest}>Jump to latest</button>}
       <div ref={scrollRef} style={{ overflowY: 'auto', maxHeight: '300px' }}>
-        {segments.map((seg, i) => (
-          <div key={i} style={{ textAlign: seg.speaker === 0 ? 'right' : 'left', opacity: seg.isInterim ? 0.7 : 1 }}>
-            <div style={{ display: 'inline-block', background: 'lightgray', borderRadius: '10px', padding: '5px' }}>
+        {segments.map((seg: Segment, i: number) => (
+          <div key={i} className={`stt-message ${seg.speaker === 0 ? 'right-align' : 'left-align'}`} style={{ marginBottom: '8px', opacity: seg.isInterim ? 0.7 : 1 }}>
+            <div style={{ display: 'inline-block', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', padding: '8px 12px' }}>
               {seg.text}
             </div>
           </div>

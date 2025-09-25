@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
+import * as keytar from 'keytar';
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -67,6 +68,27 @@ ipcMain.handle('system-audio:start', async () => {
 ipcMain.handle('system-audio:stop', async () => {
   return await processManager.stopSystemAudioHelper()
 })
+
+ipcMain.handle('auth:login', async (_event, {username, password}) => {
+  try {
+    const backend = getBackendHttpBase(); // assume function exists or hardcode
+    const res = await fetch(`${backend}/login/`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    if (!res.ok) throw new Error('Login failed');
+    const data = await res.json();
+    await keytar.setPassword('evia', 'token', data.access_token);
+    return {success: true};
+  } catch (err) {
+    return {success: false, error: err.message};
+  }
+});
+
+ipcMain.handle('auth:getToken', async () => {
+  return await keytar.getPassword('evia', 'token');
+});
 
 // Add your other handlers here...
 

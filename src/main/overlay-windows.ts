@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
 import fs from 'fs'
 import path from 'path'
 
@@ -9,6 +9,30 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
 const PAD = 8
 let settingsHideTimer: NodeJS.Timeout | null = null
+
+// Z-order constants
+const Z_LISTEN = 3;
+const Z_SETTINGS = 2;
+const Z_ASK = 1;
+
+// Window creation with dims/anim
+const createListenWindow = () => {
+  const win = new BrowserWindow({
+    width: 400,
+    height: 300, // Auto
+    alwaysOnTop: 'screen-saver',
+    // ... other opts
+  });
+  win.setIgnoreMouseEvents(true, { forward: true }); // When hidden
+  // Anim: use webContents for slide/fade
+};
+
+// Register globals
+globalShortcut.register('CommandOrControl+\\', () => toggleVisibility());
+globalShortcut.register('CommandOrControl+Enter', () => openAsk());
+globalShortcut.register('ArrowUp', () => nudgeHeader(0, -10)); // Etc.
+
+// Reassert on-top on 'browser-window-focus' / screen events
 
 // Simple prefs store (persisted under userData/prefs.json)
 type Prefs = { [key: string]: any }
