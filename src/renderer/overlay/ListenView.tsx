@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import './overlay-tokens.css';
-import './overlay-glass.css';
-import { getWebSocketInstance } from '../services/websocketService';
+import React, { useEffect, useRef, useState } from "react";
+import "./overlay-tokens.css";
+import "./overlay-glass.css";
+import { getWebSocketInstance } from "../services/websocketService";
 
 declare global {
   interface Window {
@@ -27,14 +27,23 @@ interface ListenViewProps {
   onClose?: () => void;
 }
 
-const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean}[]>([]);
+const ListenView: React.FC<ListenViewProps> = ({
+  lines,
+  followLive,
+  onToggleFollow,
+  onClose,
+}) => {
+  const [transcripts, setTranscripts] = useState<
+    { text: string; speaker: number | null; isFinal: boolean }[]
+  >([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
+  const [viewMode, setViewMode] = useState<"transcript" | "insights">(
+    "transcript"
+  );
   const [isHovering, setIsHovering] = useState(false);
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
-  const [elapsedTime, setElapsedTime] = useState('00:00');
+  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [elapsedTime, setElapsedTime] = useState("00:00");
   const [isSessionActive, setIsSessionActive] = useState(false);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -42,7 +51,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
 
-    const topBar = document.querySelector('.top-bar') as HTMLElement;
+    const topBar = document.querySelector(".top-bar") as HTMLElement;
     const activeContent = viewportRef.current as HTMLElement;
     if (!topBar || !activeContent) return;
 
@@ -51,15 +60,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const idealHeight = topBarHeight + contentHeight;
     const targetHeight = Math.min(700, idealHeight);
 
-    window.api.listenView.adjustWindowHeight('listen', targetHeight);
+    window.api.listenView.adjustWindowHeight("listen", targetHeight);
   };
 
   const startTimer = () => {
     const startTime = Date.now();
     timerInterval.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
-      const seconds = (elapsed % 60).toString().padStart(2, '0');
+      const minutes = Math.floor(elapsed / 60)
+        .toString()
+        .padStart(2, "0");
+      const seconds = (elapsed % 60).toString().padStart(2, "0");
       setElapsedTime(`${minutes}:${seconds}`);
     }, 1000);
   };
@@ -85,28 +96,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, []);
 
   useEffect(() => {
-    const cid = localStorage.getItem('current_chat_id');
-    if (!cid || cid === 'undefined') {
-      console.error('No valid chat_id; create one first');
+    const cid = localStorage.getItem("current_chat_id");
+    if (!cid || cid === "undefined") {
+      console.error("No valid chat_id; create one first");
       return () => {};
     }
     // WebSocket setup for receiving transcripts
-    const ws = getWebSocketInstance(cid, 'mic');
+    const ws = getWebSocketInstance(cid, "mic");
     ws.connect();
     const unsub = ws.onMessage((msg: any) => {
-      if (msg.type === 'transcript_segment' && msg.data) {
-        const { text = '', speaker = null, is_final = false } = msg.data;
-        setTranscripts(prev => [...prev, { text, speaker, isFinal: is_final }]);
+      if (msg.type === "transcript_segment" && msg.data) {
+        const { text = "", speaker = null, is_final = false } = msg.data;
+        setTranscripts((prev) => [
+          ...prev,
+          { text, speaker, isFinal: is_final },
+        ]);
         if (localFollowLive && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
       }
     });
-    return () => { unsub(); ws.disconnect(); };
+    return () => {
+      unsub();
+      ws.disconnect();
+    };
   }, [localFollowLive]);
 
   const toggleView = () => {
-    setViewMode(prev => prev === 'transcript' ? 'insights' : 'transcript');
+    setViewMode((prev) => (prev === "transcript" ? "insights" : "transcript"));
   };
 
   const handleCopyHover = (hovering: boolean) => {
@@ -114,36 +131,47 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   const handleCopy = async () => {
-    if (copyState === 'copied') return;
+    if (copyState === "copied") return;
 
-    let textToCopy = viewMode === 'transcript' 
-      ? lines.map(line => line.text).join('\n')
-      : 'Insights content placeholder';
+    let textToCopy =
+      viewMode === "transcript"
+        ? lines.map((line) => line.text).join("\n")
+        : "Insights content placeholder";
 
     try {
       await navigator.clipboard.writeText(textToCopy);
-      setCopyState('copied');
+      setCopyState("copied");
       if (copyTimeout.current) {
         clearTimeout(copyTimeout.current);
       }
       copyTimeout.current = setTimeout(() => {
-        setCopyState('idle');
+        setCopyState("idle");
       }, 1500);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error("Failed to copy:", err);
     }
   };
 
   const displayText = isHovering
-    ? viewMode === 'transcript'
-      ? 'Copy Transcript'
-      : 'Copy EVIA Analysis'
-    : viewMode === 'insights'
-    ? 'Live insights'
+    ? viewMode === "transcript"
+      ? "Copy Transcript"
+      : "Copy EVIA Analysis"
+    : viewMode === "insights"
+    ? "Live insights"
     : `EVIA is Listening ${elapsedTime}`;
 
   return (
-    <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
+    <div
+      className="assistant-container"
+      style={{
+        width: "400px",
+        transform: "translate3d(0, 0, 0)",
+        backfaceVisibility: "hidden",
+        transition:
+          "transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out",
+        willChange: "transform, opacity",
+      }}
+    >
       <style>
         {`
           .assistant-container {
@@ -306,13 +334,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
 
           .copy-button .copy-icon {
-            opacity: ${copyState === 'copied' ? '0' : '1'};
-            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(0.5)' : 'translate(-50%, -50%) scale(1)'};
+            opacity: ${copyState === "copied" ? "0" : "1"};
+            transform: ${
+              copyState === "copied"
+                ? "translate(-50%, -50%) scale(0.5)"
+                : "translate(-50%, -50%) scale(1)"
+            };
           }
 
           .copy-button .check-icon {
-            opacity: ${copyState === 'copied' ? '1' : '0'};
-            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.5)'};
+            opacity: ${copyState === "copied" ? "1" : "0"};
+            transform: ${
+              copyState === "copied"
+                ? "translate(-50%, -50%) scale(1)"
+                : "translate(-50%, -50%) scale(0.5)"
+            };
           }
 
           .insights-placeholder {
@@ -359,15 +395,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       <div className="assistant-container">
         <div className="top-bar">
           <div className="bar-left-text">
-            <span className={`bar-left-text-content ${isHovering ? 'slide-in' : ''}`}>
+            <span
+              className={`bar-left-text-content ${
+                isHovering ? "slide-in" : ""
+              }`}
+            >
               {displayText}
             </span>
           </div>
           <div className="bar-controls">
             <button className="toggle-button" onClick={toggleView}>
-              {viewMode === 'insights' ? (
+              {viewMode === "insights" ? (
                 <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
@@ -375,7 +422,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 </>
               ) : (
                 <>
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="8"
+                    height="8"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <path d="M9 11l3 3L22 4" />
                     <path d="M22 12v7a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h11" />
                   </svg>
@@ -384,49 +438,82 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               )}
             </button>
             <button
-              className={`copy-button ${copyState === 'copied' ? 'copied' : ''}`}
+              className={`copy-button ${
+                copyState === "copied" ? "copied" : ""
+              }`}
               onClick={handleCopy}
               onMouseEnter={() => handleCopyHover(true)}
               onMouseLeave={() => handleCopyHover(false)}
             >
-              <svg className="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="copy-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
               </svg>
-              <svg className="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg
+                className="check-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
                 <path d="M20 6L9 17l-5-5" />
               </svg>
             </button>
-            {onClose && (
-              <button className="copy-button" onClick={onClose}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            )}
           </div>
         </div>
         <div className="glass-scroll" ref={viewportRef}>
-          {viewMode === 'transcript' ? (
+          {viewMode === "transcript" ? (
             lines.length > 0 ? (
               lines.map((line, i) => (
-                <div key={i} className={`bubble ${line.speaker === 1 ? 'me' : 'them'}`} style={{ opacity: line.isFinal ? 1 : 0.7 }}>
+                <div
+                  key={i}
+                  className={`bubble ${line.speaker === 1 ? "me" : "them"}`}
+                  style={{ opacity: line.isFinal ? 1 : 0.7 }}
+                >
                   <span className="bubble-text">{line.text}</span>
                 </div>
               ))
             ) : (
-              <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              <div
+                className="insights-placeholder"
+                style={{
+                  padding: "8px 16px",
+                  textAlign: "center",
+                  fontStyle: "italic",
+                  background: "transparent",
+                  color: "rgba(255, 255, 255, 0.7)",
+                }}
+              >
                 Waiting for speech...
               </div>
             )
           ) : (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+            <div
+              className="insights-placeholder"
+              style={{
+                padding: "8px 16px",
+                textAlign: "center",
+                fontStyle: "italic",
+                background: "transparent",
+                color: "rgba(255, 255, 255, 0.7)",
+              }}
+            >
               No insights yet
             </div>
           )}
         </div>
         <button onClick={onToggleFollow} className="follow-button">
-          {localFollowLive ? 'Stop Following' : 'Follow Live'}
+          {localFollowLive ? "Stop Following" : "Follow Live"}
         </button>
       </div>
     </div>
