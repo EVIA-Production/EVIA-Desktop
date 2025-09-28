@@ -364,7 +364,7 @@ const ListenView: React.FC<ListenViewProps> = ({
           .follow-button {
             position: absolute;
             bottom: 8px; /* Further reduced margin */
-            right: 8px; /* Further reduced margin */
+            left: 8px; /* Moved to bottom left corner */
             display: flex;
             align-items: center;
             justify-content: center;

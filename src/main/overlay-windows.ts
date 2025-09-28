@@ -523,11 +523,13 @@ function ensureChildWindow(name: FeatureName) {
     // Match Glass ask width 600
     win = new BrowserWindow({ ...common, width: 600, height: 520 });
   } else if (name === "settings") {
-    // Match Glass settings width 240, maxHeight 400
+    // Match Glass settings width 240, maxHeight 400 - increase height to accommodate all buttons
     win = new BrowserWindow({
       ...common,
       width: 240,
-      height: 360,
+      height: 450,
+      maxHeight: 500,
+      minHeight: 300,
       parent: undefined,
     });
   } else {

@@ -2,7 +2,7 @@
 .glass-panel {
   color: #ffffff;
   position: relative;
-  background: rgba(22,22,22,0.60);
+  background: rgba(22, 22, 22, 0.6);
   border-radius: 14px;
   width: 100%;
   height: 100%;
@@ -12,12 +12,17 @@
   margin: 0;
 }
 .glass-panel::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 14px;
   padding: 1px;
-  background: linear-gradient(169deg, rgba(255,255,255,0.17) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.17) 100%);
+  background: linear-gradient(
+    169deg,
+    rgba(255, 255, 255, 0.17) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.17) 100%
+  );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: destination-out;
@@ -30,7 +35,7 @@
   align-items: center;
   padding: 6px 14px;
   min-height: 30px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 .glass-topbar-title {
   color: #fff;
@@ -49,7 +54,7 @@
 }
 .glass-button {
   background: transparent;
-  color: rgba(255,255,255,0.9);
+  color: rgba(255, 255, 255, 0.9);
   border: none;
   padding: 4px 8px;
   border-radius: 5px;
@@ -58,7 +63,9 @@
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
-.glass-button:hover { background: rgba(255,255,255,0.1); }
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
 
 .glass-scroll {
   overflow-y: auto;
@@ -68,6 +75,37 @@
   border-bottom-left-radius: 14px;
   border-bottom-right-radius: 14px;
 }
+
+/* Custom scrollbar styling */
+.glass-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.glass-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  margin: 4px;
+}
+
+.glass-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.glass-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.glass-scroll::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* For Firefox */
+.glass-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
+}
 .bubble {
   display: inline-block;
   padding: 5px 9px;
@@ -75,8 +113,12 @@
   margin: 3px 0;
   font-size: 11.5px;
 }
-.bubble.me { background: rgba(0, 122, 255, 0.25); }
-.bubble.them { background: rgba(255, 255, 255, 0.1); }
+.bubble.me {
+  background: rgba(0, 122, 255, 0.25);
+}
+.bubble.them {
+  background: rgba(255, 255, 255, 0.1);
+}
 
 .insights-placeholder {
   display: flex;
@@ -91,5 +133,3 @@
   border-radius: 8px;
   margin: 16px;
 }
-
-

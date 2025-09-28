@@ -105,24 +105,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       style={{
         background: "rgba(0, 0, 0, 0.7)",
         borderRadius: "12px",
-        padding: "16px",
+        padding: "12px",
         color: "white",
         width: "100%",
-        maxWidth: "600px",
+        height: "100%",
         boxShadow: "0 4px 12px rgba(0, 0, 0, 0.4)",
+        display: "flex",
+        flexDirection: "column",
+        boxSizing: "border-box",
       }}
     >
       <div
         className="header-section"
         style={{
-          marginBottom: "16px",
+          marginBottom: "12px",
           borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-          paddingBottom: "8px",
+          paddingBottom: "6px",
         }}
       >
         <h1
           className="app-title"
-          style={{ fontSize: "18px", fontWeight: "bold", margin: 0 }}
+          style={{ fontSize: "14px", fontWeight: "bold", margin: 0 }}
         >
           Settings
         </h1>
@@ -134,9 +137,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      <div className="shortcuts-section" style={{ marginBottom: "16px" }}>
+      <div className="shortcuts-section" style={{ marginBottom: "12px" }}>
         <h2
-          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
+          style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}
         >
           Shortcuts
         </h2>
@@ -147,7 +150,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             style={{
               display: "flex",
               justifyContent: "space-between",
-              marginBottom: "8px",
+              marginBottom: "4px",
             }}
           >
             <span
@@ -166,7 +169,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         ))}
       </div>
 
-      <div className="preset-section" style={{ marginBottom: "16px" }}>
+      <div
+        className="preset-section"
+        style={{
+          marginBottom: "12px",
+          flexShrink: 0,
+        }}
+      >
         <div
           className="preset-header"
           style={{
@@ -178,7 +187,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         >
           <span
             className="preset-title"
-            style={{ fontSize: "14px", fontWeight: "bold" }}
+            style={{ fontSize: "12px", fontWeight: "bold" }}
           >
             My Presets
             <span
@@ -260,7 +269,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
       <div
         className="buttons-section"
-        style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+          flexShrink: 0,
+          paddingTop: "6px",
+          borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+        }}
       >
         <button
           className="settings-button"
