@@ -7,6 +7,7 @@
 
 ## Dev
 
+MAC
 ```sh
 cd EVIA-Desktop
 npm i
@@ -14,6 +15,19 @@ npm i
 npm run dev:renderer
 # terminal B (Electron)
 EVIA_DEV=1 npm run dev:main
+```
+
+WINDOWS
+```sh
+cd EVIA-Desktop
+npm i
+
+# Terminal A - Start renderer process
+npm run dev:renderer
+
+# Terminal B - Start Electron main process with dev flag
+$env:EVIA_DEV = "1"
+npm run dev:main
 ```
 
 Set backend URL, chat_id, and token in the Electron window fields, then click Connect.
