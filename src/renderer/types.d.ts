@@ -22,7 +22,7 @@ interface EviaBridge {
   createWs: (url: string) => WebSocketWrapper;
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;
-  openSystemPreferences: (section: 'screen' | 'mic') => void;
+  openSystemPreferences: (section: "screen" | "mic") => void;
   openTerminal: (script: string) => Promise<any>;
   launchMain: () => Promise<any>;
   launchAudioTest: () => Promise<any>;
@@ -31,9 +31,10 @@ interface EviaBridge {
   };
   // Add windows
   windows: {
-    show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
-    ensureShown: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
+    show: (name: string) => Promise<{ ok: boolean; toggled?: string }>;
+    ensureShown: (name: string) => Promise<{ ok: boolean; toggled?: string }>;
     hide: (name: string) => Promise<{ ok: boolean }>;
+    toggleAll: () => Promise<{ ok: boolean; action?: string }>;
     cancelHideSettingsWindow: () => void;
   };
   closeWindow: (name: string) => void;

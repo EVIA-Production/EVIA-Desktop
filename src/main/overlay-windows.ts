@@ -7,6 +7,9 @@ export type FeatureName = "listen" | "ask" | "settings" | "shortcuts";
 let headerWindow: BrowserWindow | null = null;
 const childWindows: Map<FeatureName, BrowserWindow> = new Map();
 
+// Track which windows were visible before hiding all (Glass parity)
+const lastVisibleWindows: Set<FeatureName> = new Set();
+
 const PAD = 8;
 let settingsHideTimer: NodeJS.Timeout | null = null;
 
@@ -320,6 +323,61 @@ function updateChildLayouts() {
     }
   }
   enforceZOrder();
+}
+
+function toggleAllWindowsVisibility() {
+  console.log("[WindowManager] Toggle all windows visibility requested");
+
+  if (!headerWindow || headerWindow.isDestroyed()) {
+    console.warn("[WindowManager] Header window not available for toggle");
+    return { ok: false };
+  }
+
+  const headerVisible = headerWindow.isVisible();
+
+  if (headerVisible) {
+    // Hide all windows - first save which ones are currently visible
+    lastVisibleWindows.clear();
+
+    childWindows.forEach((win, name) => {
+      if (win && !win.isDestroyed() && win.isVisible()) {
+        lastVisibleWindows.add(name);
+      }
+    });
+
+    // Hide all child windows first
+    lastVisibleWindows.forEach((name) => {
+      const win = childWindows.get(name);
+      if (win && !win.isDestroyed()) {
+        win.hide();
+      }
+    });
+
+    // Then hide header
+    headerWindow.hide();
+
+    console.log(
+      "[WindowManager] Hidden all windows, saved state:",
+      Array.from(lastVisibleWindows)
+    );
+    return { ok: true, action: "hidden" };
+  } else {
+    // Show all previously visible windows
+    headerWindow.show();
+
+    lastVisibleWindows.forEach((name) => {
+      const win = childWindows.get(name);
+      if (win && !win.isDestroyed()) {
+        win.show();
+      }
+    });
+
+    console.log(
+      "[WindowManager] Restored all windows:",
+      Array.from(lastVisibleWindows)
+    );
+    return { ok: true, action: "shown" };
+  }
 }
 
 function handleWindowVisibilityRequest(
@@ -938,6 +996,11 @@ function registerIpc() {
   ipcMain.on("close-window", (event, name) => {
     const win = childWindows.get(name);
     if (win) win.hide(); // Instead of ensureChildWindow(false)
+  });
+
+  // Toggle all windows visibility (Glass parity)
+  ipcMain.handle("win:toggleAll", () => {
+    return toggleAllWindowsVisibility();
   });
 
   // Add quit functionality

@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom/client'
-import EviaBar from './EviaBar'
-import ListenView from './ListenView'
-import AskView from './AskView'
-import SettingsView from './SettingsView'
-import ShortCutSettingsView from './ShortCutSettingsView'
-import '../overlay/overlay-glass.css'
-import { getOrCreateChatId } from '../services/websocketService';
-import { startAudioCapture } from '../audio-processor'; // Assume this exists or add if needed
+import React, { useState, useEffect, useRef } from "react";
+import ReactDOM from "react-dom/client";
+import EviaBar from "./EviaBar";
+import ListenView from "./ListenView";
+import AskView from "./AskView";
+import SettingsView from "./SettingsView";
+import ShortCutSettingsView from "./ShortCutSettingsView";
+import "../overlay/overlay-glass.css";
+import { getOrCreateChatId } from "../services/websocketService";
+import { startAudioCapture } from "../audio-processor"; // Assume this exists or add if needed
 
 // Types for linter
 interface WsHandle {
@@ -26,7 +26,7 @@ let aecPtr: number = 0;
 
 async function getAec() {
   if (aecMod) return aecMod;
-  aecMod = await (require('./assets/aec') as any)(); // Adjust path to WASM
+  aecMod = await (require("./assets/aec") as any)(); // Adjust path to WASM
   aecPtr = aecMod.newPtr(160, 1600, SAMPLE_RATE, 1);
   return aecMod;
 }
@@ -64,7 +64,10 @@ function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
 }
 
 // Helpers (from Glass)
-function int16PtrFromFloat32(mod: any, f32: Float32Array): { ptr: number; view: Int16Array } {
+function int16PtrFromFloat32(
+  mod: any,
+  f32: Float32Array
+): { ptr: number; view: Int16Array } {
   const len = f32.length;
   const bytes = len * 2;
   const ptr = mod._malloc(bytes);
@@ -101,20 +104,27 @@ function convertFloat32ToInt16(float32: Float32Array): Int16Array {
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++)
+    binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
 // EVIA state
-let wsMic: { sendBinary: (data: ArrayBuffer) => void; close: () => void } | null = null;
-let wsSys: { sendBinary: (data: ArrayBuffer) => void; close: () => void } | null = null;
+let wsMic: {
+  sendBinary: (data: ArrayBuffer) => void;
+  close: () => void;
+} | null = null;
+let wsSys: {
+  sendBinary: (data: ArrayBuffer) => void;
+  close: () => void;
+} | null = null;
 let sysConnected = false;
 let micDisabled = false;
-let micTranscript = '';
-let sysTranscript = '';
-let micInterim = '';
-let sysInterim = '';
+let micTranscript = "";
+let sysTranscript = "";
+let micInterim = "";
+let sysInterim = "";
 let micBuffer: ArrayBuffer[] = [];
 let sysBuffer: ArrayBuffer[] = [];
 let sysAudioBuffer: number[] = [];
@@ -124,8 +134,9 @@ let micStream: MediaStream | null = null;
 let micEnabled = true;
 let sysIpcSubscribed = false;
 let sysHelperStarted = false;
-let transcriptLines: { speaker: number; text: string; isInterim?: boolean }[] = [];
-let suggestion = '';
+let transcriptLines: { speaker: number; text: string; isInterim?: boolean }[] =
+  [];
+let suggestion = "";
 
 // UI render (basic for overlay)
 const OverlayEntry: React.FC = () => {
@@ -138,7 +149,7 @@ const OverlayEntry: React.FC = () => {
   }, []);
 
   const log = (msg: string) => {
-    if (logRef.current) logRef.current.value += msg + '\n';
+    if (logRef.current) logRef.current.value += msg + "\n";
   };
 
   const connect = async () => {
@@ -148,16 +159,20 @@ const OverlayEntry: React.FC = () => {
   };
 
   const handleListenClick = async () => {
-    console.log('Listen button clicked');
+    console.log("Listen button clicked");
     const chatId = await getOrCreateChatId();
-    console.log(`Chat ID ${chatId ? 'reused/created' : 'failed'}: ${chatId}`);
+    console.log(`Chat ID ${chatId ? "reused/created" : "failed"}: ${chatId}`);
     if (!chatId) return;
 
     // Open WS (mic-only)
-    const wsUrl = `ws://localhost:8000/ws/transcribe?chat_id=${chatId}&token=${localStorage.getItem('auth_token')}&source=mic&dg_lang=de${process.env.FAST_MODE === 'true' ? '&fast_mode=true' : ''}`;
+    const wsUrl = `ws://localhost:8000/ws/transcribe?chat_id=${chatId}&token=${localStorage.getItem(
+      "auth_token"
+    )}&source=mic&dg_lang=de${
+      process.env.FAST_MODE === "true" ? "&fast_mode=true" : ""
+    }`;
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => {
-      console.log('Mic WS opened');
+      console.log("Mic WS opened");
       startAudioCapture((chunk) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(chunk);
@@ -184,36 +199,96 @@ const OverlayEntry: React.FC = () => {
 
 export default OverlayEntry;
 
+// Handler for toggle visibility functionality
+const handleToggleVisibility = async () => {
+  try {
+    console.log("[EviaBar] Toggling all windows visibility");
+
+    // Try the windows.toggleAll method first
+    if (
+      (window.evia as any).windows &&
+      (window.evia as any).windows.toggleAll
+    ) {
+      const result = await (window.evia as any).windows.toggleAll();
+      console.log("[EviaBar] Toggle result:", result);
+    } else {
+      console.log("[EviaBar] Using fallback toggle implementation");
+
+      // Use the show method on listen window to detect current state and toggle
+      const listenResult = await (window.evia as any).windows.show("listen");
+      console.log("[EviaBar] Listen window toggle result:", listenResult);
+
+      if (listenResult.toggled === "shown") {
+        // Windows were hidden, listen is now shown - show other windows too
+        console.log("[EviaBar] Restoring all windows");
+        await (window.evia as any).windows.ensureShown("ask");
+        await (window.evia as any).windows.ensureShown("settings");
+      } else if (listenResult.toggled === "hidden") {
+        // Windows were shown, listen is now hidden - hide other windows too
+        console.log("[EviaBar] Hiding all windows");
+        await (window.evia as any).windows.hide("ask");
+        await (window.evia as any).windows.hide("settings");
+      }
+    }
+  } catch (e) {
+    console.error("[EviaBar] Toggle visibility failed", e);
+  }
+};
+
 // Mount the appropriate view based on ?view=
-const params = new URLSearchParams(window.location.search)
-const view = (params.get('view') || 'header').toLowerCase()
-const rootEl = document.getElementById('overlay-root')
+const params = new URLSearchParams(window.location.search);
+const view = (params.get("view") || "header").toLowerCase();
+const rootEl = document.getElementById("overlay-root");
 if (rootEl) {
-  const root = ReactDOM.createRoot(rootEl)
+  const root = ReactDOM.createRoot(rootEl);
   switch (view) {
-    case 'header':
-      root.render(<EviaBar currentView={null} onViewChange={() => {}} isListening={false} onToggleListening={() => {}} language={'de'} onToggleLanguage={() => {}} />)
-      break
-    case 'listen':
+    case "header":
       root.render(
-        <ListenView
-          lines={[]}
-          followLive={true}
-          onToggleFollow={() => {}}
-          onClose={() => window.evia.closeWindow('listen')}
-        /> as any
-      )
-      break
-    case 'ask':
-      root.render(<AskView language={'de'} /> as any)
-      break
-    case 'settings':
-      root.render(<SettingsView language={'de'} onToggleLanguage={() => {}} /> as any)
-      break
-    case 'shortcuts':
-      root.render(<ShortCutSettingsView /> as any)
-      break
+        <EviaBar
+          currentView={null}
+          onViewChange={() => {}}
+          isListening={false}
+          onToggleListening={() => {}}
+          language={"de"}
+          onToggleLanguage={() => {}}
+          onToggleVisibility={handleToggleVisibility}
+        />
+      );
+      break;
+    case "listen":
+      root.render(
+        (
+          <ListenView
+            lines={[]}
+            followLive={true}
+            onToggleFollow={() => {}}
+            onClose={() => (window.evia as any).closeWindow("listen")}
+          />
+        ) as any
+      );
+      break;
+    case "ask":
+      root.render((<AskView language={"de"} />) as any);
+      break;
+    case "settings":
+      root.render(
+        (<SettingsView language={"de"} onToggleLanguage={() => {}} />) as any
+      );
+      break;
+    case "shortcuts":
+      root.render((<ShortCutSettingsView />) as any);
+      break;
     default:
-      root.render(<EviaBar currentView={null} onViewChange={() => {}} isListening={false} onToggleListening={() => {}} language={'de'} onToggleLanguage={() => {}} />)
+      root.render(
+        <EviaBar
+          currentView={null}
+          onViewChange={() => {}}
+          isListening={false}
+          onToggleListening={() => {}}
+          language={"de"}
+          onToggleLanguage={() => {}}
+          onToggleVisibility={handleToggleVisibility}
+        />
+      );
   }
 }
