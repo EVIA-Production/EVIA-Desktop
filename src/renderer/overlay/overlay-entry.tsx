@@ -219,15 +219,17 @@ const handleToggleVisibility = async () => {
       console.log("[EviaBar] Listen window toggle result:", listenResult);
 
       if (listenResult.toggled === "shown") {
-        // Windows were hidden, listen is now shown - show other windows too
-        console.log("[EviaBar] Restoring all windows");
+        // Windows were hidden, listen is now shown - show Ask (but do not touch Settings)
+        console.log(
+          "[EviaBar] Restoring listen and ask windows (settings unchanged)"
+        );
         await (window.evia as any).windows.ensureShown("ask");
-        await (window.evia as any).windows.ensureShown("settings");
       } else if (listenResult.toggled === "hidden") {
-        // Windows were shown, listen is now hidden - hide other windows too
-        console.log("[EviaBar] Hiding all windows");
+        // Windows were shown, listen is now hidden - hide Ask (leave Settings alone)
+        console.log(
+          "[EviaBar] Hiding listen and ask windows (settings unchanged)"
+        );
         await (window.evia as any).windows.hide("ask");
-        await (window.evia as any).windows.hide("settings");
       }
     }
   } catch (e) {
