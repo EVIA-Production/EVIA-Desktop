@@ -48,8 +48,8 @@ const ListenView: React.FC<ListenViewProps> = ({
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  const adjustWindowHeight = () => {
-    if (!window.api || !viewportRef.current) return;
+  const adjustWindowHeight = async () => {
+    if (!(window as any).evia || !viewportRef.current) return;
 
     const topBar = document.querySelector(".top-bar") as HTMLElement;
     const activeContent = viewportRef.current as HTMLElement;
@@ -58,10 +58,26 @@ const ListenView: React.FC<ListenViewProps> = ({
     const topBarHeight = topBar.offsetHeight;
     const contentHeight = activeContent.scrollHeight;
     const idealHeight = topBarHeight + contentHeight;
-    const targetHeight = Math.min(700, idealHeight);
+    // Let main process clamp to 75% of work area; provide a sensible requested height
+    const requested = Math.max(120, Math.round(idealHeight));
 
-    window.api.listenView.adjustWindowHeight("listen", targetHeight);
+    try {
+      await (window as any).evia?.windows?.adjustWindowHeight(
+        "listen",
+        requested
+      );
+    } catch (e) {
+      // ignore
+    }
   };
+
+  // Call adjust when visible transcript content changes (debounced via timeout to allow layout)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      adjustWindowHeight();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [lines.length]);
 
   const startTimer = () => {
     const startTime = Date.now();

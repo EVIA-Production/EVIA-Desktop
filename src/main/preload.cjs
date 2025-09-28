@@ -97,6 +97,16 @@ try {
       get: () => ipcRenderer.invoke("prefs:get"),
       set: (prefs) => ipcRenderer.invoke("prefs:set", prefs),
     },
+    settingsView: {
+      getAllKeys: () => ipcRenderer.invoke("model:get-all-keys"),
+      validateKey: (data) => ipcRenderer.invoke("model:validate-key", data),
+      saveApiKey: (key) => ipcRenderer.invoke("model:set-api-key", key),
+      removeApiKey: (provider) =>
+        ipcRenderer.invoke("model:remove-api-key", provider),
+      onSettingsUpdated: (cb) => ipcRenderer.on("settings-updated", cb),
+      removeOnSettingsUpdated: (cb) =>
+        ipcRenderer.removeListener("settings-updated", cb),
+    },
     openSystemPreferences: (section) => {
       if (section === "screen") {
         shell.openExternal(

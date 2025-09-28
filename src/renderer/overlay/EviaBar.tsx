@@ -144,14 +144,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <button
         className="settings-button no-drag"
         title="Settings"
-        onMouseEnter={async () => {
+        onClick={async () => {
           try {
-            await (window as any).evia?.windows?.show("settings");
-          } catch {}
-        }}
-        onMouseLeave={async () => {
-          try {
-            await (window as any).evia?.windows?.hide("settings");
+            // use ensureShown to make settings visible (idempotent)
+            await (window as any).evia?.windows?.ensureShown("settings");
           } catch {}
         }}
         style={{

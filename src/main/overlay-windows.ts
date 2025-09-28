@@ -339,7 +339,9 @@ function toggleAllWindowsVisibility() {
     // Hide all windows - first save which ones are currently visible
     lastVisibleWindows.clear();
 
+    // Exclude settings from the global hide/restore so hover-settings remain stable
     childWindows.forEach((win, name) => {
+      if (name === "settings") return;
       if (win && !win.isDestroyed() && win.isVisible()) {
         lastVisibleWindows.add(name);
       }
@@ -365,6 +367,7 @@ function toggleAllWindowsVisibility() {
     // Show all previously visible windows
     headerWindow.show();
 
+    // Restore previously visible windows (exclude settings to avoid toggling it)
     lastVisibleWindows.forEach((name) => {
       const win = childWindows.get(name);
       if (win && !win.isDestroyed()) {
@@ -575,8 +578,8 @@ function ensureChildWindow(name: FeatureName) {
   let win: BrowserWindow;
   const common = childCommonOptions(parent);
   if (name === "listen") {
-    // Match Glass listen width 400
-    win = new BrowserWindow({ ...common, width: 400, height: 540 });
+    // Start with a compact listen window (will grow as transcripts arrive)
+    win = new BrowserWindow({ ...common, width: 400, height: 260 });
   } else if (name === "ask") {
     // Match Glass ask width 600
     win = new BrowserWindow({ ...common, width: 600, height: 520 });
@@ -952,7 +955,13 @@ function registerIpc() {
         const name = String(winName) as FeatureName;
         const win = childWindows.get(name);
         if (!win || win.isDestroyed()) return { ok: false };
-        const targetHeight = Math.max(40, Math.min(800, Math.round(height)));
+        // Cap dynamic height to 75% of the screen work area to avoid huge windows
+        const work = getWorkAreaForHeader();
+        const maxAllowed = Math.round(work.height * 0.75);
+        const targetHeight = Math.max(
+          40,
+          Math.min(maxAllowed || 800, Math.round(height))
+        );
         console.log(
           "[Layout Debug] adjustWindowHeight: targetHeight=" + targetHeight
         );

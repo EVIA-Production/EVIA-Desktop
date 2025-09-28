@@ -248,42 +248,20 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* Ask submit button - subtle glow like listen and settings */
-.ask-submit-button {
-  -webkit-app-region: no-drag;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  transition: box-shadow 160ms ease, transform 120ms ease, background 120ms ease;
+/* Ensure SettingsView never shows host scrollbars; inner scroll areas stay styled */
+.settings-container {
+  overflow: hidden !important;
+  max-height: 100% !important;
 }
-.ask-submit-button:hover {
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.06),
-    0 0 12px rgba(255, 100, 100, 0.06);
-  transform: translateY(-1px);
+
+/* glass-scroll keeps visible scroll area but hide native scrollbars visually */
+.glass-scroll {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: thin; /* Firefox */
 }
-.ask-submit-button.streaming {
-  background: rgba(215, 0, 0, 0.6);
-  box-shadow: 0 8px 28px rgba(215, 0, 0, 0.25);
-}
-.ask-submit-text {
-  font-weight: 600;
-}
-.ask-submit-icon {
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 13%;
+.glass-scroll::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
 }
 
 .icon-container {
