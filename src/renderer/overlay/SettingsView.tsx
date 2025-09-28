@@ -282,9 +282,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
         <button
           className="settings-button danger"
-          onClick={() => {
+          onClick={async () => {
             if (window.confirm("Are you sure you want to quit EVIA?")) {
-              (window as any).evia?.app?.quit();
+              console.log("About to call quit");
+              try {
+                const result = await (window as any).evia?.app?.quit();
+                console.log("Quit result:", result);
+              } catch (error) {
+                console.error("Error calling quit:", error);
+              }
             }
           }}
           style={{

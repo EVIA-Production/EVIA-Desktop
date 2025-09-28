@@ -54,6 +54,8 @@ function createWs(url: string): WsHandle {
   };
 }
 
+console.log("Preload script is loading - exposing evia API");
+
 contextBridge.exposeInMainWorld("evia", {
   createWs,
   getDesktopCapturerSources: (options: Electron.SourcesOptions) =>
@@ -97,7 +99,10 @@ contextBridge.exposeInMainWorld("evia", {
   },
   closeWindow: (name: string) => ipcRenderer.send("close-window", name),
   app: {
-    quit: () => ipcRenderer.invoke("app:quit"),
+    quit: () => {
+      console.log("Preload: quit() called - invoking app:quit IPC");
+      return ipcRenderer.invoke("app:quit");
+    },
   },
 });
 

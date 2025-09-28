@@ -940,7 +940,24 @@ function registerIpc() {
 
   // Add quit functionality
   ipcMain.handle("app:quit", () => {
-    app.quit();
+    console.log("Quit IPC handler called - about to quit app");
+    console.log("Current windows:", BrowserWindow.getAllWindows().length);
+
+    // Force close all windows first
+    const allWindows = BrowserWindow.getAllWindows();
+    allWindows.forEach((window) => {
+      if (!window.isDestroyed()) {
+        console.log("Force closing window");
+        window.destroy();
+      }
+    });
+
+    // Then quit the application - use app.exit() like Glass does
+    setTimeout(() => {
+      console.log("Calling app.exit(0)");
+      app.exit(0);
+    }, 100);
+
     return { ok: true };
   });
 }
