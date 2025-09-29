@@ -69,17 +69,17 @@ MODELS: Local install/progress UI; EVIA moves to web.
 EVIA_INTEGRATION_POINTS
 OVERLAY: EVIA-Desktop/src/main/overlay-windows.ts - Port glass MainHeader.
 TRANSCRIPTION: EVIA-Desktop/src/renderer/audio-processor.js - Adapt listenCapture.
-WEB_UI: EVIA-Frontend/src/pages/settings/* - Add API keys; ActivityDetails.tsx for chat/transcripts.
-BACKEND_GLUE: EVIA-Backend/api/routes/* - Map glass services to /ask, /ws/transcribe.
+WEB_UI: EVIA-Frontend/src/pages/settings/_ - Add API keys; ActivityDetails.tsx for chat/transcripts.
+BACKEND_GLUE: EVIA-Backend/api/routes/_ - Map glass services to /ask, /ws/transcribe.
 Updates from Latest Query
-Default models: Deepgram for STT, Groq for LLM. Exclude Ollama and Whisper initially.
+Default models: Deepgram for STT. LLM suggestion logic now lives in the frontend (provider-agnostic). Exclude Ollama and Whisper initially.
 Language: Implement German (de.json), but evaluate if current strategy across frontend/backend/desktop is sustainable long-term.
 Permissions: Consider dropping keychain step in PermissionHeader for EVIA; verify if needed.
 Assets: Custom icons to be implemented last.
 
-
 CURRENT_STATE (2025-09-22):
-- Backend: FastAPI up at http://localhost:8000; CORS allows 5173/5174. JWT login works via JSON; form-encoded also supported. Groq warmup 401 (invalid key) but unrelated to STT.
+
+- Backend: FastAPI up at http://localhost:8000; CORS allows 5173/5174. JWT login works via JSON; form-encoded also supported. LLM warmup/errors are handled in the frontend; desktop overlay no longer manages provider keys.
 - Auth/Chat: Desktop POST /chat/ sometimes returns {} (backend likely serializing empty or auth context missing). Needs investigation in routes/chats.py and dependencies for get_current_active_user. Manual curl with Authorization sometimes returns id; browser fetch showed {}.
 - Desktop: Header visible, windows managed. ListenView wired to WS; guard prevents connect with missing chat_id. AudioWorklet loads, sends PCM16 chunks; WS client has reconnect.
 - WS: Connect URL ws://localhost:8000/ws/transcribe?chat_id=<id>&token=<jwt>&source=mic. Recent logs showed chat_id undefined due to missing localStorage set.
@@ -88,11 +88,13 @@ CURRENT_STATE (2025-09-22):
 - Transcription end-to-end unblocked and tested.
 
 BLOCKERS:
-1) /chat/ returning {} for some calls → Desktop cannot persist chat_id reliably; WS gets 403 (undefined chat_id).
-2) Frontend login page unusable for token mint; fallback via curl/DevTools required.
-3) AEC/system capture basic; parity acceptable for MVP, refine later.
+
+1. /chat/ returning {} for some calls → Desktop cannot persist chat_id reliably; WS gets 403 (undefined chat_id).
+2. Frontend login page unusable for token mint; fallback via curl/DevTools required.
+3. AEC/system capture basic; parity acceptable for MVP, refine later.
 
 NEXT STEPS (dev):
+
 - Backend: Ensure /chat/ returns full Chat (id) consistently; verify dependency injection for current user; add test for create_chat.
 - Desktop: Before connecting WS, ensure chat_id exists; if absent, call create chat endpoint and persist; handle 401 by prompting re-login.
 - Frontend: Fix ESM error on /login or bypass for local.

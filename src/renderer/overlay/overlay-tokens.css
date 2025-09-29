@@ -85,16 +85,50 @@
   -webkit-app-region: no-drag;
 }
 
+/* Drag handle: small visible target to grab the header */
+.header-drag-handle {
+  -webkit-app-region: drag;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%; /* circular clickable area */
+  display: inline-block;
+  margin: 0 6px 0 6px;
+  align-self: center;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 120ms ease;
+  cursor: grab;
+}
+.header-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Clickeable */
+.boton,
+a,
+button {
+  cursor: pointer;
+}
+
+/* Arrastrable */
+.draggable {
+  cursor: grab;
+}
+.draggable:active {
+  cursor: grabbing;
+}
+
 /* Glass MainHeader parity */
 .evia-header {
   -webkit-app-region: drag;
-  width: max-content;
-  height: 47px;
-  padding: 2px 10px 2px 13px;
+  width: auto; /* let content size naturally to avoid overflow */
+  max-width: 100%;
+  padding: 6px 10px 6px 12px;
   background: transparent;
-  overflow: hidden;
+  overflow: visible; /* ensure no internal clipping causes scrollbars */
+  white-space: nowrap; /* prevent child wrapping which can cause scrollbars */
   border-radius: 9000px;
-  justify-content: space-between;
+  justify-content: flex-start; /* left-align content for compact layout */
   align-items: center;
   display: inline-flex;
   box-sizing: border-box;
@@ -158,13 +192,14 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.14);
+  /* Slightly darker background for better contrast */
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 9000px;
   z-index: -1;
   transition: background 0.15s ease;
 }
 .listen-button:hover::before {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.28);
 }
 .listen-button.active::before {
   background: rgba(215, 0, 0, 0.5);
@@ -246,6 +281,34 @@
 }
 .settings-button:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* Right drag button: circular, hover glow, acts as drag region */
+.header-drag-button {
+  -webkit-app-region: drag;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+  margin-left: 6px;
+}
+.header-drag-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Inner icon element sized explicitly; color controlled via background-color */
+.header-drag-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background-color: rgba(255, 255, 255, 0.9);
+}
+.header-drag-button:hover .header-drag-icon {
+  background-color: #ffffff;
 }
 
 /* Ensure SettingsView never shows host scrollbars; inner scroll areas stay styled */

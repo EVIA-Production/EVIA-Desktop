@@ -14,7 +14,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   onClose,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
-  const [groqKey, setGroqKey] = useState<string | null>(null);
+  // LLM API key management moved to frontend
   const [jwtToken, setJwtToken] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState("");
   const [validationState, setValidationState] = useState<{
@@ -47,49 +47,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       setIsLoading(false);
     }, 1000);
 
-    // Load initial keys (Groq + JWT from prefs)
-    (async () => {
+    // Credentials are now managed by the web frontend. The desktop overlay
+    // shouldn't provide credential editing. Instead we show a small status
+    // indicator that reflects whether the Electron renderer has the JWT
+    // available in its `localStorage` (key: auth_token). We poll periodically
+    // because the token may be set by a separate renderer or via the preload
+    // bridge.
+    let mounted = true;
+    const checkToken = () => {
       try {
-        const keysResp = await (
-          window as any
-        ).evia?.settingsView?.getAllKeys?.();
-        const keys = keysResp?.keys || {};
-        setGroqKey(keys.groq || null);
-      } catch {}
-      try {
-        const prefs = await (window as any).evia?.prefs?.get?.();
-        const token = prefs?.prefs?.auth_token || null;
-        setJwtToken(token);
-      } catch {}
-    })();
-
-    const onSettingsUpdated = () => {
-      (async () => {
-        try {
-          const keysResp = await (
-            window as any
-          ).evia?.settingsView?.getAllKeys?.();
-          const keys = keysResp?.keys || {};
-          setGroqKey(keys.groq || null);
-        } catch {}
-        try {
-          const prefs = await (window as any).evia?.prefs?.get?.();
-          const token = prefs?.prefs?.auth_token || null;
-          setJwtToken(token);
-        } catch {}
-      })();
+        const t = localStorage.getItem("auth_token");
+        if (mounted) setJwtToken(t);
+      } catch (e) {
+        if (mounted) setJwtToken(null);
+      }
     };
-    try {
-      (window as any).evia?.settingsView?.onSettingsUpdated?.(
-        onSettingsUpdated
-      );
-    } catch {}
+
+    checkToken();
+    const iv = setInterval(checkToken, 2000);
     return () => {
-      try {
-        (window as any).evia?.settingsView?.removeOnSettingsUpdated?.(
-          onSettingsUpdated
-        );
-      } catch {}
+      mounted = false;
+      clearInterval(iv);
     };
   }, []);
 
@@ -189,9 +167,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </h1>
         <div
           className="account-info"
-          style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.7)" }}
+          style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.9)" }}
         >
-          Account: Not Logged In
+          Account:{" "}
+          {jwtToken ? (
+            <span style={{ color: "#3ad65f", fontWeight: 600 }}>Logged in</span>
+          ) : (
+            <span style={{ color: "#ff6b6b", fontWeight: 600 }}>
+              Not logged in
+            </span>
+          )}
         </div>
       </div>
 
@@ -214,151 +199,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             overflowY: "auto",
           }}
         >
-          {/* Token summary box */}
-          <div style={{ marginBottom: 12 }}>
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: "bold" }}>
-                  Credentials
-                </div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-                  Groq Token:{" "}
-                  {groqKey
-                    ? groqKey.length > 8
-                      ? `${groqKey.slice(0, 6)}…${groqKey.slice(-4)}`
-                      : groqKey
-                    : "Not set"}
-                </div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
-                  JWT:{" "}
-                  {jwtToken
-                    ? jwtToken.length > 10
-                      ? `${jwtToken.slice(0, 8)}…${jwtToken.slice(-8)}`
-                      : jwtToken
-                    : "Not available"}
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Credentials/status moved to header */}
 
-          {/* Groq key editor */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: "bold" }}>
-              Groq API Key
-            </label>
-            <div style={{ marginTop: 6 }}>
-              <input
-                value={editingKey}
-                onChange={(e) => setEditingKey(e.target.value)}
-                placeholder={
-                  groqKey ? "Enter new key to replace" : "Enter Groq API key"
-                }
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  borderRadius: 6,
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  color: "white",
-                  boxSizing: "border-box",
-                }}
-              />
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button
-                  onClick={async () => {
-                    setValidationState({ loading: true });
-                    try {
-                      const res = await (
-                        window as any
-                      ).evia?.settingsView?.validateKey?.({
-                        provider: "groq",
-                        key: editingKey,
-                      });
-                      if (res?.success) {
-                        await (window as any).evia?.settingsView?.saveApiKey?.({
-                          provider: "groq",
-                          key: editingKey,
-                        });
-                        setValidationState({ ok: true });
-                        setEditingKey("");
-                      } else {
-                        setValidationState({
-                          ok: false,
-                          error: res?.error || "Validation failed",
-                        });
-                      }
-                    } catch (e: any) {
-                      setValidationState({ ok: false, error: String(e) });
-                    }
-                    setTimeout(() => setValidationState(null), 2500);
-                  }}
-                  className="settings-button primary"
-                  style={{
-                    flex: 1,
-                    padding: "8px",
-                    borderRadius: 6,
-                    background: "rgba(0,122,255,0.25)",
-                    border: "1px solid rgba(0,122,255,0.6)",
-                    color: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Save
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!groqKey) return;
-                    const ok = await (
-                      window as any
-                    ).evia?.settingsView?.removeApiKey?.("groq");
-                    if (ok?.success) {
-                      setGroqKey(null);
-                    }
-                  }}
-                  className="settings-button danger"
-                  style={{
-                    flex: 1,
-                    padding: "8px",
-                    borderRadius: 6,
-                    background: "rgba(255,59,48,0.08)",
-                    border: "1px solid rgba(255,59,48,0.3)",
-                    color: "rgba(255,59,48,0.9)",
-                    cursor: "pointer",
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-            {validationState?.loading && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "rgba(255,255,255,0.6)",
-                  marginTop: 6,
-                }}
-              >
-                Validating…
-              </div>
-            )}
-            {validationState?.ok === true && (
-              <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>
-                Key saved and validated.
-              </div>
-            )}
-            {validationState?.ok === false && (
-              <div style={{ fontSize: 12, color: "#f87171", marginTop: 6 }}>
-                {validationState?.error}
-              </div>
-            )}
-          </div>
+          {/* LLM API key management moved to frontend app; desktop overlay no longer stores or edits provider keys. */}
 
           <div className="shortcuts-section" style={{ marginBottom: "12px" }}>
             <h2

@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import "./overlay-tokens.css";
 // Use ESM-safe asset URLs under Vite (no require in browser)
 const ListenIcon = new URL("./assets/Listen.svg", import.meta.url).href;
 const SettingsIcon = new URL("./assets/setting.svg", import.meta.url).href;
 const CommandIcon = new URL("./assets/command.svg", import.meta.url).href;
-// Change to regular import
+const DragIcon = new URL("./assets/drag.svg", import.meta.url).href;
+// Styles
 import "./overlay-tokens.css";
 
 interface EviaBarProps {
@@ -57,7 +57,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   return (
     <div
       className="evia-header glass-oval"
-      style={{ height: "40px", borderRadius: "20px", padding: "0 16px" }}
+      style={{ height: "40px", borderRadius: "20px", padding: "0 28px 0 8px" }}
     >
       <button
         className={`listen-button ${
@@ -170,6 +170,26 @@ const EviaBar: React.FC<EviaBarProps> = ({
           />
         </div>
       </button>
+
+      {/* Right-side drag button (circular, hover glow, drag region) */}
+      <div className="header-drag-button" title="Drag" aria-hidden>
+        <span
+          className="header-drag-icon"
+          style={{
+            WebkitMaskImage: `url(${DragIcon})`,
+            maskImage: `url(${DragIcon})`,
+            WebkitMaskRepeat: "no-repeat",
+            maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+            maskPosition: "center",
+            WebkitMaskSize: "12px 12px",
+            maskSize: "12px 12px",
+            backgroundColor: "rgba(255,255,255,0.95)",
+            width: 12,
+            height: 12,
+          }}
+        />
+      </div>
     </div>
   );
 };

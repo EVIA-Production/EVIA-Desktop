@@ -105,6 +105,38 @@ contextBridge.exposeInMainWorld("evia", {
       return ipcRenderer.invoke("app:quit");
     },
   },
+  // Allow the web frontend to inform the Electron renderer of auth tokens so
+  // the overlay and other renderer windows can access the same localStorage
+  // auth state. These functions are no-ops in a normal browser because
+  // `window.evia` won't exist there; the frontend should call them guarded.
+  setAuthToken: (token: string, tokenType?: string) => {
+    try {
+      // Mask the token for logging (don't print full token)
+      const masked = token
+        ? `${token.slice(0, 6)}...${token.slice(Math.max(0, token.length - 4))}`
+        : "";
+      console.log(
+        `Preload: setAuthToken called (masked=${masked}) tokenType=${tokenType} origin=${
+          typeof location !== "undefined" ? location.href : "unknown"
+        }`
+      );
+      localStorage.setItem("auth_token", token);
+      if (tokenType) localStorage.setItem("token_type", tokenType);
+    } catch (e) {
+      console.error("Preload: setAuthToken error", e);
+    }
+  },
+  clearAuthToken: () => {
+    try {
+      console.log(
+        "Preload: clearAuthToken called - removing auth_token and token_type from localStorage"
+      );
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("token_type");
+    } catch (e) {
+      console.error("Preload: clearAuthToken error", e);
+    }
+  },
 });
 
 // Export/WAV helpers
