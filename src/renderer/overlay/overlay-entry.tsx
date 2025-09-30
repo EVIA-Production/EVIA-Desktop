@@ -7,7 +7,7 @@ import SettingsView from "./SettingsView";
 import ShortCutSettingsView from "./ShortCutSettingsView";
 import "../overlay/overlay-glass.css";
 import { getOrCreateChatId } from "../services/websocketService";
-import { startAudioCapture } from "../audio-processor"; // Assume this exists or add if needed
+import * as audioProcessor from "../audio-processor.js";
 
 // Types for linter
 interface WsHandle {
@@ -160,7 +160,9 @@ const OverlayEntry: React.FC = () => {
 
   const handleListenClick = async () => {
     console.log("Listen button clicked");
-    const chatId = await getOrCreateChatId();
+    const backendUrl = "http://localhost:8000"; // Replace with your actual backend URL
+    const token = localStorage.getItem("auth_token") || "";
+    const chatId = await getOrCreateChatId(backendUrl, token);
     console.log(`Chat ID ${chatId ? "reused/created" : "failed"}: ${chatId}`);
     if (!chatId) return;
 
@@ -173,7 +175,7 @@ const OverlayEntry: React.FC = () => {
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => {
       console.log("Mic WS opened");
-      startAudioCapture((chunk) => {
+      (audioProcessor as any).startAudioCapture((chunk: ArrayBuffer) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(chunk);
           console.log(`Sent chunk size: ${chunk.byteLength}, cadence: 150ms`); // Approx log
