@@ -53,16 +53,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       setIsLoading(false);
     }, 1000);
 
-    // Credentials are now managed by the web frontend. The desktop overlay
-    // shouldn't provide credential editing. Instead we show a small status
-    // indicator that reflects whether the Electron app can provide a valid
-    // short-lived access token via the PKCE flow (main process + keytar).
+    // Reflect auth based on a keychain-backed token retrieved via IPC.
     // We poll the preload bridge periodically because tokens can refresh.
     let mounted = true;
     const checkToken = async () => {
       try {
         const res = await (window as any).evia?.auth?.getAccessToken?.();
-        const ok = !!(res && res.ok && res.access_token);
+        const token =
+          typeof res === "string"
+            ? res
+            : res?.access_token ?? res?.token ?? res?.jwt ?? "";
+        const ok = !!token;
+        try {
+          console.log("[SettingsView] poll getAccessToken", {
+            ok,
+            tokenLen: token.length,
+            rawShape: typeof res,
+          });
+        } catch {}
         if (mounted) setIsLoggedIn(ok);
       } catch (e) {
         if (mounted) setIsLoggedIn(false);
@@ -71,9 +79,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
     checkToken();
     const iv = setInterval(checkToken, 2000);
+    // Instant UI reaction on auth changes
+    const onAuth = (e: Event) => {
+      try {
+        const detail: any = (e as CustomEvent).detail || {};
+        const has = !!detail.hasToken;
+        console.log("[SettingsView] evia-auth event", detail);
+        setIsLoggedIn(has);
+      } catch {}
+    };
+    window.addEventListener("evia-auth", onAuth as EventListener);
     return () => {
       mounted = false;
       clearInterval(iv);
+      window.removeEventListener("evia-auth", onAuth as EventListener);
     };
   }, []);
 
@@ -186,8 +205,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           setBackendError(msg);
         } else {
           try {
-            // Persist and broadcast via preload bridge
-            (window as any).evia?.setAuthToken?.(
+            // Store securely (keychain) and broadcast so getAccessToken reflects it
+            await (window as any).evia?.auth?.storeBackendToken?.(
               accessToken,
               tokenType || undefined
             );
@@ -195,14 +214,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           // Re-check token availability to flip UI state
           try {
             const tk = await (window as any).evia?.auth?.getAccessToken?.();
+            const token =
+              typeof tk === "string"
+                ? tk
+                : tk?.access_token ?? tk?.token ?? tk?.jwt ?? "";
+            const good = !!token;
             console.log(
               "[SettingsView] post-login(getAccessToken) via fallback",
-              {
-                ok: !!(tk && tk.ok && tk.access_token),
-                tokenLen: tk?.access_token?.length || 0,
-              }
+              { good, tokenLen: token.length, rawShape: typeof tk }
             );
-            setIsLoggedIn(!!(tk && tk.ok && tk.access_token));
+            setIsLoggedIn(good);
           } catch {
             setIsLoggedIn(true);
           }
@@ -212,11 +233,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         // Re-check token availability to flip UI state
         try {
           const tk = await (window as any).evia?.auth?.getAccessToken?.();
+          const token =
+            typeof tk === "string"
+              ? tk
+              : tk?.access_token ?? tk?.token ?? tk?.jwt ?? "";
+          const good = !!token;
           console.log("[SettingsView] post-login getAccessToken result", {
-            ok: !!(tk && tk.ok && tk.access_token),
-            tokenLen: tk?.access_token?.length || 0,
+            good,
+            tokenLen: token.length,
+            rawShape: typeof tk,
           });
-          setIsLoggedIn(!!(tk && tk.ok && tk.access_token));
+          setIsLoggedIn(good);
+          if (!good) {
+            // Optimistically show logged-in while broadcast settles
+            setIsLoggedIn(true);
+          }
         } catch {
           setIsLoggedIn(true);
         }

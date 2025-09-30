@@ -118,6 +118,16 @@ ipcRenderer.on(
         localStorage.removeItem("token_type");
         console.log("[preload] Cleared auth token from broadcast");
       }
+      // Re-emit as a DOM event so renderer UIs can react immediately
+      try {
+        const ev = new CustomEvent("evia-auth", {
+          detail: {
+            hasToken: !!payload?.token,
+            tokenType: payload?.tokenType || null,
+          },
+        });
+        window.dispatchEvent(ev);
+      } catch {}
     } catch (e) {
       console.error("[preload] Failed to apply auth token", e);
     }
@@ -166,6 +176,18 @@ contextBridge.exposeInMainWorld("evia", {
         username,
         password,
         loginPath,
+      });
+    },
+    storeBackendToken: (token: string, tokenType?: string) => {
+      try {
+        console.log("[preload] invoking auth:store-backend-token", {
+          hasToken: !!token,
+          tokenType: tokenType || "Bearer",
+        });
+      } catch {}
+      return ipcRenderer.invoke("auth:store-backend-token", {
+        token,
+        tokenType,
       });
     },
   },
@@ -236,11 +258,8 @@ contextBridge.exposeInMainWorld("evia", {
           console.log("[preload][FULL] setAuthToken raw token:", token);
         }
       } catch {}
-      // Update local storage immediately in this renderer for responsiveness
-      localStorage.setItem("auth_token", token);
-      if (tokenType) localStorage.setItem("token_type", tokenType);
-      // Persist centrally and broadcast to other windows via main
-      ipcRenderer.invoke("auth:set-token", { token, tokenType });
+      // Persist into main (will store in keychain + prefs and broadcast to all windows)
+      ipcRenderer.invoke("auth:store-backend-token", { token, tokenType });
     } catch (e) {
       console.error("Preload: setAuthToken error", e);
     }

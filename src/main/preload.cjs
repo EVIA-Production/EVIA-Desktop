@@ -86,6 +86,16 @@ ipcRenderer.on("auth:apply", (_e, payload) => {
       localStorage.removeItem("token_type");
       console.log("[preload.cjs] Cleared auth token from broadcast");
     }
+    // Re-emit as a DOM event so renderer UIs can react immediately
+    try {
+      const ev = new CustomEvent("evia-auth", {
+        detail: {
+          hasToken: !!(payload && payload.token),
+          tokenType: (payload && payload.tokenType) || null,
+        },
+      });
+      window.dispatchEvent(ev);
+    } catch {}
   } catch (e) {
     console.error("[preload.cjs] Failed to apply auth token", e);
   }
@@ -95,6 +105,54 @@ try {
   console.log("[preload.cjs] loaded, exposing window.evia");
   contextBridge.exposeInMainWorld("evia", {
     createWs,
+    auth: {
+      startPkce: () => {
+        try {
+          console.log("[preload.cjs] invoking auth:pkce:start");
+        } catch {}
+        return ipcRenderer.invoke("auth:pkce:start");
+      },
+      getAccessToken: () => {
+        try {
+          console.log("[preload.cjs] invoking auth:pkce:get-access-token");
+        } catch {}
+        return ipcRenderer.invoke("auth:pkce:get-access-token");
+      },
+      logout: () => {
+        try {
+          console.log("[preload.cjs] invoking auth:pkce:logout");
+        } catch {}
+        return ipcRenderer.invoke("auth:pkce:logout");
+      },
+      backendLogin: (baseUrl, username, password, loginPath) => {
+        try {
+          console.log("[preload.cjs] invoking auth:backend:login", {
+            hasBaseUrl: !!baseUrl,
+            hasUsername: !!username,
+            hasPassword: !!password,
+            hasLoginPath: !!loginPath,
+          });
+        } catch {}
+        return ipcRenderer.invoke("auth:backend:login", {
+          baseUrl,
+          username,
+          password,
+          loginPath,
+        });
+      },
+      storeBackendToken: (token, tokenType) => {
+        try {
+          console.log("[preload.cjs] invoking auth:store-backend-token", {
+            hasToken: !!token,
+            tokenType: tokenType || "Bearer",
+          });
+        } catch {}
+        return ipcRenderer.invoke("auth:store-backend-token", {
+          token,
+          tokenType,
+        });
+      },
+    },
     systemAudio: {
       start: () => ipcRenderer.invoke("system-audio:start"),
       stop: () => ipcRenderer.invoke("system-audio:stop"),
@@ -141,9 +199,8 @@ try {
         console.log(
           `[preload.cjs] setAuthToken (masked=${masked}) type=${tokenType}`
         );
-        localStorage.setItem("auth_token", token);
-        if (tokenType) localStorage.setItem("token_type", tokenType);
-        ipcRenderer.invoke("auth:set-token", { token, tokenType });
+        // Persist into main (will store in keychain + prefs and broadcast to all windows)
+        ipcRenderer.invoke("auth:store-backend-token", { token, tokenType });
       } catch (e) {
         console.error("[preload.cjs] setAuthToken failed", e);
       }

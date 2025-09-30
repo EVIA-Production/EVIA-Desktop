@@ -186,7 +186,8 @@ class PkceAuth {
         ).toString("utf8")
       );
       if (payload && typeof payload.exp === "number") {
-        return (payload.exp * 1000) | 0;
+        // Avoid 32-bit overflow and preserve full precision
+        return Math.floor(payload.exp * 1000);
       }
       return null;
     } catch {
@@ -201,6 +202,14 @@ class PkceAuth {
       typeof expMs === "number" && expMs > Date.now()
         ? expMs - 30_000
         : Date.now() + 15 * 60 * 1000;
+    try {
+      console.log("[auth] setAccessTokenFromBackend expiry", {
+        expMs,
+        expiresAt,
+        now: Date.now(),
+        deltaSec: Math.round((expiresAt - Date.now()) / 1000),
+      });
+    } catch {}
     const tokenSet: TokenSet = {
       access_token: accessToken,
       refresh_token: undefined,

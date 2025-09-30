@@ -262,6 +262,20 @@ ipcMain.handle("auth:pkce:logout", async () => {
   }
 });
 
+// Allow renderer to store a backend-issued JWT into keychain (and broadcast)
+ipcMain.handle(
+  "auth:store-backend-token",
+  async (_e, args: { token: string; tokenType?: string }) => {
+    try {
+      if (!args?.token) return { ok: false, error: "Missing token" };
+      await pkceAuth.setAccessTokenFromBackend(args.token, args.tokenType);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+);
+
 // Backend login IPC (FastAPI /login/)
 ipcMain.handle(
   "auth:backend:login",
