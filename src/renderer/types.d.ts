@@ -22,6 +22,8 @@ interface EviaBridge {
   createWs: (url: string) => WebSocketWrapper;
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;
+  setAuthToken?: (token: string, tokenType?: string) => void;
+  clearAuthToken?: () => void;
   openSystemPreferences: (section: "screen" | "mic") => void;
   openTerminal: (script: string) => Promise<any>;
   launchMain: () => Promise<any>;
@@ -36,6 +38,13 @@ interface EviaBridge {
     hide: (name: string) => Promise<{ ok: boolean }>;
     toggleAll: () => Promise<{ ok: boolean; action?: string }>;
     cancelHideSettingsWindow: () => void;
+    getHeaderPosition?: () => Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>;
+    moveHeaderTo?: (x: number, y: number) => Promise<{ ok: boolean }>;
   };
   closeWindow: (name: string) => void;
 }

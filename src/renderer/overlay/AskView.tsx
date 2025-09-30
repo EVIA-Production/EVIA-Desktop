@@ -26,7 +26,14 @@ const AskView: React.FC<AskViewProps> = ({
       (window as any).EVIA_BACKEND_URL ||
       (window as any).API_BASE_URL ||
       "http://localhost:8000";
-    const token = localStorage.getItem("auth_token") || "";
+    // Retrieve a short-lived access token from the main process (PKCE),
+    // fallback to localStorage for backward compatibility.
+    let token = "";
+    try {
+      const res = await (window as any).evia?.auth?.getAccessToken?.();
+      if (res && res.ok && res.access_token) token = res.access_token;
+    } catch {}
+    if (!token) token = localStorage.getItem("auth_token") || "";
     if (!token) {
       setResponse("Missing auth.");
       return;

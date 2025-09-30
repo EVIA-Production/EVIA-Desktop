@@ -17,11 +17,28 @@ let settingsHideTimer: NodeJS.Timeout | null = null;
 type Prefs = { [key: string]: any };
 let prefs: Prefs = {};
 const prefsPath = path.join(app.getPath("userData"), "prefs.json");
+
+function maskToken(t?: string | null): string | null {
+  if (!t) return null;
+  const s = String(t);
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 6)}...${s.slice(Math.max(0, s.length - 4))}`;
+}
+
+function fullTokenLogEnabled(): boolean {
+  const v = (process.env.EVIA_DEBUG_FULL_TOKEN || "").toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 function loadPrefs() {
   try {
     if (fs.existsSync(prefsPath)) {
       const raw = fs.readFileSync(prefsPath, "utf8");
       prefs = JSON.parse(raw || "{}");
+      console.log(
+        "[auth] Loaded prefs. Has token?",
+        Boolean((prefs as any).auth_token)
+      );
     }
   } catch {}
 }
@@ -29,9 +46,75 @@ function savePrefs() {
   try {
     fs.mkdirSync(path.dirname(prefsPath), { recursive: true });
     fs.writeFileSync(prefsPath, JSON.stringify(prefs || {}, null, 2), "utf8");
+    console.log(
+      "[auth] Saved prefs. Has token?",
+      Boolean((prefs as any).auth_token)
+    );
   } catch {}
 }
 loadPrefs();
+
+function broadcastAuthApply(payload: {
+  token?: string | null;
+  tokenType?: string | null;
+}) {
+  try {
+    const masked = maskToken(payload?.token ?? null);
+    console.log("[auth] Broadcasting auth:apply to windows", {
+      header: Boolean(headerWindow && !headerWindow.isDestroyed()),
+      childCount: childWindows.size,
+      masked,
+      tokenType: payload?.tokenType || null,
+    });
+    if (fullTokenLogEnabled()) {
+      console.log(
+        "[auth][FULL] Broadcasting raw token:",
+        payload?.token || null
+      );
+    }
+  } catch {}
+  try {
+    if (headerWindow && !headerWindow.isDestroyed()) {
+      headerWindow.webContents.send("auth:apply", payload);
+    }
+  } catch {}
+  for (const [, w] of childWindows) {
+    try {
+      if (w && !w.isDestroyed()) {
+        w.webContents.send("auth:apply", payload);
+      }
+    } catch {}
+  }
+}
+
+export function setAuthTokenInMain(token: string, tokenType?: string) {
+  try {
+    console.log("[auth] setAuthTokenInMain", {
+      masked: maskToken(token),
+      tokenType: tokenType || prefs.token_type || "Bearer",
+    });
+    if (fullTokenLogEnabled()) {
+      console.log("[auth][FULL] setAuthTokenInMain raw token:", token);
+    }
+  } catch {}
+  prefs.auth_token = token;
+  if (tokenType) prefs.token_type = tokenType;
+  savePrefs();
+  broadcastAuthApply({
+    token,
+    tokenType: tokenType || prefs.token_type || "Bearer",
+  });
+}
+
+export function clearAuthTokenInMain() {
+  try {
+    console.log("[auth] clearAuthTokenInMain");
+  } catch {}
+  delete prefs.auth_token;
+  delete prefs.token_type;
+  savePrefs();
+  broadcastAuthApply({ token: null, tokenType: null });
+}
 
 function getHeaderBounds() {
   if (!headerWindow || headerWindow.isDestroyed()) return null;
@@ -987,11 +1070,27 @@ function registerIpc() {
 
   // Prefs IPC
   ipcMain.handle("prefs:get", () => {
+    try {
+      const masked = maskToken((prefs as any)?.auth_token || null);
+      console.log(
+        "[prefs] get -> has",
+        Boolean(prefs && Object.keys(prefs).length),
+        { masked, tokenType: (prefs as any)?.token_type || null }
+      );
+    } catch {}
     return { ok: true, prefs };
   });
   ipcMain.handle("prefs:set", (_e, patch: Prefs) => {
     try {
       if (patch && typeof patch === "object") {
+        try {
+          const masked = maskToken((patch as any)?.auth_token || null);
+          console.log("[prefs] set <- patch", {
+            keys: Object.keys(patch || {}),
+            masked,
+            tokenType: (patch as any)?.token_type || null,
+          });
+        } catch {}
         prefs = { ...prefs, ...patch };
         savePrefs();
         return { ok: true };
@@ -1000,6 +1099,39 @@ function registerIpc() {
       return { ok: false, error: String(e) };
     }
     return { ok: false };
+  });
+
+  // Auth token IPC (centralized storage + broadcast)
+  ipcMain.handle(
+    "auth:set-token",
+    (_e, data: { token: string; tokenType?: string }) => {
+      try {
+        console.log("[auth] IPC auth:set-token called", {
+          masked: maskToken(data?.token),
+          tokenType: data?.tokenType || "Bearer",
+        });
+        if (fullTokenLogEnabled()) {
+          console.log(
+            "[auth][FULL] IPC auth:set-token raw token:",
+            data?.token
+          );
+        }
+        if (!data || !data.token) return { ok: false, error: "Missing token" };
+        setAuthTokenInMain(data.token, data.tokenType);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    }
+  );
+  ipcMain.handle("auth:clear-token", () => {
+    try {
+      console.log("[auth] IPC auth:clear-token called");
+      clearAuthTokenInMain();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
   });
 
   ipcMain.on("close-window", (event, name) => {

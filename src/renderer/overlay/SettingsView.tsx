@@ -1,3 +1,4 @@
+console.log("[renderer] module evaluated: AskView.tsx");
 import React, { useEffect, useState } from "react";
 import "./overlay-tokens.css";
 import "./overlay-glass.css";
@@ -15,7 +16,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   // LLM API key management moved to frontend
-  const [jwtToken, setJwtToken] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [editingKey, setEditingKey] = useState("");
   const [validationState, setValidationState] = useState<{
     loading?: boolean;
@@ -29,6 +30,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   >([]);
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
+  // Backend login state (FastAPI /login/)
+  const [backendUsername, setBackendUsername] = useState<string>("");
+  const [backendPassword, setBackendPassword] = useState<string>("");
+  const [backendBusy, setBackendBusy] = useState<boolean>(false);
+  const [backendError, setBackendError] = useState<string>("");
 
   useEffect(() => {
     // Simulate loading data
@@ -49,17 +55,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
     // Credentials are now managed by the web frontend. The desktop overlay
     // shouldn't provide credential editing. Instead we show a small status
-    // indicator that reflects whether the Electron renderer has the JWT
-    // available in its `localStorage` (key: auth_token). We poll periodically
-    // because the token may be set by a separate renderer or via the preload
-    // bridge.
+    // indicator that reflects whether the Electron app can provide a valid
+    // short-lived access token via the PKCE flow (main process + keytar).
+    // We poll the preload bridge periodically because tokens can refresh.
     let mounted = true;
-    const checkToken = () => {
+    const checkToken = async () => {
       try {
-        const t = localStorage.getItem("auth_token");
-        if (mounted) setJwtToken(t);
+        const res = await (window as any).evia?.auth?.getAccessToken?.();
+        const ok = !!(res && res.ok && res.access_token);
+        if (mounted) setIsLoggedIn(ok);
       } catch (e) {
-        if (mounted) setJwtToken(null);
+        if (mounted) setIsLoggedIn(false);
       }
     };
 
@@ -79,6 +85,151 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleToggleAutoUpdate = () => {
     setAutoUpdateEnabled(!autoUpdateEnabled);
+  };
+
+  const handleBackendLogin = async () => {
+    setBackendError("");
+    console.log("[SettingsView] handleBackendLogin invoked");
+    if (!backendUsername || !backendPassword) {
+      setBackendError("Please fill Username and Password.");
+      console.warn("[SettingsView] Missing username or password");
+      return;
+    }
+    setBackendBusy(true);
+    try {
+      const baseUrl =
+        (window as any).EVIA_BACKEND_URL ||
+        (window as any).API_BASE_URL ||
+        "http://localhost:8000";
+      const loginPath =
+        (window as any).EVIA_BACKEND_LOGIN_PATH ||
+        (window as any).BACKEND_LOGIN_PATH;
+      const effectiveLoginPath =
+        loginPath && String(loginPath).trim().length
+          ? String(loginPath).trim()
+          : "/login/";
+      console.log("[SettingsView] backendLogin calling", {
+        baseUrl,
+        loginPath: effectiveLoginPath,
+        usernamePresent: !!backendUsername,
+      });
+      const res = await (window as any).evia?.auth?.backendLogin?.(
+        baseUrl,
+        backendUsername,
+        backendPassword,
+        effectiveLoginPath
+      );
+      console.log("[SettingsView] backendLogin result", res);
+      if (!res || !res.ok) {
+        console.warn(
+          "[SettingsView] backendLogin via IPC failed, trying direct fetch fallback"
+        );
+        // Fallback: try direct fetch from renderer (mirrors frontend login behavior)
+        const targetUrl = `${String(baseUrl).replace(/\/$/, "")}${
+          effectiveLoginPath.startsWith("/")
+            ? effectiveLoginPath
+            : `/${effectiveLoginPath}`
+        }`;
+        console.log("[SettingsView] direct login POST", targetUrl);
+        let ok = false;
+        let accessToken: string | null = null;
+        let tokenType: string | null = null;
+        try {
+          // Try JSON first – this matches backend UserAuthenticate {username,password}
+          let r = await fetch(targetUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              username: backendUsername,
+              password: backendPassword,
+            }),
+          });
+          if (!r.ok) {
+            if (r.status === 401 || r.status === 400) {
+              // Invalid credentials – don't spam with alternate formats
+              const txt = await r.text().catch(() => "");
+              console.warn("[SettingsView] JSON login HTTP", r.status, txt);
+            } else {
+              const txt = await r.text().catch(() => "");
+              console.warn("[SettingsView] JSON login HTTP", r.status, txt);
+              // Try form-encoded as a compatibility fallback
+              const form = new URLSearchParams();
+              form.set("username", backendUsername);
+              form.set("password", backendPassword);
+              form.set("grant_type", "password");
+              form.set("scope", "");
+              r = await fetch(targetUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  Accept: "application/json",
+                },
+                body: form.toString(),
+              });
+            }
+          }
+          if (r.ok) {
+            const data = await r.json().catch(() => ({} as any));
+            accessToken =
+              data?.access_token || data?.token || data?.jwt || null;
+            tokenType = data?.token_type || data?.type || "Bearer";
+            ok = !!accessToken;
+          }
+        } catch (e) {
+          console.error("[SettingsView] direct login error", e);
+        }
+        if (!ok || !accessToken) {
+          const msg = res?.error || "Login failed";
+          setBackendError(msg);
+        } else {
+          try {
+            // Persist and broadcast via preload bridge
+            (window as any).evia?.setAuthToken?.(
+              accessToken,
+              tokenType || undefined
+            );
+          } catch {}
+          // Re-check token availability to flip UI state
+          try {
+            const tk = await (window as any).evia?.auth?.getAccessToken?.();
+            console.log(
+              "[SettingsView] post-login(getAccessToken) via fallback",
+              {
+                ok: !!(tk && tk.ok && tk.access_token),
+                tokenLen: tk?.access_token?.length || 0,
+              }
+            );
+            setIsLoggedIn(!!(tk && tk.ok && tk.access_token));
+          } catch {
+            setIsLoggedIn(true);
+          }
+          setBackendPassword("");
+        }
+      } else {
+        // Re-check token availability to flip UI state
+        try {
+          const tk = await (window as any).evia?.auth?.getAccessToken?.();
+          console.log("[SettingsView] post-login getAccessToken result", {
+            ok: !!(tk && tk.ok && tk.access_token),
+            tokenLen: tk?.access_token?.length || 0,
+          });
+          setIsLoggedIn(!!(tk && tk.ok && tk.access_token));
+        } catch {
+          setIsLoggedIn(true);
+        }
+        // Clear password from memory ASAP
+        setBackendPassword("");
+      }
+    } catch (e: any) {
+      console.error("[SettingsView] backendLogin error", e);
+      setBackendError(String(e?.message || e));
+    } finally {
+      console.log("[SettingsView] handleBackendLogin done");
+      setBackendBusy(false);
+    }
   };
 
   const handleMouseEnter = () => {
@@ -170,7 +321,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.9)" }}
         >
           Account:{" "}
-          {jwtToken ? (
+          {isLoggedIn ? (
             <span style={{ color: "#3ad65f", fontWeight: 600 }}>Logged in</span>
           ) : (
             <span style={{ color: "#ff6b6b", fontWeight: 600 }}>
@@ -354,6 +505,109 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           borderTop: "1px solid rgba(255, 255, 255, 0.1)",
         }}
       >
+        {/* Auth controls */}
+        {isLoggedIn && (
+          <button
+            className="settings-button"
+            onClick={async () => {
+              try {
+                console.log("[SettingsView] Sign out clicked");
+                await (window as any).evia?.auth?.logout?.();
+                console.log("[SettingsView] logout done");
+              } catch {}
+            }}
+            style={{
+              background: "rgba(255, 255, 255, 0.1)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "4px",
+              color: "white",
+              padding: "8px",
+              fontSize: "12px",
+              fontWeight: "500",
+              cursor: "pointer",
+              transition: "background-color 0.2s",
+            }}
+          >
+            Sign out
+          </button>
+        )}
+
+        {/* Backend login (FastAPI /login/ via defaults) */}
+        {!isLoggedIn && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              padding: "8px",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 6,
+              background: "rgba(255,255,255,0.05)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(255,255,255,0.8)",
+                fontWeight: 600,
+              }}
+            >
+              Or sign in to EVIA backend
+            </div>
+            <input
+              placeholder="Username"
+              value={backendUsername}
+              onChange={(e) => setBackendUsername(e.target.value)}
+              style={{
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(0,0,0,0.35)",
+                color: "white",
+                fontSize: 12,
+              }}
+            />
+            <input
+              placeholder="Password"
+              type="password"
+              value={backendPassword}
+              onChange={(e) => setBackendPassword(e.target.value)}
+              style={{
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(0,0,0,0.35)",
+                color: "white",
+                fontSize: 12,
+              }}
+            />
+            {backendError && (
+              <div style={{ color: "#ff6b6b", fontSize: 12 }}>
+                {backendError}
+              </div>
+            )}
+            <button
+              className="settings-button"
+              disabled={backendBusy}
+              onClick={handleBackendLogin}
+              style={{
+                background: backendBusy
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 4,
+                color: "white",
+                padding: 8,
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              {backendBusy ? "Signing in…" : "Sign in"}
+            </button>
+          </div>
+        )}
+
         <button
           className="settings-button"
           onClick={handleToggleAutoUpdate}

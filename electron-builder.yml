@@ -2,6 +2,11 @@ appId: com.evia.desktop
 productName: EVIA Desktop
 files:
   - dist/**
+protocols:
+  - name: EVIA
+    schemes:
+      - evia
+      - pickleglass
 mac:
   category: public.app-category.productivity
   hardenedRuntime: true

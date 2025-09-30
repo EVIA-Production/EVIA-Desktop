@@ -57,6 +57,40 @@ function createWs(url) {
   };
 }
 
+// Seed auth token from prefs on load
+try {
+  ipcRenderer.invoke("prefs:get").then((res) => {
+    const p = (res && res.prefs) || {};
+    const token = p.auth_token;
+    const tokenType = p.token_type || "Bearer";
+    if (token) {
+      try {
+        localStorage.setItem("auth_token", token);
+        if (tokenType) localStorage.setItem("token_type", tokenType);
+        console.log("[preload.cjs] Seeded auth token from prefs");
+      } catch {}
+    }
+  });
+} catch {}
+
+// Listen for global auth updates from main and apply to localStorage
+ipcRenderer.on("auth:apply", (_e, payload) => {
+  try {
+    if (payload && payload.token) {
+      localStorage.setItem("auth_token", payload.token);
+      if (payload.tokenType)
+        localStorage.setItem("token_type", payload.tokenType);
+      console.log("[preload.cjs] Applied auth token from broadcast");
+    } else {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("token_type");
+      console.log("[preload.cjs] Cleared auth token from broadcast");
+    }
+  } catch (e) {
+    console.error("[preload.cjs] Failed to apply auth token", e);
+  }
+});
+
 try {
   console.log("[preload.cjs] loaded, exposing window.evia");
   contextBridge.exposeInMainWorld("evia", {
@@ -96,6 +130,33 @@ try {
     prefs: {
       get: () => ipcRenderer.invoke("prefs:get"),
       set: (prefs) => ipcRenderer.invoke("prefs:set", prefs),
+    },
+    setAuthToken: (token, tokenType) => {
+      try {
+        const masked = token
+          ? `${token.slice(0, 6)}...${token.slice(
+              Math.max(0, token.length - 4)
+            )}`
+          : "";
+        console.log(
+          `[preload.cjs] setAuthToken (masked=${masked}) type=${tokenType}`
+        );
+        localStorage.setItem("auth_token", token);
+        if (tokenType) localStorage.setItem("token_type", tokenType);
+        ipcRenderer.invoke("auth:set-token", { token, tokenType });
+      } catch (e) {
+        console.error("[preload.cjs] setAuthToken failed", e);
+      }
+    },
+    clearAuthToken: () => {
+      try {
+        console.log("[preload.cjs] clearAuthToken");
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("token_type");
+        ipcRenderer.invoke("auth:clear-token");
+      } catch (e) {
+        console.error("[preload.cjs] clearAuthToken failed", e);
+      }
     },
     settingsView: {
       getAllKeys: () => ipcRenderer.invoke("model:get-all-keys"),

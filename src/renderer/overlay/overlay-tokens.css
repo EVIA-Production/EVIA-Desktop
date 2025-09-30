@@ -332,3 +332,28 @@ button {
   flex-direction: row;
   gap: 2px;
 }
+
+/* SettingsView button hover glow */
+.settings-container .settings-button {
+  transition: background-color 0.15s ease, box-shadow 0.15s ease,
+    filter 0.15s ease, transform 0.15s ease;
+}
+.settings-container .settings-button:hover {
+  /* subtle glow and slight lift */
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.25),
+    inset 0 0 14px rgba(255, 255, 255, 0.08);
+  filter: brightness(1.06);
+  transform: translateY(-0.5px);
+}
+.settings-container .settings-button:active {
+  transform: translateY(0);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.2),
+    inset 0 0 10px rgba(255, 255, 255, 0.06);
+}
+
+/* Danger variant stronger glow */
+.settings-container .settings-button.danger:hover {
+  box-shadow: 0 0 12px rgba(255, 59, 48, 0.5),
+    inset 0 0 16px rgba(255, 59, 48, 0.25);
+  filter: brightness(1.05);
+}
