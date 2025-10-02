@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 365, height: 47 } // 353 + 12 for divider
+const HEADER_SIZE = { width: 353, height: 47 } // Glass default
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -344,7 +344,7 @@ function animateShow(win: BrowserWindow) {
     const targetY = y
     win.setPosition(x, y - 10)
     const start = Date.now()
-    const tick = () => {
+  const tick = () => {
       if (win.isDestroyed()) return
       const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
       const eased = 1 - Math.pow(1 - progress, 3)
@@ -398,7 +398,7 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
       animateShow(win)
     }
   } else {
-    if (name === 'settings') {
+  if (name === 'settings') {
       // Settings hides instantly too
       win.setAlwaysOnTop(false, 'screen-saver')
       win.hide()
@@ -414,9 +414,17 @@ function updateWindows(visibility: WindowVisibility) {
   layoutChildWindows(visibility)
   saveState({ visible: visibility })
 
-  // Sort windows by z-index (ascending) so higher z-index windows are moved to top last
-  const sortedEntries = (Object.entries(visibility) as [FeatureName, boolean][])
-    .sort((a, b) => WINDOW_DATA[a[0]].zIndex - WINDOW_DATA[b[0]].zIndex)
+  // Glass parity: Process ALL windows, not just visible ones (windowManager.js:260-400)
+  // This ensures windows get hidden when removed from visibility object
+  const allWindows: [FeatureName, boolean][] = [
+    ['listen', visibility.listen ?? false],
+    ['ask', visibility.ask ?? false],
+    ['settings', visibility.settings ?? false],
+    ['shortcuts', visibility.shortcuts ?? false],
+  ]
+  
+  // Sort by z-index (ascending) so higher z-index windows are moved to top last
+  const sortedEntries = allWindows.sort((a, b) => WINDOW_DATA[a[0]].zIndex - WINDOW_DATA[b[0]].zIndex)
 
   for (const [name, shown] of sortedEntries) {
     const win = childWindows.get(name)
@@ -480,7 +488,7 @@ function handleHeaderToggle() {
     
     // Hide header last
     headerWindow?.hide()
-  } else {
+    } else {
     // Show header
     headerWindow = getOrCreateHeaderWindow()
     headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)

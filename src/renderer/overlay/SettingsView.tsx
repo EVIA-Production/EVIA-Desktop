@@ -87,31 +87,60 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   return (
+    <>
+      <style>{`
+        .settings-container {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+          background: rgba(20, 20, 20, 0.8);
+          border-radius: 12px;
+          outline: 0.5px rgba(255, 255, 255, 0.2) solid;
+          outline-offset: -1px;
+          box-sizing: border-box;
+          position: relative;
+          overflow-y: auto;
+          padding: 12px;
+          z-index: 1000;
+          color: white;
+        }
+        .settings-container::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.15);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+          border-radius: 12px;
+          filter: blur(10px);
+          z-index: -1;
+        }
+        .settings-container::-webkit-scrollbar {
+          width: 6px;
+        }
+        .settings-container::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 3px;
+        }
+        .settings-container::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 3px;
+        }
+        .settings-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3);
+        }
+      `}</style>
     <div
       className="settings-container"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      style={{
-        background: 'rgba(0, 0, 0, 0.7)', // Slightly darker background
-        borderRadius: '12px',
-        padding: '16px',
-        color: 'white',
-        width: '100%',
-        maxWidth: '600px', // Slightly increased width for better layout
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)', // Adjusted shadow for balance
-        position: 'relative',
-      }}
     >
-      {/* Close button - Glass parity */}
-      <button 
-        className="close-button" 
-        onClick={() => (window as any).evia?.closeWindow?.('settings')}
-        title="Close"
-      >
-        <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
-      </button>
+      {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
       <div className="header-section" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
         <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Settings</h1>
         <div className="account-info" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)' }}>Account: Not Logged In</div>
@@ -205,6 +234,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </button>
       </div>
     </div>
+    </>
   );
 };
 

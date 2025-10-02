@@ -308,12 +308,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
         .evia-settings-button.active {
           background: rgba(255,255,255,0.14);
         }
-        .evia-divider {
-          width: 1px;
-          height: 18px;
-          background: rgba(255,255,255,0.08);
-          margin: 0 6px;
-        }
       `}</style>
 
       <button
@@ -335,11 +329,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
           )}
         </span>
         <span className="evia-listen-label">{listenLabel}</span>
-      </button>
+        </button>
 
-      <div className="evia-divider" aria-hidden="true" />
-
-      <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
+        <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">Ask</span>
         <div className="evia-icon-box">
           <img src={CommandIcon} alt="Cmd" width={12} height={12} />
