@@ -88,6 +88,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     skipTaskbar: true,
     focusable: true,
     roundedCorners: true,
+    useContentSize: true, // Glass parity: Prevent grey frame by matching window to content size
+    hasShadow: false,
     title: 'EVIA Glass Overlay',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -154,6 +156,8 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     width: def.width,
     height: def.height,
     roundedCorners: true,
+    useContentSize: true, // Glass parity: Prevent grey frame
+    hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -444,9 +448,8 @@ app.on('ready', () => {
   app.dock?.hide?.()
   registerShortcuts()
   getOrCreateHeaderWindow()
-  if (persistedState.visible) {
-    updateWindows(persistedState.visible)
-  }
+  // Don't restore persisted windows at startup - only show header
+  // Child windows appear on demand (Listen button, Ask command, etc.)
 })
 
 app.on('will-quit', () => {
@@ -542,11 +545,10 @@ ipcMain.handle('prefs:set', (_event, data: Partial<PersistedState>) => {
 })
 
 ipcMain.handle('close-window', (_event, name: FeatureName) => {
-  const win = childWindows.get(name)
-  if (win && !win.isDestroyed()) win.close()
   const vis = getVisibility()
-  delete vis[name]
-  saveState({ visible: vis })
+  const newVis = { ...vis, [name]: false }
+  updateWindows(newVis)
+  return { ok: true }
 })
 
 function getHeaderWindow(): BrowserWindow | null {

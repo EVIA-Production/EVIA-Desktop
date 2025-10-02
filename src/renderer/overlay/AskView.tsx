@@ -146,11 +146,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       />
       <button
         type="submit"
+        className="submit-btn"
         style={{
           display: 'flex',
           alignItems: 'center',
-          background: 'rgba(255, 255, 255, 0.2)', // Slightly lighter button background
-          color: 'rgba(255, 255, 255, 0.97)', // Slightly brighter text color
+          background: 'transparent',
+          color: 'white',
           border: 'none',
           borderRadius: '6px',
           fontSize: '13px',
@@ -158,14 +159,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           fontWeight: 500,
           cursor: 'pointer',
           transition: 'background 0.15s',
-          height: '40px',
-          padding: '0 16px',
+          height: '32px',
+          padding: '0 10px',
+          marginLeft: '8px',
         }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
       >
-        <span style={{ marginRight: '8px' }}>Submit</span>
+        <span style={{ marginRight: '8px', display: 'flex', alignItems: 'center', height: '100%' }}>Submit</span>
         <span
           style={{
-            background: 'rgba(255,255,255,0.3)', // Slightly lighter icon background
+            background: 'rgba(255,255,255,0.1)',
             borderRadius: '13%',
             display: 'flex',
             alignItems: 'center',
