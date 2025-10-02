@@ -52,6 +52,9 @@ type PersistedState = {
 }
 let persistedState: PersistedState = {}
 
+// Glass parity: Track visibility before hide (windowManager.js:227-233)
+let lastVisibleWindows = new Set<FeatureName>()
+
 try {
   if (fs.existsSync(persistFile)) {
     const data = fs.readFileSync(persistFile, 'utf8')
@@ -406,17 +409,38 @@ function handleHeaderToggle() {
   const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
   
   if (headerVisible) {
-    // Hide everything: child windows + header
-    hideAllChildWindows()
+    // Glass parity: Save visible windows BEFORE hiding (windowManager.js:227-240)
+    lastVisibleWindows.clear()
+    for (const [name, win] of childWindows) {
+      if (win && !win.isDestroyed() && win.isVisible()) {
+        lastVisibleWindows.add(name)
+      }
+    }
+    
+    // Hide all child windows
+    for (const name of lastVisibleWindows) {
+      const win = childWindows.get(name)
+      if (win && !win.isDestroyed()) {
+        win.hide()
+      }
+    }
+    
+    // Hide header last
     headerWindow?.hide()
   } else {
-    // Show header only (child windows appear on demand)
+    // Show header
     headerWindow = getOrCreateHeaderWindow()
-    // Set properties BEFORE showing to ensure they take effect
     headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
     headerWindow.setIgnoreMouseEvents(false)
     headerWindow.setAlwaysOnTop(true, 'screen-saver')
     headerWindow.showInactive()
+    
+    // Glass parity: Restore previously visible windows (windowManager.js:245-249)
+    const vis = getVisibility()
+    for (const name of lastVisibleWindows) {
+      vis[name] = true
+    }
+    updateWindows(vis)
   }
 }
 

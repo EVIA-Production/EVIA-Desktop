@@ -144,16 +144,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   return (
     <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
-      {/* Close button - Glass parity (PermissionHeader.js:487) */}
-      <button 
-        className="close-button" 
-        onClick={() => (window as any).evia?.closeWindow?.('listen')}
-        title="Close"
-      >
-        <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
-      </button>
+      {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
       <style>
         {`
           .assistant-container {
