@@ -200,30 +200,83 @@ function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
   }
 }
 
+// Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
   const header = getOrCreateHeaderWindow()
   const hb = header.getBounds()
   const work = getWorkAreaBounds()
 
-  const visEntries = Object.entries(visible).filter(([, shown]) => !!shown) as [FeatureName, true][]
-  if (!visEntries.length) return
+  const askVis = visible.ask
+  const listenVis = visible.listen
 
-  const isAbovePreferred = hb.y > work.y + work.height / 2
-  const baseY = isAbovePreferred ? hb.y - PAD : hb.y + hb.height + PAD
+  if (!askVis && !listenVis) return
 
-  let nextX = hb.x + hb.width + PAD
-  for (const [name] of visEntries) {
-    const win = createChildWindow(name)
-    const { width, height } = WINDOW_DATA[name]
-    const pos: Electron.Rectangle = {
-      width,
-      height,
-      x: Math.round(nextX - width - PAD),
-      y: Math.round(isAbovePreferred ? baseY - height : baseY),
+  const PAD_LOCAL = PAD
+  const screenWidth = work.width
+  const screenHeight = work.height
+  const headerCenterXRel = hb.x - work.x + hb.width / 2
+  const relativeY = (hb.y - work.y) / screenHeight
+
+  // Determine if windows should be above or below header (Glass: determineLayoutStrategy)
+  const isAbovePreferred = relativeY > 0.5
+
+  const askWin = askVis ? createChildWindow('ask') : null
+  const listenWin = listenVis ? createChildWindow('listen') : null
+
+  const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
+  const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0
+  const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
+  const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
+
+  const layout: Record<string, { x: number; y: number; width: number; height: number }> = {}
+
+  if (askVis && listenVis) {
+    // Both windows: horizontal stack (listen left, ask center-aligned)
+    let askXRel = headerCenterXRel - askW / 2
+    let listenXRel = askXRel - listenW - PAD_LOCAL
+
+    // Clamp to screen bounds
+    if (listenXRel < PAD_LOCAL) {
+      listenXRel = PAD_LOCAL
+      askXRel = listenXRel + listenW + PAD_LOCAL
     }
-    const clamped = clampBounds(pos)
-    win.setBounds(clamped)
-    nextX = clamped.x
+    if (askXRel + askW > screenWidth - PAD_LOCAL) {
+      askXRel = screenWidth - PAD_LOCAL - askW
+      listenXRel = askXRel - listenW - PAD_LOCAL
+    }
+
+    if (isAbovePreferred) {
+      const windowBottomAbs = hb.y - PAD_LOCAL
+      layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
+      layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
+    } else {
+      const yAbs = hb.y + hb.height + PAD_LOCAL
+      layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
+      layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+    }
+  } else {
+    // Single window: center under header
+    const winName = askVis ? 'ask' : 'listen'
+    const winW = askVis ? askW : listenW
+    const winH = askVis ? askH : listenH
+
+    let xRel = headerCenterXRel - winW / 2
+    xRel = Math.max(PAD_LOCAL, Math.min(screenWidth - winW - PAD_LOCAL, xRel))
+
+    let yPos: number
+    if (isAbovePreferred) {
+      yPos = hb.y - work.y - PAD_LOCAL - winH
+    } else {
+      yPos = hb.y - work.y + hb.height + PAD_LOCAL
+    }
+
+    layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
+  }
+
+  // Apply layout
+  for (const [name, bounds] of Object.entries(layout)) {
+    const win = createChildWindow(name as FeatureName)
+    win.setBounds(clampBounds(bounds as Electron.Rectangle))
   }
 }
 
