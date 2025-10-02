@@ -798,6 +798,22 @@ ipcMain.on('show-settings-window', () => {
 })
 
 ipcMain.on('hide-settings-window', () => {
+  // Check if cursor is currently inside settings window before hiding
+  const settingsWin = childWindows.get('settings')
+  if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) {
+    const cursorPos = screen.getCursorScreenPoint()
+    const bounds = settingsWin.getBounds()
+    const isInside = cursorPos.x >= bounds.x && 
+                    cursorPos.x <= bounds.x + bounds.width &&
+                    cursorPos.y >= bounds.y && 
+                    cursorPos.y <= bounds.y + bounds.height
+    
+    if (isInside) {
+      console.log('[overlay-windows] hide-settings-window: IGNORED - cursor inside settings')
+      return // Don't hide if cursor is inside!
+    }
+  }
+  
   console.log('[overlay-windows] hide-settings-window: Starting 200ms timer')
   if (settingsHideTimer) {
     clearTimeout(settingsHideTimer)
