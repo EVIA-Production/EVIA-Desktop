@@ -410,7 +410,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           {viewMode === 'transcript' ? (
             lines.length > 0 ? (
               lines.map((line, i) => (
-                <div key={i} className={`bubble ${line.speaker === 1 ? 'me' : 'them'}`} style={{ opacity: line.isFinal ? 1 : 0.7 }}>
+                <div
+                  key={i}
+                  className={`bubble ${line.speaker === 0 ? 'me' : 'them'}`}
+                  style={{
+                    opacity: line.isFinal ? 1 : 0.6,
+                    background:
+                      line.speaker === 0
+                        ? 'linear-gradient(135deg, rgba(0, 122, 255, 0.9) 0%, rgba(10, 132, 255, 0.85) 100%)'
+                        : 'rgba(255, 255, 255, 0.12)',
+                    alignSelf: line.speaker === 0 ? 'flex-end' : 'flex-start',
+                    color: '#ffffff',
+                  }}
+                >
                   <span className="bubble-text">{line.text}</span>
                 </div>
               ))

@@ -96,7 +96,8 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('evia', 'token');
 });
 
-// Add your other handlers here...
+// Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
+// header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
 app.whenReady().then(() => {
   createHeaderWindow()
@@ -104,4 +105,5 @@ app.whenReady().then(() => {
   // Ensure debug visibility
   try { hw?.show() } catch {}
   try { hw?.focus() } catch {}
+  // Note: Global shortcuts are registered in overlay-windows.ts
 })

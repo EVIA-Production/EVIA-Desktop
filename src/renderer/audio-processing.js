@@ -142,8 +142,14 @@ async function processSystemAudio(float32Data, inputSampleRate, channels) {
     // Get processed float32 data
     const processedFloat32 = renderedBuffer.getChannelData(0);
 
+    // Add soft limiting to prevent clipping
+    const limited = new Float32Array(processedFloat32.length);
+    for (let i = 0; i < processedFloat32.length; i++) {
+      limited[i] = Math.tanh(processedFloat32[i] * 0.8) * 0.95;
+    }
+
     // Convert to PCM16
-    const pcm16 = convertFloat32ToInt16(processedFloat32);
+    const pcm16 = convertFloat32ToInt16(limited);
 
     // Log for diagnostics
     const rms = calculateRMS(pcm16);

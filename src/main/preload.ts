@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, desktopCapturer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import * as keytar from 'keytar';
 
 type WsHandle = {
@@ -37,7 +37,7 @@ function createWs(url: string): WsHandle {
 
 contextBridge.exposeInMainWorld('evia', {
   createWs,
-  getDesktopCapturerSources: (options: Electron.SourcesOptions) => desktopCapturer.getSources(options),
+  getDesktopCapturerSources: (options: Electron.SourcesOptions) => ipcRenderer.invoke('desktop-capturer:getSources', options),
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),
     stop: () => ipcRenderer.invoke('system-audio:stop'),
@@ -58,6 +58,12 @@ contextBridge.exposeInMainWorld('evia', {
     showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
     hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
+    toggleAllVisibility: () => ipcRenderer.invoke('header:toggle-visibility'),
+    nudgeHeader: (dx: number, dy: number) => ipcRenderer.invoke('header:nudge', { dx, dy }),
+    openAskWindow: () => ipcRenderer.invoke('header:open-ask'),
+  },
+  capture: {
+    takeScreenshot: () => ipcRenderer.invoke('capture:screenshot'),
   },
   prefs: {
     get: () => ipcRenderer.invoke('prefs:get'),

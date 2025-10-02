@@ -464,6 +464,7 @@ function startAudioTest() {
   // For now, open a new window or log; expand later
   const testWindow = window.open('', 'AudioTest', 'width=600,height=400');
   if (testWindow) {
+    // @ts-ignore
     testWindow.document.write('<h1>Audio Test Tool</h1><p>Testing audio capture...</p>');
   }
 }
@@ -793,10 +794,16 @@ async function startMicCapture(chatId: string, token: string) {
         const chunk = micAccumulated.slice(0, SAMPLES_PER_CHUNK);
         micAccumulated = micAccumulated.slice(SAMPLES_PER_CHUNK);
 
+        // Add soft limiting
+        const limited = new Float32Array(SAMPLES_PER_CHUNK);
+        for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
+          limited[i] = Math.tanh(chunk[i] * 0.8) * 0.95;
+        }
+
         // Convert to PCM16
         const pcm16 = new Int16Array(SAMPLES_PER_CHUNK);
         for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
-          pcm16[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32767));
+          pcm16[i] = Math.max(-32768, Math.min(32767, limited[i] * 32767));
         }
 
         // Send to WS via overlay WS
