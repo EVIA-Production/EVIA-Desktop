@@ -326,6 +326,54 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             font-style: italic; /* Make the text cursive */
           }
 
+          /* Glass parity: Scrollbar styling (hidden for ListenView) */
+          .glass-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          /* Glass parity: Hide scrollbars completely (ListenView.js:350-355) */
+          .glass-scroll::-webkit-scrollbar {
+            width: 0;
+            background: transparent;
+          }
+
+          .glass-scroll::-webkit-scrollbar-track {
+            background: transparent;
+          }
+
+          .glass-scroll::-webkit-scrollbar-thumb {
+            background: transparent;
+          }
+
+          /* Glass parity: Bubble styling */
+          .bubble {
+            padding: 8px 12px;
+            border-radius: 12px;
+            max-width: 80%;
+            word-wrap: break-word;
+            font-size: 13px;
+            line-height: 1.4;
+            transition: opacity 0.2s ease;
+          }
+
+          .bubble.me {
+            align-self: flex-end;
+          }
+
+          .bubble.them {
+            align-self: flex-start;
+          }
+
+          .bubble-text {
+            display: block;
+          }
+
           .follow-button {
             position: absolute;
             bottom: 8px; /* Further reduced margin */
