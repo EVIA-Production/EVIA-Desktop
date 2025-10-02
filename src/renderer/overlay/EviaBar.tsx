@@ -103,14 +103,28 @@ const EviaBar: React.FC<EviaBarProps> = ({
   };
 
   const handleListenClick = async () => {
-    const shown = await toggleWindow('listen');
-    setIsListenActive(shown);
-    if (shown) {
+    // Glass parity: listenService.js:56-97
+    // Listen → Stop: Show window + start
+    // Stop → Done: Window STAYS, show insights
+    // Done → Listen: Hide window
+    
+    if (listenStatus === 'before') {
+      // Listen → Stop: Show window
+      await (window as any).evia?.windows?.ensureShown?.('listen');
       setListenStatus('in');
+      setIsListenActive(true);
       onToggleListening();
-    } else {
+    } else if (listenStatus === 'in') {
+      // Stop → Done: Window STAYS visible
       setListenStatus('after');
+      setIsListenActive(false);
       onToggleListening();
+      // Window remains visible for insights
+    } else if (listenStatus === 'after') {
+      // Done → Listen: Hide window
+      await (window as any).evia?.windows?.hide?.('listen');
+      setListenStatus('before');
+      setIsListenActive(false);
     }
   };
 

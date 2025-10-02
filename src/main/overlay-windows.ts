@@ -360,17 +360,26 @@ function updateWindows(visibility: WindowVisibility) {
   layoutChildWindows(visibility)
   saveState({ visible: visibility })
 
-  for (const [name, shown] of Object.entries(visibility) as [FeatureName, boolean][]) {
+  // Sort windows by z-index (ascending) so higher z-index windows are moved to top last
+  const sortedEntries = (Object.entries(visibility) as [FeatureName, boolean][])
+    .sort((a, b) => WINDOW_DATA[a[0]].zIndex - WINDOW_DATA[b[0]].zIndex)
+
+  for (const [name, shown] of sortedEntries) {
     const win = childWindows.get(name)
     if (!win || win.isDestroyed()) continue
     ensureVisibility(name, shown)
     try { win.setAlwaysOnTop(true, 'screen-saver') } catch {}
     try { win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS) } catch {}
+    // Glass parity: Enforce z-order by moving to top in sorted order
+    if (shown) {
+      try { win.moveTop() } catch {}
+    }
   }
 
   try {
     headerWindow?.setAlwaysOnTop(true, 'screen-saver')
     headerWindow?.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+    headerWindow?.moveTop() // Header always on top
   } catch {}
 }
 
