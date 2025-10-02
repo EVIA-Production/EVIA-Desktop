@@ -351,13 +351,22 @@ function openAskWindow() {
 }
 
 function registerShortcuts() {
+  // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
+  const step = 12
+  
+  // Wrap in paramless functions to avoid 'conversion from X' errors
+  const nudgeUp = () => nudgeHeader(0, -step)
+  const nudgeDown = () => nudgeHeader(0, step)
+  const nudgeLeft = () => nudgeHeader(-step, 0)
+  const nudgeRight = () => nudgeHeader(step, 0)
+  
   globalShortcut.register('CommandOrControl+\\', handleHeaderToggle)
   globalShortcut.register('CommandOrControl+Enter', openAskWindow)
-  const step = 12
-  globalShortcut.register('ArrowUp', () => nudgeHeader(0, -step))
-  globalShortcut.register('ArrowDown', () => nudgeHeader(0, step))
-  globalShortcut.register('ArrowLeft', () => nudgeHeader(-step, 0))
-  globalShortcut.register('ArrowRight', () => nudgeHeader(step, 0))
+  // Note: Glass uses 'Cmd+Up' not plain 'Up'; adjust if needed for parity
+  globalShortcut.register('CommandOrControl+Up', nudgeUp)
+  globalShortcut.register('CommandOrControl+Down', nudgeDown)
+  globalShortcut.register('CommandOrControl+Left', nudgeLeft)
+  globalShortcut.register('CommandOrControl+Right', nudgeRight)
 }
 
 function unregisterShortcuts() {
