@@ -421,16 +421,17 @@ function handleHeaderToggle() {
 }
 
 function nudgeHeader(dx: number, dy: number) {
+  // Glass parity: windowManager.js:133-154, windowLayoutManager.js:240-255
+  // Move header, then recalculate child layout based on new header position
   const header = getOrCreateHeaderWindow()
   const bounds = header.getBounds()
   const next = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
   header.setBounds(next)
-  for (const [name, win] of childWindows) {
-    if (persistedState.visible?.[name]) {
-      const b = win.getBounds()
-      win.setBounds({ ...b, x: b.x + dx, y: b.y + dy })
-    }
-  }
+  
+  // Glass parity: Recalculate layout for visible windows based on new header position
+  const vis = getVisibility()
+  layoutChildWindows(vis)
+  
   saveState({ headerBounds: next })
 }
 
@@ -442,7 +443,7 @@ function openAskWindow() {
 
 function registerShortcuts() {
   // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
-  const step = 12
+  const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
   
   // Wrap in paramless functions to avoid 'conversion from X' errors
   const nudgeUp = () => nudgeHeader(0, -step)
