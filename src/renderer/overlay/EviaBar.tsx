@@ -169,10 +169,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <style>{`
         .evia-main-header {
           position: relative;
-          width: max-content;
-          height: 47px;
+          width: 100%; /* Fill window to prevent grey edges */
+          height: 100%;
           padding: 2px 10px 2px 13px;
-          display: inline-flex;
+          display: flex;
           align-items: center;
           justify-content: space-between;
           border-radius: 9000px;
