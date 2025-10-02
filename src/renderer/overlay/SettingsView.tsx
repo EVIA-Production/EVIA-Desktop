@@ -86,8 +86,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         width: '100%',
         maxWidth: '600px', // Slightly increased width for better layout
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)', // Adjusted shadow for balance
+        position: 'relative',
       }}
     >
+      {/* Close button - Glass parity */}
+      <button 
+        className="close-button" 
+        onClick={() => (window as any).evia?.closeWindow?.('settings')}
+        title="Close"
+      >
+        <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      </button>
       <div className="header-section" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
         <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Settings</h1>
         <div className="account-info" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)' }}>Account: Not Logged In</div>

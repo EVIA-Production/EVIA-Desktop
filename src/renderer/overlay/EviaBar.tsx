@@ -26,6 +26,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 }) => {
   const headerRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+  const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
   const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>(isListening ? 'in' : 'before');
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
@@ -40,6 +41,15 @@ const EviaBar: React.FC<EviaBarProps> = ({
     setIsAskActive(currentView === 'ask');
     setIsSettingsActive(currentView === 'settings');
   }, [currentView]);
+
+  // Cleanup settings timer on unmount
+  useEffect(() => {
+    return () => {
+      if (settingsHideTimerRef.current) {
+        clearTimeout(settingsHideTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const node = headerRef.current;
@@ -109,9 +119,28 @@ const EviaBar: React.FC<EviaBarProps> = ({
     setIsAskActive(shown);
   };
 
-  const handleSettingsClick = async () => {
-    const shown = await toggleWindow('settings');
-    setIsSettingsActive(shown);
+  // Glass parity: Settings hover behavior with 200ms delay (windowManager.js:291-323)
+  const showSettingsWindow = () => {
+    // Cancel any pending hide
+    if (settingsHideTimerRef.current) {
+      clearTimeout(settingsHideTimerRef.current);
+      settingsHideTimerRef.current = null;
+    }
+    // Show immediately
+    (window as any).evia?.windows?.showSettingsWindow?.();
+    setIsSettingsActive(true);
+  };
+
+  const hideSettingsWindow = () => {
+    // Hide after 200ms delay (allows mouse to move to settings panel)
+    if (settingsHideTimerRef.current) {
+      clearTimeout(settingsHideTimerRef.current);
+    }
+    settingsHideTimerRef.current = setTimeout(() => {
+      (window as any).evia?.windows?.hideSettingsWindow?.();
+      setIsSettingsActive(false);
+      settingsHideTimerRef.current = null;
+    }, 200);
   };
 
   const handleToggleVisibility = async () => {
@@ -287,7 +316,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <button
         type="button"
         className={`evia-settings-button ${isSettingsActive ? 'active' : ''}`}
-        onClick={handleSettingsClick}
+        onMouseEnter={showSettingsWindow}
+        onMouseLeave={hideSettingsWindow}
         aria-label="Settings"
       >
         <img src={SettingsIcon} alt="Settings" width={14} height={14} />

@@ -99,21 +99,32 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   return (
-    <form
-      onSubmit={onAsk}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '12px 16px',
-        background: 'rgba(0, 0, 0, 0.65)', // Slightly lighter background
-        borderRadius: '12px',
-        width: '800px',
-        maxWidth: '90%',
-        margin: '0 auto',
-        border: '1px solid rgba(255, 255, 255, 0.2)', // Slightly more visible border
-      }}
-    >
+    <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Close button - Glass parity */}
+      <button 
+        className="close-button" 
+        onClick={() => (window as any).evia?.closeWindow?.('ask')}
+        title="Close"
+      >
+        <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      </button>
+      <form
+        onSubmit={onAsk}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '12px 16px',
+          background: 'rgba(0, 0, 0, 0.65)', // Slightly lighter background
+          borderRadius: '12px',
+          width: '800px',
+          maxWidth: '90%',
+          margin: '0 auto',
+          border: '1px solid rgba(255, 255, 255, 0.2)', // Slightly more visible border
+        }}
+      >
       <input
         type="text"
         value={prompt}
@@ -167,6 +178,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         </span>
       </button>
     </form>
+    </div>
   );
 };
 
