@@ -199,31 +199,66 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     childWindows.delete(name)
   })
 
-  // Glass parity: Settings window mouse tracking (windowManager.js)
+  // Glass parity: Settings window cursor tracking
+  // Since Electron doesn't have window hover events, we poll cursor position
   if (name === 'settings') {
-    win.on('mouse-enter' as any, () => {
-      console.log('[overlay-windows] Settings window mouse-enter event')
-      // Cancel hide timer when mouse enters settings window
-      if (settingsHideTimer) {
-        console.log('[overlay-windows] Canceling hide timer from window mouse-enter')
-        clearTimeout(settingsHideTimer)
-        settingsHideTimer = null
-      }
+    let cursorPollInterval: NodeJS.Timeout | null = null
+    let wasInsideSettings = false
+    
+    // Start polling when window is shown
+    win.on('show', () => {
+      console.log('[overlay-windows] Settings shown - starting cursor poll')
+      wasInsideSettings = false
+      
+      cursorPollInterval = setInterval(() => {
+        if (win.isDestroyed() || !win.isVisible()) {
+          if (cursorPollInterval) clearInterval(cursorPollInterval)
+          return
+        }
+        
+        const cursorPos = screen.getCursorScreenPoint()
+        const bounds = win.getBounds()
+        
+        // Check if cursor is inside settings window bounds
+        const isInside = cursorPos.x >= bounds.x && 
+                        cursorPos.x <= bounds.x + bounds.width &&
+                        cursorPos.y >= bounds.y && 
+                        cursorPos.y <= bounds.y + bounds.height
+        
+        // Track enter/leave transitions
+        if (isInside && !wasInsideSettings) {
+          console.log('[overlay-windows] Cursor entered settings bounds')
+          wasInsideSettings = true
+          // Cancel hide timer
+          if (settingsHideTimer) {
+            console.log('[overlay-windows] Canceling hide timer - cursor inside')
+            clearTimeout(settingsHideTimer)
+            settingsHideTimer = null
+          }
+        } else if (!isInside && wasInsideSettings) {
+          console.log('[overlay-windows] Cursor left settings bounds')
+          wasInsideSettings = false
+          // Start hide timer
+          if (settingsHideTimer) clearTimeout(settingsHideTimer)
+          settingsHideTimer = setTimeout(() => {
+            console.log('[overlay-windows] Hiding settings after cursor left')
+            const vis = getVisibility()
+            const updated = { ...vis, settings: false }
+            updateWindows(updated)
+            settingsHideTimer = null
+          }, 200)
+        }
+      }, 50) // Poll every 50ms (20fps, smooth enough)
     })
     
-    win.on('mouse-leave' as any, () => {
-      console.log('[overlay-windows] Settings window mouse-leave event')
-      // Start hide timer when mouse leaves settings window
-      if (settingsHideTimer) {
-        clearTimeout(settingsHideTimer)
+    // Stop polling when window is hidden
+    win.on('hide', () => {
+      console.log('[overlay-windows] Settings hidden - stopping cursor poll')
+      if (cursorPollInterval) {
+        clearInterval(cursorPollInterval)
+        cursorPollInterval = null
       }
-      settingsHideTimer = setTimeout(() => {
-        console.log('[overlay-windows] Hiding settings from window mouse-leave')
-        const vis = getVisibility()
-        const updated = { ...vis, settings: false }
-        updateWindows(updated)
-        settingsHideTimer = null
-      }, 200)
+      wasInsideSettings = false
     })
   }
 
