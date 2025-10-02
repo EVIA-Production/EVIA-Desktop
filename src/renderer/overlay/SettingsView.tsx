@@ -87,24 +87,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   return (
-    <>
+    <div
+      className="settings-container"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        width: '100%',
+        background: 'rgba(20, 20, 20, 0.8)',
+        borderRadius: '12px',
+        outline: '0.5px rgba(255, 255, 255, 0.2) solid',
+        outlineOffset: '-1px',
+        boxSizing: 'border-box',
+        position: 'relative',
+        overflowY: 'auto',
+        padding: '12px',
+        zIndex: 1000,
+        color: 'white',
+      }}
+    >
       <style>{`
-        .settings-container {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          width: 100%;
-          background: rgba(20, 20, 20, 0.8);
-          border-radius: 12px;
-          outline: 0.5px rgba(255, 255, 255, 0.2) solid;
-          outline-offset: -1px;
-          box-sizing: border-box;
-          position: relative;
-          overflow-y: auto;
-          padding: 12px;
-          z-index: 1000;
-          color: white;
-        }
         .settings-container::before {
           content: '';
           position: absolute;
@@ -135,11 +139,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           background: rgba(255, 255, 255, 0.3);
         }
       `}</style>
-    <div
-      className="settings-container"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
       {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
       <div className="header-section" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
         <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Settings</h1>
@@ -234,7 +233,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </button>
       </div>
     </div>
-    </>
   );
 };
 
