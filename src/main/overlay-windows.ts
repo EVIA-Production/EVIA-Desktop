@@ -403,7 +403,7 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
       // If already visible, don't animate (prevents re-animation bug)
     }
   } else {
-    if (name === 'settings') {
+  if (name === 'settings') {
       // Settings hides instantly too
       win.setAlwaysOnTop(false, 'screen-saver')
       win.hide()
@@ -517,18 +517,41 @@ function handleHeaderToggle() {
 }
 
 function nudgeHeader(dx: number, dy: number) {
-  // Glass parity: windowManager.js:133-154, windowLayoutManager.js:240-255
-  // Move header, then recalculate child layout based on new header position
+  // Glass parity: windowManager.js:133-154, smoothMovementManager.js:1-32
+  // Animate header movement smoothly over 300ms (Glass animation duration)
   const header = getOrCreateHeaderWindow()
   const bounds = header.getBounds()
-  const next = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
-  header.setBounds(next)
+  const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
   
-  // Glass parity: Recalculate layout for visible windows based on new header position
-  const vis = getVisibility()
-  layoutChildWindows(vis)
+  // Smooth animation over 300ms
+  const duration = 300
+  const startTime = Date.now()
+  const startX = bounds.x
+  const startY = bounds.y
   
-  saveState({ headerBounds: next })
+  const animate = () => {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    
+    // Ease-out cubic for smooth deceleration
+    const eased = 1 - Math.pow(1 - progress, 3)
+    
+    const currentX = startX + (target.x - startX) * eased
+    const currentY = startY + (target.y - startY) * eased
+    
+    header.setPosition(Math.round(currentX), Math.round(currentY))
+    
+    if (progress < 1) {
+      setTimeout(animate, 16) // ~60fps
+    } else {
+      // Recalculate child layout and save state when animation completes
+      const vis = getVisibility()
+      layoutChildWindows(vis)
+      saveState({ headerBounds: target })
+    }
+  }
+  
+  animate()
 }
 
 function openAskWindow() {

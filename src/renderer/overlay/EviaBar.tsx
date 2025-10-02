@@ -238,20 +238,34 @@ const EviaBar: React.FC<EviaBarProps> = ({
         .evia-listen-button::before {
           content: '';
           position: absolute;
-          inset: 0;
+          top: 0; left: 0; right: 0; bottom: 0;
           border-radius: 9000px;
           background: rgba(255,255,255,0.14);
           transition: background 0.15s ease;
           z-index: -1;
         }
+        .evia-listen-button::after {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0; bottom: 0;
+          border-radius: 9000px;
+          padding: 1px;
+          background: linear-gradient(169deg, rgba(255,255,255,0.17) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.17) 100%);
+          -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          -webkit-mask-composite: destination-out;
+          mask-composite: exclude;
+          pointer-events: none;
+        }
         .evia-listen-button:hover::before { background: rgba(255,255,255,0.18); }
-        .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.56); }
-        .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.64); }
-        .evia-listen-button.listen-done::before { background: rgba(255,255,255,0.65); }
-        .evia-listen-button.listen-done .evia-listen-label,
+        .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.5); }
+        .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.6); }
+        .evia-listen-button.listen-done { background-color: rgba(255,255,255,0.6); transition: background-color 0.15s ease; }
+        .evia-listen-button.listen-done::before { display: none; }
+        .evia-listen-button.listen-done::after { display: none; }
+        .evia-listen-button.listen-done .evia-listen-label { color: black; }
         .evia-listen-button.listen-done .evia-listen-icon svg rect,
-        .evia-listen-button.listen-done .evia-listen-icon svg path { color: black; fill: black; }
-        .evia-listen-button .evia-listen-label { font-size: 12px; font-weight: 500; }
+        .evia-listen-button.listen-done .evia-listen-icon svg path { fill: black; }
+        .evia-listen-button .evia-listen-label { font-size: 12px; font-weight: 600; }
         .evia-listen-icon {
           width: 12px;
           height: 11px;
@@ -264,7 +278,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           display: flex;
           align-items: center;
           justify-content: flex-start;
-          gap: 9px;
+          gap: 4px;
           padding: 0 8px;
           height: 26px;
           border-radius: 6px;
@@ -315,6 +329,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         className={`evia-listen-button ${isListenActive ? 'listen-active' : ''} ${listenStatus === 'after' ? 'listen-done' : ''}`}
         onClick={handleListenClick}
       >
+        <span className="evia-listen-label">{listenLabel}</span>
         <span className="evia-listen-icon">
           {(isListenActive || listenStatus === 'after') ? (
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -328,20 +343,25 @@ const EviaBar: React.FC<EviaBarProps> = ({
             </svg>
           )}
         </span>
-        <span className="evia-listen-label">{listenLabel}</span>
         </button>
 
         <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">Ask</span>
         <div className="evia-icon-box">
-          <img src={CommandIcon} alt="Cmd" width={12} height={12} />
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.6 0.5V2.3H0.8V3.6H3.6V8.8H0.8V10.1H3.6V11.5H4.9V10.1H6.1V11.5H7.4V10.1H10.2V8.8H7.4V3.6H10.2V2.3H7.4V0.5H6.1V2.3H4.9V0.5H3.6ZM4.9 3.6H6.1V8.8H4.9V3.6Z" fill="white"/>
+          </svg>
         </div>
         <div className="evia-icon-box">↵</div>
       </div>
 
       <div className="evia-header-actions" onClick={handleToggleVisibility} role="button" tabIndex={0}>
         <span className="evia-action-text">Show/Hide</span>
-        <div className="evia-icon-box">⌘</div>
+        <div className="evia-icon-box">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.6 0.5V2.3H0.8V3.6H3.6V8.8H0.8V10.1H3.6V11.5H4.9V10.1H6.1V11.5H7.4V10.1H10.2V8.8H7.4V3.6H10.2V2.3H7.4V0.5H6.1V2.3H4.9V0.5H3.6ZM4.9 3.6H6.1V8.8H4.9V3.6Z" fill="white"/>
+          </svg>
+        </div>
         <div className="evia-icon-box">\</div>
       </div>
 
@@ -352,7 +372,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
         onMouseLeave={hideSettingsWindow}
         aria-label="Settings"
       >
-        <img src={SettingsIcon} alt="Settings" width={14} height={14} />
+        <svg width="16" height="17" viewBox="0 0 16 17" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="8" cy="3.83" r="1" fill="white"/>
+          <circle cx="8" cy="8.5" r="1" fill="white"/>
+          <circle cx="8" cy="13.17" r="1" fill="white"/>
+        </svg>
       </button>
     </div>
   );
