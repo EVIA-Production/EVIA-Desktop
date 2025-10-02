@@ -143,6 +143,10 @@ function createChildWindow(name: FeatureName): BrowserWindow {
 
   const def = WINDOW_DATA[name]
   const parent = getOrCreateHeaderWindow()
+  
+  // Glass parity: Ask/Settings/Shortcuts need to be focusable for input
+  const needsFocus = name === 'ask' || name === 'settings' || name === 'shortcuts'
+  
   const win = new BrowserWindow({
     parent,
     show: false,
@@ -152,7 +156,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     movable: false,
     minimizable: false,
     maximizable: false,
-    focusable: false,
+    focusable: needsFocus, // Ask/Settings/Shortcuts can receive focus
     skipTaskbar: true,
     alwaysOnTop: true,
     width: def.width,
@@ -172,7 +176,13 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setContentProtection(true)
-  win.setIgnoreMouseEvents(true, { forward: true })
+  
+  // Glass parity: Only Listen window is click-through, Ask/Settings/Shortcuts are interactive
+  if (name === 'listen') {
+    win.setIgnoreMouseEvents(true, { forward: true })
+  } else {
+    win.setIgnoreMouseEvents(false)
+  }
 
   // All windows load overlay.html with different ?view= query params for routing
   win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
@@ -333,12 +343,15 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
 
 function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   const win = createChildWindow(name)
+  // Glass parity: Only Listen is click-through, Ask/Settings/Shortcuts are interactive
+  const isClickThrough = name === 'listen'
+  
   if (shouldShow) {
-    win.setIgnoreMouseEvents(false)
+    win.setIgnoreMouseEvents(isClickThrough, isClickThrough ? { forward: true } : undefined)
     animateShow(win)
   } else {
     animateHide(win, () => {
-      win.setIgnoreMouseEvents(true, { forward: true })
+      win.setIgnoreMouseEvents(isClickThrough, isClickThrough ? { forward: true } : undefined)
     })
   }
 }
@@ -381,22 +394,20 @@ function hideAllChildWindows() {
 }
 
 function handleHeaderToggle() {
-  const vis = getVisibility()
-  const anyVisible = Object.values(vis).some(Boolean)
   const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
   
   if (headerVisible) {
     // Hide everything: child windows + header
     hideAllChildWindows()
     headerWindow?.hide()
-    headerWindow?.setIgnoreMouseEvents(true, { forward: true })
-    headerWindow?.setVisibleOnAllWorkspaces(false)
   } else {
     // Show header only (child windows appear on demand)
     headerWindow = getOrCreateHeaderWindow()
-    headerWindow.showInactive()
-    headerWindow.setIgnoreMouseEvents(false)
+    // Set properties BEFORE showing to ensure they take effect
     headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+    headerWindow.setIgnoreMouseEvents(false)
+    headerWindow.setAlwaysOnTop(true, 'screen-saver')
+    headerWindow.showInactive()
   }
 }
 
@@ -555,6 +566,36 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
   const newVis = { ...vis, [name]: false }
   updateWindows(newVis)
   return { ok: true }
+})
+
+// Settings hover handlers (Glass parity: show/hide with delay)
+ipcMain.on('show-settings-window', () => {
+  if (settingsHideTimer) {
+    clearTimeout(settingsHideTimer)
+    settingsHideTimer = null
+  }
+  const vis = getVisibility()
+  const newVis = { ...vis, settings: true }
+  updateWindows(newVis)
+})
+
+ipcMain.on('hide-settings-window', () => {
+  if (settingsHideTimer) {
+    clearTimeout(settingsHideTimer)
+  }
+  settingsHideTimer = setTimeout(() => {
+    const vis = getVisibility()
+    const newVis = { ...vis, settings: false }
+    updateWindows(newVis)
+    settingsHideTimer = null
+  }, 200) // Glass parity: 200ms delay
+})
+
+ipcMain.on('cancel-hide-settings-window', () => {
+  if (settingsHideTimer) {
+    clearTimeout(settingsHideTimer)
+    settingsHideTimer = null
+  }
 })
 
 function getHeaderWindow(): BrowserWindow | null {

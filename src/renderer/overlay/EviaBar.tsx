@@ -224,6 +224,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
         .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.56); }
         .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.64); }
         .evia-listen-button.listen-done::before { background: rgba(255,255,255,0.65); }
+        .evia-listen-button.listen-done .evia-listen-label,
+        .evia-listen-button.listen-done .evia-listen-icon svg rect,
+        .evia-listen-button.listen-done .evia-listen-icon svg path { color: black; fill: black; }
         .evia-listen-button .evia-listen-label { font-size: 12px; font-weight: 500; }
         .evia-listen-icon {
           width: 12px;
@@ -233,6 +236,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           justify-content: center;
         }
         .evia-header-actions {
+          -webkit-app-region: no-drag; /* Glass parity: Allow hover + click */
           display: flex;
           align-items: center;
           justify-content: flex-start;
@@ -243,6 +247,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
           transition: background 0.15s ease;
           color: #ffffff;
           cursor: pointer;
+          position: relative;
+          z-index: 1;
         }
         .evia-header-actions:hover {
           background: rgba(255,255,255,0.1);
@@ -292,7 +298,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         onClick={handleListenClick}
       >
         <span className="evia-listen-icon">
-          {isListenActive ? (
+          {(isListenActive || listenStatus === 'after') ? (
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect width="9" height="9" rx="1" fill="white"/>
             </svg>
