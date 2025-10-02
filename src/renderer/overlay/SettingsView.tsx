@@ -76,14 +76,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   }
 
   // Glass parity: Settings hover behavior (SettingsView.js:1048-1056)
-  const handleMouseEnter = () => {
-    console.log('[SettingsView] Mouse entered - canceling hide');
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    console.log('[SettingsView] ========== MOUSE ENTER ==========');
+    console.log('[SettingsView] Event target:', e.target);
+    console.log('[SettingsView] Current target:', e.currentTarget);
+    console.log('[SettingsView] Calling cancelHideSettingsWindow...');
     (window as any).evia?.windows?.cancelHideSettingsWindow?.();
+    console.log('[SettingsView] ========== ENTER COMPLETE ==========');
   };
 
-  const handleMouseLeave = () => {
-    console.log('[SettingsView] Mouse left - requesting hide');
+  const handleMouseLeave = (e: React.MouseEvent) => {
+    console.log('[SettingsView] ========== MOUSE LEAVE ==========');
+    console.log('[SettingsView] Event target:', e.target);
+    console.log('[SettingsView] Current target:', e.currentTarget);
+    console.log('[SettingsView] Calling hideSettingsWindow...');
     (window as any).evia?.windows?.hideSettingsWindow?.();
+    console.log('[SettingsView] ========== LEAVE COMPLETE ==========');
   };
 
   return (

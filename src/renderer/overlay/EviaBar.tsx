@@ -348,9 +348,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">Ask</span>
         <div className="evia-icon-box">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3.6 0.5V2.3H0.8V3.6H3.6V8.8H0.8V10.1H3.6V11.5H4.9V10.1H6.1V11.5H7.4V10.1H10.2V8.8H7.4V3.6H10.2V2.3H7.4V0.5H6.1V2.3H4.9V0.5H3.6ZM4.9 3.6H6.1V8.8H4.9V3.6Z" fill="white"/>
-          </svg>
+          <img src={CommandIcon} alt="Cmd" width={11} height={12} />
         </div>
         <div className="evia-icon-box">↵</div>
       </div>
@@ -358,9 +356,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <div className="evia-header-actions" onClick={handleToggleVisibility} role="button" tabIndex={0}>
         <span className="evia-action-text">Show/Hide</span>
         <div className="evia-icon-box">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3.6 0.5V2.3H0.8V3.6H3.6V8.8H0.8V10.1H3.6V11.5H4.9V10.1H6.1V11.5H7.4V10.1H10.2V8.8H7.4V3.6H10.2V2.3H7.4V0.5H6.1V2.3H4.9V0.5H3.6ZM4.9 3.6H6.1V8.8H4.9V3.6Z" fill="white"/>
-          </svg>
+          <img src={CommandIcon} alt="Cmd" width={11} height={12} />
         </div>
         <div className="evia-icon-box">\</div>
       </div>

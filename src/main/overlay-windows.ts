@@ -212,7 +212,9 @@ function getWorkAreaBounds() {
 
 function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
   const work = getWorkAreaBounds()
-  const maxX = work.x + work.width - bounds.width
+  // Allow header to reach the right edge (remove invisible wall)
+  // Account for any rendering differences by allowing exact fit
+  const maxX = work.x + work.width - bounds.width + 10 // +10px buffer for right edge
   const maxY = work.y + work.height - bounds.height
   return {
     x: Math.max(work.x, Math.min(bounds.x, maxX)),
@@ -516,18 +518,32 @@ function handleHeaderToggle() {
   }
 }
 
+let isAnimating = false
+let animationTarget: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
+let animationTimer: NodeJS.Timeout | null = null
+
 function nudgeHeader(dx: number, dy: number) {
   // Glass parity: windowManager.js:133-154, smoothMovementManager.js:1-32
   // Animate header movement smoothly over 300ms (Glass animation duration)
   const header = getOrCreateHeaderWindow()
   const bounds = header.getBounds()
+  
+  // If already animating, update target instead of starting new animation
+  if (isAnimating) {
+    const newTarget = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
+    animationTarget = newTarget
+    return
+  }
+  
   const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
+  animationTarget = target
   
   // Smooth animation over 300ms
   const duration = 300
   const startTime = Date.now()
   const startX = bounds.x
   const startY = bounds.y
+  isAnimating = true
   
   const animate = () => {
     const elapsed = Date.now() - startTime
@@ -536,18 +552,22 @@ function nudgeHeader(dx: number, dy: number) {
     // Ease-out cubic for smooth deceleration
     const eased = 1 - Math.pow(1 - progress, 3)
     
-    const currentX = startX + (target.x - startX) * eased
-    const currentY = startY + (target.y - startY) * eased
+    const currentX = startX + (animationTarget.x - startX) * eased
+    const currentY = startY + (animationTarget.y - startY) * eased
     
     header.setPosition(Math.round(currentX), Math.round(currentY))
     
     if (progress < 1) {
-      setTimeout(animate, 16) // ~60fps
+      animationTimer = setTimeout(animate, 16) // ~60fps
     } else {
-      // Recalculate child layout and save state when animation completes
+      // Animation complete
+      isAnimating = false
+      animationTimer = null
+      
+      // Recalculate child layout and save state
       const vis = getVisibility()
       layoutChildWindows(vis)
-      saveState({ headerBounds: target })
+      saveState({ headerBounds: animationTarget })
     }
   }
   
