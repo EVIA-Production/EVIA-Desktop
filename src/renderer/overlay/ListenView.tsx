@@ -34,6 +34,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
   const [isHovering, setIsHovering] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -106,7 +107,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, [localFollowLive]);
 
   const toggleView = () => {
-    setViewMode(prev => prev === 'transcript' ? 'insights' : 'transcript');
+    const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
+    setViewMode(newMode);
+    // Glass parity: Reset copy state when switching views (only show "Copied X" for the view that was actually copied)
+    if (copyState === 'copied' && copiedView !== newMode) {
+      setCopyState('idle');
+    }
   };
 
   const handleCopyHover = (hovering: boolean) => {
@@ -123,18 +129,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     try {
       await navigator.clipboard.writeText(textToCopy);
       setCopyState('copied');
+      setCopiedView(viewMode); // Track which view was copied
       if (copyTimeout.current) {
         clearTimeout(copyTimeout.current);
       }
       copyTimeout.current = setTimeout(() => {
         setCopyState('idle');
+        setCopiedView(null); // Reset after timeout
       }, 1500);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
   };
 
-  const displayText = copyState === 'copied'
+  // Glass parity: Only show "Copied X" if current view matches what was copied
+  const displayText = (copyState === 'copied' && copiedView === viewMode)
     ? viewMode === 'transcript'
       ? 'Copied Transcript'
       : 'Copied EVIA Analysis'

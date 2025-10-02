@@ -30,8 +30,8 @@ const WINDOW_DATA = {
     zIndex: 1,
   },
   settings: {
-    width: 328,
-    height: 420,
+    width: 240, // Glass parity: windowManager.js:527
+    height: 400, // Glass uses maxHeight: 400, we use fixed height
     html: 'overlay.html?view=settings',
     zIndex: 2,
   },
@@ -386,26 +386,34 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   // Glass parity: ALL windows are interactive (windowManager.js:287)
   // Only disable mouse events when specifically needed (not by default)
   
+  const isCurrentlyVisible = win.isVisible()
+  
   if (shouldShow) {
     win.setIgnoreMouseEvents(false) // All windows interactive
     // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
-    // Other windows animate
+    // Other windows animate ONLY if not already visible
     if (name === 'settings') {
       win.show() // Instant show for settings
       win.moveTop()
       win.setAlwaysOnTop(true, 'screen-saver')
     } else {
-      animateShow(win)
+      if (!isCurrentlyVisible) {
+        animateShow(win) // Only animate if window was hidden
+      }
+      // If already visible, don't animate (prevents re-animation bug)
     }
   } else {
-  if (name === 'settings') {
+    if (name === 'settings') {
       // Settings hides instantly too
       win.setAlwaysOnTop(false, 'screen-saver')
       win.hide()
     } else {
-      animateHide(win, () => {
-        win.setIgnoreMouseEvents(false)
-      })
+      if (isCurrentlyVisible) {
+        animateHide(win, () => {
+          win.setIgnoreMouseEvents(false)
+        })
+      }
+      // If already hidden, don't animate
     }
   }
 }
