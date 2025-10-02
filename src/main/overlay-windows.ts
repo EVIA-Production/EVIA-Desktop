@@ -90,12 +90,14 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     roundedCorners: true,
     useContentSize: true, // Glass parity: Prevent grey frame by matching window to content size
     hasShadow: false,
+    backgroundColor: '#00000000', // Fully transparent
     title: 'EVIA Glass Overlay',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       devTools: process.env.NODE_ENV === 'development',
+      backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
   })
 
@@ -381,12 +383,16 @@ function hideAllChildWindows() {
 function handleHeaderToggle() {
   const vis = getVisibility()
   const anyVisible = Object.values(vis).some(Boolean)
-  if (anyVisible) {
+  const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
+  
+  if (headerVisible) {
+    // Hide everything: child windows + header
     hideAllChildWindows()
     headerWindow?.hide()
     headerWindow?.setIgnoreMouseEvents(true, { forward: true })
     headerWindow?.setVisibleOnAllWorkspaces(false)
   } else {
+    // Show header only (child windows appear on demand)
     headerWindow = getOrCreateHeaderWindow()
     headerWindow.showInactive()
     headerWindow.setIgnoreMouseEvents(false)
