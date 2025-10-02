@@ -75,30 +75,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     );
   }
 
-  // Glass parity: Settings hover behavior (SettingsView.js:1048-1056)
-  const handleMouseEnter = (e: React.MouseEvent) => {
-    console.log('[SettingsView] ========== MOUSE ENTER ==========');
-    console.log('[SettingsView] Event target:', e.target);
-    console.log('[SettingsView] Current target:', e.currentTarget);
-    console.log('[SettingsView] Calling cancelHideSettingsWindow...');
-    (window as any).evia?.windows?.cancelHideSettingsWindow?.();
-    console.log('[SettingsView] ========== ENTER COMPLETE ==========');
-  };
-
-  const handleMouseLeave = (e: React.MouseEvent) => {
-    console.log('[SettingsView] ========== MOUSE LEAVE ==========');
-    console.log('[SettingsView] Event target:', e.target);
-    console.log('[SettingsView] Current target:', e.currentTarget);
-    console.log('[SettingsView] Calling hideSettingsWindow...');
-    (window as any).evia?.windows?.hideSettingsWindow?.();
-    console.log('[SettingsView] ========== LEAVE COMPLETE ==========');
-  };
+  // NOTE: Glass uses window-level mouse events (overlay-windows.ts:204-227)
+  // React onMouseEnter/Leave don't fire when moving between different BrowserWindows
+  // The main process handles mouse tracking via 'mouse-enter'/'mouse-leave' window events
 
   return (
     <div
       className="settings-container"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       style={{
         display: 'flex',
         flexDirection: 'column',

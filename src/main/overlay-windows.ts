@@ -199,6 +199,34 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     childWindows.delete(name)
   })
 
+  // Glass parity: Settings window mouse tracking (windowManager.js)
+  if (name === 'settings') {
+    win.on('mouse-enter' as any, () => {
+      console.log('[overlay-windows] Settings window mouse-enter event')
+      // Cancel hide timer when mouse enters settings window
+      if (settingsHideTimer) {
+        console.log('[overlay-windows] Canceling hide timer from window mouse-enter')
+        clearTimeout(settingsHideTimer)
+        settingsHideTimer = null
+      }
+    })
+    
+    win.on('mouse-leave' as any, () => {
+      console.log('[overlay-windows] Settings window mouse-leave event')
+      // Start hide timer when mouse leaves settings window
+      if (settingsHideTimer) {
+        clearTimeout(settingsHideTimer)
+      }
+      settingsHideTimer = setTimeout(() => {
+        console.log('[overlay-windows] Hiding settings from window mouse-leave')
+        const vis = getVisibility()
+        const updated = { ...vis, settings: false }
+        updateWindows(updated)
+        settingsHideTimer = null
+      }, 200)
+    })
+  }
+
   childWindows.set(name, win)
   return win
 }
