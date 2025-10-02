@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 353, height: 47 }
+const HEADER_SIZE = { width: 365, height: 47 } // 353 + 12 for divider
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -65,7 +65,10 @@ try {
 }
 
 function saveState(partial: Partial<PersistedState>) {
+  const before = JSON.stringify(persistedState.visible)
   persistedState = { ...persistedState, ...partial }
+  const after = JSON.stringify(persistedState.visible)
+  console.log(`[overlay-windows] saveState: ${before} → ${after}`)
   try {
     fs.mkdirSync(path.dirname(persistFile), { recursive: true })
     fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')
@@ -385,11 +388,25 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   
   if (shouldShow) {
     win.setIgnoreMouseEvents(false) // All windows interactive
-    animateShow(win)
+    // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
+    // Other windows animate
+    if (name === 'settings') {
+      win.show() // Instant show for settings
+      win.moveTop()
+      win.setAlwaysOnTop(true, 'screen-saver')
+    } else {
+      animateShow(win)
+    }
   } else {
-    animateHide(win, () => {
-      win.setIgnoreMouseEvents(false)
-    })
+    if (name === 'settings') {
+      // Settings hides instantly too
+      win.setAlwaysOnTop(false, 'screen-saver')
+      win.hide()
+    } else {
+      animateHide(win, () => {
+        win.setIgnoreMouseEvents(false)
+      })
+    }
   }
 }
 
@@ -421,7 +438,9 @@ function updateWindows(visibility: WindowVisibility) {
 }
 
 function getVisibility(): WindowVisibility {
-  return { ...(persistedState.visible ?? {}) }
+  const result = { ...(persistedState.visible ?? {}) }
+  console.log(`[overlay-windows] getVisibility() returning:`, result)
+  return result
 }
 
 function toggleWindow(name: FeatureName) {
@@ -565,7 +584,7 @@ ipcMain.handle('win:hide', (_event, name: FeatureName) => {
   console.log('[overlay-windows] New visibility (after delete):', next)
   updateWindows(next)
   return { ok: true }
-})
+  })
 
   ipcMain.handle('win:getHeaderPosition', () => {
   const header = getOrCreateHeaderWindow()

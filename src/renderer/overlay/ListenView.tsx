@@ -134,7 +134,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  const displayText = isHovering
+  const displayText = copyState === 'copied'
+    ? viewMode === 'transcript'
+      ? 'Copied Transcript'
+      : 'Copied EVIA Analysis'
+    : isHovering
     ? viewMode === 'transcript'
       ? 'Copy Transcript'
       : 'Copy EVIA Analysis'
