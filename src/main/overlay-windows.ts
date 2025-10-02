@@ -80,8 +80,6 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
     height: HEADER_SIZE.height,
-    minWidth: HEADER_SIZE.width,
-    minHeight: HEADER_SIZE.height,
     show: false,
     frame: false,
     transparent: true,
@@ -90,8 +88,6 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     alwaysOnTop: true,
     skipTaskbar: true,
     focusable: true,
-    roundedCorners: true,
-    useContentSize: true, // Glass parity: Prevent grey frame by matching window to content size
     hasShadow: false,
     backgroundColor: '#00000000', // Fully transparent
     title: 'EVIA Glass Overlay',
@@ -164,8 +160,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     alwaysOnTop: true,
     width: def.width,
     height: def.height,
-    roundedCorners: true,
-    useContentSize: true, // Glass parity: Prevent grey frame
     hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: {
@@ -435,12 +429,15 @@ function handleHeaderToggle() {
     headerWindow.setAlwaysOnTop(true, 'screen-saver')
     headerWindow.showInactive()
     
-    // Glass parity: Restore previously visible windows (windowManager.js:245-249)
-    const vis = getVisibility()
+    // Glass parity: Restore ONLY previously visible windows (windowManager.js:245-249)
+    // Don't restore from persisted state - only from lastVisibleWindows Set
+    const vis: WindowVisibility = {}
     for (const name of lastVisibleWindows) {
       vis[name] = true
     }
-    updateWindows(vis)
+    if (Object.keys(vis).length > 0) {
+      updateWindows(vis)
+    }
   }
 }
 
