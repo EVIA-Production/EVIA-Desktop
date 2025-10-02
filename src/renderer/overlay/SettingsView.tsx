@@ -123,6 +123,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           border-radius: 12px;
           filter: blur(10px);
           z-index: -1;
+          pointer-events: none;
         }
         .settings-container::-webkit-scrollbar {
           width: 6px;
