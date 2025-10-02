@@ -75,9 +75,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     );
   }
 
+  // Glass parity: Settings hover behavior (SettingsView.js:1048-1056)
+  const handleMouseEnter = () => {
+    (window as any).evia?.windows?.cancelHideSettingsWindow?.();
+  };
+
+  const handleMouseLeave = () => {
+    (window as any).evia?.windows?.hideSettingsWindow?.();
+  };
+
   return (
     <div
       className="settings-container"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={{
         background: 'rgba(0, 0, 0, 0.7)', // Slightly darker background
         borderRadius: '12px',
