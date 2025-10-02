@@ -14,29 +14,31 @@ const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
 
+// Note: All windows load overlay.html with ?view=X query params for React routing.
+// The 'html' field is kept for documentation but not used in loadFile() calls.
 const WINDOW_DATA = {
   listen: {
     width: 400,
     height: 420,
-    html: 'overlay/listen.html',
+    html: 'overlay.html?view=listen', // Documentation only - actual load uses query param
     zIndex: 3,
   },
   ask: {
     width: 384,
     height: 420,
-    html: 'overlay/ask.html',
+    html: 'overlay.html?view=ask',
     zIndex: 1,
   },
   settings: {
     width: 328,
     height: 420,
-    html: 'overlay/settings.html',
+    html: 'overlay.html?view=settings',
     zIndex: 2,
   },
   shortcuts: {
     width: 320,
     height: 360,
-    html: 'overlay/shortcuts.html',
+    html: 'overlay.html?view=shortcuts',
     zIndex: 0,
   },
 } satisfies Record<FeatureName, { width: number; height: number; html: string; zIndex: number }>
@@ -110,7 +112,10 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setContentProtection(true)
   headerWindow.setIgnoreMouseEvents(false)
 
-  headerWindow.loadFile(path.join(__dirname, '../renderer/overlay/header.html'))
+  // Load overlay.html with ?view=header query param for routing
+  headerWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
+    query: { view: 'header' },
+  })
 
   headerWindow.on('moved', () => {
     const b = headerWindow?.getBounds()
@@ -163,8 +168,10 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   win.setContentProtection(true)
   win.setIgnoreMouseEvents(true, { forward: true })
 
-  const filePath = path.join(__dirname, '../renderer', def.html)
-  win.loadFile(filePath)
+  // All windows load overlay.html with different ?view= query params for routing
+  win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
+    query: { view: name },
+  })
 
   win.on('closed', () => {
     childWindows.delete(name)
