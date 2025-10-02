@@ -77,10 +77,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   // Glass parity: Settings hover behavior (SettingsView.js:1048-1056)
   const handleMouseEnter = () => {
+    console.log('[SettingsView] Mouse entered - canceling hide');
     (window as any).evia?.windows?.cancelHideSettingsWindow?.();
   };
 
   const handleMouseLeave = () => {
+    console.log('[SettingsView] Mouse left - requesting hide');
     (window as any).evia?.windows?.hideSettingsWindow?.();
   };
 

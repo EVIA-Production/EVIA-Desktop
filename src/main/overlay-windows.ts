@@ -557,12 +557,15 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
 })
 
 ipcMain.handle('win:hide', (_event, name: FeatureName) => {
+  console.log(`[overlay-windows] win:hide called for ${name}`)
   const vis = getVisibility()
+  console.log('[overlay-windows] Current visibility:', vis)
   const next = { ...vis }
   delete next[name]
+  console.log('[overlay-windows] New visibility (after delete):', next)
   updateWindows(next)
   return { ok: true }
-  })
+})
 
   ipcMain.handle('win:getHeaderPosition', () => {
   const header = getOrCreateHeaderWindow()
@@ -641,20 +644,25 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
 
 // Settings hover handlers (Glass parity: show/hide with delay)
 ipcMain.on('show-settings-window', () => {
+  console.log('[overlay-windows] show-settings-window: Showing settings immediately')
   if (settingsHideTimer) {
+    console.log('[overlay-windows] Clearing existing hide timer')
     clearTimeout(settingsHideTimer)
     settingsHideTimer = null
   }
   const vis = getVisibility()
   const newVis = { ...vis, settings: true }
+  console.log('[overlay-windows] New visibility:', newVis)
   updateWindows(newVis)
 })
 
 ipcMain.on('hide-settings-window', () => {
+  console.log('[overlay-windows] hide-settings-window: Starting 200ms timer')
   if (settingsHideTimer) {
     clearTimeout(settingsHideTimer)
   }
   settingsHideTimer = setTimeout(() => {
+    console.log('[overlay-windows] 200ms timer expired - hiding settings')
     const vis = getVisibility()
     const newVis = { ...vis, settings: false }
     updateWindows(newVis)
@@ -663,6 +671,7 @@ ipcMain.on('hide-settings-window', () => {
 })
 
 ipcMain.on('cancel-hide-settings-window', () => {
+  console.log('[overlay-windows] cancel-hide-settings-window: Canceling hide')
   if (settingsHideTimer) {
     clearTimeout(settingsHideTimer)
     settingsHideTimer = null

@@ -108,21 +108,27 @@ const EviaBar: React.FC<EviaBarProps> = ({
     // Stop → Done: Window STAYS, show insights
     // Done → Listen: Hide window
     
+    console.log(`[EviaBar] handleListenClick - current status: ${listenStatus}`);
+    
     if (listenStatus === 'before') {
       // Listen → Stop: Show window
+      console.log('[EviaBar] Listen → Stop: Showing listen window');
       await (window as any).evia?.windows?.ensureShown?.('listen');
       setListenStatus('in');
       setIsListenActive(true);
       onToggleListening();
     } else if (listenStatus === 'in') {
       // Stop → Done: Window STAYS visible
+      console.log('[EviaBar] Stop → Done: Window stays visible');
       setListenStatus('after');
       setIsListenActive(false);
       onToggleListening();
       // Window remains visible for insights
     } else if (listenStatus === 'after') {
       // Done → Listen: Hide window
-      await (window as any).evia?.windows?.hide?.('listen');
+      console.log('[EviaBar] Done → Listen: Hiding listen window');
+      const result = await (window as any).evia?.windows?.hide?.('listen');
+      console.log('[EviaBar] Hide result:', result);
       setListenStatus('before');
       setIsListenActive(false);
     }
@@ -135,8 +141,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
   // Glass parity: Settings hover behavior with 200ms delay (windowManager.js:291-323)
   const showSettingsWindow = () => {
+    console.log('[EviaBar] showSettingsWindow called');
     // Cancel any pending hide
     if (settingsHideTimerRef.current) {
+      console.log('[EviaBar] Clearing pending hide timer');
       clearTimeout(settingsHideTimerRef.current);
       settingsHideTimerRef.current = null;
     }
@@ -146,11 +154,13 @@ const EviaBar: React.FC<EviaBarProps> = ({
   };
 
   const hideSettingsWindow = () => {
+    console.log('[EviaBar] hideSettingsWindow called - starting 200ms timer');
     // Hide after 200ms delay (allows mouse to move to settings panel)
     if (settingsHideTimerRef.current) {
       clearTimeout(settingsHideTimerRef.current);
     }
     settingsHideTimerRef.current = setTimeout(() => {
+      console.log('[EviaBar] 200ms timer expired - hiding settings');
       (window as any).evia?.windows?.hideSettingsWindow?.();
       setIsSettingsActive(false);
       settingsHideTimerRef.current = null;
@@ -168,34 +178,35 @@ const EviaBar: React.FC<EviaBarProps> = ({
     <div ref={headerRef} className="evia-main-header">
       <style>{`
         .evia-main-header {
-          position: relative;
-          width: 100%; /* Fill window to prevent grey edges */
-          height: 100%;
-          padding: 2px 10px 2px 13px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          border-radius: 9000px;
-          backdrop-filter: blur(18px);
-          -webkit-backface-visibility: hidden;
           -webkit-app-region: drag;
+          width: max-content;
+          height: 47px;
+          padding: 2px 10px 2px 13px;
+          background: transparent;
+          overflow: hidden;
+          border-radius: 9000px;
+          justify-content: space-between;
+          align-items: center;
+          display: inline-flex;
           box-sizing: border-box;
+          position: relative;
           user-select: none;
           font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         .evia-main-header::before {
           content: '';
           position: absolute;
-          inset: 0;
-          border-radius: 9000px;
+          top: 0; left: 0; right: 0; bottom: 0;
+          width: 100%;
+          height: 100%;
           background: rgba(0,0,0,0.6);
-          box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-          z-index: -2;
+          border-radius: 9000px;
+          z-index: -1;
         }
         .evia-main-header::after {
           content: '';
           position: absolute;
-          inset: 0;
+          top: 0; left: 0; right: 0; bottom: 0;
           border-radius: 9000px;
           padding: 1px;
           background: linear-gradient(169deg, rgba(255,255,255,0.17) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.17) 100%);
@@ -203,7 +214,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
           -webkit-mask-composite: destination-out;
           mask-composite: exclude;
           pointer-events: none;
-          z-index: -1;
         }
         .evia-main-header button,
         .evia-main-header .action {
