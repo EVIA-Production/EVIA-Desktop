@@ -100,6 +100,11 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     },
   })
 
+  // Glass parity: Hide window buttons on macOS (windowManager.js:467)
+  if (process.platform === 'darwin') {
+    headerWindow.setWindowButtonVisibility(false)
+  }
+
   const restoreBounds = persistedState.headerBounds
   if (restoreBounds) {
     headerWindow.setBounds(restoreBounds)
@@ -170,16 +175,17 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     },
   })
 
+  // Glass parity: Hide window buttons on macOS (windowManager.js:467)
+  if (process.platform === 'darwin') {
+    win.setWindowButtonVisibility(false)
+  }
+
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setContentProtection(true)
   
-  // Glass parity: Only Listen window is click-through, Ask/Settings/Shortcuts are interactive
-  if (name === 'listen') {
-    win.setIgnoreMouseEvents(true, { forward: true })
-  } else {
-    win.setIgnoreMouseEvents(false)
-  }
+  // Glass parity: All windows are interactive by default (windowManager.js:287)
+  win.setIgnoreMouseEvents(false)
 
   // All windows load overlay.html with different ?view= query params for routing
   win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
@@ -219,11 +225,6 @@ function layoutChildWindows(visible: WindowVisibility) {
   const hb = header.getBounds()
   const work = getWorkAreaBounds()
 
-  const askVis = visible.ask
-  const listenVis = visible.listen
-
-  if (!askVis && !listenVis) return
-
   const PAD_LOCAL = PAD
   const screenWidth = work.width
   const screenHeight = work.height
@@ -233,57 +234,96 @@ function layoutChildWindows(visible: WindowVisibility) {
   // Determine if windows should be above or below header (Glass: determineLayoutStrategy)
   const isAbovePreferred = relativeY > 0.5
 
-  const askWin = askVis ? createChildWindow('ask') : null
-  const listenWin = listenVis ? createChildWindow('listen') : null
-
-  const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
-  const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0
-  const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
-  const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
-
   const layout: Record<string, { x: number; y: number; width: number; height: number }> = {}
 
-  if (askVis && listenVis) {
-    // Both windows: horizontal stack (listen left, ask center-aligned)
-    let askXRel = headerCenterXRel - askW / 2
-    let listenXRel = askXRel - listenW - PAD_LOCAL
+  // Handle Ask and Listen windows (horizontal stack)
+  const askVis = visible.ask
+  const listenVis = visible.listen
 
-    // Clamp to screen bounds
-    if (listenXRel < PAD_LOCAL) {
-      listenXRel = PAD_LOCAL
-      askXRel = listenXRel + listenW + PAD_LOCAL
-    }
-    if (askXRel + askW > screenWidth - PAD_LOCAL) {
-      askXRel = screenWidth - PAD_LOCAL - askW
-      listenXRel = askXRel - listenW - PAD_LOCAL
-    }
+  if (askVis || listenVis) {
+    const askWin = askVis ? createChildWindow('ask') : null
+    const listenWin = listenVis ? createChildWindow('listen') : null
 
-    if (isAbovePreferred) {
-      const windowBottomAbs = hb.y - PAD_LOCAL
-      layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
-      layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
+    const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
+    const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0
+    const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
+    const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
+
+    if (askVis && listenVis) {
+      // Both windows: horizontal stack (listen left, ask center-aligned)
+      let askXRel = headerCenterXRel - askW / 2
+      let listenXRel = askXRel - listenW - PAD_LOCAL
+
+      // Clamp to screen bounds
+      if (listenXRel < PAD_LOCAL) {
+        listenXRel = PAD_LOCAL
+        askXRel = listenXRel + listenW + PAD_LOCAL
+      }
+      if (askXRel + askW > screenWidth - PAD_LOCAL) {
+        askXRel = screenWidth - PAD_LOCAL - askW
+        listenXRel = askXRel - listenW - PAD_LOCAL
+      }
+
+      if (isAbovePreferred) {
+        const windowBottomAbs = hb.y - PAD_LOCAL
+        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
+        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
+      } else {
+        const yAbs = hb.y + hb.height + PAD_LOCAL
+        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
+        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+      }
     } else {
-      const yAbs = hb.y + hb.height + PAD_LOCAL
-      layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
-      layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+      // Single window: center under header
+      const winName = askVis ? 'ask' : 'listen'
+      const winW = askVis ? askW : listenW
+      const winH = askVis ? askH : listenH
+
+      let xRel = headerCenterXRel - winW / 2
+      xRel = Math.max(PAD_LOCAL, Math.min(screenWidth - winW - PAD_LOCAL, xRel))
+
+      let yPos: number
+      if (isAbovePreferred) {
+        yPos = hb.y - work.y - PAD_LOCAL - winH
+      } else {
+        yPos = hb.y - work.y + hb.height + PAD_LOCAL
+      }
+
+      layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
     }
-  } else {
-    // Single window: center under header
-    const winName = askVis ? 'ask' : 'listen'
-    const winW = askVis ? askW : listenW
-    const winH = askVis ? askH : listenH
+  }
 
-    let xRel = headerCenterXRel - winW / 2
-    xRel = Math.max(PAD_LOCAL, Math.min(screenWidth - winW - PAD_LOCAL, xRel))
+  // Handle Settings window (Glass: calculateSettingsWindowPosition)
+  // Positioned aligned with settings button (170px from right edge)
+  if (visible.settings) {
+    const settingsWin = createChildWindow('settings')
+    const settingsW = WINDOW_DATA.settings.width
+    const settingsH = WINDOW_DATA.settings.height
+    const buttonPadding = 170 // Distance from right edge to align with settings button
+    
+    let x = hb.x + hb.width - settingsW + buttonPadding
+    const y = hb.y + hb.height + 5 // PAD=5 from Glass
+    
+    // Clamp to screen
+    x = Math.max(work.x, Math.min(x, work.x + work.width - settingsW))
+    
+    layout.settings = { x: Math.round(x), y: Math.round(y), width: settingsW, height: settingsH }
+  }
 
-    let yPos: number
-    if (isAbovePreferred) {
-      yPos = hb.y - work.y - PAD_LOCAL - winH
-    } else {
-      yPos = hb.y - work.y + hb.height + PAD_LOCAL
-    }
-
-    layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
+  // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
+  // Centered horizontally at header Y position
+  if (visible.shortcuts) {
+    const shortcutsWin = createChildWindow('shortcuts')
+    const shortcutsW = WINDOW_DATA.shortcuts.width
+    const shortcutsH = WINDOW_DATA.shortcuts.height
+    
+    let x = hb.x + (hb.width / 2) - (shortcutsW / 2)
+    const y = hb.y
+    
+    // Clamp to screen
+    x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW))
+    
+    layout.shortcuts = { x: Math.round(x), y: Math.round(y), width: shortcutsW, height: shortcutsH }
   }
 
   // Apply layout
@@ -340,15 +380,15 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
 
 function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   const win = createChildWindow(name)
-  // Glass parity: Only Listen is click-through, Ask/Settings/Shortcuts are interactive
-  const isClickThrough = name === 'listen'
+  // Glass parity: ALL windows are interactive (windowManager.js:287)
+  // Only disable mouse events when specifically needed (not by default)
   
   if (shouldShow) {
-    win.setIgnoreMouseEvents(isClickThrough, isClickThrough ? { forward: true } : undefined)
+    win.setIgnoreMouseEvents(false) // All windows interactive
     animateShow(win)
   } else {
     animateHide(win, () => {
-      win.setIgnoreMouseEvents(isClickThrough, isClickThrough ? { forward: true } : undefined)
+      win.setIgnoreMouseEvents(false)
     })
   }
 }
