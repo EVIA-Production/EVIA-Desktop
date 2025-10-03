@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
+ import { i18n } from '../i18n/i18n';
 
 interface SettingsViewProps {
   language: 'de' | 'en';
@@ -133,12 +134,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       `}</style>
       {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
       <div className="header-section" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
-        <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Settings</h1>
+        <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>{i18n.t('overlay.settings.title')}</h1>
         <div className="account-info" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)' }}>Account: Not Logged In</div>
       </div>
 
       <div className="shortcuts-section" style={{ marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>Shortcuts</h2>
+        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{i18n.t('overlay.settings.shortcuts')}</h2>
         {Object.entries(shortcuts).map(([name, accelerator]) => (
           <div key={name} className="shortcut-item" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span className="shortcut-name" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.9)' }}>
@@ -154,7 +155,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       <div className="preset-section" style={{ marginBottom: '16px' }}>
         <div className="preset-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <span className="preset-title" style={{ fontSize: '14px', fontWeight: 'bold' }}>
-            My Presets
+            {i18n.t('overlay.settings.presets')}
             <span className="preset-count" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.5)', marginLeft: '4px' }}>
               ({presets.filter((p) => p.is_default === 0).length})
             </span>
@@ -221,7 +222,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             transition: 'background-color 0.2s',
           }}
         >
-          Automatic Updates: {autoUpdateEnabled ? 'On' : 'Off'}
+          {i18n.t('overlay.settings.autoUpdate')}: {autoUpdateEnabled ? 'On' : 'Off'}
         </button>
       </div>
     </div>

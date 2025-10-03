@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
 import { streamAsk } from '../lib/evia-ask-stream';
+import { i18n } from '../i18n/i18n';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -144,7 +145,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         type="text"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Ask about your screen or audio"
+        placeholder={i18n.t('overlay.ask.placeholder')}
         id="textInput"
         style={{
           flex: 1,
@@ -181,7 +182,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
         onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
       >
-        <span style={{ marginRight: '8px', display: 'flex', alignItems: 'center', height: '100%' }}>Submit</span>
+        <span style={{ marginRight: '8px', display: 'flex', alignItems: 'center', height: '100%' }}>{i18n.t('overlay.ask.submit')}</span>
         <span
           style={{
             background: 'rgba(255,255,255,0.1)',

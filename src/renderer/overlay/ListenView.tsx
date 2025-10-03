@@ -3,6 +3,7 @@ import './overlay-tokens.css';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
+import { i18n } from '../i18n/i18n';
 
 declare global {
   interface Window {
@@ -183,14 +184,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Glass parity: Only show "Copied X" if current view matches what was copied
   const displayText = (copyState === 'copied' && copiedView === viewMode)
     ? viewMode === 'transcript'
-      ? 'Copied Transcript'
-      : 'Copied EVIA Analysis'
+      ? `${i18n.t('overlay.ask.copied')} ${i18n.t('overlay.listen.title')}`
+      : `${i18n.t('overlay.ask.copied')} EVIA Analysis`
     : isHovering
     ? viewMode === 'transcript'
-      ? 'Copy Transcript'
-      : 'Copy EVIA Analysis'
+      ? `${i18n.t('overlay.ask.copy')} ${i18n.t('overlay.listen.title')}`
+      : `${i18n.t('overlay.ask.copy')} EVIA Analysis`
     : viewMode === 'insights'
-    ? 'Live insights'
+    ? i18n.t('overlay.listen.showInsights').replace('Show ', '')
     : `EVIA is Listening ${elapsedTime}`;
 
   return (
@@ -501,7 +502,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
-                  <span>Show Transcript</span>
+                  <span>{i18n.t('overlay.listen.showInsights').replace('Insights', 'Transcript')}</span>
                 </>
               ) : (
                 <>
@@ -509,7 +510,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     <path d="M9 11l3 3L22 4" />
                     <path d="M22 12v7a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h11" />
                   </svg>
-                  <span>Show Insights</span>
+                  <span>{i18n.t('overlay.listen.showInsights')}</span>
                 </>
               )}
             </button>
@@ -576,7 +577,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           )}
         </div>
         <button onClick={onToggleFollow} className="follow-button">
-          {localFollowLive ? 'Stop Following' : 'Follow Live'}
+          {localFollowLive ? `Stop ${i18n.t('overlay.listen.followLive')}` : i18n.t('overlay.listen.followLive')}
         </button>
       </div>
     </div>

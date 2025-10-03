@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
+import { i18n } from '../i18n/i18n';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
 const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
@@ -172,7 +173,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
     onToggleVisibility?.();
   };
 
-  const listenLabel = listenStatus === 'before' ? 'Listen' : listenStatus === 'in' ? 'Stop' : 'Done';
+  const listenLabel = listenStatus === 'before' 
+    ? i18n.t('overlay.header.listen') 
+    : listenStatus === 'in' 
+    ? i18n.t('overlay.header.stop') 
+    : i18n.t('overlay.header.done');
 
   return (
     <div ref={headerRef} className="evia-main-header">
@@ -346,7 +351,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       </button>
 
         <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
-        <span className="evia-action-text">Ask</span>
+        <span className="evia-action-text">{i18n.t('overlay.header.ask')}</span>
         <div className="evia-icon-box">
           <img src={CommandIcon} alt="Cmd" width={11} height={12} />
         </div>
@@ -354,7 +359,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       </div>
 
       <div className="evia-header-actions" onClick={handleToggleVisibility} role="button" tabIndex={0}>
-        <span className="evia-action-text">Show/Hide</span>
+        <span className="evia-action-text">{i18n.t('overlay.header.show')}/{i18n.t('overlay.header.hide')}</span>
         <div className="evia-icon-box">
           <img src={CommandIcon} alt="Cmd" width={11} height={12} />
         </div>
