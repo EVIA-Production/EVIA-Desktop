@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 440, height: 47 } // Increased for German text (longer words)
+const HEADER_SIZE = { width: 480, height: 47 } // 480px = German "Anzeigen/Ausblenden" (451px) + 29px buffer
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
