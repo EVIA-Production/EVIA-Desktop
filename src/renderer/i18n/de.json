@@ -11,9 +11,17 @@
     "listen": {
       "title": "Live-Transkription",
       "followLive": "Live folgen",
-      "showInsights": "Erkenntnisse anzeigen",
+      "showInsights": "Erkenntnisse",
+      "showTranscript": "Transkript",
       "hideInsights": "Erkenntnisse ausblenden",
       "noTranscript": "Noch keine Transkription. Starten Sie das Zuhören, um die Transkription zu sehen.",
+      "waitingForSpeech": "Warten auf Sprache...",
+      "noInsightsYet": "Noch keine Erkenntnisse",
+      "listening": "EVIA hört zu",
+      "copyTranscript": "Transkript kopieren",
+      "copiedTranscript": "Transkript kopiert!",
+      "copyInsights": "EVIA Analyse kopieren",
+      "copiedInsights": "EVIA Analyse kopiert!",
       "speaker": "Sprecher",
       "unknown": "Unbekannt",
       "local": "Sie"

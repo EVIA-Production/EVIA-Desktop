@@ -41,6 +41,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -75,6 +76,27 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       timerInterval.current = null;
     }
   };
+
+  // Glass parity: Auto-scroll when at bottom
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const isAtBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 50;
+      setAutoScroll(isAtBottom);
+    };
+
+    viewport.addEventListener('scroll', handleScroll);
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Auto-scroll to bottom when new content arrives
+  useEffect(() => {
+    if (autoScroll && viewportRef.current) {
+      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+    }
+  }, [lines, insights, autoScroll]);
 
   useEffect(() => {
     adjustWindowHeight();
@@ -184,15 +206,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Glass parity: Only show "Copied X" if current view matches what was copied
   const displayText = (copyState === 'copied' && copiedView === viewMode)
     ? viewMode === 'transcript'
-      ? `${i18n.t('overlay.ask.copied')} ${i18n.t('overlay.listen.title')}`
-      : `${i18n.t('overlay.ask.copied')} EVIA Analysis`
+      ? i18n.t('overlay.listen.copiedTranscript')
+      : i18n.t('overlay.listen.copiedInsights')
     : isHovering
     ? viewMode === 'transcript'
-      ? `${i18n.t('overlay.ask.copy')} ${i18n.t('overlay.listen.title')}`
-      : `${i18n.t('overlay.ask.copy')} EVIA Analysis`
+      ? i18n.t('overlay.listen.copyTranscript')
+      : i18n.t('overlay.listen.copyInsights')
     : viewMode === 'insights'
-    ? i18n.t('overlay.listen.showInsights').replace('Show ', '')
-    : `EVIA is Listening ${elapsedTime}`;
+    ? i18n.t('overlay.listen.showInsights')
+    : `${i18n.t('overlay.listen.listening')} ${elapsedTime}`;
 
   return (
     <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
@@ -426,35 +448,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             display: block;
           }
 
-          .follow-button {
-            position: absolute;
-            bottom: 8px; /* Further reduced margin */
-            right: 8px; /* Further reduced margin */
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.1);
-            color: rgba(255, 255, 255, 0.9);
-            border: none;
-            outline: none;
-            box-shadow: none;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
-          }
-
-          .follow-button:hover {
-            background: rgba(255, 255, 255, 0.2);
-            color: #ffffff;
-            transform: scale(1.05);
-          }
-
-          .follow-button:active {
-            transform: scale(0.95);
-          }
 
           /* Insights styling (Glass parity) */
           .insight-item {
@@ -502,7 +495,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
-                  <span>{i18n.t('overlay.listen.showInsights').replace('Insights', 'Transcript')}</span>
+                  <span>{i18n.t('overlay.listen.showTranscript')}</span>
                 </>
               ) : (
                 <>
@@ -552,7 +545,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               ))
             ) : (
               <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-                Waiting for speech...
+                {i18n.t('overlay.listen.waitingForSpeech')}
               </div>
             )
           ) : isLoadingInsights ? (
@@ -572,13 +565,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             ))
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-              No insights yet
+              {i18n.t('overlay.listen.noInsightsYet')}
             </div>
           )}
         </div>
-        <button onClick={onToggleFollow} className="follow-button">
-          {localFollowLive ? `Stop ${i18n.t('overlay.listen.followLive')}` : i18n.t('overlay.listen.followLive')}
-        </button>
       </div>
     </div>
   );

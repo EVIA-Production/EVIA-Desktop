@@ -138,6 +138,46 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <div className="account-info" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)' }}>Account: Not Logged In</div>
       </div>
 
+      <div className="language-section" style={{ marginBottom: '16px' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{i18n.t('overlay.settings.language')}</h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={onToggleLanguage}
+            style={{
+              flex: 1,
+              background: language === 'de' ? 'rgba(0, 122, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+              border: language === 'de' ? '1px solid rgba(0, 122, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              padding: '8px',
+              fontSize: '12px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            {i18n.t('overlay.settings.german')}
+          </button>
+          <button
+            onClick={onToggleLanguage}
+            style={{
+              flex: 1,
+              background: language === 'en' ? 'rgba(0, 122, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+              border: language === 'en' ? '1px solid rgba(0, 122, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              padding: '8px',
+              fontSize: '12px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            {i18n.t('overlay.settings.english')}
+          </button>
+        </div>
+      </div>
+
       <div className="shortcuts-section" style={{ marginBottom: '16px' }}>
         <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{i18n.t('overlay.settings.shortcuts')}</h2>
         {Object.entries(shortcuts).map(([name, accelerator]) => (
