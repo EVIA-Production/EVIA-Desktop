@@ -6,6 +6,7 @@ export type StreamAskParams = {
   token: string
   tokenType?: string
   signal?: AbortSignal
+  screenshotRef?: string
 }
 
 export type StreamAskHandle = {
@@ -15,13 +16,17 @@ export type StreamAskHandle = {
   abort: () => void
 }
 
-export function streamAsk({ baseUrl, chatId, prompt, language, token, tokenType = 'Bearer', signal }: StreamAskParams): StreamAskHandle {
+export function streamAsk({ baseUrl, chatId, prompt, language, token, tokenType = 'Bearer', signal, screenshotRef }: StreamAskParams): StreamAskHandle {
   const url = `${baseUrl.replace(/\/$/, '')}/ask`
   const headers: Record<string, string> = {
     'Authorization': `${tokenType} ${token}`,
     'Content-Type': 'application/json'
   }
-  const body = JSON.stringify({ chat_id: chatId, prompt, language, stream: true })
+  const payload: any = { chat_id: chatId, prompt, language, stream: true }
+  if (screenshotRef) {
+    payload.screenshot_ref = screenshotRef
+  }
+  const body = JSON.stringify(payload)
 
   let deltaHandler: (delta: string) => void = () => {}
   let doneHandler: () => void = () => {}

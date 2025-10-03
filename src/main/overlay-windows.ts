@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 353, height: 47 } // Glass default
+const HEADER_SIZE = { width: 380, height: 47 } // Glass actual (measured from screenshot)
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -65,10 +65,18 @@ try {
 }
 
 function saveState(partial: Partial<PersistedState>) {
-  const before = JSON.stringify(persistedState.visible)
-  persistedState = { ...persistedState, ...partial }
-  const after = JSON.stringify(persistedState.visible)
-  console.log(`[overlay-windows] saveState: ${before} → ${after}`)
+  const before = JSON.stringify(persistedState)
+  const newState = { ...persistedState, ...partial }
+  const after = JSON.stringify(newState)
+  
+  // PERFORMANCE FIX: Skip save if nothing changed (prevents disk thrashing)
+  if (before === after) {
+    return // No change, don't write to disk
+  }
+  
+  persistedState = newState
+  console.log(`[overlay-windows] saveState: ${JSON.stringify(persistedState.visible)} (changed)`)
+  
   try {
     fs.mkdirSync(path.dirname(persistFile), { recursive: true })
     fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')

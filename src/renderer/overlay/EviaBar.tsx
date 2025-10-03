@@ -343,7 +343,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
             </svg>
           )}
         </span>
-        </button>
+      </button>
 
         <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">Ask</span>

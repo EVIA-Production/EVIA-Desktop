@@ -16,7 +16,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [hasFirstDelta, setHasFirstDelta] = useState(false);
   const streamRef = useRef<{ abort: () => void } | null>(null);
 
-  const startStream = async () => {
+  const startStream = async (captureScreenshot: boolean = false) => {
     if (!prompt.trim() || isStreaming) return;
     const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
     const token = localStorage.getItem('auth_token') || '';
@@ -49,13 +49,27 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     }
 
+    // Glass parity: Capture screenshot if requested (Cmd+Enter or explicit call)
+    let screenshotRef: string | undefined;
+    if (captureScreenshot) {
+      try {
+        const result = await (window as any).evia?.capture?.takeScreenshot?.();
+        if (result?.ok && result?.base64) {
+          screenshotRef = result.base64;
+          console.log('[AskView] Screenshot captured:', result.width, 'x', result.height);
+        }
+      } catch (err) {
+        console.error('[AskView] Screenshot capture failed:', err);
+      }
+    }
+
     if (onSubmitPrompt) onSubmitPrompt(prompt);
 
     setResponse('');
     setIsStreaming(true);
     setHasFirstDelta(false);
 
-    const handle = streamAsk({ baseUrl, chatId, prompt, language, token });
+    const handle = streamAsk({ baseUrl, chatId, prompt, language, token, screenshotRef });
     streamRef.current = handle;
 
     handle.onDelta((d) => {
@@ -83,7 +97,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        startStream();
+        // Glass parity: Cmd+Enter captures screenshot
+        startStream(true);
       }
     };
     window.addEventListener('keydown', onKey);

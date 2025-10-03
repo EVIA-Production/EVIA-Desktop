@@ -1,0 +1,69 @@
+{
+  "overlay": {
+    "header": {
+      "listen": "Zuhören",
+      "stop": "Stopp",
+      "done": "Fertig",
+      "ask": "Fragen",
+      "hide": "Ausblenden",
+      "show": "Anzeigen"
+    },
+    "listen": {
+      "title": "Live-Transkription",
+      "followLive": "Live folgen",
+      "showInsights": "Erkenntnisse anzeigen",
+      "hideInsights": "Erkenntnisse ausblenden",
+      "noTranscript": "Noch keine Transkription. Starten Sie das Zuhören, um die Transkription zu sehen.",
+      "speaker": "Sprecher",
+      "unknown": "Unbekannt",
+      "local": "Sie"
+    },
+    "ask": {
+      "title": "EVIA fragen",
+      "placeholder": "Stellen Sie eine Frage...",
+      "submit": "Fragen",
+      "submitting": "Frage wird gestellt...",
+      "abort": "Stopp",
+      "copy": "Kopieren",
+      "copied": "Kopiert!",
+      "noResponse": "Noch keine Antwort",
+      "screenshot": "Screenshot aufgenommen"
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "language": "Sprache",
+      "english": "Englisch",
+      "german": "Deutsch",
+      "shortcuts": "Tastenkombinationen",
+      "toggleVisibility": "Sichtbarkeit umschalten",
+      "openAsk": "Frage öffnen",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "moveLeft": "Nach links",
+      "moveRight": "Nach rechts",
+      "presets": "Vorlagen",
+      "showPresets": "Vorlagen anzeigen",
+      "hidePresets": "Vorlagen ausblenden",
+      "defaultPreset": "Standard",
+      "customPreset": "Benutzerdefiniert",
+      "autoUpdate": "Automatische Aktualisierung",
+      "moveWindow": "Fenster verschieben",
+      "invisibility": "Unsichtbarkeit",
+      "quit": "EVIA beenden"
+    },
+    "shortcuts": {
+      "title": "Tastenkombinationen",
+      "description": "Passen Sie Ihre Tastenkombinationen an",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "reset": "Auf Standard zurücksetzen"
+    },
+    "errors": {
+      "network": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+      "auth": "Authentifizierung fehlgeschlagen. Bitte melden Sie sich erneut an.",
+      "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
+      "screenshot": "Screenshot konnte nicht aufgenommen werden"
+    }
+  }
+}
+

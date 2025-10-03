@@ -13,52 +13,106 @@ function ensureWs() {
   } catch { return null }
 }
 
-// Add from Glass: startCapture equivalent
-export async function startCapture() {
-  // Mic stream (16 kHz mono, echo cancelled)
-  const micStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true } });
+// Glass parity: startCapture with mic stream
+export async function startCapture(includeSystemAudio = false) {
+  console.log('[AudioCapture] Starting capture, mic-only mode:', !includeSystemAudio);
+  
+  // Mic stream (16 kHz mono, echo cancellation enabled)
+  const micStream = await navigator.mediaDevices.getUserMedia({ 
+    audio: { 
+      sampleRate: 16000, 
+      channelCount: 1, 
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    } 
+  });
+  
   const micAudioContext = new AudioContext({ sampleRate: 16000 });
   await micAudioContext.audioWorklet.addModule(new URL('./audio-worklet.js', import.meta.url));
   const node = new AudioWorkletNode(micAudioContext, 'audio-processor');
-  // 200 ms @ 16 kHz → 3200 samples
+  
+  // Glass parity: 200 ms chunks @ 16 kHz → 3200 samples
   node.port.postMessage({ type: 'setTargetChunkSize', size: 3200 });
   node.port.postMessage({ type: 'setResampleRatio', ratio: 1.0 });
 
   const micSource = micAudioContext.createMediaStreamSource(micStream);
   micSource.connect(node);
-  // Optionally monitor
-  // node.connect(micAudioContext.destination);
+  
+  // System audio stub (future enhancement)
+  if (includeSystemAudio) {
+    try {
+      const systemStream = await getSystemAudioStream();
+      if (systemStream) {
+        console.log('[AudioCapture] System audio stream available (stub, not processing)');
+        // Future: process system stream for AEC
+      }
+    } catch (error) {
+      console.warn('[AudioCapture] System audio unavailable, continuing with mic-only');
+    }
+  }
 
   const ws = ensureWs();
   if (ws) await ws.connect();
+  
   node.port.onmessage = (e) => {
     const msg = e.data;
     if (msg?.type === 'processedChunk' && msg.buffer instanceof Float32Array) {
-      // Convert to int16 and send
+      // Convert Float32 to Int16 PCM
       const f32 = msg.buffer;
       const i16 = new Int16Array(f32.length);
       for (let i = 0; i < f32.length; i++) {
         const s = Math.max(-1, Math.min(1, f32[i]));
         i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
-      try { ws?.sendBinaryData?.(i16.buffer) } catch {}
+      try { 
+        ws?.sendBinaryData?.(i16.buffer);
+      } catch (error) {
+        console.error('[AudioCapture] Failed to send chunk:', error);
+      }
     }
   };
+  
+  console.log('[AudioCapture] Capture started successfully');
+  return { micAudioContext, node, micStream };
 }
 
-// Add stubs
+// System audio capture stub (Glass parity: dual stream support)
 async function getSystemAudioStream() {
-  // Use preload exposed desktopCapturer
-  const sources = await window.evia.getDesktopCapturerSources({ types: ['screen'] });
-  const systemStream = await navigator.mediaDevices.getUserMedia({
-    audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sources[0].id } },
-    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sources[0].id } }
-  });
-  return systemStream;
+  try {
+    // Use preload exposed desktopCapturer
+    const sources = await window.evia.getDesktopCapturerSources({ types: ['screen'] });
+    if (!sources || sources.length === 0) {
+      console.warn('[SystemAudio] No sources available');
+      return null;
+    }
+    const systemStream = await navigator.mediaDevices.getUserMedia({
+      audio: { 
+        mandatory: { 
+          chromeMediaSource: 'desktop', 
+          chromeMediaSourceId: sources[0].id 
+        } 
+      },
+      video: { 
+        mandatory: { 
+          chromeMediaSource: 'desktop', 
+          chromeMediaSourceId: sources[0].id 
+        } 
+      }
+    });
+    console.log('[SystemAudio] Stream captured successfully');
+    return systemStream;
+  } catch (error) {
+    console.error('[SystemAudio] Capture failed:', error);
+    return null;
+  }
 }
 
-// Basic AEC: subtract system from mic in worklet (pass system as second input channel?)
-// For now, stub as mic-only
+// AEC stub: In production, would implement echo cancellation by:
+// 1. Capturing both mic and system audio streams
+// 2. Processing in worklet to subtract system audio from mic
+// 3. Sending cleaned audio to backend
+// For MVP: mic-only transcription (system audio capture deferred per Handoff.md)
 
 export function startAudioCapture(onChunk) {
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
+import { fetchInsights, Insight } from '../services/insightsService';
 
 declare global {
   interface Window {
@@ -37,6 +38,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -106,12 +109,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return () => { unsub(); ws.disconnect(); };
   }, [localFollowLive]);
 
-  const toggleView = () => {
+  const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
     setViewMode(newMode);
     // Glass parity: Reset copy state when switching views (only show "Copied X" for the view that was actually copied)
     if (copyState === 'copied' && copiedView !== newMode) {
       setCopyState('idle');
+    }
+    
+    // Fetch insights when switching to insights view
+    if (newMode === 'insights' && insights.length === 0) {
+      setIsLoadingInsights(true);
+      try {
+        const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+        const token = localStorage.getItem('auth_token') || '';
+        if (chatId && token) {
+          const fetchedInsights = await fetchInsights({ chatId, token, language: 'de' });
+          setInsights(fetchedInsights);
+        }
+      } catch (error) {
+        console.error('[ListenView] Failed to fetch insights:', error);
+      } finally {
+        setIsLoadingInsights(false);
+      }
     }
   };
 
@@ -124,7 +144,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
     let textToCopy = viewMode === 'transcript' 
       ? lines.map(line => line.text).join('\n')
-      : 'Insights content placeholder';
+      : insights.map(i => `${i.title}: ${i.prompt}`).join('\n');
 
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -139,6 +159,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }, 1500);
     } catch (err) {
       console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleInsightClick = async (insight: Insight) => {
+    console.log('[ListenView] Insight clicked:', insight.title);
+    // Glass parity: Open Ask window and populate with insight prompt
+    try {
+      await (window as any).evia?.windows?.openAskWindow?.();
+      // Wait a moment for window to open, then populate
+      setTimeout(() => {
+        const askInput = document.querySelector('#textInput') as HTMLInputElement;
+        if (askInput) {
+          askInput.value = insight.prompt;
+          askInput.focus();
+        }
+      }, 300);
+    } catch (error) {
+      console.error('[ListenView] Failed to open Ask window:', error);
     }
   };
 
@@ -416,6 +454,36 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           .follow-button:active {
             transform: scale(0.95);
           }
+
+          /* Insights styling (Glass parity) */
+          .insight-item {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+          }
+
+          .insight-item:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+          }
+
+          .insight-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.95);
+            margin-bottom: 4px;
+          }
+
+          .insight-prompt {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            font-style: italic;
+          }
         `}
       </style>
       <div className="assistant-container">
@@ -486,6 +554,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 Waiting for speech...
               </div>
             )
+          ) : isLoadingInsights ? (
+            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              Loading insights...
+            </div>
+          ) : insights.length > 0 ? (
+            insights.map((insight) => (
+              <div
+                key={insight.id}
+                className="insight-item"
+                onClick={() => handleInsightClick(insight)}
+              >
+                <div className="insight-title">{insight.title}</div>
+                <div className="insight-prompt">{insight.prompt}</div>
+              </div>
+            ))
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               No insights yet

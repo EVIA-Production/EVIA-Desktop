@@ -1,0 +1,69 @@
+{
+  "overlay": {
+    "header": {
+      "listen": "Listen",
+      "stop": "Stop",
+      "done": "Done",
+      "ask": "Ask",
+      "hide": "Hide",
+      "show": "Show"
+    },
+    "listen": {
+      "title": "Live Transcription",
+      "followLive": "Follow live",
+      "showInsights": "Show Insights",
+      "hideInsights": "Hide Insights",
+      "noTranscript": "No transcript yet. Start listening to see transcription.",
+      "speaker": "Speaker",
+      "unknown": "Unknown",
+      "local": "You"
+    },
+    "ask": {
+      "title": "Ask EVIA",
+      "placeholder": "Ask a question...",
+      "submit": "Ask",
+      "submitting": "Asking...",
+      "abort": "Stop",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "noResponse": "No response yet",
+      "screenshot": "Screenshot captured"
+    },
+    "settings": {
+      "title": "Settings",
+      "language": "Language",
+      "english": "English",
+      "german": "German",
+      "shortcuts": "Shortcuts",
+      "toggleVisibility": "Toggle Visibility",
+      "openAsk": "Open Ask",
+      "moveUp": "Move Up",
+      "moveDown": "Move Down",
+      "moveLeft": "Move Left",
+      "moveRight": "Move Right",
+      "presets": "Presets",
+      "showPresets": "Show Presets",
+      "hidePresets": "Hide Presets",
+      "defaultPreset": "Default",
+      "customPreset": "Custom",
+      "autoUpdate": "Auto-update",
+      "moveWindow": "Move Window",
+      "invisibility": "Invisibility",
+      "quit": "Quit EVIA"
+    },
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "description": "Customize your keyboard shortcuts",
+      "save": "Save",
+      "cancel": "Cancel",
+      "reset": "Reset to Defaults"
+    },
+    "errors": {
+      "network": "Network error. Please check your connection.",
+      "auth": "Authentication failed. Please login again.",
+      "unknown": "An unexpected error occurred.",
+      "screenshot": "Failed to capture screenshot"
+    }
+  }
+}
+

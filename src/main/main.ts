@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, dialog } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
@@ -8,6 +8,21 @@ function getBackendHttpBase(): string {
   const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
   if (env && env.trim()) return String(env).replace(/\/$/, '');
   return 'http://localhost:8000';
+}
+
+// Windows platform stub - Glass parity requirement
+if (process.platform === 'win32') {
+  app.whenReady().then(() => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Windows Support Coming Soon',
+      message: 'EVIA Desktop for Windows is coming soon!',
+      detail: 'The Windows version with full audio capture and overlay support is currently in development. Please check back soon or contact us for updates.',
+      buttons: ['OK']
+    }).then(() => {
+      app.quit();
+    });
+  });
 }
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
