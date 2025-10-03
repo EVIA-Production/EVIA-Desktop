@@ -112,14 +112,22 @@ Production Docker build uses `VITE_BACKEND_URL` build arg (see `Dockerfile`, Git
 - `@EVIA-Desktop/src/renderer/audio-processor.js`: Mic capture at 16 kHz PCM16, ~150 ms chunk cadence. System audio/AEC stubs exist (future parity).
 - `@EVIA-Desktop/src/renderer/services/websocketService.ts`: Chat WebSocket abstraction (connect/disconnect, send binary/audio). Uses `localStorage` for `current_chat_id`.
 
+### ✅ RECENTLY FIXED (2025-10-03 Session)
+1. ✅ **Grey header frame** - Removed invalid Electron options
+2. ✅ **Header drag bounds** - Clamp before setBounds + right edge buffer
+3. ✅ **Hide/Show state loss** - lastVisibleWindows Set restoration
+4. ✅ **Ask window positioning** - Correct Y calculation
+5. ✅ **Settings hover** - Triple-layer fix (cursor poll + IPC guard + CSS)
+6. ✅ **Header design parity** - 7 fixes (Listen button frame, spacing, symbols, smooth movement)
+
+**Details**: See `COORDINATOR_REPORT_COMPLETE_FIXES.md` and `SETTINGS_PARITY_COMPLETE.md`
+
 ### Remaining Desktop Gaps (Priority Order)
-1. **MEDIUM**: Grey header edges + right cutoff (CSS/window sizing)
-2. **MEDIUM**: Ask window positioning slightly low (visual verification needed)
-3. **LOW**: Show Insights content (placeholder → real insights integration)
-4. **LOW**: Settings panel full feature set (invisibility toggle, all buttons)
-5. **LOW**: Shortcuts window (key capture, edit, save)
-6. **FUTURE**: Audio parity (dual capture, AEC, system audio)
-7. **FUTURE**: Windows packaging/signing
+1. **LOW**: Show Insights content (button works, backend `/insights` endpoint pending - Dev C)
+2. **LOW**: Shortcuts window (key capture, edit, save - nice-to-have)
+3. **LOW**: Settings panel optional buttons (Move Window, Invisibility toggle, Quit - redundant)
+4. **FUTURE**: Audio parity enhancement (dual capture, AEC, system audio - 8-12 hour task)
+5. **FUTURE**: Windows packaging/signing
 
 ---
 
