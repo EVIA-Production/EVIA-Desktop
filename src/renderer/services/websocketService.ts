@@ -118,7 +118,8 @@ export class ChatWebSocket {
       // MUP FIX: Use backend URL, not location.host (which is Vite dev server in dev mode)
       const backendHttp = getBackendHttpBase();
       const wsBase = backendHttp.replace(/^http/, 'ws'); // http://localhost:8000 → ws://localhost:8000
-      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}`;
+      // TRANSCRIPTION FIX: Match audio capture sample rate (24kHz, not 16kHz default)
+      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}&sample_rate=24000`;
       return new Promise((resolve, reject) => {
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';
