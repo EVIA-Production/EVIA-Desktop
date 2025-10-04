@@ -55,7 +55,10 @@ function setupMicProcessing(stream) {
       console.warn('[AudioCapture] Microphone data is silent!');
     }
     
-    audioBuffer.push(...inputData);
+    // TypeScript compat: use Array.from instead of spread
+    for (let i = 0; i < inputData.length; i++) {
+      audioBuffer.push(inputData[i]);
+    }
 
     // Send when we have enough samples
     while (audioBuffer.length >= samplesPerChunk) {

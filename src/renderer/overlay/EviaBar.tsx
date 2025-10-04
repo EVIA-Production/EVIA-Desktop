@@ -184,7 +184,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <style>{`
         .evia-main-header {
           -webkit-app-region: drag;
-          width: 100%;
+          width: max-content;
           height: 47px;
           padding: 2px 10px 2px 13px;
           background: transparent;
