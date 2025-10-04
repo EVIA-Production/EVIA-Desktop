@@ -28,14 +28,13 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const headerRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
-  const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>(isListening ? 'in' : 'before');
+  const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before');
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
   const [isSettingsActive, setIsSettingsActive] = useState(currentView === 'settings');
 
-  useEffect(() => {
-    setListenStatus(isListening ? 'in' : 'before');
-  }, [isListening]);
+  // REMOVED: useEffect that resets listenStatus based on isListening
+  // This was breaking the 'after' (Done) state by resetting to 'before' when audio stops
 
   useEffect(() => {
     setIsListenActive(currentView === 'listen');

@@ -113,14 +113,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] No valid chat_id; create one first');
       return () => {};
     }
-    console.log('[ListenView] Setting up WebSocket for chat_id:', cid);
-    // WebSocket setup for receiving transcripts
+    console.log('[ListenView] Subscribing to WebSocket messages for chat_id:', cid);
+    
+    // CRITICAL FIX: Only subscribe to existing WebSocket, DON'T connect/disconnect
+    // (Audio capture manages WebSocket lifecycle in audio-processor-glass-parity.ts)
     const ws = getWebSocketInstance(cid, 'mic');
     
-    // CRITICAL FIX: Subscribe to messages BEFORE connecting
-    // (Backend sends synthetic message immediately on connect)
     const unsub = ws.onMessage((msg: any) => {
       console.log('[ListenView] Received WebSocket message:', msg);
+      
       if (msg.type === 'transcript_segment' && msg.data) {
         const { text = '', speaker = null, is_final = false } = msg.data;
         console.log('[ListenView] Adding transcript:', text, 'final:', is_final);
@@ -132,25 +133,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         if (autoScroll && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
-      } else if (msg.type === 'status' && msg.data?.echo_text) {
-        console.log('[ListenView] Status message:', msg.data.echo_text);
+      } else if (msg.type === 'insight_segment' && msg.data) {
+        const { text = '', type = 'insight' } = msg.data;
+        console.log('[ListenView] Adding insight:', text, 'type:', type);
+        setInsights(prev => [...prev, { text, type }]);
+      } else if (msg.type === 'status') {
+        console.log('[ListenView] Status message:', msg.data);
+        // Start timer ONLY when Deepgram connection is confirmed open
+        if (msg.data?.dg_open === true) {
+          console.log('[ListenView] Deepgram connection OPEN - starting timer');
+          setIsSessionActive(true);
+          startTimer();
+        } else if (msg.data?.dg_open === false) {
+          console.log('[ListenView] Deepgram connection CLOSED - stopping timer');
+          setIsSessionActive(false);
+          stopTimer();
+        }
       }
     });
     
-    // Connect AFTER handler is registered
-    ws.connect();
-    
-    // Start timer when WebSocket is set up (session is active)
-    setIsSessionActive(true);
-    startTimer();
     return () => { 
-      console.log('[ListenView] Cleanup: Unsubscribing and disconnecting WebSocket');
-      stopTimer();
+      console.log('[ListenView] Cleanup: Unsubscribing from WebSocket (NOT disconnecting)');
+      unsub();
+      // DON'T disconnect WebSocket here - audio capture manages lifecycle
+      stopTimer(); // Clean up timer
       setIsSessionActive(false);
-      unsub(); 
-      ws.disconnect(); 
     };
-  }, []); // FIX: Empty dependency array - only run once on mount
+  }, []); // Empty dependency - only run once on mount
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';

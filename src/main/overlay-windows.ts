@@ -878,11 +878,13 @@ ipcMain.on('show-settings-window', () => {
     clearTimeout(settingsHideTimer)
     settingsHideTimer = null
   }
-  // FIX: Only toggle settings, don't spread entire visibility (which re-opens listen/ask)
-  const vis = getVisibility()
-  const newVis = { ...vis, settings: true }
-  // Only update settings window, don't call updateWindows which relayouts everything
-  const settingsWin = createChildWindow('settings')
+  
+  // CRITICAL FIX: Only create/show settings, NEVER touch listen/ask windows
+  let settingsWin = childWindows.get('settings')
+  if (!settingsWin || settingsWin.isDestroyed()) {
+    settingsWin = createChildWindow('settings')
+  }
+  
   if (settingsWin && !settingsWin.isDestroyed()) {
     const header = getOrCreateHeaderWindow()
     const hb = header.getBounds()
@@ -897,8 +899,11 @@ ipcMain.on('show-settings-window', () => {
     settingsWin.moveTop()
     settingsWin.setAlwaysOnTop(true, 'screen-saver')
   }
-  // Update state but don't call updateWindows
-  saveState({ visible: newVis })
+  
+  // Update state but don't call updateWindows (which would relayout all windows)
+  const vis = getVisibility()
+  saveState({ visible: { ...vis, settings: true } })
+  console.log('[overlay-windows] Settings shown')
 })
 
 ipcMain.on('hide-settings-window', () => {
