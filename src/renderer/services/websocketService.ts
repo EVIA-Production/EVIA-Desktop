@@ -115,7 +115,9 @@ export class ChatWebSocket {
       }
       this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
-      const wsBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+      // MUP FIX: Use backend URL, not location.host (which is Vite dev server in dev mode)
+      const backendHttp = getBackendHttpBase();
+      const wsBase = backendHttp.replace(/^http/, 'ws'); // http://localhost:8000 → ws://localhost:8000
       const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}`;
       return new Promise((resolve, reject) => {
         this.ws = new WebSocket(wsUrl);

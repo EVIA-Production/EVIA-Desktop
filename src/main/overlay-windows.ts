@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 520, height: 47 } // 520px = German "Anzeigen/Ausblenden" + Settings button + buffer for all text
+const HEADER_SIZE = { width: 560, height: 47 } // 560px = German text + settings + buffer (user reported 520 still cuts off)
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -78,7 +78,6 @@ function saveState(partial: Partial<PersistedState>) {
   }
   
   persistedState = newState
-  console.log(`[overlay-windows] saveState: ${JSON.stringify(persistedState.visible)} (changed)`)
   
   // MUP FIX #4: Debounce disk writes to reduce I/O during rapid events (drag, arrow keys)
   if (saveStateTimer) {
@@ -86,6 +85,7 @@ function saveState(partial: Partial<PersistedState>) {
   }
   
   saveStateTimer = setTimeout(() => {
+    console.log(`[overlay-windows] saveState (debounced): ${JSON.stringify(persistedState.visible)} (writing to disk)`)
     try {
       fs.mkdirSync(path.dirname(persistFile), { recursive: true })
       fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')
@@ -362,7 +362,9 @@ function layoutChildWindows(visible: WindowVisibility) {
         layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
       } else {
-        const yAbs = hb.y + hb.height + PAD_LOCAL
+        // MUP FIX: Ask window closer to header for Glass parity (4px gap instead of 8px)
+        const askGap = 4
+        const yAbs = hb.y + hb.height + askGap
         layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
       }
@@ -379,7 +381,9 @@ function layoutChildWindows(visible: WindowVisibility) {
       if (isAbovePreferred) {
         yPos = hb.y - work.y - PAD_LOCAL - winH
       } else {
-        yPos = hb.y - work.y + hb.height + PAD_LOCAL
+        // MUP FIX: Ask window closer to header for Glass parity (4px gap)
+        const gap = (winName === 'ask') ? 4 : PAD_LOCAL
+        yPos = hb.y - work.y + hb.height + gap
       }
 
       layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
