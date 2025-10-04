@@ -145,6 +145,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(prev => [...prev, { text, type }]);
       } else if (msg.type === 'status') {
         console.log('[ListenView] ✅ Status message:', msg.data);
+        
+        // Handle echo_text (backend sends interim transcripts as echo_text in status messages)
+        if (msg.data?.echo_text) {
+          const text = msg.data.echo_text;
+          const isFinal = msg.data.final === true;
+          console.log('[ListenView] ✅ Adding transcript from echo_text:', text, 'final:', isFinal);
+          setTranscripts(prev => {
+            const next = [...prev, { text, speaker: null, isFinal }];
+            console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
+            return next;
+          });
+          if (autoScroll && viewportRef.current) {
+            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+          }
+        }
+        
         // Start timer ONLY when Deepgram connection is confirmed open
         if (msg.data?.dg_open === true) {
           console.log('[ListenView] ✅ Deepgram connection OPEN - starting timer');
