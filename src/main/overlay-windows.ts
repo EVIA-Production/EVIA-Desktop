@@ -9,7 +9,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 480, height: 47 } // 480px = German "Anzeigen/Ausblenden" (451px) + 29px buffer
+const HEADER_SIZE = { width: 520, height: 47 } // 520px = German "Anzeigen/Ausblenden" + Settings button + buffer for all text
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -64,6 +64,9 @@ try {
   console.warn('[overlay] Failed to load persisted state', error)
 }
 
+// Debounce timer for saveState (prevents disk thrashing during drag/movement)
+let saveStateTimer: NodeJS.Timeout | null = null
+
 function saveState(partial: Partial<PersistedState>) {
   const before = JSON.stringify(persistedState)
   const newState = { ...persistedState, ...partial }
@@ -77,12 +80,20 @@ function saveState(partial: Partial<PersistedState>) {
   persistedState = newState
   console.log(`[overlay-windows] saveState: ${JSON.stringify(persistedState.visible)} (changed)`)
   
-  try {
-    fs.mkdirSync(path.dirname(persistFile), { recursive: true })
-    fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')
-  } catch (error) {
-    console.warn('[overlay] Failed to persist state', error)
+  // MUP FIX #4: Debounce disk writes to reduce I/O during rapid events (drag, arrow keys)
+  if (saveStateTimer) {
+    clearTimeout(saveStateTimer)
   }
+  
+  saveStateTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(path.dirname(persistFile), { recursive: true })
+      fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')
+    } catch (error) {
+      console.warn('[overlay] Failed to persist state', error)
+    }
+    saveStateTimer = null
+  }, 300) // 300ms debounce - balances responsiveness with performance
 }
 
 function getOrCreateHeaderWindow(): BrowserWindow {
@@ -106,6 +117,9 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      enableWebSQL: false,
       devTools: process.env.NODE_ENV === 'development',
       backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
@@ -182,6 +196,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      enableWebSQL: false,
       devTools: process.env.NODE_ENV === 'development',
     },
   })

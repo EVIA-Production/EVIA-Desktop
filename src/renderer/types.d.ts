@@ -37,6 +37,13 @@ interface EviaBridge {
     cancelHideSettingsWindow: () => void;
   };
   closeWindow: (name: string) => void;
+  // IPC for cross-window communication (language changes, etc.)
+  ipc: {
+    send: (channel: string, ...args: any[]) => void;
+    on: (channel: string, listener: (...args: any[]) => void) => void;
+  };
+  // Desktop capturer for screen/audio capture
+  getDesktopCapturerSources: (opts: any) => Promise<any[]>;
 }
 
 declare global {

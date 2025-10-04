@@ -1,6 +1,7 @@
 /* Minimal Glass-like overlay styles for Listen/Ask scaffolds */
 
 /* Close Button - Ported from Glass PermissionHeader.js:58-87 */
+/* MUP FIX #5: Hidden per coordinator requirements - window closes via Esc or clicking outside */
 .close-button {
   -webkit-app-region: no-drag;
   position: absolute;
@@ -13,7 +14,7 @@
   border-radius: 3px;
   color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
-  display: flex;
+  display: none; /* MUP: Hidden per coordinator requirements */
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;

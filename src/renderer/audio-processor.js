@@ -139,6 +139,35 @@ export function startAudioCapture(onChunk) {
   });
 }
 
+// Stop capture and cleanup
+export async function stopCapture(captureHandle) {
+  if (!captureHandle) return;
+  
+  try {
+    console.log('[AudioCapture] Stopping capture...');
+    
+    // Stop audio context
+    if (captureHandle.micAudioContext) {
+      await captureHandle.micAudioContext.close();
+    }
+    
+    // Stop all mic tracks
+    if (captureHandle.micStream) {
+      captureHandle.micStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Disconnect WebSocket
+    if (wsInstance) {
+      wsInstance.disconnect();
+      wsInstance = null;
+    }
+    
+    console.log('[AudioCapture] Capture stopped successfully');
+  } catch (error) {
+    console.error('[AudioCapture] Error stopping capture:', error);
+  }
+}
+
 // For verification: dump to WAV (manual trigger)
 export function dumpWav(chunks) {
   // Simple WAV header + data (implement as needed)

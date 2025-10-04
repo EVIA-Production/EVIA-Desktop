@@ -411,18 +411,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             gap: 8px;
           }
 
-          /* Glass parity: Hide scrollbars completely (ListenView.js:350-355) */
+          /* MUP: Show scrollbars for usability (override Glass hidden scrollbars) */
           .glass-scroll::-webkit-scrollbar {
-            width: 0;
-            background: transparent;
+            width: 8px;
+            background: rgba(0, 0, 0, 0.2);
           }
 
           .glass-scroll::-webkit-scrollbar-track {
-            background: transparent;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
           }
 
           .glass-scroll::-webkit-scrollbar-thumb {
-            background: transparent;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+          }
+
+          .glass-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
           }
 
           /* Glass parity: Bubble styling */
