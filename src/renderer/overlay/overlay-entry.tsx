@@ -6,7 +6,7 @@ import AskView from './AskView'
 import SettingsView from './SettingsView'
 import ShortCutSettingsView from './ShortCutSettingsView'
 import { i18n } from '../i18n/i18n'
-import { startCapture, stopCapture } from '../audio-processor'
+import { startCapture, stopCapture } from '../audio-processor-glass-parity'
 import '../overlay/overlay-glass.css'
 
 const params = new URLSearchParams(window.location.search)
