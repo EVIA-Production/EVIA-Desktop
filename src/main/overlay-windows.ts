@@ -9,9 +9,11 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-// TEMPORARY FIX: Increased to 700px to ensure all content fits
+// TEMPORARY FIX: Increased to 900px (user reported 700px still cuts off)
 // TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
-const HEADER_SIZE = { width: 700, height: 47 }
+// Math: German "Anzeigen/Ausblenden" ~185px + other buttons ~300px + padding/gaps ~150px = ~635px
+// Adding 40% buffer for safety: 635 * 1.4 = 900px
+const HEADER_SIZE = { width: 900, height: 47 }
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
