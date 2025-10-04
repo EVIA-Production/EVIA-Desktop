@@ -100,11 +100,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   useEffect(() => {
     adjustWindowHeight();
-    if (isSessionActive) {
-      startTimer();
-    }
     return () => {
-      stopTimer();
       if (copyTimeout.current) {
         clearTimeout(copyTimeout.current);
       }
@@ -114,22 +110,38 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     const cid = localStorage.getItem('current_chat_id');
     if (!cid || cid === 'undefined') {
-      console.error('No valid chat_id; create one first');
+      console.error('[ListenView] No valid chat_id; create one first');
       return () => {};
     }
+    console.log('[ListenView] Setting up WebSocket for chat_id:', cid);
     // WebSocket setup for receiving transcripts
     const ws = getWebSocketInstance(cid, 'mic');
     ws.connect();
+    
+    // Start timer when WebSocket is set up (session is active)
+    setIsSessionActive(true);
+    startTimer();
+    
     const unsub = ws.onMessage((msg: any) => {
+      console.log('[ListenView] Received WebSocket message:', msg);
       if (msg.type === 'transcript_segment' && msg.data) {
         const { text = '', speaker = null, is_final = false } = msg.data;
+        console.log('[ListenView] Adding transcript:', text, 'final:', is_final);
         setTranscripts(prev => [...prev, { text, speaker, isFinal: is_final }]);
         if (localFollowLive && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
+      } else if (msg.type === 'status' && msg.data?.echo_text) {
+        console.log('[ListenView] Status message:', msg.data.echo_text);
       }
     });
-    return () => { unsub(); ws.disconnect(); };
+    return () => { 
+      console.log('[ListenView] Cleanup: Unsubscribing and disconnecting WebSocket');
+      stopTimer();
+      setIsSessionActive(false);
+      unsub(); 
+      ws.disconnect(); 
+    };
   }, [localFollowLive]);
 
   const toggleView = async () => {
