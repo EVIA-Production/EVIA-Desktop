@@ -251,7 +251,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // Glass parity: Always enable DevTools, will only open in dev mode
     },
   })
 
@@ -275,6 +275,12 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   win.on('closed', () => {
     childWindows.delete(name)
   })
+  
+  // Glass parity: Open DevTools for all child windows in development (windowManager.js:726-728, 553-555)
+  if (!app.isPackaged) {
+    console.log(`[overlay-windows] Opening DevTools for ${name} window`)
+    win.webContents.openDevTools({ mode: 'detach' })
+  }
 
   // Glass parity: Settings window cursor tracking
   // Since Electron doesn't have window hover events, we poll cursor position
@@ -866,16 +872,33 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
 
 // Settings hover handlers (Glass parity: show/hide with delay)
 ipcMain.on('show-settings-window', () => {
-  console.log('[overlay-windows] show-settings-window: Showing settings immediately')
+  console.log('[overlay-windows] show-settings-window: Showing settings ONLY (not affecting other windows)')
   if (settingsHideTimer) {
     console.log('[overlay-windows] Clearing existing hide timer')
     clearTimeout(settingsHideTimer)
     settingsHideTimer = null
   }
+  // FIX: Only toggle settings, don't spread entire visibility (which re-opens listen/ask)
   const vis = getVisibility()
   const newVis = { ...vis, settings: true }
-  console.log('[overlay-windows] New visibility:', newVis)
-  updateWindows(newVis)
+  // Only update settings window, don't call updateWindows which relayouts everything
+  const settingsWin = createChildWindow('settings')
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    const header = getOrCreateHeaderWindow()
+    const hb = header.getBounds()
+    // Position settings below header, right-aligned
+    settingsWin.setBounds({
+      x: hb.x + hb.width - WINDOW_DATA.settings.width,
+      y: hb.y + hb.height + PAD,
+      width: WINDOW_DATA.settings.width,
+      height: WINDOW_DATA.settings.height,
+    })
+    settingsWin.show()
+    settingsWin.moveTop()
+    settingsWin.setAlwaysOnTop(true, 'screen-saver')
+  }
+  // Update state but don't call updateWindows
+  saveState({ visible: newVis })
 })
 
 ipcMain.on('hide-settings-window', () => {
@@ -901,9 +924,15 @@ ipcMain.on('hide-settings-window', () => {
   }
   settingsHideTimer = setTimeout(() => {
     console.log('[overlay-windows] 200ms timer expired - hiding settings')
+    // FIX: Only hide settings, don't affect other windows
+    const settingsWin = childWindows.get('settings')
+    if (settingsWin && !settingsWin.isDestroyed()) {
+      settingsWin.setAlwaysOnTop(false, 'screen-saver')
+      settingsWin.hide()
+    }
     const vis = getVisibility()
     const newVis = { ...vis, settings: false }
-    updateWindows(newVis)
+    saveState({ visible: newVis })
     settingsHideTimer = null
   }, 200) // Glass parity: 200ms delay
 })

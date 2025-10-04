@@ -96,7 +96,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (autoScroll && viewportRef.current) {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
-  }, [lines, insights, autoScroll]);
+  }, [transcripts, insights, autoScroll]);
 
   useEffect(() => {
     adjustWindowHeight();
@@ -129,7 +129,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
           return next;
         });
-        if (localFollowLive && viewportRef.current) {
+        if (autoScroll && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
       } else if (msg.type === 'status' && msg.data?.echo_text) {
@@ -150,7 +150,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       unsub(); 
       ws.disconnect(); 
     };
-  }, [localFollowLive]);
+  }, []); // FIX: Empty dependency array - only run once on mount
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
@@ -186,7 +186,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (copyState === 'copied') return;
 
     let textToCopy = viewMode === 'transcript' 
-      ? lines.map(line => line.text).join('\n')
+      ? transcripts.map(line => line.text).join('\n')
       : insights.map(i => `${i.title}: ${i.prompt}`).join('\n');
 
     try {
@@ -551,8 +551,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         </div>
         <div className="glass-scroll" ref={viewportRef}>
           {viewMode === 'transcript' ? (
-            lines.length > 0 ? (
-              lines.map((line, i) => (
+            transcripts.length > 0 ? (
+              transcripts.map((line, i) => (
                 <div
                   key={i}
                   className={`bubble ${line.speaker === 0 ? 'me' : 'them'}`}
