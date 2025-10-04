@@ -184,11 +184,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
       <style>{`
         .evia-main-header {
           -webkit-app-region: drag;
-          width: 100%;
+          width: max-content;  /* CRITICAL FIX: Glass parity - expands to fit all buttons */
           height: 47px;
           padding: 2px 10px 2px 13px;
           background: transparent;
-          overflow: hidden;
+          overflow: visible;  /* Allow content to show */
           border-radius: 9000px;
           justify-content: space-between;
           align-items: center;
@@ -228,7 +228,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         }
         .evia-listen-button {
           height: 26px;
-          min-width: 78px;
+          min-width: fit-content;  /* CRITICAL FIX: Allow button to expand for German text */
           padding: 0 13px;
           border-radius: 9000px;
           border: none;
@@ -239,6 +239,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           color: #ffffff;
           cursor: pointer;
           transition: transform 0.12s ease;
+          white-space: nowrap;  /* Prevent text wrapping */
         }
         .evia-listen-button::before {
           content: '';
