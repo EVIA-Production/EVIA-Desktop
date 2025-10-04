@@ -39,7 +39,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [insights, setInsights] = useState<Insight[]>([]);
+  // Glass parity: Show dummy insights immediately (real insights come from backend via WebSocket)
+  const [insights, setInsights] = useState<Insight[]>([
+    { text: i18n.t('overlay.insights.dummyInsight1'), type: 'insight' },
+    { text: i18n.t('overlay.insights.dummyInsight2'), type: 'insight' },
+    { text: i18n.t('overlay.insights.dummyInsight3'), type: 'insight' },
+  ]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   const timerInterval = useRef<NodeJS.Timeout | null>(null);

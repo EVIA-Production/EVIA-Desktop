@@ -26,6 +26,11 @@
       "unknown": "Unknown",
       "local": "You"
     },
+    "insights": {
+      "dummyInsight1": "EVIA is analyzing your conversation...",
+      "dummyInsight2": "Insights are generated in real-time",
+      "dummyInsight3": "Start listening to receive personalized insights"
+    },
     "ask": {
       "title": "Ask EVIA",
       "placeholder": "Ask a question...",

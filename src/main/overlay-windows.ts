@@ -198,9 +198,12 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       
       console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
       
-      // Update width while maintaining position
+      // GLASS PARITY FIX: Re-center header horizontally when width changes
+      const { workArea } = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
+      const newX = Math.round(workArea.x + (workArea.width - newWidth) / 2)
+      
       headerWindow.setBounds({
-        x: bounds.x,
+        x: newX,
         y: bounds.y,
         width: newWidth,
         height: bounds.height
@@ -325,9 +328,13 @@ function createChildWindow(name: FeatureName): BrowserWindow {
           if (settingsHideTimer) clearTimeout(settingsHideTimer)
           settingsHideTimer = setTimeout(() => {
             console.log('[overlay-windows] Hiding settings after cursor left')
+            // CRITICAL FIX: Only hide settings window, DON'T call updateWindows (which would re-open listen/ask)
+            if (win && !win.isDestroyed()) {
+              win.setAlwaysOnTop(false, 'screen-saver')
+              win.hide()
+            }
             const vis = getVisibility()
-            const updated = { ...vis, settings: false }
-            updateWindows(updated)
+            saveState({ visible: { ...vis, settings: false } })
             settingsHideTimer = null
           }, 200)
         }
@@ -778,9 +785,36 @@ ipcMain.handle('win:show', (_event, name: FeatureName) => {
 })
 
 ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
+  console.log(`[overlay-windows] win:ensureShown called for ${name}`)
+  // CRITICAL FIX: Only show the requested window, don't call updateWindows (which opens ALL windows in state)
+  let win = childWindows.get(name)
+  if (!win || win.isDestroyed()) {
+    win = createChildWindow(name)
+  }
+  
+  if (win && !win.isDestroyed()) {
+    // Position and show window
+    const header = getOrCreateHeaderWindow()
+    const hb = header.getBounds()
+    const def = WINDOW_DATA[name]
+    if (def) {
+      // Center to header
+      win.setBounds({
+        x: hb.x + (hb.width - def.width) / 2,
+        y: hb.y + hb.height + PAD,
+        width: def.width,
+        height: def.height,
+      })
+      win.show()
+      win.moveTop()
+      win.setAlwaysOnTop(true, 'screen-saver')
+    }
+  }
+  
+  // Update state
   const vis = getVisibility()
-  const next = { ...vis, [name]: true }
-  updateWindows(next)
+  saveState({ visible: { ...vis, [name]: true } })
+  console.log(`[overlay-windows] ensureShown complete for ${name}`)
   return { ok: true }
 })
 
