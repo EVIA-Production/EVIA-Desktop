@@ -167,6 +167,54 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     headerWindow?.showInactive()
   })
 
+  // Listen for content width requests from renderer (for dynamic sizing)
+  ipcMain.removeHandler('header:get-content-width')
+  ipcMain.handle('header:get-content-width', async () => {
+    if (!headerWindow || headerWindow.isDestroyed()) return null
+    try {
+      const width = await headerWindow.webContents.executeJavaScript(`
+        (() => {
+          const header = document.querySelector('.evia-main-header');
+          if (!header) return null;
+          // Get actual rendered width including all buttons
+          const rect = header.getBoundingClientRect();
+          return Math.ceil(rect.width);
+        })()
+      `)
+      return width
+    } catch (error) {
+      console.warn('[overlay-windows] Failed to get content width:', error)
+      return null
+    }
+  })
+
+  // Listen for resize requests from renderer
+  ipcMain.removeHandler('header:set-window-width')
+  ipcMain.handle('header:set-window-width', async (_event, contentWidth: number) => {
+    if (!headerWindow || headerWindow.isDestroyed()) return false
+    try {
+      const bounds = headerWindow.getBounds()
+      const newWidth = Math.max(contentWidth + 20, 400) // Add padding, min 400px
+      
+      console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
+      
+      // Update width while maintaining position
+      headerWindow.setBounds({
+        x: bounds.x,
+        y: bounds.y,
+        width: newWidth,
+        height: bounds.height
+      })
+      
+      // Update persisted bounds
+      saveState({ headerBounds: headerWindow.getBounds() })
+      return true
+    } catch (error) {
+      console.warn('[overlay-windows] Failed to resize window:', error)
+      return false
+    }
+  })
+
   return headerWindow
 }
 

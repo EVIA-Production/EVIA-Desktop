@@ -52,6 +52,39 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, []);
 
+  // Dynamic window sizing: measure content and resize window to fit
+  useEffect(() => {
+    const measureAndResize = async () => {
+      if (!headerRef.current) return;
+      
+      // Wait for DOM to settle (fonts, layout)
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const rect = headerRef.current.getBoundingClientRect();
+      const contentWidth = Math.ceil(rect.width);
+      
+      console.log(`[EviaBar] Content width measured: ${contentWidth}px`);
+      
+      // Request window resize via IPC
+      if (window.electron?.ipcRenderer) {
+        try {
+          const success = await window.electron.ipcRenderer.invoke(
+            'header:set-window-width',
+            contentWidth
+          );
+          if (success) {
+            console.log(`[EviaBar] Window resized to fit content`);
+          }
+        } catch (error) {
+          console.warn('[EviaBar] Failed to resize window:', error);
+        }
+      }
+    };
+    
+    // Measure on mount and when language changes
+    measureAndResize();
+  }, [language]); // Re-measure when language changes (German words are longer!)
+
   useEffect(() => {
     const node = headerRef.current;
     if (!node) return;

@@ -82,4 +82,14 @@ contextBridge.exposeInMainWorld('eviaExport', {
   onSaveSystemWav: (cb: () => void) => ipcRenderer.on('export:save-system-wav', cb),
 })
 
+// Electron IPC (for dynamic window sizing, etc.)
+contextBridge.exposeInMainWorld('electron', {
+  ipcRenderer: {
+    invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+    send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
+    on: (channel: string, listener: (event: any, ...args: any[]) => void) => 
+      ipcRenderer.on(channel, listener),
+  },
+})
+
 export {}
