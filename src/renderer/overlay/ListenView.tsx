@@ -118,18 +118,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] No valid chat_id; create one first');
       return () => {};
     }
-    console.log('[ListenView] Subscribing to WebSocket messages for chat_id:', cid);
+    console.log('[ListenView] Setting up WebSocket for chat_id:', cid);
     
-    // CRITICAL FIX: Only subscribe to existing WebSocket, DON'T connect/disconnect
-    // (Audio capture manages WebSocket lifecycle in audio-processor-glass-parity.ts)
+    // CRITICAL: ListenView window is a SEPARATE BrowserWindow with its OWN WebSocket instance!
+    // It MUST connect to receive messages (backend supports multiple connections per chat_id)
     const ws = getWebSocketInstance(cid, 'mic');
     
+    // Subscribe BEFORE connecting to ensure handlers are registered
     const unsub = ws.onMessage((msg: any) => {
-      console.log('[ListenView] Received WebSocket message:', msg);
+      console.log('[ListenView] ✅ Received WebSocket message:', msg);
       
       if (msg.type === 'transcript_segment' && msg.data) {
         const { text = '', speaker = null, is_final = false } = msg.data;
-        console.log('[ListenView] Adding transcript:', text, 'final:', is_final);
+        console.log('[ListenView] ✅ Adding transcript:', text, 'final:', is_final);
         setTranscripts(prev => {
           const next = [...prev, { text, speaker, isFinal: is_final }];
           console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
@@ -140,13 +141,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         }
       } else if (msg.type === 'insight_segment' && msg.data) {
         const { text = '', type = 'insight' } = msg.data;
-        console.log('[ListenView] Adding insight:', text, 'type:', type);
+        console.log('[ListenView] ✅ Adding insight:', text, 'type:', type);
         setInsights(prev => [...prev, { text, type }]);
       } else if (msg.type === 'status') {
-        console.log('[ListenView] Status message:', msg.data);
+        console.log('[ListenView] ✅ Status message:', msg.data);
         // Start timer ONLY when Deepgram connection is confirmed open
         if (msg.data?.dg_open === true) {
-          console.log('[ListenView] Deepgram connection OPEN - starting timer');
+          console.log('[ListenView] ✅ Deepgram connection OPEN - starting timer');
           setIsSessionActive(true);
           startTimer();
         } else if (msg.data?.dg_open === false) {
@@ -157,10 +158,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
     });
     
+    // Connect this window's WebSocket instance (separate from header window's instance)
+    ws.connect().then(() => {
+      console.log('[ListenView] ✅ WebSocket connected successfully');
+    }).catch(err => {
+      console.error('[ListenView] ❌ WebSocket connection failed:', err);
+    });
+    
     return () => { 
-      console.log('[ListenView] Cleanup: Unsubscribing from WebSocket (NOT disconnecting)');
+      console.log('[ListenView] Cleanup: Disconnecting WebSocket for this window');
       unsub();
-      // DON'T disconnect WebSocket here - audio capture manages lifecycle
+      ws.disconnect(); // Disconnect THIS window's WebSocket (doesn't affect header's)
       stopTimer(); // Clean up timer
       setIsSessionActive(false);
     };
