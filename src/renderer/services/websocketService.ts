@@ -125,7 +125,10 @@ export class ChatWebSocket {
         this.ws.binaryType = 'arraybuffer';
         const timeout = setTimeout(() => reject(new Error('Connect timeout')), 10000);
         this.ws.onopen = () => {
+          console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
           clearTimeout(timeout);
+          this.isConnectedFlag = true;
+          this.connectionChangeHandlers.forEach(h => h(true));
           this.flushQueue();
           resolve();
         };
@@ -144,12 +147,18 @@ export class ChatWebSocket {
         this.ws.onmessage = (event) => {
           try {
             let payload: any = event.data;
+            console.log('[WS Debug] Raw message received:', typeof payload, payload);
             if (typeof payload === 'string') {
               payload = JSON.parse(payload);
+              console.log('[WS Debug] Parsed payload:', payload);
             }
-            this.messageHandlers.forEach(h => h(payload));
+            console.log('[WS Debug] Invoking', this.messageHandlers.length, 'handlers for message type:', payload?.type);
+            this.messageHandlers.forEach((h, idx) => {
+              console.log('[WS Debug] Calling handler', idx);
+              h(payload);
+            });
           } catch (e) {
-            console.warn('[WS] Failed to parse message', e);
+            console.error('[WS Debug] Failed to parse/handle message:', e, 'Raw:', event.data);
           }
         };
       });
@@ -229,8 +238,10 @@ export class ChatWebSocket {
   }
 
   onMessage(handler: (message: WebSocketMessage) => void) {
+    console.log('[WS Debug] Registering message handler for chatId:', this.chatId, 'Total handlers after:', this.messageHandlers.length + 1);
     this.messageHandlers.push(handler);
     return () => {
+      console.log('[WS Debug] Unregistering message handler for chatId:', this.chatId, 'Total handlers before:', this.messageHandlers.length);
       this.messageHandlers = this.messageHandlers.filter(h => h !== handler);
     };
   }
@@ -281,9 +292,13 @@ const wsInstances = new Map<string, ChatWebSocket>();
 
 export const getWebSocketInstance = (chatId: string, source?: 'mic' | 'system'): ChatWebSocket => {
   const key = source ? `${chatId}:${source}` : chatId;
+  console.log('[WS Instance] Getting for key:', key, 'Existing:', wsInstances.has(key), 'Total instances:', wsInstances.size);
   if (wsInstances.has(key)) {
-    return wsInstances.get(key)!;
+    const existing = wsInstances.get(key)!;
+    console.log('[WS Instance] Reusing existing instance for key:', key);
+    return existing;
   }
+  console.log('[WS Instance] Creating NEW instance for key:', key);
   const ws = new ChatWebSocket(chatId, source);
   wsInstances.set(key, ws);
   return ws;

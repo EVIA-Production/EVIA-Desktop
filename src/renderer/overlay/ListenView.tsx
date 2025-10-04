@@ -116,18 +116,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] Setting up WebSocket for chat_id:', cid);
     // WebSocket setup for receiving transcripts
     const ws = getWebSocketInstance(cid, 'mic');
-    ws.connect();
     
-    // Start timer when WebSocket is set up (session is active)
-    setIsSessionActive(true);
-    startTimer();
-    
+    // CRITICAL FIX: Subscribe to messages BEFORE connecting
+    // (Backend sends synthetic message immediately on connect)
     const unsub = ws.onMessage((msg: any) => {
       console.log('[ListenView] Received WebSocket message:', msg);
       if (msg.type === 'transcript_segment' && msg.data) {
         const { text = '', speaker = null, is_final = false } = msg.data;
         console.log('[ListenView] Adding transcript:', text, 'final:', is_final);
-        setTranscripts(prev => [...prev, { text, speaker, isFinal: is_final }]);
+        setTranscripts(prev => {
+          const next = [...prev, { text, speaker, isFinal: is_final }];
+          console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
+          return next;
+        });
         if (localFollowLive && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
@@ -135,6 +136,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] Status message:', msg.data.echo_text);
       }
     });
+    
+    // Connect AFTER handler is registered
+    ws.connect();
+    
+    // Start timer when WebSocket is set up (session is active)
+    setIsSessionActive(true);
+    startTimer();
     return () => { 
       console.log('[ListenView] Cleanup: Unsubscribing and disconnecting WebSocket');
       stopTimer();
