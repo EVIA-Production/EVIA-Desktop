@@ -113,12 +113,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, []);
 
   useEffect(() => {
-    const cid = localStorage.getItem('current_chat_id');
-    if (!cid || cid === 'undefined') {
-      console.error('[ListenView] No valid chat_id; create one first');
+    console.log('[ListenView] 🔍 WebSocket useEffect STARTED');
+    console.log('[ListenView] 🔍 localStorage:', typeof localStorage, localStorage ? 'exists' : 'null');
+    
+    let cid: string | null = null;
+    try {
+      cid = localStorage.getItem('current_chat_id');
+      console.log('[ListenView] 🔍 Retrieved chat_id:', cid, 'type:', typeof cid);
+    } catch (err) {
+      console.error('[ListenView] ❌ localStorage.getItem ERROR:', err);
       return () => {};
     }
-    console.log('[ListenView] Setting up WebSocket for chat_id:', cid);
+    
+    if (!cid || cid === 'undefined' || cid === 'null') {
+      console.error('[ListenView] ❌ No valid chat_id (value:', cid, '); create one first');
+      return () => {};
+    }
+    console.log('[ListenView] ✅ Valid chat_id found:', cid, '- Setting up WebSocket...');
     
     // CRITICAL: ListenView window is a SEPARATE BrowserWindow with its OWN WebSocket instance!
     // It MUST connect to receive messages (backend supports multiple connections per chat_id)
