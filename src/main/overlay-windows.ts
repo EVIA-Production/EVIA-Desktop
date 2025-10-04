@@ -9,7 +9,9 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-const HEADER_SIZE = { width: 560, height: 47 } // 560px = German text + settings + buffer (user reported 520 still cuts off)
+// TEMPORARY FIX: Increased to 700px to ensure all content fits
+// TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
+const HEADER_SIZE = { width: 700, height: 47 }
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -24,8 +26,8 @@ const WINDOW_DATA = {
     zIndex: 3,
   },
   ask: {
-    width: 384,
-    height: 420,
+    width: 600,
+    height: 61,  // Glass parity: starts at 61px, grows with content
     html: 'overlay.html?view=ask',
     zIndex: 1,
   },
