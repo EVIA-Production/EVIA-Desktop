@@ -11,19 +11,19 @@ function getBackendHttpBase(): string {
 }
 
 // Windows platform stub - Glass parity requirement
-if (process.platform === 'win32') {
-  app.whenReady().then(() => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Windows Support Coming Soon',
-      message: 'EVIA Desktop for Windows is coming soon!',
-      detail: 'The Windows version with full audio capture and overlay support is currently in development. Please check back soon or contact us for updates.',
-      buttons: ['OK']
-    }).then(() => {
-      app.quit();
-    });
-  });
-}
+// if (process.platform === 'win32') {
+//   app.whenReady().then(() => {
+//     dialog.showMessageBox({
+//       type: 'info',
+//       title: 'Windows Support Coming Soon',
+//       message: 'EVIA Desktop for Windows is coming soon!',
+//       detail: 'The Windows version with full audio capture and overlay support is currently in development. Please check back soon or contact us for updates.',
+//       buttons: ['OK']
+//     }).then(() => {
+//       app.quit();
+//     });
+//   });
+// }
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
 // eslint-disable-next-line @typescript-eslint/no-var-requires
