@@ -1,7 +1,18 @@
 appId: com.evia.desktop
 productName: EVIA Desktop
+
+# Where built installers / artifacts are placed
+directories:
+  output: release
+
 files:
-  - dist/**
+  - dist/** # compiled app (main & renderer bundles)
+  - package.json # metadata for asar
+  - node_modules/** # runtime deps (if not fully bundled by a packer)
+  - assets/** # any static assets (optional if exists)
+
+asar: true
+
 mac:
   category: public.app-category.productivity
   hardenedRuntime: true
@@ -9,10 +20,33 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
   extendInfo:
-    ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
+    ElectronTeamID: "not-set" # Replace with real TeamID when signing
   target:
     - dmg
+    - zip
+  artifactName: "EVIA-Desktop-${version}-mac-${arch}.${ext}"
+
+win:
+  target:
+    - nsis # primary Windows installer
+    - zip # portable zip (optional)
+  artifactName: "EVIA-Desktop-${version}-win-${arch}.${ext}"
+  # Uncomment and configure for code signing later:
+  # signingHashAlgorithms: [sha256]
+  # certificateFile: path/to/cert.pfx
+  # certificatePassword: ${WINDOWS_CERT_PASSWORD}
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+  artifactName: "EVIA-Desktop-${version}-win-${arch}-setup.${ext}"
+  deleteAppDataOnUninstall: false
+
 extraResources:
   - from: native/mac/SystemAudioCapture/SystemAudioCapture.app
     to: mac/SystemAudioCapture.app
-publish: null
+  # Add platform-conditional resources if needed later (e.g., Windows loopback helpers)
+
+publish: null # CI pipeline can pass --publish on tagged builds

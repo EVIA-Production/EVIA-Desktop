@@ -1,22 +1,75 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
-import fs from 'fs'
-import path from 'path'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut } from "electron";
+import fs from "fs";
+import path from "path";
+import http from "http";
 
-export type FeatureName = 'listen' | 'ask' | 'settings' | 'shortcuts'
+export type FeatureName = "listen" | "ask" | "settings" | "shortcuts";
 
-type WindowVisibility = Partial<Record<FeatureName, boolean>>
+type WindowVisibility = Partial<Record<FeatureName, boolean>>;
 
-let headerWindow: BrowserWindow | null = null
-const childWindows: Map<FeatureName, BrowserWindow> = new Map()
+let headerWindow: BrowserWindow | null = null;
+const childWindows: Map<FeatureName, BrowserWindow> = new Map();
 
 // TEMPORARY FIX: Increased to 900px (user reported 700px still cuts off)
 // TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
 // Math: German "Anzeigen/Ausblenden" ~185px + other buttons ~300px + padding/gaps ~150px = ~635px
 // Adding 40% buffer for safety: 635 * 1.4 = 900px
-const HEADER_SIZE = { width: 900, height: 47 }
-const PAD = 8
-const ANIM_DURATION = 180
-let settingsHideTimer: NodeJS.Timeout | null = null
+const HEADER_SIZE = { width: 900, height: 47 };
+const PAD = 8;
+const ANIM_DURATION = 180;
+let settingsHideTimer: NodeJS.Timeout | null = null;
+
+// -------------------- Dynamic overlay entry resolution (Option B+C) --------------------
+type OverlayEntry =
+  | { mode: "url"; url: string }
+  | { mode: "file"; file: string };
+
+function resolveOverlayEntry(view: string): OverlayEntry {
+  const useDevServer = !app.isPackaged && process.env.EVIA_DEV === "1";
+  if (useDevServer) {
+    const base = process.env.VITE_DEV_SERVER_URL || "http://localhost:5174";
+    return {
+      mode: "url",
+      url: `${base}/overlay/overlay.html?view=${encodeURIComponent(view)}`,
+    };
+  }
+  // Packaged (or dev without dev server): load built file expected at dist/renderer/overlay/overlay.html
+  const file = path.join(__dirname, "../renderer/overlay/overlay.html");
+  return { mode: "file", file };
+}
+
+// Optional: wait for Vite dev server before loading (avoids ERR_CONNECTION_REFUSED)
+async function ensureDevServerReady(
+  maxWaitMs = 8000,
+  intervalMs = 250
+): Promise<void> {
+  const useDevServer = !app.isPackaged && process.env.EVIA_DEV === "1";
+  if (!useDevServer) return;
+  const base = process.env.VITE_DEV_SERVER_URL || "http://localhost:5174";
+  const url = new URL(base);
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const req = http.get(
+        { hostname: url.hostname, port: url.port, path: "/", timeout: 1500 },
+        (res) => {
+          res.resume();
+          resolve(true);
+        }
+      );
+      req.on("error", () => resolve(false));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve(false);
+      });
+    });
+    if (ok) return;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  console.warn(
+    "[overlay-windows] Dev server not reachable after wait, attempting to load anyway"
+  );
+}
 
 // Note: All windows load overlay.html with ?view=X query params for React routing.
 // The 'html' field is kept for documentation but not used in loadFile() calls.
@@ -24,84 +77,95 @@ const WINDOW_DATA = {
   listen: {
     width: 400,
     height: 420,
-    html: 'overlay.html?view=listen', // Documentation only - actual load uses query param
+    html: "overlay.html?view=listen", // Documentation only - actual load uses query param
     zIndex: 3,
   },
   ask: {
     width: 600,
-    height: 61,  // Glass parity: starts at 61px, grows with content
-    html: 'overlay.html?view=ask',
+    height: 61, // Glass parity: starts at 61px, grows with content
+    html: "overlay.html?view=ask",
     zIndex: 1,
   },
   settings: {
     width: 240, // Glass parity: windowManager.js:527
     height: 400, // Glass uses maxHeight: 400, we use fixed height
-    html: 'overlay.html?view=settings',
+    html: "overlay.html?view=settings",
     zIndex: 2,
   },
   shortcuts: {
     width: 320,
     height: 360,
-    html: 'overlay.html?view=shortcuts',
+    html: "overlay.html?view=shortcuts",
     zIndex: 0,
   },
-} satisfies Record<FeatureName, { width: number; height: number; html: string; zIndex: number }>
+} satisfies Record<
+  FeatureName,
+  { width: number; height: number; html: string; zIndex: number }
+>;
 
-const WORKSPACES_OPTS = { visibleOnFullScreen: true }
+const WORKSPACES_OPTS = { visibleOnFullScreen: true };
 
-const persistFile = path.join(app.getPath('userData'), 'overlay-prefs.json')
+const persistFile = path.join(app.getPath("userData"), "overlay-prefs.json");
 type PersistedState = {
-  headerBounds?: Electron.Rectangle
-  visible?: WindowVisibility
-}
-let persistedState: PersistedState = {}
+  headerBounds?: Electron.Rectangle;
+  visible?: WindowVisibility;
+};
+let persistedState: PersistedState = {};
 
 // Glass parity: Track visibility before hide (windowManager.js:227-233)
-let lastVisibleWindows = new Set<FeatureName>()
+let lastVisibleWindows = new Set<FeatureName>();
 
 try {
   if (fs.existsSync(persistFile)) {
-    const data = fs.readFileSync(persistFile, 'utf8')
-    persistedState = JSON.parse(data) as PersistedState
+    const data = fs.readFileSync(persistFile, "utf8");
+    persistedState = JSON.parse(data) as PersistedState;
   }
 } catch (error) {
-  console.warn('[overlay] Failed to load persisted state', error)
+  console.warn("[overlay] Failed to load persisted state", error);
 }
 
 // Debounce timer for saveState (prevents disk thrashing during drag/movement)
-let saveStateTimer: NodeJS.Timeout | null = null
+let saveStateTimer: NodeJS.Timeout | null = null;
 
 function saveState(partial: Partial<PersistedState>) {
-  const before = JSON.stringify(persistedState)
-  const newState = { ...persistedState, ...partial }
-  const after = JSON.stringify(newState)
-  
+  const before = JSON.stringify(persistedState);
+  const newState = { ...persistedState, ...partial };
+  const after = JSON.stringify(newState);
+
   // PERFORMANCE FIX: Skip save if nothing changed (prevents disk thrashing)
   if (before === after) {
-    return // No change, don't write to disk
+    return; // No change, don't write to disk
   }
-  
-  persistedState = newState
-  
+
+  persistedState = newState;
+
   // MUP FIX #4: Debounce disk writes to reduce I/O during rapid events (drag, arrow keys)
   if (saveStateTimer) {
-    clearTimeout(saveStateTimer)
+    clearTimeout(saveStateTimer);
   }
-  
+
   saveStateTimer = setTimeout(() => {
-    console.log(`[overlay-windows] saveState (debounced): ${JSON.stringify(persistedState.visible)} (writing to disk)`)
+    console.log(
+      `[overlay-windows] saveState (debounced): ${JSON.stringify(
+        persistedState.visible
+      )} (writing to disk)`
+    );
     try {
-      fs.mkdirSync(path.dirname(persistFile), { recursive: true })
-      fs.writeFileSync(persistFile, JSON.stringify(persistedState, null, 2), 'utf8')
+      fs.mkdirSync(path.dirname(persistFile), { recursive: true });
+      fs.writeFileSync(
+        persistFile,
+        JSON.stringify(persistedState, null, 2),
+        "utf8"
+      );
     } catch (error) {
-      console.warn('[overlay] Failed to persist state', error)
+      console.warn("[overlay] Failed to persist state", error);
     }
-    saveStateTimer = null
-  }, 300) // 300ms debounce - balances responsiveness with performance
+    saveStateTimer = null;
+  }, 300); // 300ms debounce - balances responsiveness with performance
 }
 
 function getOrCreateHeaderWindow(): BrowserWindow {
-  if (headerWindow && !headerWindow.isDestroyed()) return headerWindow
+  if (headerWindow && !headerWindow.isDestroyed()) return headerWindow;
 
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
@@ -115,62 +179,70 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     skipTaskbar: true,
     focusable: true,
     hasShadow: false,
-    backgroundColor: '#00000000', // Fully transparent
-    title: 'EVIA Glass Overlay',
+    backgroundColor: "#00000000", // Fully transparent
+    title: "EVIA Glass Overlay",
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: process.env.NODE_ENV === "development",
       backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
-  })
+  });
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
-  if (process.platform === 'darwin') {
-    headerWindow.setWindowButtonVisibility(false)
+  if (process.platform === "darwin") {
+    headerWindow.setWindowButtonVisibility(false);
   }
 
-  const restoreBounds = persistedState.headerBounds
+  const restoreBounds = persistedState.headerBounds;
   if (restoreBounds) {
-    headerWindow.setBounds(restoreBounds)
+    headerWindow.setBounds(restoreBounds);
   } else {
-    const { workArea } = screen.getPrimaryDisplay()
-    const x = Math.round(workArea.x + (workArea.width - HEADER_SIZE.width) / 2)
-    const y = Math.round(workArea.y + 40)
-    headerWindow.setBounds({ x, y, width: HEADER_SIZE.width, height: HEADER_SIZE.height })
+    const { workArea } = screen.getPrimaryDisplay();
+    const x = Math.round(workArea.x + (workArea.width - HEADER_SIZE.width) / 2);
+    const y = Math.round(workArea.y + 40);
+    headerWindow.setBounds({
+      x,
+      y,
+      width: HEADER_SIZE.width,
+      height: HEADER_SIZE.height,
+    });
   }
 
-  headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  headerWindow.setAlwaysOnTop(true, 'screen-saver')
-  headerWindow.setContentProtection(true)
-  headerWindow.setIgnoreMouseEvents(false)
+  headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS);
+  headerWindow.setAlwaysOnTop(true, "screen-saver");
+  headerWindow.setContentProtection(true);
+  headerWindow.setIgnoreMouseEvents(false);
 
-  // Load overlay.html with ?view=header query param for routing
-  headerWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-    query: { view: 'header' },
-  })
+  // Load overlay content (dev: Vite server URL, prod: packaged file)
+  const entry = resolveOverlayEntry("header");
+  if (entry.mode === "url") {
+    headerWindow.loadURL(entry.url);
+  } else {
+    headerWindow.loadFile(entry.file, { query: { view: "header" } });
+  }
 
-  headerWindow.on('moved', () => {
-    const b = headerWindow?.getBounds()
-    if (b) saveState({ headerBounds: b })
-  })
+  headerWindow.on("moved", () => {
+    const b = headerWindow?.getBounds();
+    if (b) saveState({ headerBounds: b });
+  });
 
-  headerWindow.on('closed', () => {
-    headerWindow = null
-  })
+  headerWindow.on("closed", () => {
+    headerWindow = null;
+  });
 
-  headerWindow.once('ready-to-show', () => {
-    headerWindow?.showInactive()
-  })
+  headerWindow.once("ready-to-show", () => {
+    headerWindow?.showInactive();
+  });
 
   // Listen for content width requests from renderer (for dynamic sizing)
-  ipcMain.removeHandler('header:get-content-width')
-  ipcMain.handle('header:get-content-width', async () => {
-    if (!headerWindow || headerWindow.isDestroyed()) return null
+  ipcMain.removeHandler("header:get-content-width");
+  ipcMain.handle("header:get-content-width", async () => {
+    if (!headerWindow || headerWindow.isDestroyed()) return null;
     try {
       const width = await headerWindow.webContents.executeJavaScript(`
         (() => {
@@ -180,57 +252,66 @@ function getOrCreateHeaderWindow(): BrowserWindow {
           const rect = header.getBoundingClientRect();
           return Math.ceil(rect.width);
         })()
-      `)
-      return width
+      `);
+      return width;
     } catch (error) {
-      console.warn('[overlay-windows] Failed to get content width:', error)
-      return null
+      console.warn("[overlay-windows] Failed to get content width:", error);
+      return null;
     }
-  })
+  });
 
   // Listen for resize requests from renderer
-  ipcMain.removeHandler('header:set-window-width')
-  ipcMain.handle('header:set-window-width', async (_event, contentWidth: number) => {
-    if (!headerWindow || headerWindow.isDestroyed()) return false
-    try {
-      const bounds = headerWindow.getBounds()
-      const newWidth = Math.max(contentWidth + 20, 400) // Add padding, min 400px
-      
-      console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
-      
-      // GLASS PARITY FIX: Re-center header horizontally when width changes
-      const { workArea } = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
-      const newX = Math.round(workArea.x + (workArea.width - newWidth) / 2)
-      
-      headerWindow.setBounds({
-        x: newX,
-        y: bounds.y,
-        width: newWidth,
-        height: bounds.height
-      })
-      
-      // Update persisted bounds
-      saveState({ headerBounds: headerWindow.getBounds() })
-      return true
-    } catch (error) {
-      console.warn('[overlay-windows] Failed to resize window:', error)
-      return false
-    }
-  })
+  ipcMain.removeHandler("header:set-window-width");
+  ipcMain.handle(
+    "header:set-window-width",
+    async (_event, contentWidth: number) => {
+      if (!headerWindow || headerWindow.isDestroyed()) return false;
+      try {
+        const bounds = headerWindow.getBounds();
+        const newWidth = Math.max(contentWidth + 20, 400); // Add padding, min 400px
 
-  return headerWindow
+        console.log(
+          `[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`
+        );
+
+        // GLASS PARITY FIX: Re-center header horizontally when width changes
+        const { workArea } = screen.getDisplayNearestPoint({
+          x: bounds.x,
+          y: bounds.y,
+        });
+        const newX = Math.round(workArea.x + (workArea.width - newWidth) / 2);
+
+        headerWindow.setBounds({
+          x: newX,
+          y: bounds.y,
+          width: newWidth,
+          height: bounds.height,
+        });
+
+        // Update persisted bounds
+        saveState({ headerBounds: headerWindow.getBounds() });
+        return true;
+      } catch (error) {
+        console.warn("[overlay-windows] Failed to resize window:", error);
+        return false;
+      }
+    }
+  );
+
+  return headerWindow;
 }
 
 function createChildWindow(name: FeatureName): BrowserWindow {
-  const existing = childWindows.get(name)
-  if (existing && !existing.isDestroyed()) return existing
+  const existing = childWindows.get(name);
+  if (existing && !existing.isDestroyed()) return existing;
 
-  const def = WINDOW_DATA[name]
-  const parent = getOrCreateHeaderWindow()
-  
+  const def = WINDOW_DATA[name];
+  const parent = getOrCreateHeaderWindow();
+
   // Glass parity: Ask/Settings/Shortcuts need to be focusable for input
-  const needsFocus = name === 'ask' || name === 'settings' || name === 'shortcuts'
-  
+  const needsFocus =
+    name === "ask" || name === "settings" || name === "shortcuts";
+
   const win = new BrowserWindow({
     parent,
     show: false,
@@ -246,9 +327,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     width: def.width,
     height: def.height,
     hasShadow: false,
-    backgroundColor: '#00000000',
+    backgroundColor: "#00000000",
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -256,321 +337,371 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       enableWebSQL: false,
       devTools: true, // Glass parity: Always enable DevTools, will only open in dev mode
     },
-  })
+  });
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
-  if (process.platform === 'darwin') {
-    win.setWindowButtonVisibility(false)
+  if (process.platform === "darwin") {
+    win.setWindowButtonVisibility(false);
   }
 
-  win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  win.setAlwaysOnTop(true, 'screen-saver')
-  win.setContentProtection(true)
-  
+  win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS);
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setContentProtection(true);
+
   // Glass parity: All windows are interactive by default (windowManager.js:287)
-  win.setIgnoreMouseEvents(false)
+  win.setIgnoreMouseEvents(false);
 
-  // All windows load overlay.html with different ?view= query params for routing
-  win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-    query: { view: name },
-  })
+  // Load overlay view (dev server or file)
+  const entry = resolveOverlayEntry(name);
+  if (entry.mode === "url") {
+    win.loadURL(entry.url);
+  } else {
+    win.loadFile(entry.file, { query: { view: name } });
+  }
 
-  win.on('closed', () => {
-    childWindows.delete(name)
-  })
-  
+  win.on("closed", () => {
+    childWindows.delete(name);
+  });
+
   // Glass parity: Open DevTools for all child windows in development (windowManager.js:726-728, 553-555)
   if (!app.isPackaged) {
-    console.log(`[overlay-windows] Opening DevTools for ${name} window`)
-    win.webContents.openDevTools({ mode: 'detach' })
+    console.log(`[overlay-windows] Opening DevTools for ${name} window`);
+    win.webContents.openDevTools({ mode: "detach" });
   }
 
   // Glass parity: Settings window cursor tracking
   // Since Electron doesn't have window hover events, we poll cursor position
-  if (name === 'settings') {
-    let cursorPollInterval: NodeJS.Timeout | null = null
-    let wasInsideSettings = false
-    
+  if (name === "settings") {
+    let cursorPollInterval: NodeJS.Timeout | null = null;
+    let wasInsideSettings = false;
+
     // Start polling when window is shown
-    win.on('show', () => {
-      console.log('[overlay-windows] Settings shown - starting cursor poll')
-      wasInsideSettings = false
-      
+    win.on("show", () => {
+      console.log("[overlay-windows] Settings shown - starting cursor poll");
+      wasInsideSettings = false;
+
       cursorPollInterval = setInterval(() => {
         if (win.isDestroyed() || !win.isVisible()) {
-          if (cursorPollInterval) clearInterval(cursorPollInterval)
-          return
+          if (cursorPollInterval) clearInterval(cursorPollInterval);
+          return;
         }
-        
-        const cursorPos = screen.getCursorScreenPoint()
-        const bounds = win.getBounds()
-        
+
+        const cursorPos = screen.getCursorScreenPoint();
+        const bounds = win.getBounds();
+
         // Check if cursor is inside settings window bounds
-        const isInside = cursorPos.x >= bounds.x && 
-                        cursorPos.x <= bounds.x + bounds.width &&
-                        cursorPos.y >= bounds.y && 
-                        cursorPos.y <= bounds.y + bounds.height
-        
+        const isInside =
+          cursorPos.x >= bounds.x &&
+          cursorPos.x <= bounds.x + bounds.width &&
+          cursorPos.y >= bounds.y &&
+          cursorPos.y <= bounds.y + bounds.height;
+
         // Track enter/leave transitions
         if (isInside && !wasInsideSettings) {
-          console.log('[overlay-windows] Cursor entered settings bounds')
-          wasInsideSettings = true
+          console.log("[overlay-windows] Cursor entered settings bounds");
+          wasInsideSettings = true;
           // Cancel hide timer
           if (settingsHideTimer) {
-            console.log('[overlay-windows] Canceling hide timer - cursor inside')
-            clearTimeout(settingsHideTimer)
-            settingsHideTimer = null
+            console.log(
+              "[overlay-windows] Canceling hide timer - cursor inside"
+            );
+            clearTimeout(settingsHideTimer);
+            settingsHideTimer = null;
           }
         } else if (!isInside && wasInsideSettings) {
-          console.log('[overlay-windows] Cursor left settings bounds')
-          wasInsideSettings = false
+          console.log("[overlay-windows] Cursor left settings bounds");
+          wasInsideSettings = false;
           // Start hide timer
-          if (settingsHideTimer) clearTimeout(settingsHideTimer)
+          if (settingsHideTimer) clearTimeout(settingsHideTimer);
           settingsHideTimer = setTimeout(() => {
-            console.log('[overlay-windows] Hiding settings after cursor left')
+            console.log("[overlay-windows] Hiding settings after cursor left");
             // CRITICAL FIX: Only hide settings window, DON'T call updateWindows (which would re-open listen/ask)
             if (win && !win.isDestroyed()) {
-              win.setAlwaysOnTop(false, 'screen-saver')
-              win.hide()
+              win.setAlwaysOnTop(false, "screen-saver");
+              win.hide();
             }
-            const vis = getVisibility()
-            saveState({ visible: { ...vis, settings: false } })
-            settingsHideTimer = null
-          }, 200)
+            const vis = getVisibility();
+            saveState({ visible: { ...vis, settings: false } });
+            settingsHideTimer = null;
+          }, 200);
         }
-      }, 50) // Poll every 50ms (20fps, smooth enough)
-    })
-    
+      }, 50); // Poll every 50ms (20fps, smooth enough)
+    });
+
     // Stop polling when window is hidden
-    win.on('hide', () => {
-      console.log('[overlay-windows] Settings hidden - stopping cursor poll')
+    win.on("hide", () => {
+      console.log("[overlay-windows] Settings hidden - stopping cursor poll");
       if (cursorPollInterval) {
-        clearInterval(cursorPollInterval)
-        cursorPollInterval = null
+        clearInterval(cursorPollInterval);
+        cursorPollInterval = null;
       }
-      wasInsideSettings = false
-    })
+      wasInsideSettings = false;
+    });
   }
 
-  childWindows.set(name, win)
-  return win
+  childWindows.set(name, win);
+  return win;
 }
 
 function getWorkAreaBounds() {
-  const header = getOrCreateHeaderWindow()
-  const hb = header.getBounds()
-  const display = screen.getDisplayNearestPoint({ x: hb.x + hb.width / 2, y: hb.y + hb.height / 2 })
-  return display.workArea
+  const header = getOrCreateHeaderWindow();
+  const hb = header.getBounds();
+  const display = screen.getDisplayNearestPoint({
+    x: hb.x + hb.width / 2,
+    y: hb.y + hb.height / 2,
+  });
+  return display.workArea;
 }
 
 function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
-  const work = getWorkAreaBounds()
+  const work = getWorkAreaBounds();
   // Allow header to reach the right edge (remove invisible wall)
   // Account for any rendering differences by allowing exact fit
-  const maxX = work.x + work.width - bounds.width + 10 // +10px buffer for right edge
-  const maxY = work.y + work.height - bounds.height
+  const maxX = work.x + work.width - bounds.width + 10; // +10px buffer for right edge
+  const maxY = work.y + work.height - bounds.height;
   return {
     x: Math.max(work.x, Math.min(bounds.x, maxX)),
     y: Math.max(work.y, Math.min(bounds.y, maxY)),
     width: bounds.width,
     height: bounds.height,
-  }
+  };
 }
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
-  const header = getOrCreateHeaderWindow()
-  const hb = header.getBounds()
-  const work = getWorkAreaBounds()
+  const header = getOrCreateHeaderWindow();
+  const hb = header.getBounds();
+  const work = getWorkAreaBounds();
 
-  const PAD_LOCAL = PAD
-  const screenWidth = work.width
-  const screenHeight = work.height
-  const headerCenterXRel = hb.x - work.x + hb.width / 2
-  const relativeY = (hb.y - work.y) / screenHeight
+  const PAD_LOCAL = PAD;
+  const screenWidth = work.width;
+  const screenHeight = work.height;
+  const headerCenterXRel = hb.x - work.x + hb.width / 2;
+  const relativeY = (hb.y - work.y) / screenHeight;
 
   // Determine if windows should be above or below header (Glass: determineLayoutStrategy)
-  const isAbovePreferred = relativeY > 0.5
+  const isAbovePreferred = relativeY > 0.5;
 
-  const layout: Record<string, { x: number; y: number; width: number; height: number }> = {}
+  const layout: Record<
+    string,
+    { x: number; y: number; width: number; height: number }
+  > = {};
 
   // Handle Ask and Listen windows (horizontal stack)
-  const askVis = visible.ask
-  const listenVis = visible.listen
+  const askVis = visible.ask;
+  const listenVis = visible.listen;
 
   if (askVis || listenVis) {
-    const askWin = askVis ? createChildWindow('ask') : null
-    const listenWin = listenVis ? createChildWindow('listen') : null
+    const askWin = askVis ? createChildWindow("ask") : null;
+    const listenWin = listenVis ? createChildWindow("listen") : null;
 
-    const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
-    const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0
-    const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
-    const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
+    const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0;
+    const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0;
+    const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0;
+    const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0;
 
     if (askVis && listenVis) {
       // Both windows: horizontal stack (listen left, ask center-aligned)
-      let askXRel = headerCenterXRel - askW / 2
-      let listenXRel = askXRel - listenW - PAD_LOCAL
+      let askXRel = headerCenterXRel - askW / 2;
+      let listenXRel = askXRel - listenW - PAD_LOCAL;
 
       // Clamp to screen bounds
       if (listenXRel < PAD_LOCAL) {
-        listenXRel = PAD_LOCAL
-        askXRel = listenXRel + listenW + PAD_LOCAL
+        listenXRel = PAD_LOCAL;
+        askXRel = listenXRel + listenW + PAD_LOCAL;
       }
       if (askXRel + askW > screenWidth - PAD_LOCAL) {
-        askXRel = screenWidth - PAD_LOCAL - askW
-        listenXRel = askXRel - listenW - PAD_LOCAL
+        askXRel = screenWidth - PAD_LOCAL - askW;
+        listenXRel = askXRel - listenW - PAD_LOCAL;
       }
 
       if (isAbovePreferred) {
-        const windowBottomAbs = hb.y - PAD_LOCAL
-        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
-        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
+        const windowBottomAbs = hb.y - PAD_LOCAL;
+        layout.ask = {
+          x: Math.round(askXRel + work.x),
+          y: Math.round(windowBottomAbs - askH),
+          width: askW,
+          height: askH,
+        };
+        layout.listen = {
+          x: Math.round(listenXRel + work.x),
+          y: Math.round(windowBottomAbs - listenH),
+          width: listenW,
+          height: listenH,
+        };
       } else {
         // MUP FIX: Ask window closer to header for Glass parity (4px gap instead of 8px)
-        const askGap = 4
-        const yAbs = hb.y + hb.height + askGap
-        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
-        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+        const askGap = 4;
+        const yAbs = hb.y + hb.height + askGap;
+        layout.ask = {
+          x: Math.round(askXRel + work.x),
+          y: Math.round(yAbs),
+          width: askW,
+          height: askH,
+        };
+        layout.listen = {
+          x: Math.round(listenXRel + work.x),
+          y: Math.round(yAbs),
+          width: listenW,
+          height: listenH,
+        };
       }
     } else {
       // Single window: center under header
-      const winName = askVis ? 'ask' : 'listen'
-      const winW = askVis ? askW : listenW
-      const winH = askVis ? askH : listenH
+      const winName = askVis ? "ask" : "listen";
+      const winW = askVis ? askW : listenW;
+      const winH = askVis ? askH : listenH;
 
-      let xRel = headerCenterXRel - winW / 2
-      xRel = Math.max(PAD_LOCAL, Math.min(screenWidth - winW - PAD_LOCAL, xRel))
+      let xRel = headerCenterXRel - winW / 2;
+      xRel = Math.max(
+        PAD_LOCAL,
+        Math.min(screenWidth - winW - PAD_LOCAL, xRel)
+      );
 
-      let yPos: number
+      let yPos: number;
       if (isAbovePreferred) {
-        yPos = hb.y - work.y - PAD_LOCAL - winH
+        yPos = hb.y - work.y - PAD_LOCAL - winH;
       } else {
         // MUP FIX: Ask window closer to header for Glass parity (4px gap)
-        const gap = (winName === 'ask') ? 4 : PAD_LOCAL
-        yPos = hb.y - work.y + hb.height + gap
+        const gap = winName === "ask" ? 4 : PAD_LOCAL;
+        yPos = hb.y - work.y + hb.height + gap;
       }
 
-      layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
+      layout[winName] = {
+        x: Math.round(xRel + work.x),
+        y: Math.round(yPos + work.y),
+        width: winW,
+        height: winH,
+      };
     }
   }
 
   // Handle Settings window (Glass: calculateSettingsWindowPosition)
   // Positioned aligned with settings button (170px from right edge)
   if (visible.settings) {
-    const settingsWin = createChildWindow('settings')
-    const settingsW = WINDOW_DATA.settings.width
-    const settingsH = WINDOW_DATA.settings.height
-    const buttonPadding = 170 // Distance from right edge to align with settings button
-    
-    let x = hb.x + hb.width - settingsW + buttonPadding
-    const y = hb.y + hb.height + 5 // PAD=5 from Glass
-    
+    const settingsWin = createChildWindow("settings");
+    const settingsW = WINDOW_DATA.settings.width;
+    const settingsH = WINDOW_DATA.settings.height;
+    const buttonPadding = 170; // Distance from right edge to align with settings button
+
+    let x = hb.x + hb.width - settingsW + buttonPadding;
+    const y = hb.y + hb.height + 5; // PAD=5 from Glass
+
     // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - settingsW))
-    
-    layout.settings = { x: Math.round(x), y: Math.round(y), width: settingsW, height: settingsH }
+    x = Math.max(work.x, Math.min(x, work.x + work.width - settingsW));
+
+    layout.settings = {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: settingsW,
+      height: settingsH,
+    };
   }
 
   // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
   // Centered horizontally at header Y position
   if (visible.shortcuts) {
-    const shortcutsWin = createChildWindow('shortcuts')
-    const shortcutsW = WINDOW_DATA.shortcuts.width
-    const shortcutsH = WINDOW_DATA.shortcuts.height
-    
-    let x = hb.x + (hb.width / 2) - (shortcutsW / 2)
-    const y = hb.y
-    
+    const shortcutsWin = createChildWindow("shortcuts");
+    const shortcutsW = WINDOW_DATA.shortcuts.width;
+    const shortcutsH = WINDOW_DATA.shortcuts.height;
+
+    let x = hb.x + hb.width / 2 - shortcutsW / 2;
+    const y = hb.y;
+
     // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW))
-    
-    layout.shortcuts = { x: Math.round(x), y: Math.round(y), width: shortcutsW, height: shortcutsH }
+    x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW));
+
+    layout.shortcuts = {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: shortcutsW,
+      height: shortcutsH,
+    };
   }
 
   // Apply layout
   for (const [name, bounds] of Object.entries(layout)) {
-    const win = createChildWindow(name as FeatureName)
-    win.setBounds(clampBounds(bounds as Electron.Rectangle))
+    const win = createChildWindow(name as FeatureName);
+    win.setBounds(clampBounds(bounds as Electron.Rectangle));
   }
 }
 
 function animateShow(win: BrowserWindow) {
   try {
-    win.setOpacity(0)
-    win.showInactive()
-    const [x, y] = win.getPosition()
-    const targetY = y
-    win.setPosition(x, y - 10)
-    const start = Date.now()
-  const tick = () => {
-      if (win.isDestroyed()) return
-      const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
-      const eased = 1 - Math.pow(1 - progress, 3)
-      win.setPosition(x, targetY - Math.round((1 - eased) * 10))
-      win.setOpacity(eased)
-      if (progress < 1) setTimeout(tick, 16)
-    }
-    tick()
+    win.setOpacity(0);
+    win.showInactive();
+    const [x, y] = win.getPosition();
+    const targetY = y;
+    win.setPosition(x, y - 10);
+    const start = Date.now();
+    const tick = () => {
+      if (win.isDestroyed()) return;
+      const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      win.setPosition(x, targetY - Math.round((1 - eased) * 10));
+      win.setOpacity(eased);
+      if (progress < 1) setTimeout(tick, 16);
+    };
+    tick();
   } catch (error) {
-    console.warn('[overlay] animateShow failed', error)
-    win.showInactive()
+    console.warn("[overlay] animateShow failed", error);
+    win.showInactive();
   }
 }
 
 function animateHide(win: BrowserWindow, onComplete: () => void) {
-  const [x, y] = win.getPosition()
-  const startOpacity = win.getOpacity()
-  const start = Date.now()
+  const [x, y] = win.getPosition();
+  const startOpacity = win.getOpacity();
+  const start = Date.now();
   const tick = () => {
-    if (win.isDestroyed()) return
-    const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
-    const eased = 1 - Math.pow(progress, 3)
-    win.setOpacity(startOpacity * eased)
-    win.setPosition(x, y - Math.round(progress * 10))
+    if (win.isDestroyed()) return;
+    const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION);
+    const eased = 1 - Math.pow(progress, 3);
+    win.setOpacity(startOpacity * eased);
+    win.setPosition(x, y - Math.round(progress * 10));
     if (progress < 1) {
-      setTimeout(tick, 16)
+      setTimeout(tick, 16);
     } else {
-      win.hide()
-      win.setOpacity(1)
-      win.setPosition(x, y)
-      onComplete()
+      win.hide();
+      win.setOpacity(1);
+      win.setPosition(x, y);
+      onComplete();
     }
-  }
-  tick()
+  };
+  tick();
 }
 
 function ensureVisibility(name: FeatureName, shouldShow: boolean) {
-  const win = createChildWindow(name)
+  const win = createChildWindow(name);
   // Glass parity: ALL windows are interactive (windowManager.js:287)
   // Only disable mouse events when specifically needed (not by default)
-  
-  const isCurrentlyVisible = win.isVisible()
-  
+
+  const isCurrentlyVisible = win.isVisible();
+
   if (shouldShow) {
-    win.setIgnoreMouseEvents(false) // All windows interactive
+    win.setIgnoreMouseEvents(false); // All windows interactive
     // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
     // Other windows animate ONLY if not already visible
-    if (name === 'settings') {
-      win.show() // Instant show for settings
-      win.moveTop()
-      win.setAlwaysOnTop(true, 'screen-saver')
+    if (name === "settings") {
+      win.show(); // Instant show for settings
+      win.moveTop();
+      win.setAlwaysOnTop(true, "screen-saver");
     } else {
       if (!isCurrentlyVisible) {
-        animateShow(win) // Only animate if window was hidden
+        animateShow(win); // Only animate if window was hidden
       }
       // If already visible, don't animate (prevents re-animation bug)
     }
   } else {
-  if (name === 'settings') {
+    if (name === "settings") {
       // Settings hides instantly too
-      win.setAlwaysOnTop(false, 'screen-saver')
-      win.hide()
+      win.setAlwaysOnTop(false, "screen-saver");
+      win.hide();
     } else {
       if (isCurrentlyVisible) {
         animateHide(win, () => {
-          win.setIgnoreMouseEvents(false)
-        })
+          win.setIgnoreMouseEvents(false);
+        });
       }
       // If already hidden, don't animate
     }
@@ -578,225 +709,238 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
 }
 
 function updateWindows(visibility: WindowVisibility) {
-  layoutChildWindows(visibility)
-  saveState({ visible: visibility })
+  layoutChildWindows(visibility);
+  saveState({ visible: visibility });
 
   // Glass parity: Process ALL windows, not just visible ones (windowManager.js:260-400)
   // This ensures windows get hidden when removed from visibility object
   const allWindows: [FeatureName, boolean][] = [
-    ['listen', visibility.listen ?? false],
-    ['ask', visibility.ask ?? false],
-    ['settings', visibility.settings ?? false],
-    ['shortcuts', visibility.shortcuts ?? false],
-  ]
-  
+    ["listen", visibility.listen ?? false],
+    ["ask", visibility.ask ?? false],
+    ["settings", visibility.settings ?? false],
+    ["shortcuts", visibility.shortcuts ?? false],
+  ];
+
   // Sort by z-index (ascending) so higher z-index windows are moved to top last
-  const sortedEntries = allWindows.sort((a, b) => WINDOW_DATA[a[0]].zIndex - WINDOW_DATA[b[0]].zIndex)
+  const sortedEntries = allWindows.sort(
+    (a, b) => WINDOW_DATA[a[0]].zIndex - WINDOW_DATA[b[0]].zIndex
+  );
 
   for (const [name, shown] of sortedEntries) {
-    const win = childWindows.get(name)
-    if (!win || win.isDestroyed()) continue
-    ensureVisibility(name, shown)
-    try { win.setAlwaysOnTop(true, 'screen-saver') } catch {}
-    try { win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS) } catch {}
+    const win = childWindows.get(name);
+    if (!win || win.isDestroyed()) continue;
+    ensureVisibility(name, shown);
+    try {
+      win.setAlwaysOnTop(true, "screen-saver");
+    } catch {}
+    try {
+      win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS);
+    } catch {}
     // Glass parity: Enforce z-order by moving to top in sorted order
     if (shown) {
-      try { win.moveTop() } catch {}
+      try {
+        win.moveTop();
+      } catch {}
     }
   }
 
   try {
-    headerWindow?.setAlwaysOnTop(true, 'screen-saver')
-    headerWindow?.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-    headerWindow?.moveTop() // Header always on top
+    headerWindow?.setAlwaysOnTop(true, "screen-saver");
+    headerWindow?.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS);
+    headerWindow?.moveTop(); // Header always on top
   } catch {}
 }
 
 function getVisibility(): WindowVisibility {
-  const result = { ...(persistedState.visible ?? {}) }
-  console.log(`[overlay-windows] getVisibility() returning:`, result)
-  return result
+  const result = { ...(persistedState.visible ?? {}) };
+  console.log(`[overlay-windows] getVisibility() returning:`, result);
+  return result;
 }
 
 function toggleWindow(name: FeatureName) {
-  const vis = getVisibility()
-  const current = !!vis[name]
-  const newVis = { ...vis, [name]: !current }
-  updateWindows(newVis)
-  return newVis[name]
+  const vis = getVisibility();
+  const current = !!vis[name];
+  const newVis = { ...vis, [name]: !current };
+  updateWindows(newVis);
+  return newVis[name];
 }
 
 function hideAllChildWindows() {
-  const vis = getVisibility()
-  const newVis: WindowVisibility = {}
-  updateWindows(newVis)
-  return vis
+  const vis = getVisibility();
+  const newVis: WindowVisibility = {};
+  updateWindows(newVis);
+  return vis;
 }
 
 function handleHeaderToggle() {
-  const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
-  
+  const headerVisible =
+    headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible();
+
   if (headerVisible) {
     // Glass parity: Save visible windows BEFORE hiding (windowManager.js:227-240)
-    lastVisibleWindows.clear()
+    lastVisibleWindows.clear();
     for (const [name, win] of childWindows) {
       if (win && !win.isDestroyed() && win.isVisible()) {
-        lastVisibleWindows.add(name)
+        lastVisibleWindows.add(name);
       }
     }
-    
+
     // Hide all child windows
     for (const name of lastVisibleWindows) {
-      const win = childWindows.get(name)
+      const win = childWindows.get(name);
       if (win && !win.isDestroyed()) {
-        win.hide()
+        win.hide();
       }
     }
-    
+
     // Hide header last
-    headerWindow?.hide()
-    } else {
+    headerWindow?.hide();
+  } else {
     // Show header
-    headerWindow = getOrCreateHeaderWindow()
-    headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-    headerWindow.setIgnoreMouseEvents(false)
-    headerWindow.setAlwaysOnTop(true, 'screen-saver')
-    headerWindow.showInactive()
-    
+    headerWindow = getOrCreateHeaderWindow();
+    headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS);
+    headerWindow.setIgnoreMouseEvents(false);
+    headerWindow.setAlwaysOnTop(true, "screen-saver");
+    headerWindow.showInactive();
+
     // Glass parity: Restore ONLY previously visible windows (windowManager.js:245-249)
     // Don't restore from persisted state - only from lastVisibleWindows Set
-    const vis: WindowVisibility = {}
+    const vis: WindowVisibility = {};
     for (const name of lastVisibleWindows) {
-      vis[name] = true
+      vis[name] = true;
     }
     if (Object.keys(vis).length > 0) {
-      updateWindows(vis)
+      updateWindows(vis);
     }
   }
 }
 
-let isAnimating = false
-let animationTarget: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
-let animationTimer: NodeJS.Timeout | null = null
+let isAnimating = false;
+let animationTarget: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 };
+let animationTimer: NodeJS.Timeout | null = null;
 
 function nudgeHeader(dx: number, dy: number) {
   // Glass parity: windowManager.js:133-154, smoothMovementManager.js:1-32
   // Animate header movement smoothly over 300ms (Glass animation duration)
-  const header = getOrCreateHeaderWindow()
-  const bounds = header.getBounds()
-  
+  const header = getOrCreateHeaderWindow();
+  const bounds = header.getBounds();
+
   // If already animating, update target instead of starting new animation
   if (isAnimating) {
-    const newTarget = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
-    animationTarget = newTarget
-    return
+    const newTarget = clampBounds({
+      ...bounds,
+      x: bounds.x + dx,
+      y: bounds.y + dy,
+    });
+    animationTarget = newTarget;
+    return;
   }
-  
-  const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
-  animationTarget = target
-  
+
+  const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy });
+  animationTarget = target;
+
   // Smooth animation over 300ms
-  const duration = 300
-  const startTime = Date.now()
-  const startX = bounds.x
-  const startY = bounds.y
-  isAnimating = true
-  
+  const duration = 300;
+  const startTime = Date.now();
+  const startX = bounds.x;
+  const startY = bounds.y;
+  isAnimating = true;
+
   const animate = () => {
-    const elapsed = Date.now() - startTime
-    const progress = Math.min(elapsed / duration, 1)
-    
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
     // Ease-out cubic for smooth deceleration
-    const eased = 1 - Math.pow(1 - progress, 3)
-    
-    const currentX = startX + (animationTarget.x - startX) * eased
-    const currentY = startY + (animationTarget.y - startY) * eased
-    
-    header.setPosition(Math.round(currentX), Math.round(currentY))
-    
+    const eased = 1 - Math.pow(1 - progress, 3);
+
+    const currentX = startX + (animationTarget.x - startX) * eased;
+    const currentY = startY + (animationTarget.y - startY) * eased;
+
+    header.setPosition(Math.round(currentX), Math.round(currentY));
+
     if (progress < 1) {
-      animationTimer = setTimeout(animate, 16) // ~60fps
+      animationTimer = setTimeout(animate, 16); // ~60fps
     } else {
       // Animation complete
-      isAnimating = false
-      animationTimer = null
-      
+      isAnimating = false;
+      animationTimer = null;
+
       // Recalculate child layout and save state
-      const vis = getVisibility()
-      layoutChildWindows(vis)
-      saveState({ headerBounds: animationTarget })
+      const vis = getVisibility();
+      layoutChildWindows(vis);
+      saveState({ headerBounds: animationTarget });
     }
-  }
-  
-  animate()
+  };
+
+  animate();
 }
 
 function openAskWindow() {
-  const vis = getVisibility()
-  const updated = { ...vis, ask: true }
-  updateWindows(updated)
+  const vis = getVisibility();
+  const updated = { ...vis, ask: true };
+  updateWindows(updated);
 }
 
 function registerShortcuts() {
   // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
-  const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
-  
+  const step = 80; // Glass parity: windowLayoutManager.js:243 uses 80px
+
   // Wrap in paramless functions to avoid 'conversion from X' errors
-  const nudgeUp = () => nudgeHeader(0, -step)
-  const nudgeDown = () => nudgeHeader(0, step)
-  const nudgeLeft = () => nudgeHeader(-step, 0)
-  const nudgeRight = () => nudgeHeader(step, 0)
-  
-  globalShortcut.register('CommandOrControl+\\', handleHeaderToggle)
-  globalShortcut.register('CommandOrControl+Enter', openAskWindow)
+  const nudgeUp = () => nudgeHeader(0, -step);
+  const nudgeDown = () => nudgeHeader(0, step);
+  const nudgeLeft = () => nudgeHeader(-step, 0);
+  const nudgeRight = () => nudgeHeader(step, 0);
+
+  globalShortcut.register("CommandOrControl+\\", handleHeaderToggle);
+  globalShortcut.register("CommandOrControl+Enter", openAskWindow);
   // Note: Glass uses 'Cmd+Up' not plain 'Up'; adjust if needed for parity
-  globalShortcut.register('CommandOrControl+Up', nudgeUp)
-  globalShortcut.register('CommandOrControl+Down', nudgeDown)
-  globalShortcut.register('CommandOrControl+Left', nudgeLeft)
-  globalShortcut.register('CommandOrControl+Right', nudgeRight)
+  globalShortcut.register("CommandOrControl+Up", nudgeUp);
+  globalShortcut.register("CommandOrControl+Down", nudgeDown);
+  globalShortcut.register("CommandOrControl+Left", nudgeLeft);
+  globalShortcut.register("CommandOrControl+Right", nudgeRight);
 }
 
 function unregisterShortcuts() {
-  globalShortcut.unregisterAll()
+  globalShortcut.unregisterAll();
 }
 
-app.on('browser-window-focus', () => {
-  headerWindow?.setAlwaysOnTop(true, 'screen-saver')
+app.on("browser-window-focus", () => {
+  headerWindow?.setAlwaysOnTop(true, "screen-saver");
   for (const win of childWindows.values()) {
-    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setAlwaysOnTop(true, "screen-saver");
   }
-})
+});
 
-app.on('ready', () => {
-  app.dock?.hide?.()
-  registerShortcuts()
-  getOrCreateHeaderWindow()
+app.on("ready", () => {
+  app.dock?.hide?.();
+  registerShortcuts();
+  getOrCreateHeaderWindow();
   // Don't restore persisted windows at startup - only show header
   // Child windows appear on demand (Listen button, Ask command, etc.)
-})
+});
 
-app.on('will-quit', () => {
-  unregisterShortcuts()
-})
+app.on("will-quit", () => {
+  unregisterShortcuts();
+});
 
-ipcMain.handle('win:show', (_event, name: FeatureName) => {
-  const next = toggleWindow(name)
-  return { ok: true, toggled: next ? 'shown' : 'hidden' }
-})
+ipcMain.handle("win:show", (_event, name: FeatureName) => {
+  const next = toggleWindow(name);
+  return { ok: true, toggled: next ? "shown" : "hidden" };
+});
 
-ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
-  console.log(`[overlay-windows] win:ensureShown called for ${name}`)
+ipcMain.handle("win:ensureShown", (_event, name: FeatureName) => {
+  console.log(`[overlay-windows] win:ensureShown called for ${name}`);
   // CRITICAL FIX: Only show the requested window, don't call updateWindows (which opens ALL windows in state)
-  let win = childWindows.get(name)
+  let win = childWindows.get(name);
   if (!win || win.isDestroyed()) {
-    win = createChildWindow(name)
+    win = createChildWindow(name);
   }
-  
+
   if (win && !win.isDestroyed()) {
     // Position and show window
-    const header = getOrCreateHeaderWindow()
-    const hb = header.getBounds()
-    const def = WINDOW_DATA[name]
+    const header = getOrCreateHeaderWindow();
+    const hb = header.getBounds();
+    const def = WINDOW_DATA[name];
     if (def) {
       // Center to header
       win.setBounds({
@@ -804,188 +948,208 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
         y: hb.y + hb.height + PAD,
         width: def.width,
         height: def.height,
-      })
-      win.show()
-      win.moveTop()
-      win.setAlwaysOnTop(true, 'screen-saver')
+      });
+      win.show();
+      win.moveTop();
+      win.setAlwaysOnTop(true, "screen-saver");
     }
   }
-  
+
   // Update state
-  const vis = getVisibility()
-  saveState({ visible: { ...vis, [name]: true } })
-  console.log(`[overlay-windows] ensureShown complete for ${name}`)
-  return { ok: true }
-})
+  const vis = getVisibility();
+  saveState({ visible: { ...vis, [name]: true } });
+  console.log(`[overlay-windows] ensureShown complete for ${name}`);
+  return { ok: true };
+});
 
-ipcMain.handle('win:hide', (_event, name: FeatureName) => {
-  console.log(`[overlay-windows] win:hide called for ${name}`)
-  const vis = getVisibility()
-  console.log('[overlay-windows] Current visibility:', vis)
-  const next = { ...vis }
-  delete next[name]
-  console.log('[overlay-windows] New visibility (after delete):', next)
-  updateWindows(next)
-  return { ok: true }
-  })
+ipcMain.handle("win:hide", (_event, name: FeatureName) => {
+  console.log(`[overlay-windows] win:hide called for ${name}`);
+  const vis = getVisibility();
+  console.log("[overlay-windows] Current visibility:", vis);
+  const next = { ...vis };
+  delete next[name];
+  console.log("[overlay-windows] New visibility (after delete):", next);
+  updateWindows(next);
+  return { ok: true };
+});
 
-  ipcMain.handle('win:getHeaderPosition', () => {
-  const header = getOrCreateHeaderWindow()
-  return header.getBounds()
-})
+ipcMain.handle("win:getHeaderPosition", () => {
+  const header = getOrCreateHeaderWindow();
+  return header.getBounds();
+});
 
-ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
-  const header = getOrCreateHeaderWindow()
-  const bounds = clampBounds({ ...header.getBounds(), x, y })
-  header.setBounds(bounds)
-  saveState({ headerBounds: bounds })
-    return { ok: true }
-  })
+ipcMain.handle("win:moveHeaderTo", (_event, x: number, y: number) => {
+  const header = getOrCreateHeaderWindow();
+  const bounds = clampBounds({ ...header.getBounds(), x, y });
+  header.setBounds(bounds);
+  saveState({ headerBounds: bounds });
+  return { ok: true };
+});
 
-ipcMain.handle('win:resizeHeader', (_event, width: number, height: number) => {
-  const header = getOrCreateHeaderWindow()
-  const bounds = header.getBounds()
-  const newBounds = clampBounds({ ...bounds, width, height })
-  header.setBounds(newBounds)
-  saveState({ headerBounds: newBounds })
-    return { ok: true }
-  })
+ipcMain.handle("win:resizeHeader", (_event, width: number, height: number) => {
+  const header = getOrCreateHeaderWindow();
+  const bounds = header.getBounds();
+  const newBounds = clampBounds({ ...bounds, width, height });
+  header.setBounds(newBounds);
+  saveState({ headerBounds: newBounds });
+  return { ok: true };
+});
 
-ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
-  const win = createChildWindow(winName)
-  win.setBounds({ ...win.getBounds(), height })
-  return { ok: true }
-})
-
-ipcMain.handle('header:toggle-visibility', () => {
-  handleHeaderToggle()
-    return { ok: true }
-  })
-
-ipcMain.handle('header:nudge', (_event, { dx, dy }: { dx: number; dy: number }) => {
-  nudgeHeader(dx, dy)
-  return { ok: true }
-})
-
-ipcMain.handle('header:open-ask', () => {
-  openAskWindow()
-  return { ok: true }
-})
-
-ipcMain.handle('capture:screenshot', async () => {
-  const { desktopCapturer } = require('electron')
-  try {
-    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } })
-    if (!sources.length) return { ok: false, error: 'No sources' }
-    const source = sources[0]
-    const buffer = source.thumbnail.toPNG()
-    const filePath = path.join(app.getPath('temp'), `evia-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, buffer)
-    const base64 = buffer.toString('base64')
-    return { ok: true, base64, width: source.thumbnail.getSize().width, height: source.thumbnail.getSize().height, path: filePath }
-  } catch (error) {
-    return { ok: false, error: (error as Error).message }
+ipcMain.handle(
+  "adjust-window-height",
+  (_event, { winName, height }: { winName: FeatureName; height: number }) => {
+    const win = createChildWindow(winName);
+    win.setBounds({ ...win.getBounds(), height });
+    return { ok: true };
   }
-})
+);
 
-  ipcMain.handle('prefs:get', () => {
-  return { ok: true, data: persistedState }
-})
+ipcMain.handle("header:toggle-visibility", () => {
+  handleHeaderToggle();
+  return { ok: true };
+});
 
-ipcMain.handle('prefs:set', (_event, data: Partial<PersistedState>) => {
-  saveState(data)
-        return { ok: true }
-})
+ipcMain.handle(
+  "header:nudge",
+  (_event, { dx, dy }: { dx: number; dy: number }) => {
+    nudgeHeader(dx, dy);
+    return { ok: true };
+  }
+);
 
-ipcMain.handle('close-window', (_event, name: FeatureName) => {
-  const vis = getVisibility()
-  const newVis = { ...vis, [name]: false }
-  updateWindows(newVis)
-  return { ok: true }
-})
+ipcMain.handle("header:open-ask", () => {
+  openAskWindow();
+  return { ok: true };
+});
+
+ipcMain.handle("capture:screenshot", async () => {
+  const { desktopCapturer } = require("electron");
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    if (!sources.length) return { ok: false, error: "No sources" };
+    const source = sources[0];
+    const buffer = source.thumbnail.toPNG();
+    const filePath = path.join(app.getPath("temp"), `evia-${Date.now()}.png`);
+    await fs.promises.writeFile(filePath, buffer);
+    const base64 = buffer.toString("base64");
+    return {
+      ok: true,
+      base64,
+      width: source.thumbnail.getSize().width,
+      height: source.thumbnail.getSize().height,
+      path: filePath,
+    };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+});
+
+ipcMain.handle("prefs:get", () => {
+  return { ok: true, data: persistedState };
+});
+
+ipcMain.handle("prefs:set", (_event, data: Partial<PersistedState>) => {
+  saveState(data);
+  return { ok: true };
+});
+
+ipcMain.handle("close-window", (_event, name: FeatureName) => {
+  const vis = getVisibility();
+  const newVis = { ...vis, [name]: false };
+  updateWindows(newVis);
+  return { ok: true };
+});
 
 // Settings hover handlers (Glass parity: show/hide with delay)
-ipcMain.on('show-settings-window', () => {
-  console.log('[overlay-windows] show-settings-window: Showing settings ONLY (not affecting other windows)')
+ipcMain.on("show-settings-window", () => {
+  console.log(
+    "[overlay-windows] show-settings-window: Showing settings ONLY (not affecting other windows)"
+  );
   if (settingsHideTimer) {
-    console.log('[overlay-windows] Clearing existing hide timer')
-    clearTimeout(settingsHideTimer)
-    settingsHideTimer = null
+    console.log("[overlay-windows] Clearing existing hide timer");
+    clearTimeout(settingsHideTimer);
+    settingsHideTimer = null;
   }
-  
+
   // CRITICAL FIX: Only create/show settings, NEVER touch listen/ask windows
-  let settingsWin = childWindows.get('settings')
+  let settingsWin = childWindows.get("settings");
   if (!settingsWin || settingsWin.isDestroyed()) {
-    settingsWin = createChildWindow('settings')
+    settingsWin = createChildWindow("settings");
   }
-  
+
   if (settingsWin && !settingsWin.isDestroyed()) {
-    const header = getOrCreateHeaderWindow()
-    const hb = header.getBounds()
+    const header = getOrCreateHeaderWindow();
+    const hb = header.getBounds();
     // Position settings below header, right-aligned
     settingsWin.setBounds({
       x: hb.x + hb.width - WINDOW_DATA.settings.width,
       y: hb.y + hb.height + PAD,
       width: WINDOW_DATA.settings.width,
       height: WINDOW_DATA.settings.height,
-    })
-    settingsWin.show()
-    settingsWin.moveTop()
-    settingsWin.setAlwaysOnTop(true, 'screen-saver')
+    });
+    settingsWin.show();
+    settingsWin.moveTop();
+    settingsWin.setAlwaysOnTop(true, "screen-saver");
   }
-  
-  // Update state but don't call updateWindows (which would relayout all windows)
-  const vis = getVisibility()
-  saveState({ visible: { ...vis, settings: true } })
-  console.log('[overlay-windows] Settings shown')
-})
 
-ipcMain.on('hide-settings-window', () => {
+  // Update state but don't call updateWindows (which would relayout all windows)
+  const vis = getVisibility();
+  saveState({ visible: { ...vis, settings: true } });
+  console.log("[overlay-windows] Settings shown");
+});
+
+ipcMain.on("hide-settings-window", () => {
   // Check if cursor is currently inside settings window before hiding
-  const settingsWin = childWindows.get('settings')
+  const settingsWin = childWindows.get("settings");
   if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) {
-    const cursorPos = screen.getCursorScreenPoint()
-    const bounds = settingsWin.getBounds()
-    const isInside = cursorPos.x >= bounds.x && 
-                    cursorPos.x <= bounds.x + bounds.width &&
-                    cursorPos.y >= bounds.y && 
-                    cursorPos.y <= bounds.y + bounds.height
-    
+    const cursorPos = screen.getCursorScreenPoint();
+    const bounds = settingsWin.getBounds();
+    const isInside =
+      cursorPos.x >= bounds.x &&
+      cursorPos.x <= bounds.x + bounds.width &&
+      cursorPos.y >= bounds.y &&
+      cursorPos.y <= bounds.y + bounds.height;
+
     if (isInside) {
-      console.log('[overlay-windows] hide-settings-window: IGNORED - cursor inside settings')
-      return // Don't hide if cursor is inside!
+      console.log(
+        "[overlay-windows] hide-settings-window: IGNORED - cursor inside settings"
+      );
+      return; // Don't hide if cursor is inside!
     }
   }
-  
-  console.log('[overlay-windows] hide-settings-window: Starting 200ms timer')
+
+  console.log("[overlay-windows] hide-settings-window: Starting 200ms timer");
   if (settingsHideTimer) {
-    clearTimeout(settingsHideTimer)
+    clearTimeout(settingsHideTimer);
   }
   settingsHideTimer = setTimeout(() => {
-    console.log('[overlay-windows] 200ms timer expired - hiding settings')
+    console.log("[overlay-windows] 200ms timer expired - hiding settings");
     // FIX: Only hide settings, don't affect other windows
-    const settingsWin = childWindows.get('settings')
+    const settingsWin = childWindows.get("settings");
     if (settingsWin && !settingsWin.isDestroyed()) {
-      settingsWin.setAlwaysOnTop(false, 'screen-saver')
-      settingsWin.hide()
+      settingsWin.setAlwaysOnTop(false, "screen-saver");
+      settingsWin.hide();
     }
-    const vis = getVisibility()
-    const newVis = { ...vis, settings: false }
-    saveState({ visible: newVis })
-    settingsHideTimer = null
-  }, 200) // Glass parity: 200ms delay
-})
+    const vis = getVisibility();
+    const newVis = { ...vis, settings: false };
+    saveState({ visible: newVis });
+    settingsHideTimer = null;
+  }, 200); // Glass parity: 200ms delay
+});
 
-ipcMain.on('cancel-hide-settings-window', () => {
-  console.log('[overlay-windows] cancel-hide-settings-window: Canceling hide')
+ipcMain.on("cancel-hide-settings-window", () => {
+  console.log("[overlay-windows] cancel-hide-settings-window: Canceling hide");
   if (settingsHideTimer) {
-    clearTimeout(settingsHideTimer)
-    settingsHideTimer = null
+    clearTimeout(settingsHideTimer);
+    settingsHideTimer = null;
   }
-})
+});
 
 function getHeaderWindow(): BrowserWindow | null {
-  return headerWindow && !headerWindow.isDestroyed() ? headerWindow : null
+  return headerWindow && !headerWindow.isDestroyed() ? headerWindow : null;
 }
 
 export {
@@ -998,6 +1162,4 @@ export {
   hideAllChildWindows,
   nudgeHeader,
   openAskWindow,
-}
-
-
+};
