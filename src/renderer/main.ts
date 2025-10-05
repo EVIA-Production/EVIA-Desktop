@@ -197,16 +197,13 @@ async function connect() {
 
     log(`Connecting mic WS: ${urlMic.split("?")[0]}`);
     const ws = window.evia.createWs(urlMic);
-
-    // Create a wrapper with similar API to frontend's WebSocket wrapper
     wsMic = {
       sendBinary: (data) => ws.sendBinary(data),
       sendCommand: (cmd) => ws.sendCommand(cmd),
       close: () => ws.close(),
     };
-    log("[mic] connected");
+    log("[mic] ws created (waiting for open)");
 
-    // Connect system WS
     log(`Connecting system WS: ${urlSys.split("?")[0]}`);
     const sys = window.evia.createWs(urlSys);
     wsSys = {
@@ -214,18 +211,117 @@ async function connect() {
       sendCommand: (cmd) => sys.sendCommand(cmd),
       close: () => sys.close(),
     };
-    log("[system] connected");
+    log("[system] ws created (waiting for open)");
 
-    // Start mic capture only if not disabled
-    if (!micDisabled) {
-      await startMicCapture(chatId, token);
-    } else {
-      log("[mic] Skipped start due to disabled state");
-    }
+    // Post-creation readiness probe (in case backend rejects immediately)
+    setTimeout(() => {
+      try {
+        // readyState mapping for clarity
+        const states: Record<number, string> = {
+          0: "CONNECTING",
+          1: "OPEN",
+          2: "CLOSING",
+          3: "CLOSED",
+        };
+        log(
+          `[diag] 750ms after create: mic=${
+            states[(ws as any)?._raw?.readyState ?? -1] || "n/a"
+          } system=${states[(sys as any)?._raw?.readyState ?? -1] || "n/a"}`
+        );
+      } catch {}
+    }, 750);
+
+    // Periodic health snapshot (stops once both closed)
+    const healthTimer = setInterval(() => {
+      const states: Record<number, string> = {
+        0: "CONNECTING",
+        1: "OPEN",
+        2: "CLOSING",
+        3: "CLOSED",
+      };
+      const micState = (ws as any)?._raw?.readyState;
+      const sysState = (sys as any)?._raw?.readyState;
+      log(
+        `[diag] ws states mic=${states[micState] || micState} system=${
+          states[sysState] || sysState
+        }`
+      );
+      if (
+        (micState === 3 || micState === undefined) &&
+        (sysState === 3 || sysState === undefined)
+      ) {
+        clearInterval(healthTimer);
+      }
+    }, 5000);
+
+    // Helper to start system audio helper AFTER system ws is open
+    const startSystemHelper = () => {
+      if ((window as any).evia && (window as any).evia.systemAudio) {
+        if (!sysIpcSubscribed) {
+          try {
+            if (typeof window.evia.systemAudio.onStatus === "function") {
+              window.evia.systemAudio.onStatus!((line: string) => {
+                log("[system][status] " + line);
+              });
+            }
+          } catch {}
+          try {
+            window.evia.systemAudio.onData(async (data: string) => {
+              try {
+                const json = JSON.parse(data);
+                const [_, rateStr, chStr] =
+                  json.mimeType.match(/rate=(\d+);channels=(\d+)/) || [];
+                const inputRate = parseInt(rateStr) || 48000;
+                const channels = parseInt(chStr) || 1;
+                const float32 = base64ToFloat32Array(json.data);
+                verboseLog(
+                  `[system] Received float32 audio: rate=${inputRate}Hz, channels=${channels}, samples=${float32.length}`
+                );
+                const pcm16 = await processSystemAudio(
+                  float32,
+                  inputRate,
+                  channels
+                );
+                if (pcm16 && pcm16.length > 0) {
+                  if (wsSys) wsSys.sendBinary(pcm16.buffer);
+                  const rms = calculateRMS(pcm16);
+                  verboseLog(
+                    `[system] Processed chunk RMS=${rms.toFixed(
+                      4
+                    )} sampleCount=${pcm16.length}`
+                  );
+                  if (
+                    !systemHeardLogged &&
+                    rms > AUDIO_ACTIVITY_RMS_THRESHOLD
+                  ) {
+                    systemHeardLogged = true;
+                    log(
+                      `[system] first audio detected (RMS=${rms.toFixed(4)})`
+                    );
+                  }
+                  sysBuffer.push(pcm16.buffer);
+                  pcmBuffers.system.push(pcm16.buffer);
+                  if (pcmBuffers.system.length > 100) pcmBuffers.system.shift();
+                }
+              } catch (e) {
+                console.error("Invalid system audio data:", e);
+              }
+            });
+          } catch {}
+          sysIpcSubscribed = true;
+        }
+        if (!sysHelperStarted) {
+          window.evia.systemAudio.start().catch(() => {});
+          sysHelperStarted = true;
+        }
+      } else {
+        log("[system] helper unavailable in this build");
+      }
+    };
 
     if (statusEl) {
-      statusEl.textContent = "Connected";
-      statusEl.className = "connected";
+      statusEl.textContent = "Connecting...";
+      statusEl.className = "connecting";
     }
 
     // System WS message handler (synthetic for now)
@@ -321,12 +417,11 @@ async function connect() {
       }
     });
     let sysLoopFirstChunkTs: number | null = null;
-    sys.onOpen?.(() => log("[system] ws open"));
-    const ensureLoopback = async (phase: string) => {
+    const ensureLoopback = async () => {
       if (!/win/i.test(navigator.platform)) return;
-      if (sysLoopStop) return; // already active
+      if (sysLoopStop) return;
       try {
-        log(`[system][loopback:init] phase=${phase} starting attempts`);
+        log(`[system][loopback:init] starting attempts after ws open`);
         sysLoopStop = await startWindowsLoopbackRenderer16kChunks(
           (buf: ArrayBuffer) => {
             if (!sysLoopFirstChunkTs) {
@@ -341,7 +436,6 @@ async function connect() {
           }
         );
         log("[system][loopback] active (renderer capture)");
-        // Watchdog: if no first chunk within 3s, log warning
         setTimeout(() => {
           if (!sysLoopFirstChunkTs) {
             log(
@@ -353,9 +447,15 @@ async function connect() {
         log("[system][loopback] failed all attempts: " + e);
       }
     };
-    // Try immediately (before ws open) to surface permission prompts & logs
-    ensureLoopback("post-ws-create");
-    sys.onOpen?.(() => ensureLoopback("ws-open"));
+    sys.onOpen?.(() => {
+      log("[system] ws open");
+      // Optional handshake if backend expects it
+      try {
+        wsSys?.sendCommand?.({ command: "start_stream", source: "system" });
+      } catch {}
+      startSystemHelper();
+      ensureLoopback();
+    });
     sys.onClose?.((e) => {
       const hint =
         e.code === 1008 || e.code === 1006
@@ -420,7 +520,25 @@ async function connect() {
         console.error("[mic] onMessage parse error:", err);
       }
     });
-    ws.onOpen?.(() => log("[mic] ws open"));
+    ws.onOpen?.(async () => {
+      log("[mic] ws open");
+      try {
+        wsMic?.sendCommand?.({ command: "start_stream", source: "mic" });
+      } catch {}
+      if (!micDisabled) {
+        try {
+          await startMicCapture(chatId, token);
+        } catch (err) {
+          log("[mic] startMicCapture failed: " + err);
+        }
+      } else {
+        log("[mic] Skipped start due to disabled state");
+      }
+      if (statusEl) {
+        statusEl.textContent = "Connected";
+        statusEl.className = "connected";
+      }
+    });
     ws.onClose?.((e) => {
       const hint =
         e.code === 1008 || e.code === 1006
@@ -1016,7 +1134,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
+let micStarting = false;
 async function startMicCapture(chatId: string, token: string) {
+  if (micStarting) {
+    log("[mic] startMicCapture already in progress");
+    return;
+  }
+  if (micProc || micStream) {
+    log("[mic] capture already active");
+    return;
+  }
+  micStarting = true;
   try {
     // Request mic access
     micStream = await navigator.mediaDevices.getUserMedia({
@@ -1036,82 +1164,62 @@ async function startMicCapture(chatId: string, token: string) {
     log(`[mic] Started with sampleRate=${settings.sampleRate || "default"}`);
 
     // Create context at target rate
-    micCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+    micCtx = new AudioContext({
+      sampleRate: SAMPLE_RATE,
+      latencyHint: "interactive",
+    });
     try {
       await micCtx.resume();
     } catch {}
 
-    // Create source and processor
     const source = micCtx.createMediaStreamSource(micStream);
-    micProc = micCtx.createScriptProcessor(1024, 1, 1); // Smaller buffer for lower latency
-
-    // Connect graph and ensure processor runs; route through zero-gain to avoid feedback
-    source.connect(micProc);
     const zero = micCtx.createGain();
     zero.gain.value = 0.0;
-    micProc.connect(zero);
-    zero.connect(micCtx.destination);
 
-    // Mic buffer for chunking
-    let micAccumulated = new Float32Array(0);
-
+    // AudioWorklet-only path (fallback removed)
     let firstChunkLogged = false;
-    micProc.onaudioprocess = (e) => {
-      const inputChannelData = e.inputBuffer.getChannelData(0);
-
-      // Accumulate samples
-      const newLength = micAccumulated.length + inputChannelData.length;
-      const newAccumulated = new Float32Array(newLength);
-      newAccumulated.set(micAccumulated);
-      newAccumulated.set(inputChannelData, micAccumulated.length);
-      micAccumulated = newAccumulated;
-
-      // Process complete chunks
-      while (micAccumulated.length >= SAMPLES_PER_CHUNK) {
-        const chunk = micAccumulated.slice(0, SAMPLES_PER_CHUNK);
-        micAccumulated = micAccumulated.slice(SAMPLES_PER_CHUNK);
-
-        // Convert to PCM16
-        const pcm16 = new Int16Array(SAMPLES_PER_CHUNK);
-        for (let i = 0; i < SAMPLES_PER_CHUNK; i++) {
-          pcm16[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32767));
-        }
-
-        // Send to WS via overlay WS
-        if (wsMic) {
-          wsMic.sendBinary(pcm16.buffer as ArrayBuffer);
-        }
-
-        // Log RMS and first samples for diagnostics
-        const rms = calculateRMS(pcm16);
-        if (!firstChunkLogged) {
-          log("[mic] audio flow active");
-          firstChunkLogged = true;
-        }
-        verboseLog(
-          `[mic] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
-            pcm16.length
-          }`
-        );
-        if (VERBOSE_AUDIO_LOGS)
-          console.log("[mic] First 5 samples:", pcm16.slice(0, 5));
-
-        if (!micHeardLogged && rms > AUDIO_ACTIVITY_RMS_THRESHOLD) {
-          micHeardLogged = true;
-          log(`[mic] first audio detected (RMS=${rms.toFixed(4)})`);
-        }
-
-        // Store for export
-        micBuffer.push(pcm16.buffer);
-        if (micBuffer.length > 100) micBuffer.shift(); // ~10s
+    await micCtx.audioWorklet.addModule("mic-audio-worklet.js");
+    const workletNode: any = new (window as any).AudioWorkletNode(
+      micCtx,
+      "mic-chunk-processor",
+      { processorOptions: { samplesPerChunk: SAMPLES_PER_CHUNK } }
+    );
+    workletNode.port.onmessage = (event: MessageEvent) => {
+      if (event.data?.type !== "chunk") return;
+      const chunk: Float32Array = event.data.samples;
+      const pcm16 = new Int16Array(chunk.length);
+      for (let i = 0; i < chunk.length; i++) {
+        pcm16[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32767));
       }
+      if (wsMic) wsMic.sendBinary(pcm16.buffer);
+      const rms = calculateRMS(pcm16);
+      if (!firstChunkLogged) {
+        log("[mic] audio flow active");
+        firstChunkLogged = true;
+      }
+      verboseLog(
+        `[mic] Processed chunk RMS=${rms.toFixed(4)} sampleCount=${
+          pcm16.length
+        }`
+      );
+      if (!micHeardLogged && rms > AUDIO_ACTIVITY_RMS_THRESHOLD) {
+        micHeardLogged = true;
+        log(`[mic] first audio detected (RMS=${rms.toFixed(4)})`);
+      }
+      micBuffer.push(pcm16.buffer);
+      if (micBuffer.length > 100) micBuffer.shift();
     };
+    source.connect(workletNode).connect(zero).connect(micCtx.destination);
+    (window as any).processorNode = workletNode;
+    log("[mic] Using AudioWorkletNode");
 
     micEnabled = true;
     log("[mic] Capture started");
   } catch (err) {
     console.error("[mic] Start failed:", err);
     log(`[mic] Error: ${err}`);
+  } finally {
+    micStarting = false;
   }
 }
 
