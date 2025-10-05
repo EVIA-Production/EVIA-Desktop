@@ -30,6 +30,12 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
+  // 🔍 DIAGNOSTIC: Component function execution (runs on EVERY render)
+  console.log('[ListenView] 🔍🔍🔍 COMPONENT FUNCTION EXECUTING - PROOF OF INSTANTIATION')
+  console.log('[ListenView] 🔍 Props:', { linesCount: lines.length, followLive })
+  console.log('[ListenView] 🔍 Window location:', window.location.href)
+  console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
+  
   const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -39,12 +45,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
-  // Glass parity: Show dummy insights immediately (real insights come from backend via WebSocket)
-  const [insights, setInsights] = useState<Insight[]>([
-    { text: i18n.t('overlay.insights.dummyInsight1'), type: 'insight' },
-    { text: i18n.t('overlay.insights.dummyInsight2'), type: 'insight' },
-    { text: i18n.t('overlay.insights.dummyInsight3'), type: 'insight' },
-  ]);
+  // Glass parity: Insights fetched from backend via fetchInsights service
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -112,28 +114,100 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []);
 
+  // 🔧 FIX: Start timer IMMEDIATELY when component mounts (independent of WebSocket/IPC)
   useEffect(() => {
-    console.log('[ListenView] 🔍 WebSocket useEffect STARTED');
-    console.log('[ListenView] 🔍 localStorage:', typeof localStorage, localStorage ? 'exists' : 'null');
+    console.log('[ListenView] 🕐 Starting session timer on mount');
+    setIsSessionActive(true);
+    startTimer();
     
-    let cid: string | null = null;
+    return () => {
+      console.log('[ListenView] 🛑 Stopping timer on unmount');
+      stopTimer();
+      setIsSessionActive(false);
+    };
+  }, []); // Empty dependency - timer starts immediately on mount
+
+  // 🔧 FIX: Listen for transcript messages forwarded from Header window via IPC
+  useEffect(() => {
+    console.log('[ListenView] Setting up IPC listener for transcript messages');
+    
+    const handleTranscriptMessage = (msg: any) => {
+      console.log('[ListenView] 📨 Received IPC message:', msg.type);
+      
+      // 🔧 FIX: Handle recording_stopped to stop timer
+      if (msg.type === 'recording_stopped') {
+        console.log('[ListenView] 🛑 Recording stopped - stopping timer');
+        stopTimer();
+        setIsSessionActive(false);
+        return;
+      }
+      
+      if (msg.type === 'transcript_segment' && msg.data) {
+        const { text = '', speaker = null, is_final = false } = msg.data;
+        console.log('[ListenView] 📨 IPC Adding transcript:', text, 'final:', is_final);
+        setTranscripts(prev => {
+          const next = [...prev, { text, speaker, isFinal: is_final }];
+          console.log('[IPC State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
+          return next;
+        });
+        if (autoScroll && viewportRef.current) {
+          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        }
+      } else if (msg.type === 'status' && msg.data?.echo_text) {
+        const text = msg.data.echo_text;
+        const isFinal = msg.data.final === true;
+        console.log('[ListenView] 📨 IPC Adding transcript from echo_text:', text, 'final:', isFinal);
+        setTranscripts(prev => {
+          const next = [...prev, { text, speaker: null, isFinal }];
+          console.log('[IPC State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
+          return next;
+        });
+        if (autoScroll && viewportRef.current) {
+          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        }
+      }
+    };
+    
+    const eviaIpc = (window as any).evia?.ipc as { on: (channel: string, listener: (...args: any[]) => void) => void } | undefined;
+    if (eviaIpc?.on) {
+      eviaIpc.on('transcript-message', handleTranscriptMessage);
+      console.log('[ListenView] ✅ IPC listener registered');
+    } else {
+      console.error('[ListenView] ❌ window.evia.ipc.on not available');
+    }
+    
+    return () => {
+      console.log('[ListenView] Cleaning up IPC listener');
+      // Note: Electron IPC doesn't provide removeListener, so we just log cleanup
+    };
+  }, [autoScroll]);
+
+  useEffect(() => {
+    // 🔍 ULTRA-DIAGNOSTIC: Wrap entire useEffect in try-catch to catch silent failures
     try {
-      cid = localStorage.getItem('current_chat_id');
-      console.log('[ListenView] 🔍 Retrieved chat_id:', cid, 'type:', typeof cid);
-    } catch (err) {
-      console.error('[ListenView] ❌ localStorage.getItem ERROR:', err);
-      return () => {};
-    }
-    
-    if (!cid || cid === 'undefined' || cid === 'null') {
-      console.error('[ListenView] ❌ No valid chat_id (value:', cid, '); create one first');
-      return () => {};
-    }
-    console.log('[ListenView] ✅ Valid chat_id found:', cid, '- Setting up WebSocket...');
-    
-    // CRITICAL: ListenView window is a SEPARATE BrowserWindow with its OWN WebSocket instance!
-    // It MUST connect to receive messages (backend supports multiple connections per chat_id)
-    const ws = getWebSocketInstance(cid, 'mic');
+      console.log('[ListenView] 🔍 WebSocket useEffect STARTED');
+      console.log('[ListenView] 🔍 localStorage:', typeof localStorage, localStorage ? 'exists' : 'null');
+      console.log('[ListenView] 🔍 getWebSocketInstance type:', typeof getWebSocketInstance);
+      
+      let cid: string | null = null;
+      try {
+        cid = localStorage.getItem('current_chat_id');
+        console.log('[ListenView] 🔍 Retrieved chat_id:', cid, 'type:', typeof cid);
+      } catch (err) {
+        console.error('[ListenView] ❌ localStorage.getItem ERROR:', err);
+        return () => {};
+      }
+      
+      if (!cid || cid === 'undefined' || cid === 'null') {
+        console.error('[ListenView] ❌ No valid chat_id (value:', cid, '); create one first');
+        return () => {};
+      }
+      console.log('[ListenView] ✅ Valid chat_id found:', cid, '- Setting up WebSocket...');
+      console.log('[ListenView] 🔍 About to call getWebSocketInstance with:', cid, 'mic');
+      
+      // CRITICAL: ListenView window is a SEPARATE BrowserWindow with its OWN WebSocket instance!
+      // It MUST connect to receive messages (backend supports multiple connections per chat_id)
+      const ws = getWebSocketInstance(cid, 'mic');
     
     // Subscribe BEFORE connecting to ensure handlers are registered
     const unsub = ws.onMessage((msg: any) => {
@@ -151,9 +225,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
       } else if (msg.type === 'insight_segment' && msg.data) {
-        const { text = '', type = 'insight' } = msg.data;
-        console.log('[ListenView] ✅ Adding insight:', text, 'type:', type);
-        setInsights(prev => [...prev, { text, type }]);
+        // Note: Insights come from /insights endpoint, not WebSocket
+        // This case is kept for potential future real-time insights
+        console.log('[ListenView] Insight segment received (not currently used)');
       } else if (msg.type === 'status') {
         console.log('[ListenView] ✅ Status message:', msg.data);
         
@@ -172,15 +246,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         }
         
-        // Start timer ONLY when Deepgram connection is confirmed open
+        // 🔧 FIX: Timer is now controlled by component lifecycle, not connection status
+        // This prevents timer resets on reconnection
         if (msg.data?.dg_open === true) {
-          console.log('[ListenView] ✅ Deepgram connection OPEN - starting timer');
-          setIsSessionActive(true);
-          startTimer();
+          console.log('[ListenView] ✅ Deepgram connection OPEN (timer already running)');
         } else if (msg.data?.dg_open === false) {
-          console.log('[ListenView] Deepgram connection CLOSED - stopping timer');
-          setIsSessionActive(false);
-          stopTimer();
+          console.log('[ListenView] ⚠️ Deepgram connection CLOSED (timer continues)');
         }
       }
     });
@@ -196,9 +267,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] Cleanup: Disconnecting WebSocket for this window');
       unsub();
       ws.disconnect(); // Disconnect THIS window's WebSocket (doesn't affect header's)
-      stopTimer(); // Clean up timer
-      setIsSessionActive(false);
     };
+    } catch (error) {
+      console.error('[ListenView] ❌❌❌ CRITICAL ERROR in useEffect:', error);
+      console.error('[ListenView] ❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
+      console.error('[ListenView] ❌ Error name:', error instanceof Error ? error.name : 'Unknown');
+      console.error('[ListenView] ❌ Error message:', error instanceof Error ? error.message : String(error));
+      return () => {}; // Return empty cleanup on error
+    }
   }, []); // Empty dependency - only run once on mount
 
   const toggleView = async () => {
@@ -255,20 +331,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   const handleInsightClick = async (insight: Insight) => {
-    console.log('[ListenView] Insight clicked:', insight.title);
-    // Glass parity: Open Ask window and populate with insight prompt
+    console.log('[ListenView] 🎯 Insight clicked:', insight.title);
+    console.log('[ListenView] Insight prompt:', insight.prompt);
+    
+    // Glass parity: Open Ask window and send prompt via IPC
     try {
+      // 1. Open Ask window
       await (window as any).evia?.windows?.openAskWindow?.();
-      // Wait a moment for window to open, then populate
-      setTimeout(() => {
-        const askInput = document.querySelector('#textInput') as HTMLInputElement;
-        if (askInput) {
-          askInput.value = insight.prompt;
-          askInput.focus();
-        }
-      }, 300);
+      console.log('[ListenView] ✅ Ask window opened');
+      
+      // 2. Send prompt via IPC (Glass parity: uses IPC relay)
+      const eviaIpc = (window as any).evia?.ipc as { send: (channel: string, ...args: any[]) => void } | undefined;
+      if (eviaIpc) {
+        eviaIpc.send('ask:set-prompt', insight.prompt);
+        console.log('[ListenView] ✅ Prompt sent via IPC');
+      } else {
+        console.warn('[ListenView] IPC not available, falling back to DOM manipulation');
+        // Fallback: DOM manipulation (less reliable)
+        setTimeout(() => {
+          const askInput = document.querySelector('#textInput') as HTMLInputElement;
+          if (askInput) {
+            askInput.value = insight.prompt;
+            askInput.focus();
+            console.log('[ListenView] ⚠️ Prompt set via DOM (fallback)');
+          }
+        }, 300);
+      }
     } catch (error) {
-      console.error('[ListenView] Failed to open Ask window:', error);
+      console.error('[ListenView] ❌ Failed to handle insight click:', error);
     }
   };
 
@@ -601,23 +691,48 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         <div className="glass-scroll" ref={viewportRef}>
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
-              transcripts.map((line, i) => (
-                <div
-                  key={i}
-                  className={`bubble ${line.speaker === 0 ? 'me' : 'them'}`}
-                  style={{
-                    opacity: line.isFinal ? 1 : 0.6,
-                    background:
-                      line.speaker === 0
+              transcripts.map((line, i) => {
+                // 🎨 SPEAKER DIARIZATION: speaker 1 = mic = "me" (blue, right), speaker 0 = system = "them" (grey, left)
+                const isMe = line.speaker === 1 || line.speaker === null; // Default to "me" if speaker unknown
+                const isThem = line.speaker === 0;
+                
+                return (
+                  <div
+                    key={i}
+                    className={`bubble ${isMe ? 'me' : 'them'}`}
+                    style={{
+                      // 🎨 FADE-IN ANIMATION: 0.2s opacity transition
+                      transition: 'opacity 0.2s ease-in',
+                      opacity: line.isFinal ? 1 : 0.6,
+                      // 🎨 BACKGROUND: Blue gradient for me, grey for them
+                      background: isMe
                         ? 'linear-gradient(135deg, rgba(0, 122, 255, 0.9) 0%, rgba(10, 132, 255, 0.85) 100%)'
-                        : 'rgba(255, 255, 255, 0.12)',
-                    alignSelf: line.speaker === 0 ? 'flex-end' : 'flex-start',
-                    color: '#ffffff',
-                  }}
-                >
-                  <span className="bubble-text">{line.text}</span>
-                </div>
-              ))
+                        : 'linear-gradient(135deg, rgba(128, 128, 128, 0.5) 0%, rgba(160, 160, 160, 0.45) 100%)',
+                      // 🎨 ALIGNMENT: Right for me, left for them
+                      alignSelf: isMe ? 'flex-end' : 'flex-start',
+                      color: '#ffffff',
+                      padding: '8px 12px',
+                      borderRadius: '12px',
+                      marginBottom: '8px',
+                      maxWidth: '80%',
+                      wordWrap: 'break-word',
+                    }}
+                  >
+                    {/* 🏷️ SPEAKER LABEL (optional, for debugging) */}
+                    {line.speaker !== null && (
+                      <div style={{ 
+                        fontSize: '10px', 
+                        opacity: 0.7, 
+                        marginBottom: '4px',
+                        fontWeight: '500',
+                      }}>
+                        {isMe ? 'Me (Mic)' : 'Them (System)'}
+                      </div>
+                    )}
+                    <span className="bubble-text">{line.text}</span>
+                  </div>
+                );
+              })
             ) : (
               <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
                 {i18n.t('overlay.listen.waitingForSpeech')}

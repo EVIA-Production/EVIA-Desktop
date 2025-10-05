@@ -2,6 +2,9 @@ appId: com.evia.desktop
 productName: EVIA Desktop
 files:
   - dist/**
+  - src/main/assets/**
+asarUnpack:
+  - "src/main/assets/SystemAudioDump"
 mac:
   category: public.app-category.productivity
   hardenedRuntime: true
@@ -10,9 +13,9 @@ mac:
   gatekeeperAssess: false
   extendInfo:
     ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
+    NSMicrophoneUsageDescription: "EVIA needs access to your microphone to transcribe your voice in meetings."
+    NSScreenCaptureUsageDescription: "EVIA needs access to screen recording to capture system audio from meetings and calls."
+    NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
     - dmg
-extraResources:
-  - from: native/mac/SystemAudioCapture/SystemAudioCapture.app
-    to: mac/SystemAudioCapture.app
 publish: null

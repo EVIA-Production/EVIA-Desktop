@@ -1,8 +1,9 @@
-import { app, ipcMain, dialog } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
-import * as keytar from 'keytar';
+import * as keytar from 'keytar'
+import { systemAudioService } from './system-audio-service';
 
 function getBackendHttpBase(): string {
   const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
@@ -49,7 +50,9 @@ app.on('activate', () => {
   if (!getHeaderWindow()) createHeaderWindow()
 })
 
-app.on('quit', () => {
+app.on('quit', async () => {
+  console.log('[Main] App quitting, cleaning up system audio...')
+  await systemAudioService.stop()
   processManager.cleanupAllProcesses()
 })
 
@@ -61,33 +64,21 @@ async function killExisting(name: string): Promise<boolean> {
   })
 }
 
+// System Audio IPC Handlers - Using SystemAudioService (Glass binary approach)
 ipcMain.handle('system-audio:start', async () => {
-  const result = await processManager.startSystemAudioHelper()
-  if (result.ok) {
-    processManager.registerSystemAudioHandlers(
-      (line: string) => {
-        const hw = getHeaderWindow()
-        if (hw && !hw.isDestroyed()) {
-          hw.webContents.send('system-audio:data', line)
-        }
-      },
-      (logLine: string) => {
-        console.warn('[SystemAudioCapture][stderr]', logLine)
-        try {
-          const data = JSON.parse(logLine)
-          const hw = getHeaderWindow()
-          if (data.status && hw && !hw.isDestroyed()) {
-            hw.webContents.send('system-audio:status', logLine)
-          }
-        } catch (e) {}
-      }
-    )
-  }
+  console.log('[Main] IPC: system-audio:start called')
+  const result = await systemAudioService.start()
   return result
 })
 
 ipcMain.handle('system-audio:stop', async () => {
-  return await processManager.stopSystemAudioHelper()
+  console.log('[Main] IPC: system-audio:stop called')
+  const result = await systemAudioService.stop()
+  return result
+})
+
+ipcMain.handle('system-audio:is-running', async () => {
+  return systemAudioService.isSystemAudioRunning()
 })
 
 ipcMain.handle('auth:login', async (_event, {username, password}) => {
@@ -115,6 +106,35 @@ ipcMain.handle('auth:getToken', async () => {
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
 app.whenReady().then(() => {
+  // 🔧 ELECTRON 38+: Enable system audio loopback via Chromium's built-in support
+  // This replaces the need for external binaries (SystemAudioDump) or getDisplayMedia hacks
+  // Docs: https://www.electronjs.org/docs/latest/api/session#sessetdisplaymediarequesthandlerhandler
+  console.log('[Main] 🎤 Setting up display media request handler with audio loopback support')
+  
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    console.log('[Main] 🎥 Display media requested, getting desktop sources...')
+    
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+      console.log(`[Main] ✅ Found ${sources.length} desktop sources`)
+      
+      if (sources.length > 0) {
+        // Use first screen source and enable audio loopback
+        // 'loopback' is the key that enables system audio capture in Chromium 31+
+        console.log(`[Main] 🔊 Enabling audio loopback for source: "${sources[0].name}"`)
+        callback({ 
+          video: sources[0],
+          audio: 'loopback'  // ← Magic keyword for system audio in Electron 31+
+        })
+      } else {
+        console.warn('[Main] ⚠️  No desktop sources available')
+        callback({})
+      }
+    }).catch((error) => {
+      console.error('[Main] ❌ Failed to get desktop sources:', error)
+      callback({})
+    })
+  })
+  
   createHeaderWindow()
   const hw = getHeaderWindow()
   // Ensure debug visibility

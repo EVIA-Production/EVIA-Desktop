@@ -44,6 +44,12 @@ interface EviaBridge {
   };
   // Desktop capturer for screen/audio capture
   getDesktopCapturerSources: (opts: any) => Promise<any[]>;
+  // 🔐 Authentication via secure keytar storage
+  auth: {
+    login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    logout: () => Promise<void>;
+    getToken: () => Promise<string | null>;
+  };
 }
 
 declare global {

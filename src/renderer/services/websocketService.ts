@@ -102,11 +102,15 @@ export class ChatWebSocket {
         console.warn('WebSocket already connected');
         return;
       }
-      const token = localStorage.getItem('auth_token') || '';
+      
+      // 🔐 Get token from secure keytar storage (not localStorage!)
+      console.log('[WS] Getting auth token from keytar...');
+      const token = await window.evia.auth.getToken();
       if (!token) {
-        console.error('[WS] Missing auth token. Please login.');
+        console.error('[WS] Missing auth token. Please login first.');
         return;
       }
+      console.log('[WS] ✅ Got auth token (length:', token.length, 'chars)');
       const backendUrl = getBackendHttpBase();
       const chatId = await getOrCreateChatId(backendUrl, token);
       if (!chatId) {

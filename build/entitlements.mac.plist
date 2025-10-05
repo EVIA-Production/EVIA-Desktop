@@ -2,15 +2,32 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
+    <!-- Allow JIT compilation for V8/Electron -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
-    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    
+    <!-- Allow unsigned executable memory for Electron -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
-    <key>com.apple.security.get-task-allow</key>
+    
+    <!-- CRITICAL: Screen recording permission for desktopCapturer API -->
+    <key>com.apple.security.device.screen-recording</key>
+    <true/>
+    
+    <!-- CRITICAL: Personal information screen capture (alternative key for newer macOS) -->
+    <key>com.apple.security.personal-information.screen-recording</key>
+    <true/>
+    
+    <!-- Microphone access -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    
+    <!-- Microphone access (alternative key) -->
+    <key>com.apple.security.device.microphone</key>
+    <true/>
+    
+    <!-- Camera access (if needed in future) -->
+    <key>com.apple.security.device.camera</key>
     <true/>
 </dict>
 </plist>

@@ -41,8 +41,18 @@ contextBridge.exposeInMainWorld('evia', {
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),
     stop: () => ipcRenderer.invoke('system-audio:stop'),
-    onData: (cb: (jsonLine: string) => void) => ipcRenderer.on('system-audio:data', (_e, line) => cb(line)),
-    onStatus: (cb: (line: string) => void) => ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
+    isRunning: () => ipcRenderer.invoke('system-audio:is-running'),
+    // Glass parity: system-audio-data event sends {data: base64String}
+    onData: (cb: (data: { data: string }) => void) => {
+      const wrappedCb = (_e: any, data: { data: string }) => cb(data);
+      ipcRenderer.on('system-audio-data', wrappedCb);
+      return wrappedCb; // Return for cleanup
+    },
+    removeOnData: (wrappedCb: any) => 
+      ipcRenderer.removeListener('system-audio-data', wrappedCb),
+    // Legacy status handler (can be used for debugging)
+    onStatus: (cb: (line: string) => void) => 
+      ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
   },
   overlay: {
     setClickThrough: (enabled: boolean) => ipcRenderer.send('overlay:setClickThrough', enabled),
@@ -73,6 +83,18 @@ contextBridge.exposeInMainWorld('evia', {
   auth: {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
     getToken: () => ipcRenderer.invoke('auth:getToken')
+  },
+  // 🔧 FIX: IPC bridge for cross-window communication (Header → Listen)
+  ipc: {
+    send: (channel: string, ...args: any[]) => {
+      console.log('[Preload] IPC send:', channel, args);
+      ipcRenderer.send(channel, ...args);
+    },
+    on: (channel: string, listener: (...args: any[]) => void) => {
+      console.log('[Preload] IPC listener registered for:', channel);
+      // Remove the 'event' parameter that Electron provides
+      ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+    }
   }
 })
 

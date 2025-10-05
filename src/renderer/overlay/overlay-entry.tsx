@@ -13,6 +13,13 @@ const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
 const rootEl = document.getElementById('overlay-root')
 
+// 🔍 DIAGNOSTIC: Entry point execution
+console.log('[OverlayEntry] 🔍 ENTRY POINT EXECUTING')
+console.log('[OverlayEntry] 🔍 URL:', window.location.href)
+console.log('[OverlayEntry] 🔍 Search params:', window.location.search)
+console.log('[OverlayEntry] 🔍 View param:', view)
+console.log('[OverlayEntry] 🔍 rootEl exists:', !!rootEl)
+
 // Initialize language from localStorage or default to German
 const savedLanguage = i18n.getLanguage()
 
@@ -46,25 +53,30 @@ function App() {
         // Start capture
         console.log('[OverlayEntry] Starting audio capture...')
         
-        // Ensure chat_id exists before starting capture
-        const token = localStorage.getItem('auth_token') || ''
+        // 🔧 Get auth token from keytar (secure credential storage)
+        console.log('[OverlayEntry] 🔍 Getting auth token from keytar...')
+        const token = await (window as any).evia?.auth?.getToken?.()
         const backend = (window as any).EVIA_BACKEND_URL || 'http://localhost:8000'
         
         if (!token) {
-          console.error('[OverlayEntry] Missing auth token. Please login.')
+          console.error('[OverlayEntry] ❌ No auth token found - user must login first')
+          console.error('[OverlayEntry] Run this in DevTools: await window.evia.auth.login("admin", "your-password")')
           return
         }
+        
+        console.log('[OverlayEntry] ✅ Got auth token (length:', token.length, 'chars)')
         
         // Import getOrCreateChatId dynamically to ensure chat exists
         const { getOrCreateChatId } = await import('../services/websocketService')
         const chatId = await getOrCreateChatId(backend, token)
         console.log('[OverlayEntry] Using chat_id:', chatId)
         
-        // Start audio capture (mic-only for now)
-        const handle = await startCapture(false)
+        // Start audio capture (mic + system audio for meeting transcription)
+        console.log('[OverlayEntry] Starting dual capture (mic + system audio)...')
+        const handle = await startCapture(true) // Enable system audio for speaker diarization
         captureHandleRef.current = handle
         setIsCapturing(true)
-        console.log('[OverlayEntry] Audio capture started successfully')
+        console.log('[OverlayEntry] Audio capture started successfully (mic + system)')
       } else {
         // Stop capture
         console.log('[OverlayEntry] Stopping audio capture...')
@@ -72,6 +84,17 @@ function App() {
         captureHandleRef.current = null
         setIsCapturing(false)
         console.log('[OverlayEntry] Audio capture stopped successfully')
+        
+        // 🔧 FIX: Notify Listen window to stop timer
+        try {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            eviaIpc.send('transcript-message', { type: 'recording_stopped' });
+            console.log('[OverlayEntry] Sent recording_stopped message to Listen window');
+          }
+        } catch (error) {
+          console.error('[OverlayEntry] Failed to send recording_stopped:', error);
+        }
       }
     } catch (error) {
       console.error('[OverlayEntry] Error toggling audio capture:', error)
@@ -83,6 +106,7 @@ function App() {
 
   switch (view) {
     case 'header':
+      console.log('[OverlayEntry] 🔍 Rendering HEADER view')
       return (
         <EviaBar
           currentView={null}
@@ -94,6 +118,8 @@ function App() {
         />
       )
     case 'listen':
+      console.log('[OverlayEntry] 🔍 Rendering LISTEN view - about to create ListenView component')
+      console.log('[OverlayEntry] 🔍 ListenView imported:', typeof ListenView)
       return (
         <ListenView
           lines={[]}

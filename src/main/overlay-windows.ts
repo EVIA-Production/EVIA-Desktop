@@ -2,6 +2,10 @@ import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
 import fs from 'fs'
 import path from 'path'
 
+// 🔧 Dev mode detection for Vite dev server
+const isDev = process.env.NODE_ENV === 'development'
+const VITE_DEV_SERVER_URL = 'http://localhost:5174'
+
 export type FeatureName = 'listen' | 'ask' | 'settings' | 'shortcuts'
 
 type WindowVisibility = Partial<Record<FeatureName, boolean>>
@@ -149,10 +153,15 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setContentProtection(true)
   headerWindow.setIgnoreMouseEvents(false)
 
-  // Load overlay.html with ?view=header query param for routing
-  headerWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-    query: { view: 'header' },
-  })
+  // 🔧 Load from Vite dev server in development, built files in production
+  if (isDev) {
+    headerWindow.loadURL(`${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
+    console.log('[overlay-windows] 🔧 Header loading from Vite dev server:', `${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
+  } else {
+    headerWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
+      query: { view: 'header' },
+    })
+  }
 
   headerWindow.on('moved', () => {
     const b = headerWindow?.getBounds()
@@ -270,10 +279,16 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Glass parity: All windows are interactive by default (windowManager.js:287)
   win.setIgnoreMouseEvents(false)
 
-  // All windows load overlay.html with different ?view= query params for routing
-  win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-    query: { view: name },
-  })
+  // 🔧 Load from Vite dev server in development, built files in production
+  if (isDev) {
+    const url = `${VITE_DEV_SERVER_URL}/overlay.html?view=${name}`
+    win.loadURL(url)
+    console.log(`[overlay-windows] 🔧 ${name} window loading from Vite dev server:`, url)
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
+      query: { view: name },
+    })
+  }
 
   win.on('closed', () => {
     childWindows.delete(name)
@@ -872,6 +887,50 @@ ipcMain.handle('header:open-ask', () => {
   return { ok: true }
 })
 
+// 🔧 FIX: Expose desktopCapturer.getSources for system audio capture
+ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.SourcesOptions) => {
+  const { desktopCapturer, systemPreferences } = require('electron')
+  try {
+    console.log('[Main] 🎥 desktopCapturer.getSources called')
+    console.log('[Main] Options:', JSON.stringify(options))
+    
+    // Check screen recording permission on macOS
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      console.log('[Main] macOS Screen Recording permission status:', status)
+      
+      if (status === 'denied') {
+        console.warn('[Main] ⚠️  Screen Recording permission currently DENIED')
+        console.warn('[Main] desktopCapturer will attempt to request permission from macOS...')
+        // DON'T throw error - let desktopCapturer.getSources() trigger macOS permission prompt
+      } else if (status === 'not-determined') {
+        console.log('[Main] ⚠️  Screen Recording permission not yet determined - will prompt user')
+      } else if (status === 'granted') {
+        console.log('[Main] ✅ Screen Recording permission already granted')
+      }
+    }
+    
+    console.log('[Main] Calling desktopCapturer.getSources()...')
+    const sources = await desktopCapturer.getSources(options)
+    console.log('[Main] ✅ Found', sources.length, 'desktop sources:')
+    sources.forEach((source: any, index: number) => {
+      console.log(`[Main]   ${index + 1}. "${source.name}" (id: ${source.id})`)
+    })
+    
+    return sources
+  } catch (error: any) {
+    console.error('[Main] ❌ desktopCapturer.getSources ERROR:', error)
+    console.error('[Main] Error message:', error.message)
+    console.error('[Main] Error stack:', error.stack)
+    
+    // 🔧 CRITICAL FIX: Don't throw - return empty array so renderer can continue with mic-only
+    // If we throw here, it crashes the entire startCapture() in renderer, breaking BOTH mic AND system audio
+    console.warn('[Main] ⚠️ Returning empty sources array - system audio will be unavailable')
+    console.warn('[Main] User should grant Screen Recording permission in System Settings')
+    return []
+  }
+})
+
 ipcMain.handle('capture:screenshot', async () => {
   const { desktopCapturer } = require('electron')
   try {
@@ -981,6 +1040,31 @@ ipcMain.on('cancel-hide-settings-window', () => {
   if (settingsHideTimer) {
     clearTimeout(settingsHideTimer)
     settingsHideTimer = null
+  }
+})
+
+// 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
+// Glass parity: Forward prompt from Listen/Insights to Ask window
+ipcMain.on('ask:set-prompt', (_event, prompt: string) => {
+  console.log('[overlay-windows] 🎯 Relaying prompt to Ask window:', prompt.substring(0, 50))
+  const askWin = childWindows.get('ask')
+  if (askWin && !askWin.isDestroyed()) {
+    askWin.webContents.send('ask:set-prompt', prompt)
+  } else {
+    console.warn('[overlay-windows] Ask window not available for prompt relay')
+  }
+})
+
+// This forwards transcript messages from Header window to Listen window
+ipcMain.on('transcript-message', (_event, message: any) => {
+  console.log('[overlay-windows] 📨 Relaying transcript message to Listen window:', message.type)
+  
+  const listenWin = childWindows.get('listen')
+  if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
+    listenWin.webContents.send('transcript-message', message)
+    console.log('[overlay-windows] ✅ Message forwarded to Listen window')
+  } else {
+    console.log('[overlay-windows] ⚠️ Listen window not available for relay')
   }
 })
 
