@@ -146,96 +146,91 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
       
-      // 🔧 GLASS PARITY: Deduplication logic - REPLACE partial, CONVERT to final
-      // Helper: Find last partial message from same speaker
-      const findLastPartialIdx = (speaker: number | null) => {
-        for (let i = transcripts.length - 1; i >= 0; i--) {
-          const t = transcripts[i];
-          if (t.speaker === speaker && (t as any).isPartial) {
-            return i;
-          }
-        }
-        return -1;
-      };
+      // Extract message data
+      let text: string | undefined;
+      let speaker: number | null = null;
+      let isFinal = false;
+      let isPartial = false;
       
       if (msg.type === 'transcript_segment' && msg.data) {
-        const { text = '', speaker = null, is_final = false } = msg.data;
-        console.log('[ListenView] 📨 transcript_segment:', text.substring(0, 50), 'speaker:', speaker, 'final:', is_final);
-        
-        setTranscripts(prev => {
-          const targetIdx = findLastPartialIdx(speaker);
-          
-          if (is_final) {
-            // FINAL message: Convert last partial to final (or add new if no partial)
-            if (targetIdx !== -1) {
-              console.log('[ListenView] 🔄 CONVERTING partial to final at index', targetIdx);
-              const updated = [...prev];
-              updated[targetIdx] = { text, speaker, isFinal: true, isPartial: false };
-              return updated;
-            } else {
-              console.log('[ListenView] ➕ ADDING new final (no partial found)');
-              return [...prev, { text, speaker, isFinal: true, isPartial: false }];
-            }
-          } else {
-            // INTERIM message: Replace last partial or add new
-            if (targetIdx !== -1) {
-              console.log('[ListenView] 🔄 REPLACING partial at index', targetIdx);
-              const updated = [...prev];
-              updated[targetIdx] = { text, speaker, isFinal: false, isPartial: true };
-              return updated;
-            } else {
-              console.log('[ListenView] ➕ ADDING new partial');
-              return [...prev, { text, speaker, isFinal: false, isPartial: true }];
-            }
-          }
-        });
-        
-        // 🔧 FIX: Use ref instead of state to avoid closure issues
-        if (autoScrollRef.current && viewportRef.current) {
-          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-        }
-        
+        text = msg.data.text || '';
+        speaker = msg.data.speaker ?? null;
+        isFinal = msg.data.is_final === true;
+        isPartial = !isFinal; // If not final, it's partial
+        console.log('[ListenView] 📨 transcript_segment:', text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
       } else if (msg.type === 'status' && msg.data?.echo_text) {
-        const text = msg.data.echo_text;
-        const isFinal = msg.data.final === true;
-        
-        // 🏷️ INFER SPEAKER from _source tag: 'mic' = speaker 1, 'system' = speaker 0
-        const speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
-        
-        console.log('[ListenView] 📨 status (echo_text):', text.substring(0, 50), 'speaker:', speaker, 'final:', isFinal, '_source:', msg._source);
-        
-        setTranscripts(prev => {
-          const targetIdx = findLastPartialIdx(speaker);
-          
-          if (isFinal) {
-            // Rare: status with final=true should become final
-            if (targetIdx !== -1) {
-              console.log('[ListenView] 🔄 CONVERTING status partial to final at index', targetIdx);
-              const updated = [...prev];
-              updated[targetIdx] = { text, speaker, isFinal: true, isPartial: false };
-              return updated;
-            } else {
-              console.log('[ListenView] ➕ ADDING new final from status');
-              return [...prev, { text, speaker, isFinal: true, isPartial: false }];
-            }
-          } else {
-            // INTERIM status: Replace last partial or add new
-            if (targetIdx !== -1) {
-              console.log('[ListenView] 🔄 REPLACING status partial at index', targetIdx);
-              const updated = [...prev];
-              updated[targetIdx] = { text, speaker, isFinal: false, isPartial: true };
-              return updated;
-            } else {
-              console.log('[ListenView] ➕ ADDING new status partial');
-              return [...prev, { text, speaker, isFinal: false, isPartial: true }];
+        text = msg.data.echo_text;
+        // Infer speaker from _source: 'mic' = 1, 'system' = 0
+        speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
+        isFinal = msg.data.final === true;
+        isPartial = !isFinal; // If not final, it's partial
+        console.log('[ListenView] 📨 status:', text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
+      }
+      
+      // Only process if we have text
+      if (!text) return;
+      
+      // 🔧 GLASS PARITY: Exact pattern from glass/src/ui/listen/stt/SttView.js lines 116-176
+      setTranscripts(prev => {
+        // Helper: Find last partial from same speaker (uses CURRENT prev, not stale closure!)
+        const findLastPartialIdx = (spk: number | null) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].speaker === spk && prev[i].isPartial) {
+              return i;
             }
           }
-        });
+          return -1;
+        };
         
-        // 🔧 FIX: Use ref instead of state to avoid closure issues
-        if (autoScrollRef.current && viewportRef.current) {
-          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        const newMessages = [...prev];
+        const targetIdx = findLastPartialIdx(speaker);
+        
+        if (isPartial) {
+          // Partial/interim: Update existing partial or add new
+          if (targetIdx !== -1) {
+            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'text:', text.substring(0, 30));
+            newMessages[targetIdx] = {
+              text,
+              speaker,
+              isFinal: false,
+              isPartial: true,
+            };
+          } else {
+            console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
+            newMessages.push({
+              text,
+              speaker,
+              isFinal: false,
+              isPartial: true,
+            });
+          }
+        } else if (isFinal) {
+          // Final: Convert existing partial to final or add new
+          if (targetIdx !== -1) {
+            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'text:', text.substring(0, 30));
+            newMessages[targetIdx] = {
+              text,
+              speaker,
+              isFinal: true,
+              isPartial: false,
+            };
+          } else {
+            console.log('[ListenView] ➕ ADDING new FINAL (no partial), text:', text.substring(0, 30));
+            newMessages.push({
+              text,
+              speaker,
+              isFinal: true,
+              isPartial: false,
+            });
+          }
         }
+        
+        return newMessages;
+      });
+      
+      // Auto-scroll
+      if (autoScrollRef.current && viewportRef.current) {
+        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
       }
     };
     

@@ -436,9 +436,10 @@ export async function stopCapture(captureHandle?: any) {
       micStream = null;
     }
     
-    // Disconnect mic WebSocket
+    // 🔧 FIX: Properly close mic WebSocket (disconnect AND remove from map to prevent double handlers)
     if (micWsInstance) {
-      micWsInstance.disconnect();
+      const chatId = localStorage.getItem('current_chat_id') || '';
+      closeWebSocketInstance(chatId, 'mic');
       micWsInstance = null;
     }
     
@@ -463,9 +464,10 @@ export async function stopCapture(captureHandle?: any) {
       systemStream = null;
     }
     
-    // Disconnect system WebSocket
+    // 🔧 FIX: Properly close system WebSocket (disconnect AND remove from map to prevent double handlers)
     if (systemWsInstance) {
-      systemWsInstance.disconnect();
+      const chatId = localStorage.getItem('current_chat_id') || '';
+      closeWebSocketInstance(chatId, 'system');
       systemWsInstance = null;
     }
     
