@@ -17,6 +17,196 @@ let systemAudioContext: AudioContext | null = null;
 let systemAudioProcessor: ScriptProcessorNode | null = null;
 let systemStream: MediaStream | null = null;
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 🎯 AEC (Acoustic Echo Cancellation) - Glass Parity with Speex WASM
+// ──────────────────────────────────────────────────────────────────────────────
+let aecModPromise: Promise<any> | null = null;
+let aecMod: any = null;
+let aecPtr: number = 0;
+
+// System audio buffer for AEC reference (stores recent system audio chunks)
+let systemAudioBuffer: Array<{ data: string; timestamp: number }> = [];
+const MAX_SYSTEM_BUFFER_SIZE = 10;
+
+/**
+ * 🎯 AEC WASM Module Loader - Glass Parity
+ * Loads Speex AEC WASM module once and caches it
+ */
+async function getAec(): Promise<any> {
+  if (aecModPromise) return aecModPromise; // Cache hit
+
+  aecModPromise = (async () => {
+    try {
+      // Dynamic import of AEC WASM module (ES6 import for browser compatibility)
+      const aecModule = await import('./aec/aec.js');
+      const createAecModule = aecModule.default || aecModule;
+      const M: any = await createAecModule();
+      
+      // 🔧 STEP 2: Verify heap buffers exist (critical for AEC to work)
+      if (!M.HEAPU8) {
+        console.error('[AEC] ❌ WASM loaded but HEAPU8 buffer missing!');
+        return null;
+      }
+      if (!M.HEAP16) {
+        console.error('[AEC] ❌ WASM loaded but HEAP16 buffer missing!');
+        return null;
+      }
+      
+      aecMod = M;
+      console.log('[AEC] ✅ WASM Module Loaded (with heap buffers verified)');
+      
+      // Bind C symbols to JS wrappers (once)
+      M.newPtr = M.cwrap('AecNew', 'number', ['number', 'number', 'number', 'number']);
+      M.cancel = M.cwrap('AecCancelEcho', null, ['number', 'number', 'number', 'number', 'number']);
+      M.destroy = M.cwrap('AecDestroy', null, ['number']);
+      
+      return M;
+    } catch (error) {
+      console.error('[AEC] ❌ Failed to load WASM module:', error);
+      console.error('[AEC] ❌ Error details:', error);
+      // Don't throw - allow audio capture to continue without AEC
+      return null;
+    }
+  })();
+
+  return aecModPromise;
+}
+
+/**
+ * 🎯 AEC Disposal - Glass Parity
+ * Destroys the AEC instance when done
+ */
+function disposeAec() {
+  if (aecPtr && aecMod && aecMod.destroy) {
+    aecMod.destroy(aecPtr);
+    aecPtr = 0;
+    console.log('[AEC] ✅ AEC instance destroyed');
+  }
+}
+
+/**
+ * 🎯 JS ↔︎ WASM Helper - Convert Float32 to Int16 pointer
+ */
+function int16PtrFromFloat32(mod: any, f32: Float32Array): { ptr: number; view: Int16Array } {
+  const len = f32.length;
+  const bytes = len * 2;
+  const ptr = mod._malloc(bytes);
+  
+  // HEAP16 wrapper (fallback to HEAPU8.buffer if not available)
+  const heapBuf = mod.HEAP16 ? mod.HEAP16.buffer : mod.HEAPU8.buffer;
+  const i16 = new Int16Array(heapBuf, ptr, len);
+  
+  for (let i = 0; i < len; ++i) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  
+  return { ptr, view: i16 };
+}
+
+/**
+ * 🎯 JS ↔︎ WASM Helper - Convert Int16 view to Float32
+ */
+function float32FromInt16View(i16: Int16Array): Float32Array {
+  const out = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; ++i) {
+    out[i] = i16[i] / 32768;
+  }
+  return out;
+}
+
+/**
+ * 🎯 Convert base64 PCM to Float32Array - Glass Parity
+ */
+function base64ToFloat32Array(base64: string): Float32Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  
+  const int16Array = new Int16Array(bytes.buffer);
+  const float32Array = new Float32Array(int16Array.length);
+  
+  for (let i = 0; i < int16Array.length; i++) {
+    float32Array[i] = int16Array[i] / 32768.0;
+  }
+  
+  return float32Array;
+}
+
+/**
+ * 🎯 Run AEC Synchronously - Glass Parity
+ * Applies Speex AEC to remove system audio echo from mic input
+ * 
+ * @param micF32 - Microphone audio (Float32Array, 2400 samples)
+ * @param sysF32 - System audio reference (Float32Array, 2400 samples)
+ * @returns Processed audio with echo removed (Float32Array, 2400 samples)
+ */
+function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
+  // 🔧 STEP 2: Enhanced AEC verification - check module, instance, AND heap
+  if (!aecMod || !aecPtr || !aecMod.HEAPU8 || !aecMod.HEAP16) {
+    // Only warn once to avoid log spam
+    const globalAny = global as any;
+    if (!globalAny.aecWarnedOnce) {
+      console.warn('[AEC] ⚠️  AEC not initialized - missing:', {
+        hasModule: !!aecMod,
+        hasInstance: !!aecPtr,
+        hasHEAPU8: !!(aecMod && aecMod.HEAPU8),
+        hasHEAP16: !!(aecMod && aecMod.HEAP16)
+      });
+      globalAny.aecWarnedOnce = true;
+    }
+    return micF32;
+  }
+
+  const frameSize = 160; // AEC frame size (matches initialization: 160 samples @ 24kHz)
+  const numFrames = Math.floor(micF32.length / frameSize);
+
+  // Final processed audio buffer
+  const processedF32 = new Float32Array(micF32.length);
+
+  // Align system audio with mic audio length (for stability)
+  const alignedSysF32 = new Float32Array(micF32.length);
+  if (sysF32.length > 0) {
+    const lengthToCopy = Math.min(micF32.length, sysF32.length);
+    alignedSysF32.set(sysF32.slice(0, lengthToCopy));
+  }
+
+  // Process 2400 samples in 160-sample frames
+  for (let i = 0; i < numFrames; i++) {
+    const offset = i * frameSize;
+
+    // Extract 160-sample frames
+    const micFrame = micF32.subarray(offset, offset + frameSize);
+    const echoFrame = alignedSysF32.subarray(offset, offset + frameSize);
+
+    // Write frames to WASM memory
+    const micPtr = int16PtrFromFloat32(aecMod, micFrame);
+    const echoPtr = int16PtrFromFloat32(aecMod, echoFrame);
+    const outPtr = aecMod._malloc(frameSize * 2); // 160 * 2 bytes
+
+    // Run AEC (160 samples at a time)
+    aecMod.cancel(aecPtr, micPtr.ptr, echoPtr.ptr, outPtr, frameSize);
+
+    // Read processed frame from WASM memory
+    const heapBuf = aecMod.HEAP16 ? aecMod.HEAP16.buffer : aecMod.HEAPU8.buffer;
+    const outFrameI16 = new Int16Array(heapBuf, outPtr, frameSize);
+    const outFrameF32 = float32FromInt16View(outFrameI16);
+
+    // Copy processed frame to final buffer at correct position
+    processedF32.set(outFrameF32, offset);
+
+    // Free allocated memory
+    aecMod._free(micPtr.ptr);
+    aecMod._free(echoPtr.ptr);
+    aecMod._free(outPtr);
+  }
+
+  return processedF32;
+}
+
 // Ensure WebSocket for microphone (source=mic, speaker=1)
 function ensureMicWs() {
   try {
@@ -93,23 +283,46 @@ function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
   return int16;
 }
 
-// Glass parity: Setup microphone processing with ScriptProcessorNode
-function setupMicProcessing(stream: MediaStream) {
+// Glass parity: Setup microphone processing with ScriptProcessorNode + AEC
+async function setupMicProcessing(stream: MediaStream) {
+  // ──────────────────────────────────────────────────────────────────────────
+  // 🎯 STEP 2: Load AEC WASM module first (Glass parity) - with enhanced verification
+  // ──────────────────────────────────────────────────────────────────────────
+  try {
+    const mod = await getAec();
+    if (mod && !aecPtr) {
+      // Create AEC instance with verified parameters
+      aecPtr = mod.newPtr(160, 1600, 24000, 1);
+      
+      // 🔧 STEP 2: Verify instance was actually created
+      if (aecPtr && aecPtr > 0) {
+        console.log('[AEC] ✅ AEC instance created (ptr=' + aecPtr + ', frameSize=160, filterLength=1600, sampleRate=24000)');
+        console.log('[AEC] ✅ Heap buffers verified: HEAPU8=' + !!mod.HEAPU8 + ', HEAP16=' + !!mod.HEAP16);
+      } else {
+        console.error('[AEC] ❌ AEC instance creation failed - newPtr returned invalid pointer');
+        aecPtr = 0;
+      }
+    } else if (!mod) {
+      console.warn('[AEC] ⚠️  AEC module failed to load - continuing without echo cancellation');
+    }
+  } catch (error) {
+    console.error('[AEC] ❌ AEC initialization exception - continuing without echo cancellation:', error);
+    aecPtr = 0;
+  }
+  
   const micAudioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
   const micSource = micAudioContext.createMediaStreamSource(stream);
   const micProcessor = micAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
 
-  let audioBuffer = [];
+  let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
+  
+  // 🔧 Silence gate - RMS threshold to prevent sending ambient noise
+  const SILENCE_RMS_THRESHOLD = 0.01; // Adjust this value based on testing
+  let silenceFrameCount = 0;
 
   micProcessor.onaudioprocess = (e) => {
     const inputData = e.inputBuffer.getChannelData(0);
-    
-    // Check if actually receiving audio
-    const hasSound = inputData.some(sample => Math.abs(sample) > 0.01);
-    if (!hasSound) {
-      console.warn('[AudioCapture] Microphone data is silent!');
-    }
     
     // TypeScript compat: use Array.from instead of spread
     for (let i = 0; i < inputData.length; i++) {
@@ -119,13 +332,64 @@ function setupMicProcessing(stream: MediaStream) {
     // Send when we have enough samples
     while (audioBuffer.length >= samplesPerChunk) {
       const chunk = audioBuffer.splice(0, samplesPerChunk);
-      const pcm16 = convertFloat32ToInt16(new Float32Array(chunk));
+      let float32Chunk = new Float32Array(chunk); // Initial value (may be replaced by AEC)
+      
+      // ──────────────────────────────────────────────────────────────────────
+      // 🎯 STEP 2: Apply AEC if system audio is available (Glass parity)
+      // ──────────────────────────────────────────────────────────────────────
+      if (systemAudioBuffer.length > 0) {
+        try {
+          // Get latest system audio chunk as AEC reference
+          const latest = systemAudioBuffer[systemAudioBuffer.length - 1];
+          const sysF32 = base64ToFloat32Array(latest.data);
+          
+          // 🔧 STEP 2: Run AEC and verify it actually processed
+          const originalChunk = new Float32Array(chunk);
+          float32Chunk = runAecSync(originalChunk, sysF32);
+          
+          // Only log success if AEC actually ran (check if output differs from input)
+          if (float32Chunk !== originalChunk && aecMod && aecPtr) {
+            console.log('[AEC] ✅ Applied WASM-AEC (Speex) - echo removed');
+          }
+        } catch (error) {
+          console.error('[AEC] ❌ AEC processing failed, using unprocessed audio:', error);
+          // Fall back to unprocessed audio on AEC error
+        }
+      }
+      
+      // ──────────────────────────────────────────────────────────────────────
+      // 🎯 STEP 3: Silence gate - Skip if below threshold
+      // ──────────────────────────────────────────────────────────────────────
+      let sumSquares = 0;
+      for (let i = 0; i < float32Chunk.length; i++) {
+        sumSquares += float32Chunk[i] * float32Chunk[i];
+      }
+      const rms = Math.sqrt(sumSquares / float32Chunk.length);
+      
+      if (rms < SILENCE_RMS_THRESHOLD) {
+        silenceFrameCount++;
+        if (silenceFrameCount % 50 === 1) { // Log every 5 seconds (50 * 100ms)
+          console.log(`[AudioCapture] 🔇 MIC SILENCE GATE: Suppressing silent audio (RMS: ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD})`);
+        }
+        continue; // Skip this chunk entirely
+      }
+      
+      // Reset silence counter when audio detected
+      if (silenceFrameCount > 0) {
+        console.log(`[AudioCapture] 🎤 MIC AUDIO DETECTED after ${silenceFrameCount} silent frames (RMS: ${rms.toFixed(4)})`);
+        silenceFrameCount = 0;
+      }
+      
+      // ──────────────────────────────────────────────────────────────────────
+      // 🎯 STEP 4: Convert to PCM16 and send to backend
+      // ──────────────────────────────────────────────────────────────────────
+      const pcm16 = convertFloat32ToInt16(float32Chunk);
       
       const ws = ensureMicWs();
       if (ws && ws.sendBinaryData) {
         try {
           ws.sendBinaryData(pcm16.buffer);
-          console.log(`[AudioCapture] Sent MIC chunk: ${pcm16.byteLength} bytes`);
+          console.log(`[AudioCapture] Sent MIC chunk: ${pcm16.byteLength} bytes (RMS: ${rms.toFixed(4)}, AEC: ${systemAudioBuffer.length > 0 ? 'YES' : 'NO'})`);
         } catch (error) {
           console.error('[AudioCapture] Failed to send MIC chunk:', error);
         }
@@ -147,7 +411,7 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   const sysSource = sysAudioContext.createMediaStreamSource(stream);
   const sysProcessor = sysAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
 
-  let audioBuffer = [];
+  let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
 
   sysProcessor.onaudioprocess = (e) => {
@@ -167,8 +431,37 @@ function setupSystemAudioProcessing(stream: MediaStream) {
     // Send when we have enough samples
     while (audioBuffer.length >= samplesPerChunk) {
       const chunk = audioBuffer.splice(0, samplesPerChunk);
-      const pcm16 = convertFloat32ToInt16(new Float32Array(chunk));
+      const float32Chunk = new Float32Array(chunk);
+      const pcm16 = convertFloat32ToInt16(float32Chunk);
       
+      // ──────────────────────────────────────────────────────────────────────
+      // 🎯 AEC INTEGRATION: Store system audio in buffer for AEC reference
+      // ──────────────────────────────────────────────────────────────────────
+      // Convert PCM16 to base64 for storage (Glass parity)
+      const arrayBuffer = pcm16.buffer;
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64Data = btoa(binary);
+      
+      // Add to system audio buffer (for AEC reference)
+      systemAudioBuffer.push({
+        data: base64Data,
+        timestamp: Date.now(),
+      });
+      
+      // Limit buffer size to prevent memory bloat
+      if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
+        systemAudioBuffer.shift(); // Remove oldest chunk
+      }
+      
+      console.log(`[AudioCapture] 🔊 System audio buffer: ${systemAudioBuffer.length}/${MAX_SYSTEM_BUFFER_SIZE} chunks`);
+      
+      // ──────────────────────────────────────────────────────────────────────
+      // Send system audio to backend
+      // ──────────────────────────────────────────────────────────────────────
       const ws = ensureSystemWs();
       if (ws && ws.sendBinaryData) {
         try {
@@ -271,8 +564,8 @@ export async function startCapture(includeSystemAudio = false) {
     throw new Error(`Microphone permission denied: ${error.message}`);
   }
   
-  // Step 4: Setup mic audio processing
-  const micSetup = setupMicProcessing(micStream);
+  // Step 4: Setup mic audio processing (with AEC)
+  const micSetup = await setupMicProcessing(micStream);
   micAudioContext = micSetup.context;
   micAudioProcessor = micSetup.processor;
   
@@ -363,6 +656,22 @@ export async function startCapture(includeSystemAudio = false) {
             for (let i = 0; i < binaryString.length; i++) {
               bytes[i] = binaryString.charCodeAt(i);
             }
+            
+            // ──────────────────────────────────────────────────────────────────────
+            // 🎯 AEC INTEGRATION: Store system audio in buffer for AEC reference
+            // ──────────────────────────────────────────────────────────────────────
+            // Data is already base64, so just store it directly
+            systemAudioBuffer.push({
+              data: audioData.data,
+              timestamp: Date.now(),
+            });
+            
+            // Limit buffer size to prevent memory bloat
+            if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
+              systemAudioBuffer.shift(); // Remove oldest chunk
+            }
+            
+            console.log(`[AudioCapture] 🔊 System audio buffer: ${systemAudioBuffer.length}/${MAX_SYSTEM_BUFFER_SIZE} chunks (from binary)`);
             
             // Send directly to WebSocket (already in PCM int16 format from binary)
             const ws = ensureSystemWs();
@@ -470,6 +779,13 @@ export async function stopCapture(captureHandle?: any) {
       closeWebSocketInstance(chatId, 'system');
       systemWsInstance = null;
     }
+    
+    // ──────────────────────────────────────────────────────────────────────
+    // 🎯 AEC CLEANUP: Dispose AEC instance and clear system audio buffer
+    // ──────────────────────────────────────────────────────────────────────
+    disposeAec();
+    systemAudioBuffer = [];
+    console.log('[AudioCapture] ✅ AEC disposed and system audio buffer cleared');
     
     // Stop SystemAudioDump binary (Glass approach)
     const eviaApi = (window as any).evia;

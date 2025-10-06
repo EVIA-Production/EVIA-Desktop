@@ -21,6 +21,7 @@ interface TranscriptLine {
   text: string;
   isFinal?: boolean;
   isPartial?: boolean;
+  timestamp?: number; // 🔧 STEP 1: Timestamp for time-based bubble merging
 }
 
 interface ListenViewProps {
@@ -37,7 +38,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   console.log('[ListenView] 🔍 Window location:', window.location.href)
   console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
   
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean}[]>([]);
+  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
@@ -53,6 +54,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
+  const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
   
   // Sync autoScroll state with ref
   useEffect(() => {
@@ -105,8 +107,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // 🔧 REMOVED: Auto-scroll useEffect - redundant with scroll handling in handleTranscriptMessage
-  // This was causing infinite re-renders because [transcripts, insights, autoScroll] triggered on every update
+  // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 195-204 in SttView.js)
+  // This runs AFTER transcripts state update and DOM render
+  useEffect(() => {
+    if (shouldScrollAfterUpdate.current && viewportRef.current) {
+      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+      shouldScrollAfterUpdate.current = false;
+    }
+  }, [transcripts]); // Run after transcripts update
 
   useEffect(() => {
     adjustWindowHeight();
@@ -117,18 +125,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []);
 
-  // 🔧 FIX: Start timer IMMEDIATELY when component mounts (independent of WebSocket/IPC)
+  // 🔧 FIX: Cleanup timer on unmount
   useEffect(() => {
-    console.log('[ListenView] 🕐 Starting session timer on mount');
-    setIsSessionActive(true);
-    startTimer();
-    
     return () => {
       console.log('[ListenView] 🛑 Stopping timer on unmount');
       stopTimer();
       setIsSessionActive(false);
     };
-  }, []); // Empty dependency - timer starts immediately on mount
+  }, []); // Empty dependency - cleanup on unmount
 
   // Listen for transcript messages forwarded from Header window via IPC
   // Header window captures audio, sends to backend via WebSocket, and forwards transcripts here
@@ -137,6 +141,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     const handleTranscriptMessage = (msg: any) => {
       console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
+      
+      // Handle recording_started to start timer
+      if (msg.type === 'recording_started') {
+        console.log('[ListenView] ▶️  Recording started - starting timer');
+        setIsSessionActive(true);
+        startTimer();
+        return;
+      }
       
       // Handle recording_stopped to stop timer
       if (msg.type === 'recording_stopped') {
@@ -158,26 +170,52 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal; // If not final, it's partial
       } else if (msg.type === 'status' && msg.data?.echo_text) {
+        // 🔧 FIX: Status messages with echo_text are INTERIM/PARTIAL transcripts from Deepgram
         text = msg.data.echo_text;
         // Infer speaker from _source: 'mic' = 1, 'system' = 0
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
         isFinal = msg.data.final === true;
         isPartial = !isFinal; // If not final, it's partial
+      } else if (msg.type === 'status') {
+        // Filter out connection status messages (no echo_text = connection event)
+        console.log('[ListenView] 📊 CONNECTION STATUS (console only):', msg.data);
+        return;
       }
       
       // Only process if we have text
       if (!text) return;
       
+      // 🔧 STEP 1: Capture timestamp for time-based merging
+      const messageTimestamp = Date.now();
+      
       // Log after text is confirmed to exist
       console.log('[ListenView] 📨', msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:', 
                   text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
       
-      // 🔧 GLASS PARITY: Exact pattern from glass/src/ui/listen/stt/SttView.js lines 116-176
+      // 🔧 GLASS PARITY: Check if scrolled near bottom BEFORE update (line 120 in SttView.js)
+      const container = viewportRef.current;
+      if (container) {
+        shouldScrollAfterUpdate.current = 
+          container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+      }
+      
+      // 🔧 STEP 1 ENHANCED: Time-based + punctuation-aware bubble merging
+      // Based on Glass parity + coordinator's Option A (2.5s window + punctuation check)
       setTranscripts(prev => {
-        // Helper: Find last partial from same speaker (uses CURRENT prev, not stale closure!)
+        // Helper: Find last partial from same speaker
         const findLastPartialIdx = (spk: number | null) => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].speaker === spk && prev[i].isPartial) {
+              return i;
+            }
+          }
+          return -1;
+        };
+        
+        // 🔧 NEW: Find last FINAL from same speaker (for merging consecutive finals)
+        const findLastFinalIdx = (spk: number | null) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].speaker === spk && prev[i].isFinal) {
               return i;
             }
           }
@@ -196,6 +234,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               speaker,
               isFinal: false,
               isPartial: true,
+              timestamp: messageTimestamp,
             };
           } else {
             console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
@@ -204,36 +243,91 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               speaker,
               isFinal: false,
               isPartial: true,
+              timestamp: messageTimestamp,
             });
           }
         } else if (isFinal) {
-          // Final: Convert existing partial to final or add new
+          // Final: Convert existing partial to final, OR merge with last final, OR add new
           if (targetIdx !== -1) {
+            // Convert existing partial to final
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'text:', text.substring(0, 30));
             newMessages[targetIdx] = {
               text,
               speaker,
               isFinal: true,
               isPartial: false,
+              timestamp: messageTimestamp,
             };
           } else {
-            console.log('[ListenView] ➕ ADDING new FINAL (no partial), text:', text.substring(0, 30));
-            newMessages.push({
-              text,
-              speaker,
-              isFinal: true,
-              isPartial: false,
-            });
+            // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
+            const lastFinalIdx = findLastFinalIdx(speaker);
+            
+            if (lastFinalIdx !== -1) {
+              const lastMessage = newMessages[lastFinalIdx];
+              const lastText = lastMessage.text;
+              const lastTimestamp = lastMessage.timestamp || 0;
+              const timeSinceLastMs = messageTimestamp - lastTimestamp;
+              
+              // Helper: Check if text ends with sentence-ending punctuation
+              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(lastText.trim());
+              
+              // Helper: Check if new text starts with capital letter (potential new sentence)
+              const startsWithCapital = /^[A-Z]/.test(text.trim());
+              
+              // MERGE CONDITIONS (all must be true):
+              // 1. Within 2.5 second window
+              // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
+              //    (This allows: "word word" to merge, "word. Word" to NOT merge, "word Word" to NOT merge)
+              const shouldMerge = timeSinceLastMs <= 2500 && (!endsWithSentence || !startsWithCapital);
+              
+              console.log('[ListenView] 🔍 MERGE DECISION:', {
+                lastFinalIdx,
+                timeSinceLastMs: `${timeSinceLastMs}ms`,
+                endsWithSentence,
+                startsWithCapital,
+                shouldMerge,
+                lastText: lastText.substring(Math.max(0, lastText.length - 30)),
+                newText: text.substring(0, 30)
+              });
+              
+              if (shouldMerge) {
+                // APPEND to existing final bubble
+                console.log('[ListenView] 🔗 MERGING with final at index', lastFinalIdx);
+                newMessages[lastFinalIdx] = {
+                  ...lastMessage,
+                  text: lastText + ' ' + text,
+                  timestamp: messageTimestamp, // Update to latest timestamp
+                };
+              } else {
+                // Create new final bubble (time exceeded or sentence boundary detected)
+                const reason = timeSinceLastMs > 2500 ? 'TIME_EXCEEDED' : 'SENTENCE_BOUNDARY';
+                console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
+                newMessages.push({
+                  text,
+                  speaker,
+                  isFinal: true,
+                  isPartial: false,
+                  timestamp: messageTimestamp,
+                });
+              }
+            } else {
+              // No previous final - create new bubble
+              console.log('[ListenView] ➕ ADDING new FINAL (first from speaker)');
+              newMessages.push({
+                text,
+                speaker,
+                isFinal: true,
+                isPartial: false,
+                timestamp: messageTimestamp,
+              });
+            }
           }
         }
         
         return newMessages;
       });
       
-      // Auto-scroll
-      if (autoScrollRef.current && viewportRef.current) {
-        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-      }
+      // Note: Scroll happens in useEffect AFTER React renders (see below)
     };
     
     const eviaIpc = (window as any).evia?.ipc as { on: (channel: string, listener: (...args: any[]) => void) => void } | undefined;
@@ -543,24 +637,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             gap: 8px;
           }
 
-          /* MUP: Show scrollbars for usability (override Glass hidden scrollbars) */
+          /* 🔧 FIX: Visible scrollbar on right side (Glass override) */
           .glass-scroll::-webkit-scrollbar {
-            width: 8px;
-            background: rgba(0, 0, 0, 0.2);
+            width: 6px;
+            background: transparent;
           }
 
           .glass-scroll::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.1);
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+            margin: 4px 0;
           }
 
           .glass-scroll::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 3px;
+            transition: background 0.2s ease;
           }
 
           .glass-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.6);
+          }
+          
+          /* Firefox scrollbar */
+          .glass-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.05);
           }
 
           /* Glass parity: Bubble styling */
