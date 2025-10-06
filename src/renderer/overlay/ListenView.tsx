@@ -20,6 +20,7 @@ interface TranscriptLine {
   speaker: number | null;
   text: string;
   isFinal?: boolean;
+  isPartial?: boolean;
 }
 
 interface ListenViewProps {
@@ -36,7 +37,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   console.log('[ListenView] 🔍 Window location:', window.location.href)
   console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
   
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean}[]>([]);
+  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
@@ -127,14 +128,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []); // Empty dependency - timer starts immediately on mount
 
-  // 🔧 FIX: Listen for transcript messages forwarded from Header window via IPC
+  // Listen for transcript messages forwarded from Header window via IPC
+  // Header window captures audio, sends to backend via WebSocket, and forwards transcripts here
   useEffect(() => {
     console.log('[ListenView] Setting up IPC listener for transcript messages');
     
     const handleTranscriptMessage = (msg: any) => {
-      console.log('[ListenView] 📨 Received IPC message:', msg.type);
+      console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
       
-      // 🔧 FIX: Handle recording_stopped to stop timer
+      // Handle recording_stopped to stop timer
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] 🛑 Recording stopped - stopping timer');
         stopTimer();
@@ -142,26 +144,91 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
       
+      // 🔧 GLASS PARITY: Deduplication logic - REPLACE partial, CONVERT to final
+      // Helper: Find last partial message from same speaker
+      const findLastPartialIdx = (speaker: number | null) => {
+        for (let i = transcripts.length - 1; i >= 0; i--) {
+          const t = transcripts[i];
+          if (t.speaker === speaker && (t as any).isPartial) {
+            return i;
+          }
+        }
+        return -1;
+      };
+      
       if (msg.type === 'transcript_segment' && msg.data) {
         const { text = '', speaker = null, is_final = false } = msg.data;
-        console.log('[ListenView] 📨 IPC Adding transcript:', text, 'final:', is_final);
+        console.log('[ListenView] 📨 transcript_segment:', text.substring(0, 50), 'speaker:', speaker, 'final:', is_final);
+        
         setTranscripts(prev => {
-          const next = [...prev, { text, speaker, isFinal: is_final }];
-          console.log('[IPC State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
-          return next;
+          const targetIdx = findLastPartialIdx(speaker);
+          
+          if (is_final) {
+            // FINAL message: Convert last partial to final (or add new if no partial)
+            if (targetIdx !== -1) {
+              console.log('[ListenView] 🔄 CONVERTING partial to final at index', targetIdx);
+              const updated = [...prev];
+              updated[targetIdx] = { text, speaker, isFinal: true, isPartial: false };
+              return updated;
+            } else {
+              console.log('[ListenView] ➕ ADDING new final (no partial found)');
+              return [...prev, { text, speaker, isFinal: true, isPartial: false }];
+            }
+          } else {
+            // INTERIM message: Replace last partial or add new
+            if (targetIdx !== -1) {
+              console.log('[ListenView] 🔄 REPLACING partial at index', targetIdx);
+              const updated = [...prev];
+              updated[targetIdx] = { text, speaker, isFinal: false, isPartial: true };
+              return updated;
+            } else {
+              console.log('[ListenView] ➕ ADDING new partial');
+              return [...prev, { text, speaker, isFinal: false, isPartial: true }];
+            }
+          }
         });
+        
         if (autoScroll && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
+        
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         const text = msg.data.echo_text;
         const isFinal = msg.data.final === true;
-        console.log('[ListenView] 📨 IPC Adding transcript from echo_text:', text, 'final:', isFinal);
+        
+        // 🏷️ INFER SPEAKER from _source tag: 'mic' = speaker 1, 'system' = speaker 0
+        const speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
+        
+        console.log('[ListenView] 📨 status (echo_text):', text.substring(0, 50), 'speaker:', speaker, 'final:', isFinal, '_source:', msg._source);
+        
         setTranscripts(prev => {
-          const next = [...prev, { text, speaker: null, isFinal }];
-          console.log('[IPC State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
-          return next;
+          const targetIdx = findLastPartialIdx(speaker);
+          
+          if (isFinal) {
+            // Rare: status with final=true should become final
+            if (targetIdx !== -1) {
+              console.log('[ListenView] 🔄 CONVERTING status partial to final at index', targetIdx);
+              const updated = [...prev];
+              updated[targetIdx] = { text, speaker, isFinal: true, isPartial: false };
+              return updated;
+            } else {
+              console.log('[ListenView] ➕ ADDING new final from status');
+              return [...prev, { text, speaker, isFinal: true, isPartial: false }];
+            }
+          } else {
+            // INTERIM status: Replace last partial or add new
+            if (targetIdx !== -1) {
+              console.log('[ListenView] 🔄 REPLACING status partial at index', targetIdx);
+              const updated = [...prev];
+              updated[targetIdx] = { text, speaker, isFinal: false, isPartial: true };
+              return updated;
+            } else {
+              console.log('[ListenView] ➕ ADDING new status partial');
+              return [...prev, { text, speaker, isFinal: false, isPartial: true }];
+            }
+          }
         });
+        
         if (autoScroll && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
@@ -180,102 +247,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] Cleaning up IPC listener');
       // Note: Electron IPC doesn't provide removeListener, so we just log cleanup
     };
-  }, [autoScroll]);
-
-  useEffect(() => {
-    // 🔍 ULTRA-DIAGNOSTIC: Wrap entire useEffect in try-catch to catch silent failures
-    try {
-      console.log('[ListenView] 🔍 WebSocket useEffect STARTED');
-      console.log('[ListenView] 🔍 localStorage:', typeof localStorage, localStorage ? 'exists' : 'null');
-      console.log('[ListenView] 🔍 getWebSocketInstance type:', typeof getWebSocketInstance);
-      
-      let cid: string | null = null;
-      try {
-        cid = localStorage.getItem('current_chat_id');
-        console.log('[ListenView] 🔍 Retrieved chat_id:', cid, 'type:', typeof cid);
-      } catch (err) {
-        console.error('[ListenView] ❌ localStorage.getItem ERROR:', err);
-        return () => {};
-      }
-      
-      if (!cid || cid === 'undefined' || cid === 'null') {
-        console.error('[ListenView] ❌ No valid chat_id (value:', cid, '); create one first');
-        return () => {};
-      }
-      console.log('[ListenView] ✅ Valid chat_id found:', cid, '- Setting up WebSocket...');
-      console.log('[ListenView] 🔍 About to call getWebSocketInstance with:', cid, 'mic');
-      
-      // CRITICAL: ListenView window is a SEPARATE BrowserWindow with its OWN WebSocket instance!
-      // It MUST connect to receive messages (backend supports multiple connections per chat_id)
-      const ws = getWebSocketInstance(cid, 'mic');
-    
-    // Subscribe BEFORE connecting to ensure handlers are registered
-    const unsub = ws.onMessage((msg: any) => {
-      console.log('[ListenView] ✅ Received WebSocket message:', msg);
-      
-      if (msg.type === 'transcript_segment' && msg.data) {
-        const { text = '', speaker = null, is_final = false } = msg.data;
-        console.log('[ListenView] ✅ Adding transcript:', text, 'final:', is_final);
-        setTranscripts(prev => {
-          const next = [...prev, { text, speaker, isFinal: is_final }];
-          console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
-          return next;
-        });
-        if (autoScroll && viewportRef.current) {
-          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-        }
-      } else if (msg.type === 'insight_segment' && msg.data) {
-        // Note: Insights come from /insights endpoint, not WebSocket
-        // This case is kept for potential future real-time insights
-        console.log('[ListenView] Insight segment received (not currently used)');
-      } else if (msg.type === 'status') {
-        console.log('[ListenView] ✅ Status message:', msg.data);
-        
-        // Handle echo_text (backend sends interim transcripts as echo_text in status messages)
-        if (msg.data?.echo_text) {
-          const text = msg.data.echo_text;
-          const isFinal = msg.data.final === true;
-          console.log('[ListenView] ✅ Adding transcript from echo_text:', text, 'final:', isFinal);
-          setTranscripts(prev => {
-            const next = [...prev, { text, speaker: null, isFinal }];
-            console.log('[State Debug] Updated transcripts count:', next.length, 'Latest:', text.substring(0, 50));
-            return next;
-          });
-          if (autoScroll && viewportRef.current) {
-            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-          }
-        }
-        
-        // 🔧 FIX: Timer is now controlled by component lifecycle, not connection status
-        // This prevents timer resets on reconnection
-        if (msg.data?.dg_open === true) {
-          console.log('[ListenView] ✅ Deepgram connection OPEN (timer already running)');
-        } else if (msg.data?.dg_open === false) {
-          console.log('[ListenView] ⚠️ Deepgram connection CLOSED (timer continues)');
-        }
-      }
-    });
-    
-    // Connect this window's WebSocket instance (separate from header window's instance)
-    ws.connect().then(() => {
-      console.log('[ListenView] ✅ WebSocket connected successfully');
-    }).catch(err => {
-      console.error('[ListenView] ❌ WebSocket connection failed:', err);
-    });
-    
-    return () => { 
-      console.log('[ListenView] Cleanup: Disconnecting WebSocket for this window');
-      unsub();
-      ws.disconnect(); // Disconnect THIS window's WebSocket (doesn't affect header's)
-    };
-    } catch (error) {
-      console.error('[ListenView] ❌❌❌ CRITICAL ERROR in useEffect:', error);
-      console.error('[ListenView] ❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
-      console.error('[ListenView] ❌ Error name:', error instanceof Error ? error.name : 'Unknown');
-      console.error('[ListenView] ❌ Error message:', error instanceof Error ? error.message : String(error));
-      return () => {}; // Return empty cleanup on error
-    }
-  }, []); // Empty dependency - only run once on mount
+  }, [autoScroll])
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
@@ -692,30 +664,37 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
               transcripts.map((line, i) => {
-                // 🎨 SPEAKER DIARIZATION: speaker 1 = mic = "me" (blue, right), speaker 0 = system = "them" (grey, left)
-                const isMe = line.speaker === 1 || line.speaker === null; // Default to "me" if speaker unknown
-                const isThem = line.speaker === 0;
+                // 🎨 GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
+                // null defaults to system (grey, left) for safety
+                const isMe = line.speaker === 1;
+                const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
                 
                 return (
                   <div
                     key={i}
                     className={`bubble ${isMe ? 'me' : 'them'}`}
                     style={{
-                      // 🎨 FADE-IN ANIMATION: 0.2s opacity transition
-                      transition: 'opacity 0.2s ease-in',
-                      opacity: line.isFinal ? 1 : 0.6,
-                      // 🎨 BACKGROUND: Blue gradient for me, grey for them
+                      // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
+                      opacity: 1.0,
+                      // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                       background: isMe
-                        ? 'linear-gradient(135deg, rgba(0, 122, 255, 0.9) 0%, rgba(10, 132, 255, 0.85) 100%)'
-                        : 'linear-gradient(135deg, rgba(128, 128, 128, 0.5) 0%, rgba(160, 160, 160, 0.45) 100%)',
-                      // 🎨 ALIGNMENT: Right for me, left for them
+                        ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
+                        : 'rgba(255, 255, 255, 0.1)', // Glass .them color
+                      color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
+                      // 🎨 GLASS PARITY: Alignment
                       alignSelf: isMe ? 'flex-end' : 'flex-start',
-                      color: '#ffffff',
-                      padding: '8px 12px',
+                      marginLeft: isMe ? 'auto' : '0',
+                      marginRight: isThem ? 'auto' : '0',
+                      // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
                       borderRadius: '12px',
+                      borderBottomLeftRadius: isThem ? '4px' : '12px',
+                      borderBottomRightRadius: isMe ? '4px' : '12px',
+                      padding: '8px 12px',
                       marginBottom: '8px',
                       maxWidth: '80%',
                       wordWrap: 'break-word',
+                      fontSize: '13px',
+                      lineHeight: '1.5',
                     }}
                   >
                     {/* 🏷️ SPEAKER LABEL (optional, for debugging) */}

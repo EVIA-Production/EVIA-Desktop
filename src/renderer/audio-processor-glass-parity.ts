@@ -30,13 +30,15 @@ function ensureMicWs() {
       micWsInstance = getWebSocketInstance(cid, 'mic');
       
       // 🔧 FIX: Forward all transcript messages to Listen window via IPC
+      // 🏷️ TAG with source so ListenView can infer speaker for status messages
       micWsInstance.onMessage((msg: any) => {
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           console.log('[AudioCapture] Forwarding MIC message to Listen window:', msg.type);
-          // Forward to Listen window via IPC
+          // Forward to Listen window via IPC with source tag
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
-            eviaIpc.send('transcript-message', msg);
+            // Tag message with _source: 'mic' (speaker 1)
+            eviaIpc.send('transcript-message', { ...msg, _source: 'mic' });
           }
         }
       });
@@ -61,13 +63,15 @@ function ensureSystemWs() {
       systemWsInstance = getWebSocketInstance(cid, 'system');
       
       // 🔧 FIX: Forward all transcript messages to Listen window via IPC
+      // 🏷️ TAG with source so ListenView can infer speaker for status messages
       systemWsInstance.onMessage((msg: any) => {
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           console.log('[AudioCapture] Forwarding SYSTEM message to Listen window:', msg.type);
-          // Forward to Listen window via IPC
+          // Forward to Listen window via IPC with source tag
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
-            eviaIpc.send('transcript-message', msg);
+            // Tag message with _source: 'system' (speaker 0)
+            eviaIpc.send('transcript-message', { ...msg, _source: 'system' });
           }
         }
       });
