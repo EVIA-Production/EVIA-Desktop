@@ -50,8 +50,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [insights, setInsights] = useState<Insight[]>([]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
+  const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
+  
+  // Sync autoScroll state with ref
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
 
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
@@ -99,12 +105,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Auto-scroll to bottom when new content arrives
-  useEffect(() => {
-    if (autoScroll && viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-    }
-  }, [transcripts, insights, autoScroll]);
+  // 🔧 REMOVED: Auto-scroll useEffect - redundant with scroll handling in handleTranscriptMessage
+  // This was causing infinite re-renders because [transcripts, insights, autoScroll] triggered on every update
 
   useEffect(() => {
     adjustWindowHeight();
@@ -188,7 +190,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         });
         
-        if (autoScroll && viewportRef.current) {
+        // 🔧 FIX: Use ref instead of state to avoid closure issues
+        if (autoScrollRef.current && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
         
@@ -229,7 +232,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         });
         
-        if (autoScroll && viewportRef.current) {
+        // 🔧 FIX: Use ref instead of state to avoid closure issues
+        if (autoScrollRef.current && viewportRef.current) {
           viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
         }
       }
@@ -247,7 +251,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] Cleaning up IPC listener');
       // Note: Electron IPC doesn't provide removeListener, so we just log cleanup
     };
-  }, [autoScroll])
+  }, [])  // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';

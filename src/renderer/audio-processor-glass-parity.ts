@@ -1,5 +1,5 @@
 // Glass parity: Audio capture using ScriptProcessorNode (reliable, no CSP issues)
-import { getWebSocketInstance } from './services/websocketService';
+import { getWebSocketInstance, getOrCreateChatId, closeWebSocketInstance } from './services/websocketService';
 
 const SAMPLE_RATE = 24000; // Glass parity
 const BUFFER_SIZE = 2048;
@@ -194,14 +194,49 @@ export async function startCapture(includeSystemAudio = false) {
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
   
   // Step 1: Ensure mic WebSocket is ready
-  const micWs = ensureMicWs();
+  let micWs = ensureMicWs();
   if (!micWs) {
     throw new Error('[AudioCapture] No valid chat_id - cannot start capture');
   }
   
-  // Step 2: Connect mic WebSocket first
-  await micWs.connect();
-  console.log('[AudioCapture] Mic WebSocket connected');
+  // Step 2: Connect mic WebSocket first (with auto-recreate on 403)
+  try {
+    await micWs.connect();
+    console.log('[AudioCapture] Mic WebSocket connected');
+  } catch (error) {
+    console.error('[AudioCapture] Mic WebSocket connect failed:', error);
+    
+    // 🔧 FIX: Check if chat_id was cleared (signal for 403/404)
+    const currentChatId = localStorage.getItem('current_chat_id');
+    if (!currentChatId) {
+      console.log('[AudioCapture] Chat ID was cleared - auto-creating new chat...');
+      
+      // Get backend URL and token
+      const backendUrl = (window as any).EVIA_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('auth_token') || '';
+      
+      // Force create new chat
+      const newChatId = await getOrCreateChatId(backendUrl, token, true);
+      console.log('[AudioCapture] Created new chat:', newChatId);
+      
+      // Close old WebSocket instance and recreate
+      closeWebSocketInstance(micWsInstance?.chatId || '', 'mic');
+      micWsInstance = null;
+      
+      // Recreate WebSocket with new chat_id
+      micWs = ensureMicWs();
+      if (!micWs) {
+        throw new Error('[AudioCapture] Failed to recreate mic WebSocket after chat creation');
+      }
+      
+      // Retry connection
+      await micWs.connect();
+      console.log('[AudioCapture] Mic WebSocket reconnected with new chat');
+    } else {
+      // Re-throw if not a chat_id issue
+      throw error;
+    }
+  }
   
   // Step 3: Request microphone permission explicitly
   try {
@@ -261,12 +296,41 @@ export async function startCapture(includeSystemAudio = false) {
         console.warn('[AudioCapture] Continuing with mic-only capture');
       } else {
         // Ensure system WebSocket is ready
-        const sysWs = ensureSystemWs();
+        let sysWs = ensureSystemWs();
         if (!sysWs) {
           throw new Error('[AudioCapture] Failed to create system audio WebSocket');
         }
-        await sysWs.connect();
-        console.log('[AudioCapture] System WebSocket connected');
+        
+        // Connect system WebSocket (with auto-recreate on 403)
+        try {
+          await sysWs.connect();
+          console.log('[AudioCapture] System WebSocket connected');
+        } catch (error) {
+          console.error('[AudioCapture] System WebSocket connect failed:', error);
+          
+          // 🔧 FIX: Check if chat_id was cleared (signal for 403/404)
+          const currentChatId = localStorage.getItem('current_chat_id');
+          if (!currentChatId) {
+            console.log('[AudioCapture] Chat ID was cleared - using newly created chat...');
+            
+            // Close old WebSocket instance and recreate
+            closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
+            systemWsInstance = null;
+            
+            // Recreate WebSocket with new chat_id
+            sysWs = ensureSystemWs();
+            if (!sysWs) {
+              throw new Error('[AudioCapture] Failed to recreate system WebSocket after chat creation');
+            }
+            
+            // Retry connection
+            await sysWs.connect();
+            console.log('[AudioCapture] System WebSocket reconnected with new chat');
+          } else {
+            // Re-throw if not a chat_id issue
+            throw error;
+          }
+        }
         
         // Start SystemAudioDump binary
         const result = await eviaApi.systemAudio.start();

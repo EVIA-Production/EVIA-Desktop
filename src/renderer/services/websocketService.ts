@@ -21,11 +21,17 @@ function getBackendHttpBase(): string {
   return 'http://localhost:8000';
 }
 
-export async function getOrCreateChatId(backendUrl: string, token: string): Promise<string> {
+export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
   let chatId = localStorage.getItem('current_chat_id');
-  if (chatId) {
+  if (chatId && !forceCreate) {
     console.log('[Chat] Reusing existing chat id', chatId);
     return chatId;
+  }
+  
+  if (forceCreate) {
+    console.log('[Chat] Force creating new chat (forceCreate=true)');
+    localStorage.removeItem('current_chat_id');
+    chatId = null;
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -105,7 +111,7 @@ export class ChatWebSocket {
       
       // 🔐 Get token from secure keytar storage (not localStorage!)
       console.log('[WS] Getting auth token from keytar...');
-      const token = await window.evia.auth.getToken();
+      const token = await (window.evia as any).auth.getToken();
       if (!token) {
         console.error('[WS] Missing auth token. Please login first.');
         return;
@@ -140,6 +146,15 @@ export class ChatWebSocket {
           console.log(`[WS] Closed: code=${event.code} reason=${event.reason}`);
           this.isConnectedFlag = false;
           this.connectionChangeHandlers.forEach(h => h(false));
+          
+          // 🔧 FIX: Detect auth/not found errors (close code 1008 = policy violation, 4xxx = app errors)
+          if (event.code === 1008 || (event.code >= 4000 && event.code < 5000)) {
+            console.error('[WS] Auth/not found error detected - chat may not exist');
+            // Clear invalid chat_id and signal for recreation
+            localStorage.removeItem('current_chat_id');
+            // Still schedule reconnect - the ensureMicWs/ensureSystemWs will handle recreation
+          }
+          
           if (this.shouldReconnect) this.scheduleReconnect();
         };
         this.ws.onerror = (ev: Event) => {

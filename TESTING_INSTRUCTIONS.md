@@ -1,237 +1,187 @@
-# 🧪 System Audio Testing Instructions
+# Testing Instructions - Transcript Deduplication Fix
 
-## ✅ Production App is Now Running!
+## Quick Test (5 minutes)
 
-The app has been launched from: `dist/mac-arm64/EVIA Desktop.app`
-
----
-
-## 🎯 What to Test
-
-### 1. **Grant macOS Permission** (First Time Only)
-You should see a macOS dialog:
-> **"EVIA Desktop" would like to record your screen**
-
-**Action**: Click **"Allow"**
-
-⚠️ **Important**: This prompt should say **"EVIA Desktop"** (not "Cursor")
-
----
-
-### 2. **Login** (If Needed)
-1. Open DevTools on the **Header window** (the top bar)
-   - Right-click on the header → Inspect
-   - Or press `Cmd+Option+I`
-
-2. In the Console, run:
-   ```javascript
-   await window.evia.auth.login("admin", "Admin123!")
-   ```
-
-3. Should return: `{success: true}`
-
----
-
-### 3. **Test Mic + System Audio Capture**
-
-#### Prepare:
-1. **Play audio** (YouTube, Spotify, or any app)
-2. **Keep it playing** throughout the test
-3. Open DevTools on both **Header** and **Listen** windows
-
-#### Test Flow:
-1. Click **"Zuhören"** button (should hear permission prompt if first time)
-2. **Speak into microphone**: "Hello, this is my microphone"
-3. **Let system audio play** (YouTube video, etc.)
-4. Wait 5-10 seconds
-5. Click **"Stopp"** button
-
----
-
-### 4. **Verify Console Logs**
-
-#### Header Window Console (Should Show):
-```
-[AudioCapture] Starting dual capture (mic + system audio)...
-[AudioCapture] Step 1: Getting desktop sources from Electron...
-[AudioCapture] Step 2: Found 2 desktop sources
-[AudioCapture] Using source: Built-in Display
-[AudioCapture] System audio permission granted
-[AudioCapture] System audio tracks: [{label: "...", enabled: true}]
-[AudioCapture] System audio capture started successfully
-[AudioCapture] Sent MIC chunk: 4800 bytes
-[AudioCapture] Sent SYSTEM chunk: 4800 bytes  ← KEY: Should see this!
+```bash
+cd /Users/benekroetz/EVIA/EVIA-Desktop
+git checkout desktop-transcript-dedup
+npm run dev
 ```
 
-**❌ If you see**:
-- `[AudioCapture] System audio tracks: []` (empty) → System audio failed
-- `desktopCapturer.getSources error` → Permission issue
+1. Click "Listen" button in header
+2. **Speak into microphone**: "Testing one two three"
+3. **Play YouTube video** (system audio): Any speech
+4. **Open DevTools** on Listen window (Right-click → Inspect)
 
-**✅ Success**: You see both "Sent MIC chunk" and "Sent SYSTEM chunk" messages
+### ✅ SUCCESS CRITERIA
 
----
-
-#### Listen Window Console (Should Show):
+**Console Logs Should Show**:
 ```
-[ListenView] 📨 Received IPC message: transcript_segment
-[ListenView] 📨 IPC Adding transcript: Hello, this is my microphone final: false
-[ListenView] 📨 IPC Adding transcript: [YouTube audio text] final: false
-```
-
-**Check `speaker` values**:
-- `speaker: 1` = Your mic (should be "Me" / blue)
-- `speaker: 0` = System audio (should be "Them" / grey)
-
----
-
-### 5. **Verify UI (Listen Window)**
-
-The transcript view should show:
-
-**Your Speech (Mic)**:
-- ✅ **Blue gradient background**
-- ✅ **Aligned to RIGHT side**
-- ✅ Label: "Me (Mic)"
-- ✅ Contains your spoken words
-
-**System Audio (YouTube/Spotify)**:
-- ✅ **Grey gradient background**
-- ✅ **Aligned to LEFT side**
-- ✅ Label: "Them (System)"
-- ✅ Contains audio from playing app
-
----
-
-### 6. **Test Timer**
-
-1. Click **"Zuhören"** → Timer should **START** (00:01, 00:02, etc.)
-2. Click **"Stopp"** → Timer should **STOP IMMEDIATELY**
-3. Listen window console should show: `[ListenView] 🛑 Recording stopped - stopping timer`
-4. Timer should **NOT continue counting**
-
----
-
-### 7. **Check Backend Logs**
-
-In your backend terminal, you should see:
-
-```
-[WebSocket] New connection: chat_id=698, source=mic, speaker=1
-[WebSocket] New connection: chat_id=698, source=system, speaker=0  ← KEY!
-[Deepgram] Created stream for source=mic
-[Deepgram] Created stream for source=system  ← KEY!
-[Deepgram] Transcript (source=mic, speaker=1): "Hello, this is my microphone"
-[Deepgram] Transcript (source=system, speaker=0): "[YouTube audio]"
+[ListenView] ➕ ADDING new partial
+[ListenView] 🔄 REPLACING partial at index 0
+[ListenView] 🔄 REPLACING partial at index 0
+[ListenView] 🔄 CONVERTING partial to final at index 0
 ```
 
-**✅ Success**: You see **TWO** WebSocket connections (mic + system)
+**Visual Results**:
+- **ONE line per sentence** (not 9+ lines)
+- **Mic speech**: Blue bubble, right-aligned, "Me (Mic)" label
+- **System audio**: Grey bubble, left-aligned, "Them (System)" label
+- **All bubbles**: Full opacity (no fading)
+
+### ❌ FAILURE INDICATORS
+
+- Multiple lines for same sentence → Deduplication broken
+- Blue bubbles on left or grey on right → Speaker styling broken
+- Some bubbles faded → Opacity logic broken
 
 ---
 
-## 📸 Evidence to Collect
+## Detailed Test (15 minutes)
 
-### If System Audio Works:
-1. **Screenshot** of Listen window showing:
-   - Blue bubbles on right (your mic)
-   - Grey bubbles on left (system audio)
-   
-2. **Console logs** from Header window showing:
-   - "Found X desktop sources"
-   - "System audio tracks: [...]"
-   - "Sent SYSTEM chunk: 4800 bytes"
+### Test 1: Mic Transcription
 
-3. **Backend logs** showing:
-   - Two WebSocket connections
-   - Two Deepgram streams
+1. Start Listen mode
+2. Speak: "The quick brown fox jumps over the lazy dog"
+3. **Watch bubble update in real-time** (same line, text grows)
+4. **Final state**: One blue bubble on right with complete sentence
 
-### If System Audio Fails:
-1. **Full console log** from Header window
-2. **Error messages** (especially `desktopCapturer` errors)
-3. **macOS permission screenshot**: System Preferences > Security & Privacy > Screen Recording
+**Console verification**:
+```
+[AudioCapture] Forwarding MIC message to Listen window: status
+[ListenView] 📨 status (echo_text): The quick _source: mic
+[ListenView] 🔄 REPLACING status partial at index 0
+```
 
----
+### Test 2: System Audio Transcription
 
-## 🐛 Troubleshooting
+1. Play YouTube video with speech
+2. **Watch bubble update** (grey, left side)
+3. **Final state**: One grey bubble per spoken sentence
 
-### Problem: "System audio tracks: []" (empty)
-**Possible Causes**:
-1. No audio playing when you clicked "Zuhören"
-2. Permission not granted
-3. Some apps (Spotify DRM) block audio capture
+**Console verification**:
+```
+[AudioCapture] Forwarding SYSTEM message to Listen window: transcript_segment
+[ListenView] 📨 transcript_segment: ... speaker: 0 final: true
+[ListenView] 🔄 CONVERTING partial to final at index X
+```
 
-**Fix**:
-1. Make sure audio is **actively playing BEFORE** clicking "Zuhören"
-2. Check System Preferences > Security & Privacy > Screen Recording > EVIA Desktop is checked
-3. Try YouTube instead of Spotify
+### Test 3: Mixed Audio (Mic + System)
 
----
+1. Play YouTube video
+2. Simultaneously speak into mic
+3. **Expected**: Separate bubbles - grey (left) for system, blue (right) for mic
+4. **No cross-contamination** of speaker colors
 
-### Problem: "desktopCapturer.getSources error: Failed to get sources"
-**This means**: Permission issue
+### Test 4: Rapid Interim Updates
 
-**Fix**:
-1. Open System Preferences > Security & Privacy > Screen Recording
-2. Check the box next to "EVIA Desktop"
-3. **Quit the app** (Cmd+Q)
-4. Launch again: `open "dist/mac-arm64/EVIA Desktop.app"`
+1. Speak slowly: "One... two... three... four... five"
+2. **Watch single bubble grow** with each word
+3. **No duplicate lines**
 
 ---
 
-### Problem: Only mic bubbles appear (no system audio bubbles)
-**Check**:
-1. Backend logs - do you see TWO WebSocket connections?
-2. Header console - do you see "Sent SYSTEM chunk" messages?
-3. Audio was playing when you started capture?
+## Screenshot Comparison
+
+### Before Fix (User's logs showed):
+```
+And they
+And they were in the
+And they were in their gym class and
+And they were in the gym class, and he was getting ready
+And they were in their gym class and you line up...
+```
+**9+ lines for ONE sentence!**
+
+### After Fix (Expected):
+```
+And they were in their gym class and you line up and getting ready for the next unit.
+```
+**1 line, updated in-place**
 
 ---
 
-### Problem: Timer doesn't stop
-**Check**:
-1. Listen window console for: `[ListenView] 🛑 Recording stopped`
-2. If missing → timer fix didn't work, share full console log
+## Debug Console Checklist
+
+Open DevTools on **Listen window** and verify:
+
+### Message Flow
+- [x] `[AudioCapture] Forwarding MIC message` appears for mic speech
+- [x] `[AudioCapture] Forwarding SYSTEM message` appears for system audio
+- [x] `_source: mic` or `_source: system` logged
+- [x] `speaker: 0` for system, `speaker: 1` for mic in transcript_segment
+
+### Deduplication
+- [x] `REPLACING partial at index X` for interim updates
+- [x] `CONVERTING partial to final at index X` when speech ends
+- [x] **NOT** seeing `ADDING new` repeatedly for same sentence
+
+### State
+- [x] `Updated transcripts count: X` increments by 1 per sentence (not per interim update)
 
 ---
 
-## ✅ Success Criteria Checklist
+## Expected Log Pattern
 
-- [ ] macOS permission prompt shows "EVIA Desktop" (not Cursor)
-- [ ] Header console shows "Found X desktop sources"
-- [ ] Header console shows "System audio tracks: [...]" (non-empty)
-- [ ] Header console shows BOTH "Sent MIC chunk" AND "Sent SYSTEM chunk"
-- [ ] Backend shows TWO WebSocket connections (mic + system)
-- [ ] Listen UI shows blue bubbles on right (mic)
-- [ ] Listen UI shows grey bubbles on left (system audio)
-- [ ] Timer starts when clicking "Zuhören"
-- [ ] Timer stops when clicking "Stopp"
-- [ ] Timer does NOT continue after stopping
+```
+// User speaks "Hello world"
 
----
+[AudioCapture] Forwarding MIC message to Listen window: status
+[ListenView] 📨 status (echo_text): Hello _source: mic speaker: 1
+[ListenView] ➕ ADDING new status partial
 
-## 🚀 Next Steps
+[AudioCapture] Forwarding MIC message to Listen window: status
+[ListenView] 📨 status (echo_text): Hello world _source: mic speaker: 1
+[ListenView] 🔄 REPLACING status partial at index 0
 
-### If Everything Works:
-1. Take screenshots
-2. Save console logs
-3. Share in chat: "✅ System audio works! Both mic and system bubbles appearing."
+[AudioCapture] Forwarding MIC message to Listen window: transcript_segment
+[ListenView] 📨 transcript_segment: Hello world speaker: 1 final: true
+[ListenView] 🔄 CONVERTING partial to final at index 0
 
-### If Something Fails:
-1. Note which step failed
-2. Copy relevant error messages
-3. Share console logs from Header and Listen windows
-4. Share backend logs if relevant
+[State Debug] Updated transcripts count: 1  // ← Only 1 line!
+```
 
 ---
 
-## 📁 Quick Reference
+## Rollback if Issues
 
-**Launch App**: `open "dist/mac-arm64/EVIA Desktop.app"`  
-**Login**: `await window.evia.auth.login("admin", "Admin123!")`  
-**Permission**: System Preferences > Security & Privacy > Screen Recording  
-**Rebuild**: `npm run build`
+```bash
+git checkout main
+npm run build
+npm run dev
+```
 
 ---
 
-**Status**: 🟢 Production app is running  
-**Next**: Test system audio capture following steps above  
-**Report**: Share results (success or errors) in chat
+## Report Template
 
+**Status**: ✅ PASS / ❌ FAIL  
+**Test Duration**: X minutes  
+**Transcript Count for 1 Sentence**: X (expected: 1)  
+**Speaker Colors Correct**: YES / NO  
+**Opacity Correct**: YES / NO  
+**Console Logs Match**: YES / NO  
+
+**Issues Found**:
+- (list any issues)
+
+**Screenshots**:
+- (attach before/after if possible)
+
+---
+
+## Next Actions if Test Passes
+
+1. **Merge branch**: `git checkout main && git merge desktop-transcript-dedup`
+2. **Push to remote**: `git push origin desktop-transcript-dedup`
+3. **Update MVP tracker**: Mark "Transcript Display Fix" as complete
+4. **Notify team**: Share `TRANSCRIPT_DEDUP_FIX_COMPLETE.md`
+
+---
+
+## Contact
+
+If issues found, check:
+1. `TRANSCRIPT_DISPLAY_ANALYSIS.md` - Root cause analysis
+2. `TRANSCRIPT_DEDUP_FIX_COMPLETE.md` - Implementation details
+3. Console logs - Debug patterns above
