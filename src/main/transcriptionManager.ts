@@ -46,6 +46,30 @@ class ManagerWebSocket {
             parsed = JSON.parse(raw);
           } catch {}
         }
+        // Simple focused log: show first receipt of backend transcript-like payloads
+        try {
+          if (parsed && typeof parsed === "object") {
+            if (parsed.type === "transcript_segment" && parsed.data?.text) {
+              console.log(
+                `[transcriptionManager][in:${
+                  this.source
+                }] segment text="${String(parsed.data.text).slice(
+                  0,
+                  120
+                )}" final=${parsed.data.is_final ?? parsed.data.final ?? false}`
+              );
+            } else if (parsed.type === "status" && parsed.data?.echo_text) {
+              console.log(
+                `[transcriptionManager][in:${
+                  this.source
+                }] echo interim="${String(parsed.data.echo_text).slice(
+                  0,
+                  120
+                )}" final=${parsed.data.final ?? false}`
+              );
+            }
+          }
+        } catch {}
         this.messageHandlers.forEach((h) => h(parsed));
       });
       this.ws.on("error", (err: any) => {

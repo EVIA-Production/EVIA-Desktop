@@ -31,6 +31,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [password, setPassword] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  // Chat ID indicator
+  const [chatId, setChatId] = useState<string | null>(null);
+
+  // Poll chatId (lightweight – updates only if changed)
+  useEffect(() => {
+    const read = () => {
+      try {
+        const cid = localStorage.getItem("current_chat_id");
+        setChatId((prev) => (prev === cid ? prev : cid));
+      } catch {}
+    };
+    read();
+    const t = setInterval(read, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   // Fetch token on mount
   useEffect(() => {
@@ -151,6 +166,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 : authStatus === "error"
                 ? "rgba(255,120,120,0.9)"
                 : "rgba(255,255,255,0.7)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
           }}
         >
           {authStatus === "logged-in" && "Account: Logged In"}
@@ -158,6 +176,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           {authStatus === "unknown" && "Account: Checking..."}
           {authStatus === "error" &&
             `Account: Error (${authMessage || "failed"})`}
+          <span
+            style={{
+              fontSize: 11,
+              opacity: 0.85,
+              color: chatId
+                ? "rgba(255,255,255,0.6)"
+                : "rgba(255,255,255,0.35)",
+            }}
+          >
+            Chat ID: {chatId || "—"}
+          </span>
         </div>
       </div>
 

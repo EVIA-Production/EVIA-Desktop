@@ -125,6 +125,15 @@ const ListenView: React.FC<ListenViewProps> = ({
       }
     });
 
+    // Diagnostic watchdog: warn if no messages arrive within 10s after init
+    const firstMsgTimer = setTimeout(() => {
+      if (agg.getMessages().length === 0) {
+        console.warn(
+          "[ListenView][diag] No transcript messages received after 10s – check transcript:init success, event naming, or backend output."
+        );
+      }
+    }, 10000);
+
     let gaveUp = false;
     const backend =
       window.EVIA_BACKEND_URL || window.API_BASE_URL || "http://localhost:8000";
@@ -152,11 +161,9 @@ const ListenView: React.FC<ListenViewProps> = ({
       try {
         if (!token) throw new Error("no auth token");
         await ensureChat();
-        await (window as any).evia?.transcripts?.init?.({
-          backend,
-          token,
-          chat_id: chatId,
-        });
+        // Corrected: transcripts.init expects (chatId, token). Previously we passed a single object
+        // which resulted in chat_id=%5Bobject%20Object%5D and token=undefined -> 403 from backend.
+        await (window as any).evia?.transcripts?.init?.(chatId, token);
         console.log(
           `[ListenView] transcript:init succeeded on attempt ${attempt}`
         );
@@ -280,6 +287,7 @@ const ListenView: React.FC<ListenViewProps> = ({
       off && off();
       unsubscribeAgg();
       clearInterval(fallbackCheck);
+      clearTimeout(firstMsgTimer);
     };
   }, [autoScroll, isSessionActive]);
 

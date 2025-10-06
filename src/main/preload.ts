@@ -58,8 +58,19 @@ function createWs(url: string): WsHandle {
 contextBridge.exposeInMainWorld("evia", {
   createWs,
   transcripts: {
-    init: (chatId: string, token: string) =>
-      ipcRenderer.invoke("transcript:init", { chatId, token }),
+    // Accept either (chatId, token) or a single object { chatId, token } for resilience
+    init: (a: any, b?: any) => {
+      let chatId: string;
+      let token: string;
+      if (typeof a === "object" && a && !b) {
+        chatId = a.chatId || a.chatID || a.id || "";
+        token = a.token || "";
+      } else {
+        chatId = a;
+        token = b;
+      }
+      return ipcRenderer.invoke("transcript:init", { chatId, token });
+    },
     onEvent: (cb: (evt: any) => void) => {
       const handler = (_e: any, payload: any) => {
         try {
