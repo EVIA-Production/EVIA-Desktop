@@ -12,6 +12,10 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/main/**/*"],
+  "include": [
+    "src/main/**/*",
+    // We explicitly include the websocketService so main process can import it.
+    "src/renderer/services/websocketService.ts"
+  ],
   "exclude": ["dist", "src/renderer/**"]
 }
