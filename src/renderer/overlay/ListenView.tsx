@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getAuthToken } from "../lib/authToken";
 import "./overlay-tokens.css";
 import "./overlay-glass.css";
 import {
@@ -127,8 +128,12 @@ const ListenView: React.FC<ListenViewProps> = ({
     let gaveUp = false;
     const backend =
       window.EVIA_BACKEND_URL || window.API_BASE_URL || "http://localhost:8000";
-    const token = localStorage.getItem("auth_token") || "";
+    let token: string = "";
     let chatId = localStorage.getItem("current_chat_id");
+
+    async function primeToken() {
+      token = (await getAuthToken()) || "";
+    }
 
     async function ensureChat() {
       if (!chatId && token) {
@@ -173,7 +178,7 @@ const ListenView: React.FC<ListenViewProps> = ({
     }
 
     // Kick off init
-    initWithRetry();
+    primeToken().then(() => initWithRetry());
 
     // Fallback local sockets if central manager unavailable
     async function setupFallbackSockets() {
@@ -292,7 +297,7 @@ const ListenView: React.FC<ListenViewProps> = ({
       setIsLoadingInsights(true);
       try {
         const chatId = Number(localStorage.getItem("current_chat_id") || "0");
-        const token = localStorage.getItem("auth_token") || "";
+        const token = (await getAuthToken()) || "";
         if (chatId && token) {
           const fetchedInsights = await fetchInsights({
             chatId,

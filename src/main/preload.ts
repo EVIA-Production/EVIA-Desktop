@@ -131,6 +131,7 @@ contextBridge.exposeInMainWorld("evia", {
     login: (username: string, password: string) =>
       ipcRenderer.invoke("auth:login", { username, password }),
     getToken: () => ipcRenderer.invoke("auth:getToken"),
+    logout: () => ipcRenderer.invoke("auth:logout"),
   },
   audio: {
     sendMicFrame: (buf: ArrayBuffer) =>

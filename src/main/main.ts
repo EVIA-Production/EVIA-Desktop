@@ -129,6 +129,15 @@ ipcMain.handle("auth:getToken", async () => {
   return await keytar.getPassword("evia", "token");
 });
 
+ipcMain.handle("auth:logout", async () => {
+  try {
+    await keytar.deletePassword("evia", "token");
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility,
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
