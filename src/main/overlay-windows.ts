@@ -1055,16 +1055,13 @@ ipcMain.on('ask:set-prompt', (_event, prompt: string) => {
   }
 })
 
-// This forwards transcript messages from Header window to Listen window
+// IPC relay: Forward transcript messages from Header window to Listen window
+// This is REQUIRED because Header captures audio and receives transcripts,
+// while Listen window displays them. They are separate BrowserWindows.
 ipcMain.on('transcript-message', (_event, message: any) => {
-  console.log('[overlay-windows] 📨 Relaying transcript message to Listen window:', message.type)
-  
   const listenWin = childWindows.get('listen')
   if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
     listenWin.webContents.send('transcript-message', message)
-    console.log('[overlay-windows] ✅ Message forwarded to Listen window')
-  } else {
-    console.log('[overlay-windows] ⚠️ Listen window not available for relay')
   }
 })
 

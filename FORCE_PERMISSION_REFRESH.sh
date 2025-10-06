@@ -20,6 +20,13 @@ fi
 echo "✅ App found: $APP_PATH"
 echo ""
 
+# Step 0: Reset TCC entry to ensure it's fully removed
+echo "📍 Step 0: Resetting TCC entry for com.evia.desktop..."
+echo "-----------------------------------------------------------"
+tccutil reset ScreenRecording com.evia.desktop || true
+echo "✅ TCC entry reset (permission fully removed from database)"
+echo ""
+
 # Step 1: Kill System Settings to force TCC refresh
 echo "📍 Step 1: Killing System Settings to force TCC refresh..."
 echo "-----------------------------------------------------------"
