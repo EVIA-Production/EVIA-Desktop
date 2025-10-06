@@ -139,6 +139,9 @@ contextBridge.exposeInMainWorld("evia", {
     sendSystemFrame: (buf: ArrayBuffer) =>
       ipcRenderer.send("audio:systemFrame", Buffer.from(buf)),
   },
+  app: {
+    quit: () => ipcRenderer.invoke("app:quit"),
+  },
 });
 
 // Export/WAV helpers

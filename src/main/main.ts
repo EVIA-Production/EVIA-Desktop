@@ -138,6 +138,12 @@ ipcMain.handle("auth:logout", async () => {
   }
 });
 
+ipcMain.handle("app:quit", () => {
+  console.log("[main] app:quit requested from renderer");
+  app.quit();
+  return { ok: true };
+});
+
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility,
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 

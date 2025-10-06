@@ -12,42 +12,38 @@ interface SettingsViewProps {
 const SettingsView: React.FC<SettingsViewProps> = ({
   language,
   onToggleLanguage,
-  onClose,
 }) => {
+  // Loading / data
   const [isLoading, setIsLoading] = useState(true);
-  const [shortcuts, setShortcuts] = useState<{ [key: string]: string }>({});
+  const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<
     { id: number; title: string; is_default: boolean }[]
   >([]);
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
+
   // Auth state
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "logged-in" | "logged-out" | "error"
   >("unknown");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [authMessage, setAuthMessage] = useState<string>("");
+  const [authMessage, setAuthMessage] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
 
-  // On mount check for token
+  // Fetch token on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const token = await (window as any).evia?.auth?.getToken?.();
         if (cancelled) return;
-        if (token) {
-          setAuthStatus("logged-in");
-          setAuthMessage("");
-        } else {
-          setAuthStatus("logged-out");
-        }
+        setAuthStatus(token ? "logged-in" : "logged-out");
       } catch (e) {
         if (!cancelled) {
           setAuthStatus("error");
-          setAuthMessage((e as Error).message);
+          setAuthMessage((e as Error).message || "Failed to read token");
         }
       }
     })();
@@ -56,12 +52,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     };
   }, []);
 
+  // Simulated load of UI data
   useEffect(() => {
-    // Simulate loading data
-    setTimeout(() => {
+    const t = setTimeout(() => {
       setShortcuts({
         toggleVisibility: "Cmd+\\",
-        nextStep: "Cmd+Enter",
         scrollUp: "Cmd+Up",
         scrollDown: "Cmd+Down",
       });
@@ -71,21 +66,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       ]);
       setSelectedPreset(2);
       setIsLoading(false);
-    }, 1000);
+    }, 400);
+    return () => clearTimeout(t);
   }, []);
 
-  const togglePresets = () => setShowPresets(!showPresets);
-
-  const handlePresetSelect = (presetId: number) => {
-    setSelectedPreset(presetId);
-  };
-
-  const handleToggleAutoUpdate = () => {
-    setAutoUpdateEnabled(!autoUpdateEnabled);
-  };
-
-  const renderShortcutKeys = (accelerator: string) => {
-    const keyMap: { [key: string]: string } = {
+  const togglePresets = () => setShowPresets((s) => !s);
+  const handlePresetSelect = (id: number) => setSelectedPreset(id);
+  const handleToggleAutoUpdate = () => setAutoUpdateEnabled((a) => !a);
+  const renderShortcutKeys = (accel: string) => {
+    const map: Record<string, string> = {
       Cmd: "⌘",
       Command: "⌘",
       Ctrl: "⌃",
@@ -97,9 +86,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       Left: "←",
       Right: "→",
     };
-    return accelerator.split("+").map((key, index) => (
-      <span key={index} className="shortcut-key">
-        {keyMap[key] || key}
+    return accel.split("+").map((k, i) => (
+      <span key={i} className="shortcut-key">
+        {map[k] || k}
       </span>
     ));
   };
@@ -108,22 +97,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     return (
       <div
         className="settings-container"
-        style={{ background: "#1e1e1e", borderRadius: "12px", padding: "16px" }}
+        style={{
+          background: "#1e1e1e",
+          borderRadius: 12,
+          padding: 16,
+          color: "#fff",
+        }}
       >
-        <div
-          className="loading-state"
-          style={{ textAlign: "center", color: "white" }}
-        >
-          <div className="loading-spinner"></div>
+        <div style={{ textAlign: "center" }}>
+          <div className="loading-spinner" />
           <span>Loading...</span>
         </div>
       </div>
     );
   }
-
-  // NOTE: Glass uses window-level mouse events (overlay-windows.ts:204-227)
-  // React onMouseEnter/Leave don't fire when moving between different BrowserWindows
-  // The main process handles mouse tracking via 'mouse-enter'/'mouse-leave' window events
 
   return (
     <div
@@ -133,75 +120,37 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         flexDirection: "column",
         height: "100%",
         width: "100%",
-        background: "rgba(20, 20, 20, 0.8)",
-        borderRadius: "12px",
-        outline: "0.5px rgba(255, 255, 255, 0.2) solid",
+        background: "rgba(20,20,20,0.82)",
+        borderRadius: 12,
+        outline: "0.5px rgba(255,255,255,0.18) solid",
         outlineOffset: "-1px",
         boxSizing: "border-box",
         position: "relative",
         overflowY: "auto",
-        padding: "12px",
-        zIndex: 1000,
-        color: "white",
+        padding: 12,
+        color: "#fff",
       }}
     >
-      <style>{`
-        .settings-container::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          width: 100%;
-          height: 100%;
-          background: rgba(0, 0, 0, 0.15);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-          border-radius: 12px;
-          filter: blur(10px);
-          z-index: -1;
-          pointer-events: none;
-        }
-        .settings-container::-webkit-scrollbar {
-          width: 6px;
-        }
-        .settings-container::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 3px;
-        }
-        .settings-container::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 3px;
-        }
-        .settings-container::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.3);
-        }
-      `}</style>
-      {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
+      {/* Header */}
       <div
-        className="header-section"
         style={{
-          marginBottom: "16px",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-          paddingBottom: "8px",
+          marginBottom: 16,
+          borderBottom: "1px solid rgba(255,255,255,0.1)",
+          paddingBottom: 8,
         }}
       >
-        <h1
-          className="app-title"
-          style={{ fontSize: "18px", fontWeight: "bold", margin: 0 }}
-        >
+        <h1 style={{ fontSize: 18, fontWeight: "bold", margin: 0 }}>
           {i18n.t("overlay.settings.title")}
         </h1>
         <div
-          className="account-info"
           style={{
-            fontSize: "12px",
+            fontSize: 12,
             color:
               authStatus === "logged-in"
                 ? "rgba(0,200,120,0.9)"
                 : authStatus === "error"
                 ? "rgba(255,120,120,0.9)"
-                : "rgba(255, 255, 255, 0.7)",
+                : "rgba(255,255,255,0.7)",
           }}
         >
           {authStatus === "logged-in" && "Account: Logged In"}
@@ -212,23 +161,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Auth Form */}
+      {/* Authentication Section */}
       <div
-        className="auth-section"
         style={{
-          marginBottom: "16px",
+          marginBottom: 16,
           background: "rgba(255,255,255,0.05)",
-          padding: "8px",
-          borderRadius: "6px",
+          padding: 8,
+          borderRadius: 6,
         }}
       >
-        <h2
-          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
-        >
+        <h2 style={{ fontSize: 14, fontWeight: "bold", margin: "0 0 8px" }}>
           Authentication
         </h2>
-        {authStatus !== "logged-in" && (
+        {authStatus !== "logged-in" ? (
           <form
+            style={{ display: "flex", flexDirection: "column", gap: 6 }}
             onSubmit={async (e) => {
               e.preventDefault();
               setAuthBusy(true);
@@ -253,52 +200,50 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 setAuthBusy(false);
               }
             }}
-            style={{ display: "flex", flexDirection: "column", gap: "6px" }}
           >
             <input
-              type="text"
-              placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              required
               style={{
                 background: "rgba(0,0,0,0.3)",
                 border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: "4px",
+                borderRadius: 4,
                 padding: "6px 8px",
-                color: "white",
-                fontSize: "12px",
+                color: "#fff",
+                fontSize: 12,
               }}
-              required
             />
             <input
               type="password"
-              placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              required
               style={{
                 background: "rgba(0,0,0,0.3)",
                 border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: "4px",
+                borderRadius: 4,
                 padding: "6px 8px",
-                color: "white",
-                fontSize: "12px",
+                color: "#fff",
+                fontSize: 12,
               }}
-              required
             />
             <button
               type="submit"
               disabled={authBusy}
               style={{
                 background: authBusy
-                  ? "rgba(255,255,255,0.2)"
+                  ? "rgba(255,255,255,0.25)"
                   : "rgba(0,122,255,0.4)",
                 border: "1px solid rgba(0,122,255,0.5)",
-                borderRadius: "4px",
+                borderRadius: 4,
                 padding: "6px 8px",
-                color: "white",
-                fontSize: "12px",
-                cursor: authBusy ? "default" : "pointer",
+                color: "#fff",
+                fontSize: 12,
                 fontWeight: 500,
+                cursor: authBusy ? "default" : "pointer",
               }}
             >
               {authBusy ? "Logging in..." : "Login"}
@@ -306,7 +251,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             {authMessage && (
               <div
                 style={{
-                  fontSize: "11px",
+                  fontSize: 11,
                   color:
                     authStatus === "error"
                       ? "rgba(255,140,140,0.9)"
@@ -317,14 +262,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             )}
           </form>
-        )}
-        {authStatus === "logged-in" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.8)" }}>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
               You are logged in.
             </div>
-            <div style={{ display: "flex", gap: "6px" }}>
+            <div>
               <button
+                disabled={authBusy}
                 onClick={async () => {
                   setAuthBusy(true);
                   try {
@@ -341,20 +286,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{
                   background: "rgba(255,80,80,0.4)",
                   border: "1px solid rgba(255,80,80,0.5)",
-                  borderRadius: "4px",
+                  borderRadius: 4,
                   padding: "6px 8px",
-                  color: "white",
-                  fontSize: "12px",
-                  cursor: authBusy ? "default" : "pointer",
+                  color: "#fff",
+                  fontSize: 12,
                   fontWeight: 500,
+                  cursor: authBusy ? "default" : "pointer",
                 }}
-                disabled={authBusy}
               >
                 {authBusy ? "Working..." : "Logout"}
               </button>
             </div>
             {authMessage && (
-              <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.7)" }}>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
                 {authMessage}
               </div>
             )}
@@ -362,32 +306,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
-      <div className="language-section" style={{ marginBottom: "16px" }}>
-        <h2
-          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
-        >
+      {/* Language Section */}
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: "bold", margin: "0 0 8px" }}>
           {i18n.t("overlay.settings.language")}
         </h2>
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={onToggleLanguage}
             style={{
               flex: 1,
               background:
                 language === "de"
-                  ? "rgba(0, 122, 255, 0.3)"
-                  : "rgba(255, 255, 255, 0.1)",
+                  ? "rgba(0,122,255,0.3)"
+                  : "rgba(255,255,255,0.1)",
               border:
                 language === "de"
-                  ? "1px solid rgba(0, 122, 255, 0.5)"
-                  : "1px solid rgba(255, 255, 255, 0.2)",
-              borderRadius: "4px",
-              color: "white",
-              padding: "8px",
-              fontSize: "12px",
-              fontWeight: "500",
+                  ? "1px solid rgba(0,122,255,0.5)"
+                  : "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 4,
+              color: "#fff",
+              padding: 8,
+              fontSize: 12,
+              fontWeight: 500,
               cursor: "pointer",
-              transition: "all 0.2s",
             }}
           >
             {i18n.t("overlay.settings.german")}
@@ -398,19 +340,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               flex: 1,
               background:
                 language === "en"
-                  ? "rgba(0, 122, 255, 0.3)"
-                  : "rgba(255, 255, 255, 0.1)",
+                  ? "rgba(0,122,255,0.3)"
+                  : "rgba(255,255,255,0.1)",
               border:
                 language === "en"
-                  ? "1px solid rgba(0, 122, 255, 0.5)"
-                  : "1px solid rgba(255, 255, 255, 0.2)",
-              borderRadius: "4px",
-              color: "white",
-              padding: "8px",
-              fontSize: "12px",
-              fontWeight: "500",
+                  ? "1px solid rgba(0,122,255,0.5)"
+                  : "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 4,
+              color: "#fff",
+              padding: 8,
+              fontSize: 12,
+              fontWeight: 500,
               cursor: "pointer",
-              transition: "all 0.2s",
             }}
           >
             {i18n.t("overlay.settings.english")}
@@ -418,91 +359,72 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      <div className="shortcuts-section" style={{ marginBottom: "16px" }}>
-        <h2
-          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
-        >
+      {/* Shortcuts */}
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: "bold", margin: "0 0 8px" }}>
           {i18n.t("overlay.settings.shortcuts")}
         </h2>
-        {Object.entries(shortcuts).map(([name, accelerator]) => (
+        {Object.entries(shortcuts).map(([name, acc]) => (
           <div
             key={name}
-            className="shortcut-item"
             style={{
               display: "flex",
               justifyContent: "space-between",
-              marginBottom: "8px",
+              marginBottom: 8,
             }}
           >
-            <span
-              className="shortcut-name"
-              style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.9)" }}
-            >
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.9)" }}>
               {name.replace(/([A-Z])/g, " $1")}
             </span>
-            <div
-              className="shortcut-keys"
-              style={{ display: "flex", gap: "4px" }}
-            >
-              {renderShortcutKeys(accelerator)}
+            <div style={{ display: "flex", gap: 4 }}>
+              {renderShortcutKeys(acc)}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="preset-section" style={{ marginBottom: "16px" }}>
+      {/* Presets */}
+      <div style={{ marginBottom: 16 }}>
         <div
-          className="preset-header"
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: "8px",
+            marginBottom: 8,
           }}
         >
-          <span
-            className="preset-title"
-            style={{ fontSize: "14px", fontWeight: "bold" }}
-          >
+          <span style={{ fontSize: 14, fontWeight: "bold" }}>
             {i18n.t("overlay.settings.presets")}
             <span
-              className="preset-count"
               style={{
-                fontSize: "12px",
-                color: "rgba(255, 255, 255, 0.5)",
-                marginLeft: "4px",
+                fontSize: 12,
+                color: "rgba(255,255,255,0.5)",
+                marginLeft: 4,
               }}
             >
               ({presets.filter((p) => !p.is_default).length})
             </span>
           </span>
           <span
-            className="preset-toggle"
             onClick={togglePresets}
             style={{
-              fontSize: "12px",
-              color: "rgba(255, 255, 255, 0.7)",
+              fontSize: 12,
+              color: "rgba(255,255,255,0.7)",
               cursor: "pointer",
               padding: "2px 4px",
-              borderRadius: "4px",
-              transition: "background-color 0.2s",
+              borderRadius: 4,
             }}
           >
             {showPresets ? "▼" : "▶"}
           </span>
         </div>
-
         {showPresets && (
-          <div
-            className="preset-list"
-            style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {presets.filter((p) => !p.is_default).length === 0 ? (
               <div
-                className="no-presets-message"
                 style={{
-                  fontSize: "12px",
-                  color: "rgba(255, 255, 255, 0.5)",
+                  fontSize: 12,
+                  color: "rgba(255,255,255,0.5)",
                   textAlign: "center",
                 }}
               >
@@ -511,30 +433,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             ) : (
               presets
                 .filter((p) => !p.is_default)
-                .map((preset) => (
+                .map((p) => (
                   <div
-                    key={preset.id}
-                    className={`preset-item ${
-                      selectedPreset === preset.id ? "selected" : ""
-                    }`}
-                    onClick={() => handlePresetSelect(preset.id)}
+                    key={p.id}
+                    onClick={() => handlePresetSelect(p.id)}
                     style={{
-                      padding: "8px",
+                      padding: 8,
                       background:
-                        selectedPreset === preset.id
-                          ? "rgba(0, 122, 255, 0.2)"
-                          : "rgba(255, 255, 255, 0.05)",
-                      borderRadius: "4px",
+                        selectedPreset === p.id
+                          ? "rgba(0,122,255,0.2)"
+                          : "rgba(255,255,255,0.05)",
+                      borderRadius: 4,
                       cursor: "pointer",
-                      transition: "background-color 0.2s",
                     }}
                   >
-                    <span
-                      className="preset-name"
-                      style={{ fontSize: "12px", color: "white" }}
-                    >
-                      {preset.title}
-                    </span>
+                    <span style={{ fontSize: 12 }}>{p.title}</span>
                   </div>
                 ))
             )}
@@ -542,28 +455,86 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
+      {/* Controls & Quit */}
       <div
-        className="buttons-section"
-        style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          marginBottom: 8,
+        }}
       >
         <button
-          className="settings-button"
           onClick={handleToggleAutoUpdate}
           style={{
-            background: "rgba(255, 255, 255, 0.1)",
-            border: "1px solid rgba(255, 255, 255, 0.2)",
-            borderRadius: "4px",
-            color: "white",
-            padding: "8px",
-            fontSize: "12px",
-            fontWeight: "500",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: 4,
+            color: "#fff",
+            padding: 8,
+            fontSize: 12,
+            fontWeight: 500,
             cursor: "pointer",
-            transition: "background-color 0.2s",
           }}
         >
           {i18n.t("overlay.settings.autoUpdate")}:{" "}
           {autoUpdateEnabled ? "On" : "Off"}
         </button>
+        <div
+          style={{
+            marginTop: 16,
+            borderTop: "1px solid rgba(255,255,255,0.1)",
+            paddingTop: 12,
+          }}
+        >
+          <button
+            onClick={() => (window as any).evia?.app?.quit?.()}
+            title="Quit EVIA"
+            style={{
+              width: "100%",
+              background:
+                "linear-gradient(135deg, rgba(255,60,60,0.85) 0%, rgba(200,40,40,0.85) 100%)",
+              border: "1px solid rgba(255,80,80,0.6)",
+              borderRadius: 6,
+              color: "#fff",
+              padding: "10px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              letterSpacing: "0.5px",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background =
+                "linear-gradient(135deg, rgba(255,80,80,0.95) 0%, rgba(220,50,50,0.95) 100%)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background =
+                "linear-gradient(135deg, rgba(255,60,60,0.85) 0%, rgba(200,40,40,0.85) 100%)")
+            }
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginRight: 4 }}
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Quit Application
+          </button>
+        </div>
       </div>
     </div>
   );
