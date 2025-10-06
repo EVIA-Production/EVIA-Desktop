@@ -157,18 +157,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal; // If not final, it's partial
-        console.log('[ListenView] 📨 transcript_segment:', text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         text = msg.data.echo_text;
         // Infer speaker from _source: 'mic' = 1, 'system' = 0
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
         isFinal = msg.data.final === true;
         isPartial = !isFinal; // If not final, it's partial
-        console.log('[ListenView] 📨 status:', text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
       }
       
       // Only process if we have text
       if (!text) return;
+      
+      // Log after text is confirmed to exist
+      console.log('[ListenView] 📨', msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:', 
+                  text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
       
       // 🔧 GLASS PARITY: Exact pattern from glass/src/ui/listen/stt/SttView.js lines 116-176
       setTranscripts(prev => {
