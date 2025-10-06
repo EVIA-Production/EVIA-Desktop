@@ -16,6 +16,7 @@ class ManagerWebSocket {
   private openPromise: Promise<void> | null = null;
   private messageHandlers: ((msg: ManagerWsMessage) => void)[] = [];
   private source: Source;
+  private msgCount = 0;
   constructor(url: string, source: Source) {
     this.url = url;
     this.source = source;
@@ -41,31 +42,45 @@ class ManagerWebSocket {
       });
       this.ws.on("message", (raw: any) => {
         let parsed: any = raw;
-        if (typeof raw === "string") {
-          try {
-            parsed = JSON.parse(raw);
-          } catch {}
+        let textPayload: string | null = null;
+        try {
+          if (Buffer.isBuffer(raw)) {
+            textPayload = raw.toString("utf8");
+          } else if (typeof raw === "string") {
+            textPayload = raw;
+          }
+          if (textPayload != null) {
+            const preview = textPayload.replace(/\n/g, " ").slice(0, 140);
+            this.msgCount += 1;
+            console.log(
+              `[transcriptionManager][raw:${this.source}]#${this.msgCount} len=${textPayload.length} preview="${preview}"`
+            );
+            try {
+              parsed = JSON.parse(textPayload);
+            } catch {
+              // leave parsed as best-effort
+            }
+          }
+        } catch (e) {
+          console.warn(
+            `[transcriptionManager][raw:${this.source}] decode failure`,
+            e
+          );
         }
-        // Simple focused log: show first receipt of backend transcript-like payloads
+        // Focused semantic logs
         try {
           if (parsed && typeof parsed === "object") {
             if (parsed.type === "transcript_segment" && parsed.data?.text) {
               console.log(
-                `[transcriptionManager][in:${
-                  this.source
-                }] segment text="${String(parsed.data.text).slice(
-                  0,
-                  120
-                )}" final=${parsed.data.is_final ?? parsed.data.final ?? false}`
+                `[transcriptionManager][in:${this.source}] segment final=${
+                  parsed.data.is_final ?? parsed.data.final ?? false
+                } text="${String(parsed.data.text).slice(0, 120)}"`
               );
             } else if (parsed.type === "status" && parsed.data?.echo_text) {
               console.log(
-                `[transcriptionManager][in:${
-                  this.source
-                }] echo interim="${String(parsed.data.echo_text).slice(
-                  0,
-                  120
-                )}" final=${parsed.data.final ?? false}`
+                `[transcriptionManager][in:${this.source}] echo final=${
+                  parsed.data.final ?? false
+                } text="${String(parsed.data.echo_text).slice(0, 120)}"`
               );
             }
           }
