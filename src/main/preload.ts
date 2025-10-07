@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('evia', {
     moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
     resizeHeader: (w: number, h: number) => ipcRenderer.invoke('win:resizeHeader', w, h),
     adjustWindowHeight: (winName: 'listen' | 'ask' | 'settings' | 'shortcuts', height: number) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    adjustAskHeight: (height: number) => ipcRenderer.invoke('adjust-window-height', { winName: 'ask', height }),
     showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
     hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),

@@ -18,12 +18,12 @@
     "make": "echo 'Use electron-builder via build script'"
   },
   "dependencies": {
-    "dompurify": "^3.2.6",
+    "dompurify": "^3.2.7",
     "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.3.9",
     "highlight.js": "^11.11.1",
     "keytar": "^7.9.0",
-    "marked": "^16.2.1",
+    "marked": "^16.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "ws": "^8.18.0"
