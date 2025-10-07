@@ -185,6 +185,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Only process if we have text
       if (!text) return;
       
+      // 🔧 FILTER: Remove "EVIA connection OK" messages from transcript display
+      if (text.trim().toLowerCase() === 'evia connection ok') {
+        console.log('[ListenView] 🚫 Filtered out "EVIA connection OK" message');
+        return;
+      }
+      
       // 🔧 STEP 1: Capture timestamp for time-based merging
       const messageTimestamp = Date.now();
       
@@ -843,17 +849,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                       lineHeight: '1.5',
                     }}
                   >
-                    {/* 🏷️ SPEAKER LABEL (optional, for debugging) */}
-                    {line.speaker !== null && (
-                      <div style={{ 
-                        fontSize: '10px', 
-                        opacity: 0.7, 
-                        marginBottom: '4px',
-                        fontWeight: '500',
-                      }}>
-                        {isMe ? 'Me (Mic)' : 'Them (System)'}
-                      </div>
-                    )}
+                    {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
                     <span className="bubble-text">{line.text}</span>
                   </div>
                 );
