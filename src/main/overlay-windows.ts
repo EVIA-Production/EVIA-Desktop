@@ -32,7 +32,7 @@ const WINDOW_DATA = {
     zIndex: 3,
   },
   ask: {
-    width: 600,
+    width: 640,  // Increased from 600 to fit form + padding
     height: 61,  // Glass parity: starts at 61px, grows with content
     html: 'overlay.html?view=ask',
     zIndex: 1,

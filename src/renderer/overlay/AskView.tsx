@@ -420,8 +420,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           padding: '12px 16px',
           background: 'rgba(0, 0, 0, 0.65)',
           borderRadius: '12px',
-          width: '800px',
-          maxWidth: '90%',
+          width: '100%',
+          maxWidth: '600px',
           border: '1px solid rgba(255, 255, 255, 0.2)',
         }}
       >
