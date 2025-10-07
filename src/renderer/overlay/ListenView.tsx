@@ -55,6 +55,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
+  const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
   
   // Sync autoScroll state with ref
   useEffect(() => {
@@ -155,6 +156,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🛑 Recording stopped - stopping timer');
         stopTimer();
         setIsSessionActive(false);
+        
+        // 🎯 TASK 1: Auto-switch to Insights view and fetch
+        console.log('[ListenView] 🔄 Auto-switching to Insights view...');
+        setViewMode('insights');
+        setShowUndoButton(true); // Show undo button for 10 seconds
+        
+        // Hide undo button after 10 seconds
+        setTimeout(() => {
+          setShowUndoButton(false);
+        }, 10000);
+        
+        // Fetch insights asynchronously
+        fetchInsightsNow();
+        
         return;
       }
       
@@ -393,9 +408,45 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, [])  // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
 
+  // 🎯 TASK 1: Extract insights fetching to reusable function
+  const fetchInsightsNow = async () => {
+    if (isLoadingInsights) return; // Prevent duplicate fetches
+    
+    setIsLoadingInsights(true);
+    const ttftStart = Date.now();
+    try {
+      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+      // 🔐 FIX: Get token from keytar (secure storage), not localStorage
+      const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
+      const token = await eviaAuth?.getToken();
+      
+      if (!chatId || !token) {
+        console.error('[ListenView] Missing chat_id or auth token for insights fetch');
+        return;
+      }
+      
+      console.log('[ListenView] 📊 Fetching insights for chat:', chatId);
+      const fetchedInsights = await fetchInsights({ chatId, token, language: 'de' });
+      const ttftMs = Date.now() - ttftStart;
+      console.log('[ListenView] ✅ Insights fetched:', fetchedInsights.length, 'items, TTFT:', ttftMs, 'ms');
+      setInsights(fetchedInsights);
+    } catch (error) {
+      console.error('[ListenView] ❌ Failed to fetch insights:', error);
+      // Keep insights empty on error - UI will show placeholder
+    } finally {
+      setIsLoadingInsights(false);
+    }
+  };
+
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
     setViewMode(newMode);
+    
+    // Hide undo button when manually toggling (user has control)
+    if (showUndoButton) {
+      setShowUndoButton(false);
+    }
+    
     // Glass parity: Reset copy state when switching views (only show "Copied X" for the view that was actually copied)
     if (copyState === 'copied' && copiedView !== newMode) {
       setCopyState('idle');
@@ -403,19 +454,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     // Fetch insights when switching to insights view
     if (newMode === 'insights' && insights.length === 0) {
-      setIsLoadingInsights(true);
-      try {
-        const chatId = Number(localStorage.getItem('current_chat_id') || '0');
-        const token = localStorage.getItem('auth_token') || '';
-        if (chatId && token) {
-          const fetchedInsights = await fetchInsights({ chatId, token, language: 'de' });
-          setInsights(fetchedInsights);
-        }
-      } catch (error) {
-        console.error('[ListenView] Failed to fetch insights:', error);
-      } finally {
-        setIsLoadingInsights(false);
-      }
+      await fetchInsightsNow();
     }
   };
 
@@ -777,6 +816,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </span>
           </div>
           <div className="bar-controls">
+            {/* 🎯 TASK 1: Undo button (shown for 10s after auto-switch) */}
+            {showUndoButton && viewMode === 'insights' && (
+              <button 
+                className="toggle-button" 
+                onClick={() => {
+                  setViewMode('transcript');
+                  setShowUndoButton(false);
+                }}
+                style={{ 
+                  background: 'rgba(255, 193, 7, 0.15)',
+                  borderLeft: '2px solid rgba(255, 193, 7, 0.5)'
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 7v6h6" />
+                  <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
+                </svg>
+                <span>Undo</span>
+              </button>
+            )}
             <button className="toggle-button" onClick={toggleView}>
               {viewMode === 'insights' ? (
                 <>

@@ -931,19 +931,81 @@ ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.S
   }
 })
 
+// 🎯 TASK 3: Enhanced Mac screenshot with ScreenCaptureKit (via desktopCapturer)
 ipcMain.handle('capture:screenshot', async () => {
-  const { desktopCapturer } = require('electron')
+  const { desktopCapturer, systemPreferences, screen } = require('electron')
+  
   try {
-    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } })
-    if (!sources.length) return { ok: false, error: 'No sources' }
+    // 🔒 TASK 3: Check screen recording permission on macOS (SCK requirement)
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      console.log('[Screenshot] macOS Screen Recording permission status:', status)
+      
+      if (status === 'denied') {
+        console.error('[Screenshot] ⛔ Screen Recording permission DENIED')
+        return { 
+          ok: false, 
+          error: 'Screen Recording permission denied. Please grant in System Preferences > Privacy & Security > Screen Recording.',
+          needsPermission: true 
+        }
+      } else if (status === 'not-determined') {
+        console.log('[Screenshot] ⚠️  Screen Recording permission not determined - will prompt user')
+        // desktopCapturer.getSources will trigger permission prompt
+      }
+    }
+    
+    // 🎯 TASK 3: Get primary display dimensions for full-resolution capture
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width, height } = primaryDisplay.size
+    const scaleFactor = primaryDisplay.scaleFactor || 1
+    
+    // Use actual display size with scale factor for Retina displays
+    const thumbnailWidth = Math.min(width * scaleFactor, 3840) // Cap at 4K width
+    const thumbnailHeight = Math.min(height * scaleFactor, 2160) // Cap at 4K height
+    
+    console.log('[Screenshot] 📸 Capturing at', thumbnailWidth, 'x', thumbnailHeight, '(scale:', scaleFactor, ')')
+    
+    const sources = await desktopCapturer.getSources({ 
+      types: ['screen'], 
+      thumbnailSize: { width: thumbnailWidth, height: thumbnailHeight } 
+    })
+    
+    if (!sources.length) {
+      return { ok: false, error: 'No display sources found', needsPermission: false }
+    }
+    
     const source = sources[0]
-    const buffer = source.thumbnail.toPNG()
-    const filePath = path.join(app.getPath('temp'), `evia-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, buffer)
+    const thumbnail = source.thumbnail
+    const buffer = thumbnail.toPNG()
+    const size = thumbnail.getSize()
+    
+    // 🎯 TASK 3: Base64 encode for /ask API
     const base64 = buffer.toString('base64')
-    return { ok: true, base64, width: source.thumbnail.getSize().width, height: source.thumbnail.getSize().height, path: filePath }
-  } catch (error) {
-    return { ok: false, error: (error as Error).message }
+    
+    // Optional: Save to temp for debugging (can be removed in production)
+    const filePath = path.join(app.getPath('temp'), `evia-screenshot-${Date.now()}.png`)
+    await fs.promises.writeFile(filePath, buffer)
+    
+    console.log('[Screenshot] ✅ Captured', size.width, 'x', size.height, 'Base64 length:', base64.length)
+    
+    return { 
+      ok: true, 
+      base64, 
+      width: size.width, 
+      height: size.height, 
+      path: filePath 
+    }
+  } catch (error: any) {
+    console.error('[Screenshot] ❌ Capture failed:', error)
+    
+    // Check if error is permission-related
+    const isPermissionError = error.message?.includes('denied') || error.message?.includes('permission')
+    
+    return { 
+      ok: false, 
+      error: error.message || 'Screenshot capture failed',
+      needsPermission: isPermissionError
+    }
   }
 })
 

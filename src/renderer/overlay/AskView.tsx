@@ -18,9 +18,45 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [ttftMs, setTtftMs] = useState<number | null>(null);
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
+  // 🎯 TASK 2: Error handling + loading states
+  const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
+  const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
+  const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
+  const lastPromptRef = useRef<string>(''); // Store last prompt for retry
+
+  // 🎯 TASK 2: Show error toast with auto-dismiss (5 seconds)
+  const showError = (message: string, canRetry: boolean = false) => {
+    console.error('[AskView] 💥 Error:', message);
+    setErrorToast({ message, canRetry });
+    
+    // Clear any existing timeout
+    if (errorToastTimeout.current) {
+      clearTimeout(errorToastTimeout.current);
+    }
+    
+    // Auto-dismiss after 5 seconds
+    errorToastTimeout.current = setTimeout(() => {
+      setErrorToast(null);
+    }, 5000);
+  };
+
+  // 🎯 TASK 2: Retry last failed request
+  const retryLastRequest = () => {
+    if (lastPromptRef.current) {
+      setPrompt(lastPromptRef.current);
+      setErrorToast(null);
+      setTimeout(() => startStream(), 100); // Brief delay for state update
+    }
+  };
 
   const startStream = async (captureScreenshot: boolean = false) => {
     if (!prompt.trim() || isStreaming) return;
+    
+    // 🎯 TASK 2: Store prompt for retry and clear any existing errors
+    lastPromptRef.current = prompt;
+    setErrorToast(null);
+    setIsLoadingFirstToken(true); // Start loading spinner
+    
     const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
     
     // 🔐 FIX: Get token from secure keytar storage (not localStorage!)
@@ -28,8 +64,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
     const token = await eviaAuth?.getToken();
     if (!token) {
-      console.error('[AskView] No auth token found. Please login first.');
-      setResponse('Missing auth. Please login first.');
+      showError('Authentication required. Please login first.', false);
+      setIsLoadingFirstToken(false);
       return;
     }
     console.log('[AskView] ✅ Got auth token (length:', token.length, 'chars)');
@@ -42,7 +78,20 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        // 🎯 TASK 2: Handle auth errors specifically
+        if (res.status === 401) {
+          showError('Authentication expired. Please reconnect.', true);
+          setIsLoadingFirstToken(false);
+          return;
+        }
+        
+        if (!res.ok) {
+          showError(`Failed to create chat session (HTTP ${res.status}). Reconnect?`, true);
+          setIsLoadingFirstToken(false);
+          return;
+        }
+        
         const data = await res.json();
         chatId = Number(data?.id);
         if (chatId && !Number.isNaN(chatId)) {
@@ -50,25 +99,45 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             localStorage.setItem('current_chat_id', String(chatId));
           } catch {}
         } else {
-          throw new Error('Invalid chat id');
+          showError('Invalid chat session. Please reconnect.', true);
+          setIsLoadingFirstToken(false);
+          return;
         }
-      } catch (e) {
-        setResponse('Failed to create chat.');
+      } catch (e: any) {
+        // 🎯 TASK 2: Network errors
+        const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network');
+        showError(
+          isNetworkError 
+            ? 'Network error. Check connection and reconnect?' 
+            : 'Failed to create chat session. Reconnect?',
+          true
+        );
+        setIsLoadingFirstToken(false);
         return;
       }
     }
 
-    // Glass parity: Capture screenshot if requested (Cmd+Enter or explicit call)
+    // 🎯 TASK 3: Capture screenshot if requested (Cmd+Enter or explicit call)
     let screenshotRef: string | undefined;
     if (captureScreenshot) {
       try {
         const result = await (window as any).evia?.capture?.takeScreenshot?.();
+        
         if (result?.ok && result?.base64) {
           screenshotRef = result.base64;
-          console.log('[AskView] 📸 Screenshot captured:', result.width, 'x', result.height);
+          console.log('[AskView] 📸 Screenshot captured:', result.width, 'x', result.height, 'Base64 length:', result.base64.length);
+        } else if (result?.needsPermission) {
+          // 🔒 TASK 3: Handle permission denial
+          showError(result.error || 'Screen Recording permission required. Please grant in System Preferences.', false);
+          setIsLoadingFirstToken(false);
+          return;
+        } else {
+          console.warn('[AskView] Screenshot capture failed:', result?.error);
+          // Continue without screenshot - user can retry
         }
-      } catch (err) {
-        console.error('[AskView] Screenshot capture failed:', err);
+      } catch (err: any) {
+        console.error('[AskView] Screenshot capture error:', err);
+        // Continue without screenshot
       }
     }
 
@@ -86,6 +155,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     streamRef.current = handle;
 
     handle.onDelta((d) => {
+      // 🎯 TASK 2: Clear loading spinner on first token
+      if (isLoadingFirstToken) {
+        setIsLoadingFirstToken(false);
+      }
+      
       if (!hasFirstDelta && streamStartTime.current) {
         const ttft = performance.now() - streamStartTime.current;
         setTtftMs(ttft);
@@ -96,13 +170,32 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
     handle.onDone(() => {
       setIsStreaming(false);
+      setIsLoadingFirstToken(false);
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
     });
-    handle.onError((e) => {
+    handle.onError((e: any) => {
       setIsStreaming(false);
+      setIsLoadingFirstToken(false);
       streamRef.current = null;
+      
+      // 🎯 TASK 2: Enhanced error handling with specific messages
       console.error('[AskView] ❌ Stream error:', e);
+      
+      const errorMsg = e?.message || String(e);
+      const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
+      const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to');
+      
+      if (is401) {
+        showError('Authentication expired. Please reconnect.', true);
+      } else if (isNetwork) {
+        showError('Network connection lost. Reconnect?', true);
+      } else if (errorMsg.includes('aborted')) {
+        // User-initiated abort, no error needed
+        console.log('[AskView] Stream aborted by user');
+      } else {
+        showError(`Request failed: ${errorMsg.substring(0, 50)}. Reconnect?`, true);
+      }
     });
 
     setPrompt('');
@@ -161,6 +254,72 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', padding: '20px' }}>
+      {/* 🎯 TASK 2: Error Toast with Reconnect button */}
+      {errorToast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          background: 'rgba(255, 59, 48, 0.95)',
+          color: 'white',
+          padding: '12px 20px',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '13px',
+          fontFamily: "'Helvetica Neue', sans-serif",
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+          animation: 'slideDown 0.3s ease',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{errorToast.message}</span>
+          {errorToast.canRetry && (
+            <button
+              onClick={retryLastRequest}
+              style={{
+                padding: '4px 12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                border: '1px solid rgba(255, 255, 255, 0.4)',
+                borderRadius: '4px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                fontWeight: '500',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
+            >
+              Reconnect
+            </button>
+          )}
+          <button
+            onClick={() => setErrorToast(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.8)',
+              cursor: 'pointer',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 1L9 9M9 1L1 9" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
+      
       {/* Close button - Glass parity */}
       <button 
         className="close-button" 
@@ -185,8 +344,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           padding: '16px',
           border: '1px solid rgba(255, 255, 255, 0.2)',
         }}>
-          {/* Spinner while waiting for first token */}
-          {isStreaming && !hasFirstDelta && (
+          {/* 🎯 TASK 2: Spinner while waiting for first token */}
+          {isLoadingFirstToken && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255, 255, 255, 0.7)' }}>
               <div style={{
                 width: '16px',
@@ -332,11 +491,22 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         </button>
       </form>
 
-      {/* Spinner keyframes */}
+      {/* Spinner and Toast keyframes */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        
+        @keyframes slideDown {
+          from { 
+            opacity: 0;
+            transform: translate(-50%, -20px);
+          }
+          to { 
+            opacity: 1;
+            transform: translate(-50%, 0);
+          }
         }
       `}</style>
     </div>
