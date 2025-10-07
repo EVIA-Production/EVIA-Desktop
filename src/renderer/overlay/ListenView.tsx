@@ -271,10 +271,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               
               const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(prevText.trim());
               const startsWithCapital = /^[A-Z]/.test(text.trim());
-              // 🔧 PARAGRAPH-LEVEL MERGING: 8s window for natural speech (Deepgram finalizes every 4-8s)
-              const shouldMerge = timeSinceLastMs <= 8000 && (!endsWithSentence || !startsWithCapital);
-              
-              console.log('[ListenView] 🔍 MERGE DECISION (post-convert):', {
+               // 🔧 PARAGRAPH GROUPING: 10-second window (Deepgram finalizes every 4-8s)
+               // Only split on: speaker change OR significant pause (>10s) OR clear paragraph boundary
+               const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
+               
+               console.log('[ListenView] 🔍 MERGE DECISION (post-convert):', {
                 previousFinalIdx,
                 currentIdx: targetIdx,
                 timeSinceLastMs: `${timeSinceLastMs}ms`,
@@ -294,11 +295,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   timestamp: messageTimestamp,
                 };
                 // Remove current (now merged) message
-                newMessages.splice(targetIdx, 1);
-              } else {
-                const reason = timeSinceLastMs > 8000 ? 'TIME_EXCEEDED' : 'SENTENCE_BOUNDARY';
-                console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
-              }
+                  newMessages.splice(targetIdx, 1);
+                } else {
+                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
+                  console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
+                }
             }
           } else {
             // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
@@ -315,12 +316,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               
               // Helper: Check if new text starts with capital letter (potential new sentence)
               const startsWithCapital = /^[A-Z]/.test(text.trim());
-              
-              // MERGE CONDITIONS (all must be true):
-              // 1. Within 8 second window (paragraph-level: Deepgram finalizes every 4-8s)
-              // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
-              //    (This allows: "word word" to merge, "word. Word" to NOT merge, "word Word" to NOT merge)
-              const shouldMerge = timeSinceLastMs <= 8000 && (!endsWithSentence || !startsWithCapital);
+                
+                // MERGE CONDITIONS (paragraph-level grouping):
+                // 1. Within 10-second window (matches Deepgram's 4-8s finalization + buffer)
+                // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
+                //    This creates paragraph-like grouping: only split on speaker change, long pause (>10s), or clear paragraph boundary
+                const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
               
               console.log('[ListenView] 🔍 MERGE DECISION:', {
                 lastFinalIdx,
@@ -340,11 +341,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   text: lastText + ' ' + text,
                   timestamp: messageTimestamp, // Update to latest timestamp
                 };
-              } else {
-                // Create new final bubble (time exceeded or sentence boundary detected)
-                const reason = timeSinceLastMs > 8000 ? 'TIME_EXCEEDED' : 'SENTENCE_BOUNDARY';
-                console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
-                newMessages.push({
+                } else {
+                  // Create new final bubble (significant pause or paragraph boundary detected)
+                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
+                  console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
+                  newMessages.push({
                   text,
                   speaker,
                   isFinal: true,
