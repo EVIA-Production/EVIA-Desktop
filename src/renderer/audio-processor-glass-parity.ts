@@ -241,15 +241,17 @@ function ensureMicWs() {
 }
 
 // Ensure WebSocket for system audio (source=system, speaker=0)
-function ensureSystemWs() {
+function ensureSystemWs(chatId?: string) {
   try {
-    const cid = (localStorage.getItem('current_chat_id') || '0').toString();
+    // 🔧 FIX: Use provided chatId or fall back to localStorage
+    const cid = chatId || (localStorage.getItem('current_chat_id') || '0').toString();
     if (!cid || cid === '0') {
-      console.error('[AudioCapture] No chat_id available');
+      console.error('[AudioCapture] ❌ No chat_id available for system audio WebSocket');
+      console.error('[AudioCapture] Ensure getOrCreateChatId() is called before startCapture()');
       return null;
     }
     if (!systemWsInstance) {
-      console.log('[AudioCapture] Creating system WebSocket (source=system, speaker=0)');
+      console.log('[AudioCapture] Creating system WebSocket (source=system, speaker=0) with chat_id:', cid);
       systemWsInstance = getWebSocketInstance(cid, 'system');
       
       // 🔧 FIX: Forward all transcript messages to Listen window via IPC
@@ -462,7 +464,8 @@ function setupSystemAudioProcessing(stream: MediaStream) {
       // ──────────────────────────────────────────────────────────────────────
       // Send system audio to backend
       // ──────────────────────────────────────────────────────────────────────
-      const ws = ensureSystemWs();
+      const chatId = localStorage.getItem('current_chat_id') || undefined;
+      const ws = ensureSystemWs(chatId);
       if (ws && ws.sendBinaryData) {
         try {
           ws.sendBinaryData(pcm16.buffer);
@@ -589,9 +592,10 @@ export async function startCapture(includeSystemAudio = false) {
         console.warn('[AudioCapture] Continuing with mic-only capture');
       } else {
         // Ensure system WebSocket is ready
-        let sysWs = ensureSystemWs();
+        const chatId = localStorage.getItem('current_chat_id') || undefined;
+        let sysWs = ensureSystemWs(chatId);
         if (!sysWs) {
-          throw new Error('[AudioCapture] Failed to create system audio WebSocket');
+          throw new Error('[AudioCapture] Failed to create system audio WebSocket - chat_id may be missing');
         }
         
         // Connect system WebSocket (with auto-recreate on 403)
@@ -610,8 +614,9 @@ export async function startCapture(includeSystemAudio = false) {
             closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
             systemWsInstance = null;
             
-            // Recreate WebSocket with new chat_id
-            sysWs = ensureSystemWs();
+            // Recreate WebSocket with new chat_id (freshly stored in localStorage)
+            const newChatId = localStorage.getItem('current_chat_id') || undefined;
+            sysWs = ensureSystemWs(newChatId);
             if (!sysWs) {
               throw new Error('[AudioCapture] Failed to recreate system WebSocket after chat creation');
             }
@@ -674,7 +679,8 @@ export async function startCapture(includeSystemAudio = false) {
             console.log(`[AudioCapture] 🔊 System audio buffer: ${systemAudioBuffer.length}/${MAX_SYSTEM_BUFFER_SIZE} chunks (from binary)`);
             
             // Send directly to WebSocket (already in PCM int16 format from binary)
-            const ws = ensureSystemWs();
+            const chatId = localStorage.getItem('current_chat_id') || undefined;
+            const ws = ensureSystemWs(chatId);
             if (ws && ws.sendBinaryData) {
               ws.sendBinaryData(bytes.buffer);
               console.log(`[AudioCapture] Sent SYSTEM chunk: ${bytes.byteLength} bytes (from binary)`);

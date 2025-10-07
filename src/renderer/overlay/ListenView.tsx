@@ -489,7 +489,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🎯 Insight clicked:', insight.title);
     console.log('[ListenView] Insight prompt:', insight.prompt);
     
-    // Glass parity: Open Ask window and send prompt via IPC
+    // Glass parity: Open Ask window, send prompt, and auto-submit
     try {
       // 1. Open Ask window
       await (window as any).evia?.windows?.openAskWindow?.();
@@ -500,6 +500,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (eviaIpc) {
         eviaIpc.send('ask:set-prompt', insight.prompt);
         console.log('[ListenView] ✅ Prompt sent via IPC');
+        
+        // 🔧 FIX: Auto-submit prompt after 100ms for UX smoothness
+        setTimeout(() => {
+          eviaIpc.send('ask:submit-prompt');
+          console.log('[ListenView] ✅ Auto-submitted prompt via IPC');
+        }, 100);
       } else {
         console.warn('[ListenView] IPC not available, falling back to DOM manipulation');
         // Fallback: DOM manipulation (less reliable)
@@ -509,6 +515,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             askInput.value = insight.prompt;
             askInput.focus();
             console.log('[ListenView] ⚠️ Prompt set via DOM (fallback)');
+            
+            // 🔧 FIX: Auto-submit via Enter key simulation
+            setTimeout(() => {
+              const enterEvent = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                bubbles: true,
+                cancelable: true
+              });
+              askInput.dispatchEvent(enterEvent);
+              console.log('[ListenView] ⚠️ Auto-submitted via Enter key (fallback)');
+            }, 100);
           }
         }, 300);
       }

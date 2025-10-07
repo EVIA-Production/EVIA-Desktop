@@ -333,20 +333,35 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }, 100);
     };
 
+    // 🔧 FIX: Handle auto-submit from insights click
+    const handleSubmitPrompt = () => {
+      console.log('[AskView] 📨 Received submit-prompt via IPC - auto-submitting');
+      startStream();
+    };
+
     (window as any).evia.ipc.on('ask:set-prompt', handleSetPrompt);
+    (window as any).evia.ipc.on('ask:submit-prompt', handleSubmitPrompt);
     
     return () => {
-      console.log('[AskView] Cleaning up IPC listener');
+      console.log('[AskView] Cleaning up IPC listeners');
     };
-  }, []);
+  }, [startStream]);
 
   // Glass parity: Request window resize via IPC
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      eviaApi.windows.adjustAskHeight(Math.min(700, targetHeight));
+      // 🔧 FIX: Min height 450px for better UX, max 700px
+      const clampedHeight = Math.max(450, Math.min(700, targetHeight));
+      eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };
+
+  // 🔧 FIX: Set initial window height to 450px on mount for better UX
+  useEffect(() => {
+    requestWindowResize(450);
+    console.log('[AskView] Set initial window height to 450px');
+  }, []);
 
   // Glass parity: Render markdown with syntax highlighting
   const renderMarkdown = (text: string): string => {
