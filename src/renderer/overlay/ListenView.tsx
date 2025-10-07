@@ -200,9 +200,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Only process if we have text
       if (!text) return;
       
-      // 🔧 FILTER: Remove "EVIA connection OK" messages from transcript display
-      if (text.trim().toLowerCase() === 'evia connection ok') {
-        console.log('[ListenView] 🚫 Filtered out "EVIA connection OK" message');
+      // 🔧 FILTER: Remove "EVIA connection OK" messages from transcript display (exact match or contains)
+      if (text.trim().toLowerCase().includes('evia connection')) {
+        console.log('[ListenView] 🚫 Filtered out connection status message:', text.substring(0, 50));
         return;
       }
       
