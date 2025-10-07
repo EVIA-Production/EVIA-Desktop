@@ -77,6 +77,17 @@ function App() {
         captureHandleRef.current = handle
         setIsCapturing(true)
         console.log('[OverlayEntry] Audio capture started successfully (mic + system)')
+        
+        // 🔧 FIX: Notify Listen window to start timer
+        try {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            eviaIpc.send('transcript-message', { type: 'recording_started' });
+            console.log('[OverlayEntry] Sent recording_started message to Listen window');
+          }
+        } catch (error) {
+          console.error('[OverlayEntry] Failed to send recording_started:', error);
+        }
       } else {
         // Stop capture
         console.log('[OverlayEntry] Stopping audio capture...')

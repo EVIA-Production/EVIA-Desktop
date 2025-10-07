@@ -213,9 +213,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         };
         
         // 🔧 NEW: Find last FINAL from same speaker (for merging consecutive finals)
-        const findLastFinalIdx = (spk: number | null) => {
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].speaker === spk && prev[i].isFinal) {
+        const findLastFinalIdx = (spk: number | null, searchArray?: TranscriptLine[]) => {
+          const arr = searchArray || prev;
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i].speaker === spk && arr[i].isFinal) {
               return i;
             }
           }
@@ -258,6 +259,46 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isPartial: false,
               timestamp: messageTimestamp,
             };
+
+            // 🔧 CRITICAL FIX: After converting, check if we should MERGE with PREVIOUS final
+            const previousFinalIdx = findLastFinalIdx(speaker, newMessages.slice(0, targetIdx));
+            
+            if (previousFinalIdx !== -1) {
+              const prevMessage = newMessages[previousFinalIdx];
+              const prevText = prevMessage.text;
+              const prevTimestamp = prevMessage.timestamp || 0;
+              const timeSinceLastMs = messageTimestamp - prevTimestamp;
+              
+              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(prevText.trim());
+              const startsWithCapital = /^[A-Z]/.test(text.trim());
+              const shouldMerge = timeSinceLastMs <= 2500 && (!endsWithSentence || !startsWithCapital);
+              
+              console.log('[ListenView] 🔍 MERGE DECISION (post-convert):', {
+                previousFinalIdx,
+                currentIdx: targetIdx,
+                timeSinceLastMs: `${timeSinceLastMs}ms`,
+                endsWithSentence,
+                startsWithCapital,
+                shouldMerge,
+                prevText: prevText.substring(Math.max(0, prevText.length - 30)),
+                newText: text.substring(0, 30)
+              });
+              
+              if (shouldMerge) {
+                console.log('[ListenView] 🔗 MERGING current final into previous at index', previousFinalIdx);
+                // Merge current into previous
+                newMessages[previousFinalIdx] = {
+                  ...prevMessage,
+                  text: prevText + ' ' + text,
+                  timestamp: messageTimestamp,
+                };
+                // Remove current (now merged) message
+                newMessages.splice(targetIdx, 1);
+              } else {
+                const reason = timeSinceLastMs > 2500 ? 'TIME_EXCEEDED' : 'SENTENCE_BOUNDARY';
+                console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
+              }
+            }
           } else {
             // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
             const lastFinalIdx = findLastFinalIdx(speaker);
