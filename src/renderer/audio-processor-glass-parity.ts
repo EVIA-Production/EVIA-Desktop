@@ -145,21 +145,21 @@ function base64ToFloat32Array(base64: string): Float32Array {
  * @returns Processed audio with echo removed (Float32Array, 2400 samples)
  */
 function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
-  // 🔧 STEP 2: Enhanced AEC verification - check module, instance, AND heap
-  if (!aecMod || !aecPtr || !aecMod.HEAPU8 || !aecMod.HEAP16) {
-    // Only warn once to avoid log spam
-    const globalAny = global as any;
-    if (!globalAny.aecWarnedOnce) {
-      console.warn('[AEC] ⚠️  AEC not initialized - missing:', {
-        hasModule: !!aecMod,
-        hasInstance: !!aecPtr,
-        hasHEAPU8: !!(aecMod && aecMod.HEAPU8),
-        hasHEAP16: !!(aecMod && aecMod.HEAP16)
-      });
-      globalAny.aecWarnedOnce = true;
+    // 🔧 STEP 2: Enhanced AEC verification - check module, instance, AND heap
+    if (!aecMod || !aecPtr || !aecMod.HEAPU8 || !aecMod.HEAP16) {
+      // Only warn once to avoid log spam
+      const globalAny = window as any;
+      if (!globalAny.aecWarnedOnce) {
+        console.warn('[AEC] ⚠️  AEC not initialized - missing:', {
+          hasModule: !!aecMod,
+          hasInstance: !!aecPtr,
+          hasHEAPU8: !!(aecMod && aecMod.HEAPU8),
+          hasHEAP16: !!(aecMod && aecMod.HEAP16)
+        });
+        globalAny.aecWarnedOnce = true;
+      }
+      return micF32;
     }
-    return micF32;
-  }
 
   const frameSize = 160; // AEC frame size (matches initialization: 160 samples @ 24kHz)
   const numFrames = Math.floor(micF32.length / frameSize);
