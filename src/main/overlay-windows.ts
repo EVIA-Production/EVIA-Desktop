@@ -116,7 +116,7 @@ const WINDOW_DATA = {
   },
   ask: {
     width: 600,
-    height: 61, // Glass parity: starts at 61px, grows with content
+    height: 420, // Increased base height to reduce content clipping; scrolling now handled in AskView
     html: "overlay.html?view=ask",
     zIndex: 1,
   },

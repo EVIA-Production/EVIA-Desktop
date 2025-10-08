@@ -494,29 +494,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         }}
       >
         <button
-          onClick={handleToggleAutoUpdate}
-          style={{
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            borderRadius: 4,
-            color: "#fff",
-            padding: 8,
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: "pointer",
-          }}
-        >
-          {i18n.t("overlay.settings.autoUpdate")}:{" "}
-          {autoUpdateEnabled ? "On" : "Off"}
-        </button>
-        <div
-          style={{
-            marginTop: 16,
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-            paddingTop: 12,
-          }}
-        >
-          <button
             onClick={() => (window as any).evia?.app?.quit?.()}
             title="Quit EVIA"
             style={{
@@ -563,6 +540,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </svg>
             Quit Application
           </button>
+        <button
+          onClick={handleToggleAutoUpdate}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: 4,
+            color: "#fff",
+            padding: 8,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          {i18n.t("overlay.settings.autoUpdate")}:{" "}
+          {autoUpdateEnabled ? "On" : "Off"}
+        </button>
+        <div
+          style={{
+            marginTop: 16,
+            borderTop: "1px solid rgba(255,255,255,0.1)",
+            paddingTop: 12,
+          }}
+        >
         </div>
       </div>
     </div>

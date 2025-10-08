@@ -4,6 +4,7 @@ import "./overlay-glass.css";
 import { streamAsk } from "../lib/evia-ask-stream";
 import { getAuthToken } from "../lib/authToken";
 import { i18n } from "../i18n/i18n";
+import AskResponseCard from "./AskResponseCard";
 
 interface AskViewProps {
   language: "de" | "en";
@@ -18,6 +19,7 @@ const AskView: React.FC<AskViewProps> = ({
 }) => {
   const [prompt, setPrompt] = useState("");
   const [response, setResponse] = useState("");
+  const [lastPrompt, setLastPrompt] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [hasFirstDelta, setHasFirstDelta] = useState(false);
   const streamRef = useRef<{ abort: () => void } | null>(null);
@@ -82,6 +84,7 @@ const AskView: React.FC<AskViewProps> = ({
 
     if (onSubmitPrompt) onSubmitPrompt(prompt);
 
+    setLastPrompt(prompt);
     setResponse("");
     setIsStreaming(true);
     setHasFirstDelta(false);
@@ -121,7 +124,6 @@ const AskView: React.FC<AskViewProps> = ({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        // Glass parity: Cmd+Enter captures screenshot
         startStream(true);
       }
     };
@@ -144,110 +146,132 @@ const AskView: React.FC<AskViewProps> = ({
         width: "100%",
         height: "100%",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        flexDirection: "column",
+        padding: "32px 0 24px",
+        boxSizing: "border-box",
+        overflow: "hidden",
       }}
     >
-      {/* Close button - Glass parity */}
-      <button
-        className="close-button"
-        onClick={() => (window as any).evia?.closeWindow?.("ask")}
-        title="Close"
-      >
-        <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-          <path
-            d="M1 1L9 9M9 1L1 9"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
-      <form
-        onSubmit={onAsk}
+      <div
         style={{
+          flex: "1 1 auto",
+          minHeight: 0,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: "8px",
-          padding: "12px 16px",
-          background: "rgba(0, 0, 0, 0.65)", // Slightly lighter background
-          borderRadius: "12px",
-          width: "800px",
-          maxWidth: "90%",
-          margin: "0 auto",
-          border: "1px solid rgba(255, 255, 255, 0.2)", // Slightly more visible border
+          width: "100%",
+          overflow: "hidden",
         }}
       >
-        <input
-          type="text"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={i18n.t("overlay.ask.placeholder")}
-          id="textInput"
-          style={{
-            flex: 1,
-            padding: "10px 14px",
-            background: "rgba(0, 0, 0, 0.45)", // Slightly lighter input background
-            borderRadius: "12px",
-            outline: "none",
-            border: "none",
-            color: "rgba(255, 255, 255, 0.97)", // Slightly brighter text color
-            fontSize: "14px",
-            fontFamily: "'Helvetica Neue', sans-serif",
-            fontWeight: 400,
-          }}
-        />
+        {/* Close button - Glass parity */}
         <button
-          type="submit"
-          className="submit-btn"
+          className="close-button"
+          onClick={() => (window as any).evia?.closeWindow?.("ask")}
+          title="Close"
+        >
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+            <path
+              d="M1 1L9 9M9 1L1 9"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <form
+          onSubmit={onAsk}
           style={{
             display: "flex",
             alignItems: "center",
-            background: "transparent",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "13px",
-            fontFamily: "'Helvetica Neue', sans-serif",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "background 0.15s",
-            height: "32px",
-            padding: "0 10px",
-            marginLeft: "8px",
+            gap: "8px",
+            padding: "12px 16px",
+            background: "rgba(0, 0, 0, 0.65)", // Slightly lighter background
+            borderRadius: "12px",
+            width: "800px",
+            maxWidth: "90%",
+            margin: "0 auto",
+            border: "1px solid rgba(255, 255, 255, 0.2)", // Slightly more visible border
           }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
         >
-          <span
+          <input
+            type="text"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={i18n.t("overlay.ask.placeholder")}
+            id="textInput"
             style={{
-              marginRight: "8px",
+              flex: 1,
+              padding: "10px 14px",
+              background: "rgba(0, 0, 0, 0.45)", // Slightly lighter input background
+              borderRadius: "12px",
+              outline: "none",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.97)", // Slightly brighter text color
+              fontSize: "14px",
+              fontFamily: "'Helvetica Neue', sans-serif",
+              fontWeight: 400,
+            }}
+          />
+          <button
+            type="submit"
+            className="submit-btn"
+            style={{
               display: "flex",
               alignItems: "center",
-              height: "100%",
+              background: "transparent",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontFamily: "'Helvetica Neue', sans-serif",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "background 0.15s",
+              height: "32px",
+              padding: "0 10px",
+              marginLeft: "8px",
             }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
           >
-            {i18n.t("overlay.ask.submit")}
-          </span>
-          <span
-            style={{
-              background: "rgba(255,255,255,0.1)",
-              borderRadius: "13%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "18px",
-              height: "18px",
-            }}
-          >
-            ↵
-          </span>
-        </button>
-      </form>
+            <span
+              style={{
+                marginRight: "8px",
+                display: "flex",
+                alignItems: "center",
+                height: "100%",
+              }}
+            >
+              {i18n.t("overlay.ask.submit")}
+            </span>
+            <span
+              style={{
+                background: "rgba(255,255,255,0.1)",
+                borderRadius: "13%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "18px",
+                height: "18px",
+              }}
+            >
+              ↵
+            </span>
+          </button>
+        </form>
+        {(response || isStreaming) && (
+          <AskResponseCard
+            prompt={lastPrompt}
+            response={response}
+            isStreaming={isStreaming}
+            onAbort={onAbort}
+          />
+        )}
+      </div>
     </div>
   );
 };
