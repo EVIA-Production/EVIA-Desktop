@@ -160,12 +160,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // 🎯 TASK 1: Auto-switch to Insights view and fetch
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
-        setShowUndoButton(true); // Show undo button for 10 seconds
-        
-        // Hide undo button after 10 seconds
-        setTimeout(() => {
-          setShowUndoButton(false);
-        }, 10000);
+        // 🔧 FIX: Remove undo button as per user request
+        setShowUndoButton(false);
         
         // Fetch insights asynchronously
         fetchInsightsNow();

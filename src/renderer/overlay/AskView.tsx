@@ -56,8 +56,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         const needed = Math.ceil(entry.contentRect.height);
         const current = window.innerHeight;
         
-        if (needed > current - 4) {
-          requestWindowResize(needed);
+        // 🔧 FIX: Always resize to match content (allow both grow and shrink)
+        const delta = Math.abs(needed - current);
+        if (delta > 10) {  // Only resize if difference > 10px to avoid jitter
+          requestWindowResize(needed + 20);  // Add 20px padding for scrollbar
+          console.log('[AskView] 📏 Resizing window:', current, '→', needed + 20);
         }
       }
     });
@@ -98,11 +101,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   };
 
-  const startStream = async (captureScreenshot: boolean = false) => {
-    if (!prompt.trim() || isStreaming) return;
+  const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
+    // 🔧 FIX: Support override prompt for auto-submit from insights
+    const actualPrompt = overridePrompt || prompt;
+    if (!actualPrompt.trim() || isStreaming) return;
     
-    lastPromptRef.current = prompt;
-    setCurrentQuestion(prompt);
+    lastPromptRef.current = actualPrompt;
+    setCurrentQuestion(actualPrompt);
     setErrorToast(null);
     setIsLoadingFirstToken(true);
     setHeaderText('Thinking...');
@@ -195,9 +200,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setTtftMs(null);
     streamStartTime.current = performance.now();
 
-    console.log('[AskView] 🚀 Starting stream');
+    console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
 
-    const handle = streamAsk({ baseUrl, chatId, prompt, language, token, screenshotRef });
+    const handle = streamAsk({ baseUrl, chatId, prompt: actualPrompt, language, token, screenshotRef });
     streamRef.current = handle;
 
     handle.onDelta((d) => {
@@ -218,6 +223,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     handle.onDone(() => {
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
+      setHeaderText('AI Response'); // 🔧 FIX: Ensure header updates when stream completes
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
     });
@@ -321,8 +327,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   useEffect(() => {
     if (!(window as any).evia?.ipc) return;
     
+    // Store the received prompt in a ref to avoid React state timing issues
+    const pendingPromptRef = { current: '' };
+    
     const handleSetPrompt = (receivedPrompt: string) => {
-      console.log('[AskView] 📨 Received prompt via IPC');
+      console.log('[AskView] 📨 Received prompt via IPC:', receivedPrompt.substring(0, 50));
+      pendingPromptRef.current = receivedPrompt;
       setPrompt(receivedPrompt);
       setTimeout(() => {
         const input = document.querySelector('#textInput') as HTMLInputElement;
@@ -333,10 +343,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }, 100);
     };
 
-    // 🔧 FIX: Handle auto-submit from insights click
+    // 🔧 FIX: Handle auto-submit from insights click with override prompt
     const handleSubmitPrompt = () => {
-      console.log('[AskView] 📨 Received submit-prompt via IPC - auto-submitting');
-      startStream();
+      console.log('[AskView] 📨 Received submit-prompt via IPC - auto-submitting with:', pendingPromptRef.current.substring(0, 50));
+      if (pendingPromptRef.current) {
+        startStream(false, pendingPromptRef.current);
+      } else {
+        console.warn('[AskView] ⚠️ No pending prompt, calling startStream with state');
+        startStream();
+      }
     };
 
     (window as any).evia.ipc.on('ask:set-prompt', handleSetPrompt);
