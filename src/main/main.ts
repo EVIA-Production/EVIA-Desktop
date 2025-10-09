@@ -4,6 +4,7 @@ import os from 'os'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
 import { systemAudioService } from './system-audio-service';
+import { headerController } from './header-controller';
 
 function getBackendHttpBase(): string {
   const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
@@ -102,12 +103,11 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('evia', 'token');
 });
 
-// 🚪 Logout handler
+// 🚪 Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
-    await keytar.deletePassword('evia', 'token');
-    console.log('[Auth] ✅ Logged out, token deleted');
-    // TODO: Transition to welcome window
+    await headerController.handleLogout();
+    console.log('[Auth] ✅ Logged out via HeaderController');
     return { success: true };
   } catch (err: unknown) {
     console.error('[Auth] ❌ Logout failed:', err);
@@ -192,11 +192,16 @@ ipcMain.handle('permissions:open-system-preferences', async (_event, pane: strin
   }
 });
 
-// Mark permissions as complete (optional, for state tracking)
+// Mark permissions as complete (Phase 4: HeaderController integration)
 ipcMain.handle('permissions:mark-complete', async () => {
-  console.log('[Permissions] ✅ Permissions marked as complete');
-  // TODO: Phase 4 - HeaderController will use this to transition to main header
-  return { success: true };
+  console.log('[Permissions] ✅ Marking permissions complete via HeaderController');
+  try {
+    await headerController.markPermissionsComplete();
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Permissions] ❌ Failed to mark complete:', err);
+    return { success: false, error: (err as Error).message };
+  }
 });
 
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
@@ -239,7 +244,7 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
   }
 });
 
-// 🎯 Handle auth callback from Frontend
+// 🎯 Handle auth callback from Frontend (Phase 4: HeaderController integration)
 async function handleAuthCallback(url: string) {
   try {
     const urlObj = new URL(url);
@@ -249,15 +254,13 @@ async function handleAuthCallback(url: string) {
     if (error) {
       console.error('[Auth] ❌ Callback error:', error);
       dialog.showErrorBox('Login Failed', error);
+      await headerController.handleAuthError(error);
       return;
     }
     
     if (token) {
-      console.log('[Auth] ✅ Received token, storing...');
-      await keytar.setPassword('evia', 'token', token);
-      
-      // TODO: Transition to permission window (Phase 4)
-      console.log('[Auth] → Next: Show permission window');
+      console.log('[Auth] ✅ Received token, delegating to HeaderController');
+      await headerController.handleAuthCallback(token);
     }
   } catch (err) {
     console.error('[Auth] ❌ Callback parsing failed:', err);
@@ -265,7 +268,7 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // 🔧 ELECTRON 38+: Enable system audio loopback via Chromium's built-in support
   // This replaces the need for external binaries (SystemAudioDump) or getDisplayMedia hacks
   // Docs: https://www.electronjs.org/docs/latest/api/session#sessetdisplaymediarequesthandlerhandler
@@ -295,10 +298,9 @@ app.whenReady().then(() => {
     })
   })
   
-  createHeaderWindow()
-  const hw = getHeaderWindow()
-  // Ensure debug visibility
-  try { hw?.show() } catch {}
-  try { hw?.focus() } catch {}
+  // Phase 4: Initialize HeaderController (handles auth/permission flow)
+  // This replaces direct createHeaderWindow() call
+  await headerController.initialize()
+  
   // Note: Global shortcuts are registered in overlay-windows.ts
 })
