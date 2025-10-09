@@ -1,5 +1,10 @@
 appId: com.evia.desktop
 productName: EVIA Desktop
+# 🔐 Custom URL scheme for deep linking (auth callback from web)
+protocols:
+  - name: EVIA
+    schemes:
+      - evia
 files:
   - dist/**
   - src/main/assets/**

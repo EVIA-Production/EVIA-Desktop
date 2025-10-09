@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, session, desktopCapturer } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
@@ -102,8 +102,168 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('evia', 'token');
 });
 
+// 🚪 Logout handler
+ipcMain.handle('auth:logout', async () => {
+  try {
+    await keytar.deletePassword('evia', 'token');
+    console.log('[Auth] ✅ Logged out, token deleted');
+    // TODO: Transition to welcome window
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Auth] ❌ Logout failed:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 🌐 Shell API: Open external URLs/apps
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  try {
+    await shell.openExternal(url);
+    console.log('[Shell] ✅ Opened external URL:', url);
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Shell] ❌ Failed to open URL:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 🚪 App quit handler
+ipcMain.handle('app:quit', () => {
+  console.log('[App] ✅ Quit requested via IPC');
+  app.quit();
+});
+
+// 🔐 Permission handlers (Phase 3: Permission window)
+// Check microphone and screen recording permissions
+ipcMain.handle('permissions:check', async () => {
+  try {
+    const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+    const screenStatus = systemPreferences.getMediaAccessStatus('screen');
+    
+    console.log('[Permissions] ✅ Check result - Mic:', micStatus, 'Screen:', screenStatus);
+    
+    return {
+      microphone: micStatus,
+      screen: screenStatus,
+    };
+  } catch (err: unknown) {
+    console.error('[Permissions] ❌ Check failed:', err);
+    return {
+      microphone: 'unknown',
+      screen: 'unknown',
+    };
+  }
+});
+
+// Request microphone permission
+ipcMain.handle('permissions:request-microphone', async () => {
+  try {
+    console.log('[Permissions] 📢 Requesting microphone permission...');
+    const granted = await systemPreferences.askForMediaAccess('microphone');
+    const status = granted ? 'granted' : 'denied';
+    
+    console.log('[Permissions] ✅ Microphone permission result:', status);
+    return { status };
+  } catch (err: unknown) {
+    console.error('[Permissions] ❌ Microphone request failed:', err);
+    return { status: 'unknown', error: (err as Error).message };
+  }
+});
+
+// Open System Preferences for screen recording permission
+// (Screen recording cannot be requested programmatically on macOS)
+ipcMain.handle('permissions:open-system-preferences', async (_event, pane: string) => {
+  try {
+    console.log('[Permissions] 🔧 Opening System Preferences for:', pane);
+    
+    if (pane === 'screen') {
+      // Open Screen Recording pane
+      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    } else {
+      // Fallback to main Security & Privacy pane
+      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security');
+    }
+    
+    console.log('[Permissions] ✅ System Preferences opened');
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Permissions] ❌ Failed to open System Preferences:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// Mark permissions as complete (optional, for state tracking)
+ipcMain.handle('permissions:mark-complete', async () => {
+  console.log('[Permissions] ✅ Permissions marked as complete');
+  // TODO: Phase 4 - HeaderController will use this to transition to main header
+  return { success: true };
+});
+
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
+
+// 🔐 Register evia:// protocol for deep linking (auth callback from web)
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('evia', process.execPath, [process.argv[1]]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('evia');
+}
+console.log('[Protocol] ✅ Registered evia:// protocol');
+
+// 🍎 macOS: Handle evia:// URLs when app is already running
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  console.log('[Protocol] 🔗 macOS open-url:', url);
+  
+  if (url.startsWith('evia://auth-callback')) {
+    handleAuthCallback(url);
+  }
+});
+
+// 🪟 Windows/Linux: Handle evia:// URLs from second instance
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  console.log('[Protocol] 🔗 Second instance:', commandLine);
+  
+  const protocolUrl = commandLine.find(arg => arg.startsWith('evia://'));
+  if (protocolUrl && protocolUrl.startsWith('evia://auth-callback')) {
+    handleAuthCallback(protocolUrl);
+  }
+  
+  // Focus main window if exists
+  const headerWin = getHeaderWindow();
+  if (headerWin) {
+    if (headerWin.isMinimized()) headerWin.restore();
+    headerWin.focus();
+  }
+});
+
+// 🎯 Handle auth callback from Frontend
+async function handleAuthCallback(url: string) {
+  try {
+    const urlObj = new URL(url);
+    const token = urlObj.searchParams.get('token');
+    const error = urlObj.searchParams.get('error');
+    
+    if (error) {
+      console.error('[Auth] ❌ Callback error:', error);
+      dialog.showErrorBox('Login Failed', error);
+      return;
+    }
+    
+    if (token) {
+      console.log('[Auth] ✅ Received token, storing...');
+      await keytar.setPassword('evia', 'token', token);
+      
+      // TODO: Transition to permission window (Phase 4)
+      console.log('[Auth] → Next: Show permission window');
+    }
+  } catch (err) {
+    console.error('[Auth] ❌ Callback parsing failed:', err);
+    dialog.showErrorBox('Auth Error', 'Failed to process login callback');
+  }
+}
 
 app.whenReady().then(() => {
   // 🔧 ELECTRON 38+: Enable system audio loopback via Chromium's built-in support

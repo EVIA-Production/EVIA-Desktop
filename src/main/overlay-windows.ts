@@ -1131,6 +1131,164 @@ function getHeaderWindow(): BrowserWindow | null {
   return headerWindow && !headerWindow.isDestroyed() ? headerWindow : null
 }
 
+// 🔐 Welcome Window (Phase 2: Auth Flow)
+// Shown when user is not logged in (no token in keytar)
+let welcomeWindow: BrowserWindow | null = null
+
+export function createWelcomeWindow(): BrowserWindow {
+  if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+    welcomeWindow.show()
+    return welcomeWindow
+  }
+
+  welcomeWindow = new BrowserWindow({
+    width: 400,
+    height: 340,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    title: 'Welcome to EVIA',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      enableWebSQL: false,
+      devTools: process.env.NODE_ENV === 'development',
+    },
+  })
+
+  // Hide window buttons on macOS
+  if (process.platform === 'darwin') {
+    welcomeWindow.setWindowButtonVisibility(false)
+  }
+
+  // Center on screen
+  const { workArea } = screen.getPrimaryDisplay()
+  const x = Math.round(workArea.x + (workArea.width - 400) / 2)
+  const y = Math.round(workArea.y + (workArea.height - 340) / 2)
+  welcomeWindow.setBounds({ x, y, width: 400, height: 340 })
+
+  welcomeWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+  welcomeWindow.setAlwaysOnTop(true, 'screen-saver')
+
+  // Load welcome.html (separate entry point from overlay.html)
+  if (isDev) {
+    welcomeWindow.loadURL(`${VITE_DEV_SERVER_URL}/welcome.html`)
+    console.log('[overlay-windows] 🔧 Welcome loading from Vite:', `${VITE_DEV_SERVER_URL}/welcome.html`)
+  } else {
+    welcomeWindow.loadFile(path.join(__dirname, '../renderer/welcome.html'))
+  }
+
+  welcomeWindow.on('closed', () => {
+    welcomeWindow = null
+  })
+
+  welcomeWindow.once('ready-to-show', () => {
+    welcomeWindow?.show()
+    console.log('[overlay-windows] ✅ Welcome window shown')
+  })
+
+  return welcomeWindow
+}
+
+export function closeWelcomeWindow() {
+  if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+    welcomeWindow.close()
+    welcomeWindow = null
+    console.log('[overlay-windows] ✅ Welcome window closed')
+  }
+}
+
+// 🔐 Permission Window (Phase 3: Permission Flow)
+// Shown after successful login, before main header appears
+let permissionWindow: BrowserWindow | null = null
+
+export function createPermissionWindow(): BrowserWindow {
+  if (permissionWindow && !permissionWindow.isDestroyed()) {
+    permissionWindow.show()
+    return permissionWindow
+  }
+
+  permissionWindow = new BrowserWindow({
+    width: 285,
+    height: 220,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    title: 'EVIA Permissions',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      enableWebSQL: false,
+      devTools: process.env.NODE_ENV === 'development',
+    },
+  })
+
+  // Hide window buttons on macOS
+  if (process.platform === 'darwin') {
+    permissionWindow.setWindowButtonVisibility(false)
+  }
+
+  // Center on screen
+  const { workArea } = screen.getPrimaryDisplay()
+  const x = Math.round(workArea.x + (workArea.width - 285) / 2)
+  const y = Math.round(workArea.y + (workArea.height - 220) / 2)
+  permissionWindow.setBounds({ x, y, width: 285, height: 220 })
+
+  permissionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+  permissionWindow.setAlwaysOnTop(true, 'screen-saver')
+
+  // Load permission.html (separate entry point from overlay.html)
+  if (isDev) {
+    permissionWindow.loadURL(`${VITE_DEV_SERVER_URL}/permission.html`)
+    console.log('[overlay-windows] 🔧 Permission loading from Vite:', `${VITE_DEV_SERVER_URL}/permission.html`)
+  } else {
+    permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'))
+  }
+
+  permissionWindow.on('closed', () => {
+    permissionWindow = null
+  })
+
+  permissionWindow.once('ready-to-show', () => {
+    permissionWindow?.show()
+    console.log('[overlay-windows] ✅ Permission window shown')
+  })
+
+  return permissionWindow
+}
+
+export function closePermissionWindow() {
+  if (permissionWindow && !permissionWindow.isDestroyed()) {
+    permissionWindow.close()
+    permissionWindow = null
+    console.log('[overlay-windows] ✅ Permission window closed')
+  }
+}
+
+export function getPermissionWindow(): BrowserWindow | null {
+  return permissionWindow && !permissionWindow.isDestroyed() ? permissionWindow : null
+}
+
 export {
   getOrCreateHeaderWindow as createHeaderWindow,
   getOrCreateHeaderWindow,

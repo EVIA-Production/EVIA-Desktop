@@ -47,8 +47,23 @@ interface EviaBridge {
   // 🔐 Authentication via secure keytar storage
   auth: {
     login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-    logout: () => Promise<void>;
+    logout: () => Promise<{ success: boolean; error?: string }>;
     getToken: () => Promise<string | null>;
+  };
+  // 🌐 Shell API for opening external URLs
+  shell: {
+    openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  // 🚪 App control
+  app: {
+    quit: () => Promise<void>;
+  };
+  // 🔐 Permissions API (Phase 3)
+  permissions: {
+    check: () => Promise<{ microphone: string; screen: string }>;
+    requestMicrophone: () => Promise<{ status: string; error?: string }>;
+    openSystemPreferences: (pane: string) => Promise<{ success: boolean; error?: string }>;
+    markComplete: () => Promise<{ success: boolean }>;
   };
 }
 

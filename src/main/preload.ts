@@ -83,7 +83,23 @@ contextBridge.exposeInMainWorld('evia', {
   closeWindow: (name: string) => ipcRenderer.invoke('close-window', name),
   auth: {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
-    getToken: () => ipcRenderer.invoke('auth:getToken')
+    getToken: () => ipcRenderer.invoke('auth:getToken'),
+    logout: () => ipcRenderer.invoke('auth:logout')
+  },
+  // 🌐 Shell API: Open external URLs
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
+  },
+  // 🚪 App control
+  app: {
+    quit: () => ipcRenderer.invoke('app:quit')
+  },
+  // 🔐 Permissions API (Phase 3: Permission window)
+  permissions: {
+    check: () => ipcRenderer.invoke('permissions:check'),
+    requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
+    openSystemPreferences: (pane: string) => ipcRenderer.invoke('permissions:open-system-preferences', pane),
+    markComplete: () => ipcRenderer.invoke('permissions:mark-complete')
   },
   // 🔧 FIX: IPC bridge for cross-window communication (Header → Listen)
   ipc: {
