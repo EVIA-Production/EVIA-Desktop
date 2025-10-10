@@ -26,32 +26,27 @@ const WelcomeHeader: React.FC = () => {
   const handleLogin = async () => {
     console.log('[WelcomeHeader] 🔐 Opening browser for login...');
     
-    // Get backend URL from environment or default to localhost
-    const frontendUrl = process.env.EVIA_FRONTEND_URL || 'http://localhost:5173';
+    // FIXED: Use VITE env var (not process.env) in renderer
+    const frontendUrl = import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173';
     const loginUrl = `${frontendUrl}/login?source=desktop`;
     
     console.log('[WelcomeHeader] 🌐 Login URL:', loginUrl);
+    console.log('[WelcomeHeader] 🔍 Checking evia bridge:', (window as any).evia);
     
     try {
       // Use shell API to open in external browser
       if ((window as any).evia?.shell?.openExternal) {
+        console.log('[WelcomeHeader] ✅ Shell API available, opening browser...');
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log('[WelcomeHeader] ✅ Browser opened successfully');
       } else {
-        console.error('[WelcomeHeader] ❌ Shell API not available');
+        console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
         // Fallback: Try window.open (may be blocked by browser)
         window.open(loginUrl, '_blank');
       }
     } catch (err) {
       console.error('[WelcomeHeader] ❌ Failed to open browser:', err);
     }
-  };
-
-  /**
-   * Placeholder for API key flow (deferred for MVP)
-   */
-  const handleApiKey = () => {
-    console.log('[WelcomeHeader] API key option clicked (not implemented yet)');
   };
 
   /**
@@ -99,18 +94,18 @@ const WelcomeHeader: React.FC = () => {
       {/* Header Section */}
       <div className="header-section">
         <div className="title">Welcome to EVIA</div>
-        <div className="subtitle">Choose how to connect your AI model</div>
+        <div className="subtitle">Your AI-powered meeting assistant</div>
       </div>
 
-      {/* Option Card 1: Quick start with default API key */}
+      {/* Login Option Card */}
       <div className="option-card">
         <div className="divider"></div>
         <div className="option-content">
-          <div className="option-title">Quick start with default API key</div>
+          <div className="option-title">Get Started</div>
           <div className="option-description">
-            100% free with EVIA's OpenAI key<br />
-            Your data stays on your device<br />
-            Sign up with Google in seconds
+            Log in to access your EVIA account<br />
+            Your conversations are securely stored<br />
+            Access insights and meeting notes
           </div>
         </div>
         <button 
@@ -125,30 +120,7 @@ const WelcomeHeader: React.FC = () => {
         </button>
       </div>
 
-      {/* Option Card 2: Use Personal API keys */}
-      <div className="option-card">
-        <div className="divider"></div>
-        <div className="option-content">
-          <div className="option-title">Use Personal API keys</div>
-          <div className="option-description">
-            Costs may apply based on your API usage<br />
-            No personal data collected<br />
-            Use your own API keys (OpenAI, Gemini, etc.)
-          </div>
-        </div>
-        <button 
-          className="action-button" 
-          onClick={handleApiKey}
-          aria-label="Enter your API key"
-        >
-          <div className="button-text">Enter Your API Key</div>
-          <div className="button-icon">
-            <div className="arrow-icon"></div>
-          </div>
-        </button>
-      </div>
-
-      {/* Footer */}
+      {/* Footer with Privacy Policy */}
       <div className="footer">
         EVIA keeps your personal data private —{' '}
         <span 

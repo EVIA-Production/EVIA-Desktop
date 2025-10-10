@@ -17,7 +17,8 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
 // Math: German "Anzeigen/Ausblenden" ~185px + other buttons ~300px + padding/gaps ~150px = ~635px
 // Adding 40% buffer for safety: 635 * 1.4 = 900px
-const HEADER_SIZE = { width: 900, height: 47 }
+// Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
+const HEADER_SIZE = { width: 900, height: 49 }
 const PAD = 8
 const ANIM_DURATION = 180
 let settingsHideTimer: NodeJS.Timeout | null = null
@@ -648,7 +649,16 @@ function hideAllChildWindows() {
   return vis
 }
 
-function handleHeaderToggle() {
+async function handleHeaderToggle() {
+  // CRITICAL AUTH CHECK: Only allow toggle if user is authenticated and has permissions
+  const { headerController } = await import('./header-controller')
+  const currentState = headerController.getCurrentState()
+  
+  if (currentState !== 'ready') {
+    console.log('[overlay-windows] ⛔ Header toggle blocked - user not ready (state:', currentState, ')')
+    return // Don't allow toggle if not authenticated + permissions granted
+  }
+  
   const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
   
   if (headerVisible) {

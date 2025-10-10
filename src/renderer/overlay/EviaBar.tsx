@@ -219,8 +219,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
           width: max-content;
           height: 47px;
           padding: 2px 10px 2px 13px;
+          margin: 1px 0; /* GLASS BORDER FIX: 1px margin top/bottom for border rendering */
           background: transparent;
-          overflow: hidden;
+          overflow: visible; /* GLASS BORDER FIX: Changed from hidden to allow border to render */
           border-radius: 9000px;
           justify-content: space-between;
           align-items: center;
