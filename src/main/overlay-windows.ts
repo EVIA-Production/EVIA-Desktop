@@ -1229,8 +1229,8 @@ export function createPermissionWindow(): BrowserWindow {
   }
 
   permissionWindow = new BrowserWindow({
-    width: 285,
-    height: 220,
+    width: 305,
+    height: 235,
     show: false,
     frame: false,
     transparent: true,
@@ -1260,9 +1260,9 @@ export function createPermissionWindow(): BrowserWindow {
 
   // Center on screen
   const { workArea } = screen.getPrimaryDisplay()
-  const x = Math.round(workArea.x + (workArea.width - 285) / 2)
-  const y = Math.round(workArea.y + (workArea.height - 220) / 2)
-  permissionWindow.setBounds({ x, y, width: 285, height: 220 })
+  const x = Math.round(workArea.x + (workArea.width - 305) / 2)
+  const y = Math.round(workArea.y + (workArea.height - 235) / 2)
+  permissionWindow.setBounds({ x, y, width: 305, height: 235 })
 
   permissionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   permissionWindow.setAlwaysOnTop(true, 'screen-saver')
