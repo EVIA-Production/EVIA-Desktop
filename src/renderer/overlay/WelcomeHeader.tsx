@@ -48,6 +48,27 @@ const WelcomeHeader: React.FC = () => {
   };
 
   /**
+   * Placeholder for API key flow (deferred for MVP)
+   */
+  const handleApiKey = () => {
+    console.log('[WelcomeHeader] API key option clicked (not implemented yet)');
+  };
+
+  /**
+   * Opens privacy policy
+   */
+  const handlePrivacyPolicy = async () => {
+    console.log('[WelcomeHeader] Opening privacy policy...');
+    try {
+      if ((window as any).evia?.shell?.openExternal) {
+        await (window as any).evia.shell.openExternal('https://evia.work/privacy');
+      }
+    } catch (err) {
+      console.error('[WelcomeHeader] ❌ Failed to open privacy policy:', err);
+    }
+  };
+
+  /**
    * Quits the application
    */
   const handleQuit = async () => {
@@ -66,7 +87,7 @@ const WelcomeHeader: React.FC = () => {
 
   return (
     <div className="welcome-container">
-      {/* Close button (actually quits app) */}
+      {/* Close button (quits app) */}
       <button 
         className="close-button" 
         onClick={handleQuit}
@@ -78,18 +99,18 @@ const WelcomeHeader: React.FC = () => {
       {/* Header Section */}
       <div className="header-section">
         <div className="title">Welcome to EVIA</div>
-        <div className="subtitle">Your AI-powered meeting assistant</div>
+        <div className="subtitle">Choose how to connect your AI model</div>
       </div>
 
-      {/* Login Option Card */}
+      {/* Option Card 1: Quick start with default API key */}
       <div className="option-card">
         <div className="divider"></div>
         <div className="option-content">
-          <div className="option-title">Get Started</div>
+          <div className="option-title">Quick start with default API key</div>
           <div className="option-description">
-            Log in to access your EVIA account<br />
-            Your conversations are securely stored<br />
-            Access insights and meeting notes
+            100% free with EVIA's OpenAI key<br />
+            Your data stays on your device<br />
+            Sign up with Google in seconds
           </div>
         </div>
         <button 
@@ -97,82 +118,86 @@ const WelcomeHeader: React.FC = () => {
           onClick={handleLogin}
           aria-label="Open browser to log in"
         >
-          <div className="button-text">Open Browser to Log In</div>
+          <div className="button-text">Open Browser to Log in</div>
           <div className="button-icon">
-            <div className="arrow-icon">→</div>
+            <div className="arrow-icon"></div>
+          </div>
+        </button>
+      </div>
+
+      {/* Option Card 2: Use Personal API keys */}
+      <div className="option-card">
+        <div className="divider"></div>
+        <div className="option-content">
+          <div className="option-title">Use Personal API keys</div>
+          <div className="option-description">
+            Costs may apply based on your API usage<br />
+            No personal data collected<br />
+            Use your own API keys (OpenAI, Gemini, etc.)
+          </div>
+        </div>
+        <button 
+          className="action-button" 
+          onClick={handleApiKey}
+          aria-label="Enter your API key"
+        >
+          <div className="button-text">Enter Your API Key</div>
+          <div className="button-icon">
+            <div className="arrow-icon"></div>
           </div>
         </button>
       </div>
 
       {/* Footer */}
       <div className="footer">
-        EVIA keeps your data private — 
+        EVIA keeps your personal data private —{' '}
         <span 
           className="footer-link" 
-          onClick={() => {
-            if ((window as any).evia?.shell?.openExternal) {
-              (window as any).evia.shell.openExternal('https://evia.work/privacy');
-            }
-          }}
+          onClick={handlePrivacyPolicy}
           role="button"
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
-              if ((window as any).evia?.shell?.openExternal) {
-                (window as any).evia.shell.openExternal('https://evia.work/privacy');
-              }
+              handlePrivacyPolicy();
             }
           }}
         >
-          Learn more about privacy
+          See details
         </span>
       </div>
 
-      {/* Styling specific to WelcomeHeader */}
+      {/* Styling - Exact match to Glass */}
       <style>{`
         .welcome-container {
           -webkit-app-region: drag;
-          width: 400px;
-          padding: 18px 20px;
-          background: rgba(0, 0, 0, 0.3);
+          width: 100%;
+          box-sizing: border-box;
+          height: auto;
+          padding: 24px 16px;
+          background: rgba(0, 0, 0, 0.64);
+          box-shadow: 0px 0px 0px 1.5px rgba(255, 255, 255, 0.64) inset;
           border-radius: 16px;
-          overflow: hidden;
-          position: relative;
-          display: flex;
           flex-direction: column;
-          align-items: center;
-          font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          justify-content: flex-start;
+          align-items: flex-start;
+          gap: 32px;
+          display: inline-flex;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           cursor: default;
           user-select: none;
-        }
-
-        /* Glass effect border */
-        .welcome-container::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          border-radius: 16px;
-          padding: 1px;
-          background: linear-gradient(169deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.5) 100%);
-          -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-          -webkit-mask-composite: destination-out;
-          mask-composite: exclude;
-          pointer-events: none;
+          position: relative;
         }
 
         .close-button {
           -webkit-app-region: no-drag;
           position: absolute;
-          top: 10px;
-          right: 10px;
-          width: 14px;
-          height: 14px;
+          top: 16px;
+          right: 16px;
+          width: 20px;
+          height: 20px;
           background: rgba(255, 255, 255, 0.1);
           border: none;
-          border-radius: 3px;
+          border-radius: 5px;
           color: rgba(255, 255, 255, 0.7);
           cursor: pointer;
           display: flex;
@@ -180,7 +205,7 @@ const WelcomeHeader: React.FC = () => {
           justify-content: center;
           transition: all 0.15s ease;
           z-index: 10;
-          font-size: 14px;
+          font-size: 16px;
           line-height: 1;
           padding: 0;
         }
@@ -190,124 +215,125 @@ const WelcomeHeader: React.FC = () => {
           color: rgba(255, 255, 255, 0.9);
         }
 
-        .close-button:active {
-          transform: scale(0.95);
-        }
-
         .header-section {
-          text-align: center;
-          margin-bottom: 20px;
-          width: 100%;
+          flex-direction: column;
+          justify-content: flex-start;
+          align-items: flex-start;
+          gap: 4px;
+          display: flex;
         }
 
         .title {
           color: white;
-          font-size: 20px;
-          font-weight: 600;
-          margin-bottom: 6px;
+          font-size: 18px;
+          font-weight: 700;
         }
 
         .subtitle {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
-          font-weight: 400;
-        }
-
-        .option-card {
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          padding: 16px;
-          margin-bottom: 16px;
-          width: 100%;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .divider {
-          height: 1px;
-          background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
-          margin-bottom: 4px;
-        }
-
-        .option-content {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .option-title {
           color: white;
           font-size: 14px;
           font-weight: 500;
         }
 
+        .option-card {
+          width: 100%;
+          justify-content: flex-start;
+          align-items: flex-start;
+          gap: 8px;
+          display: inline-flex;
+        }
+
+        .divider {
+          width: 1px;
+          align-self: stretch;
+          position: relative;
+          background: #bebebe;
+          border-radius: 2px;
+        }
+
+        .option-content {
+          flex: 1 1 0;
+          flex-direction: column;
+          justify-content: flex-start;
+          align-items: flex-start;
+          gap: 8px;
+          display: inline-flex;
+          min-width: 0;
+        }
+
+        .option-title {
+          color: white;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
         .option-description {
-          color: rgba(255, 255, 255, 0.6);
-          font-size: 11px;
-          line-height: 1.4;
+          color: #dcdcdc;
+          font-size: 12px;
+          font-weight: 400;
+          line-height: 18px;
+          letter-spacing: 0.12px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .action-button {
           -webkit-app-region: no-drag;
-          display: flex;
+          padding: 8px 10px;
+          background: rgba(132.6, 132.6, 132.6, 0.8);
+          box-shadow: 0px 2px 2px rgba(0, 0, 0, 0.16);
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.5);
+          justify-content: center;
           align-items: center;
-          justify-content: space-between;
-          background: rgba(0, 122, 255, 0.15);
-          border: 1px solid rgba(0, 122, 255, 0.3);
-          border-radius: 8px;
-          padding: 10px 14px;
-          color: rgba(0, 122, 255, 0.9);
+          gap: 6px;
+          display: flex;
           cursor: pointer;
-          transition: all 0.2s ease;
-          width: 100%;
+          transition: background-color 0.2s;
         }
 
         .action-button:hover {
-          background: rgba(0, 122, 255, 0.25);
-          border-color: rgba(0, 122, 255, 0.5);
-          transform: translateY(-1px);
-        }
-
-        .action-button:active {
-          transform: translateY(0);
+          background: rgba(150, 150, 150, 0.9);
         }
 
         .button-text {
-          font-size: 13px;
-          font-weight: 500;
+          color: white;
+          font-size: 12px;
+          font-weight: 600;
         }
 
         .button-icon {
+          width: 12px;
+          height: 12px;
+          position: relative;
           display: flex;
           align-items: center;
+          justify-content: center;
         }
 
         .arrow-icon {
-          font-size: 16px;
-          transition: transform 0.2s ease;
-        }
-
-        .action-button:hover .arrow-icon {
-          transform: translateX(2px);
+          border: solid white;
+          border-width: 0 1.2px 1.2px 0;
+          display: inline-block;
+          padding: 3px;
+          transform: rotate(-45deg);
+          -webkit-transform: rotate(-45deg);
         }
 
         .footer {
-          color: rgba(255, 255, 255, 0.5);
-          font-size: 10px;
+          align-self: stretch;
           text-align: center;
-          line-height: 1.4;
+          color: #dcdcdc;
+          font-size: 12px;
+          font-weight: 500;
+          line-height: 19.2px;
         }
 
         .footer-link {
-          color: rgba(0, 122, 255, 0.8);
           text-decoration: underline;
           cursor: pointer;
-          transition: color 0.15s ease;
-        }
-
-        .footer-link:hover {
-          color: rgba(0, 122, 255, 1);
+          -webkit-app-region: no-drag;
         }
       `}</style>
     </div>

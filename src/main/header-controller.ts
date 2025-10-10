@@ -133,6 +133,15 @@ export class HeaderController {
     closeWelcomeWindow();
     closePermissionWindow();
     
+    // CRITICAL: Close header window if transitioning to welcome or permissions
+    if (newState === 'welcome' || newState === 'permissions') {
+      const header = getHeaderWindow();
+      if (header) {
+        console.log('[HeaderController] Closing main header for state:', newState);
+        header.close();
+      }
+    }
+    
     this.currentState = newState;
     
     // Open appropriate window for new state
