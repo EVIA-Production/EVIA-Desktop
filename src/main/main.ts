@@ -172,19 +172,37 @@ ipcMain.handle('permissions:request-microphone', async () => {
 
 // Open System Preferences for screen recording permission
 // (Screen recording cannot be requested programmatically on macOS)
+// Based on Glass permissionService.js
 ipcMain.handle('permissions:open-system-preferences', async (_event, pane: string) => {
   try {
     console.log('[Permissions] 🔧 Opening System Preferences for:', pane);
     
-    if (pane === 'screen') {
-      // Open Screen Recording pane
-      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    if (pane === 'screen-recording' || pane === 'screen') {
+      // CRITICAL: Trigger screen capture request first to register app with macOS
+      // This ensures EVIA appears in System Preferences > Screen Recording
+      // Based on Glass: permissionService.js lines 48-57
+      try {
+        console.log('[Permissions] 📹 Triggering screen capture request to register app...');
+        const { desktopCapturer } = require('electron');
+        await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: { width: 1, height: 1 }
+        });
+        console.log('[Permissions] ✅ App registered for screen recording');
+      } catch (captureError) {
+        console.log('[Permissions] ℹ️  Screen capture request triggered (expected to fail if not yet granted)');
+      }
+      
+      // Note: Glass comments out opening System Preferences automatically
+      // User should manually go to System Preferences > Security & Privacy > Screen Recording
+      // Uncomment next line if you want to auto-open System Preferences:
+      // await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+      console.log('[Permissions] ℹ️  App registered. User should manually grant permission in System Preferences.');
     } else {
       // Fallback to main Security & Privacy pane
       await shell.openExternal('x-apple.systempreferences:com.apple.preference.security');
     }
     
-    console.log('[Permissions] ✅ System Preferences opened');
     return { success: true };
   } catch (err: unknown) {
     console.error('[Permissions] ❌ Failed to open System Preferences:', err);
