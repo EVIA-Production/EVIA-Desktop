@@ -39,6 +39,10 @@ const WelcomeHeader: React.FC = () => {
         console.log('[WelcomeHeader] ✅ Shell API available, opening browser...');
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log('[WelcomeHeader] ✅ Browser opened successfully');
+        
+        // Close welcome window immediately to avoid blocking browser view
+        console.log('[WelcomeHeader] 🔒 Closing welcome window');
+        window.close();
       } else {
         console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
         // Fallback: Try window.open (may be blocked by browser)
@@ -263,7 +267,7 @@ const WelcomeHeader: React.FC = () => {
           display: flex;
           cursor: pointer;
           transition: background-color 0.2s;
-          align-self: center; /* FIX: Center button vertically to prevent overlap with "Get Started" */
+          align-self: flex-start; /* FIX: Align button to top of row to avoid overlap */
         }
 
         .action-button:hover {

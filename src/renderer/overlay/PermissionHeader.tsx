@@ -10,8 +10,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import '../overlay-tokens.css';
-import '../overlay-glass.css';
+import './overlay-tokens.css';
+import './overlay-glass.css';
 
 interface PermissionHeaderProps {
   onContinue: () => void;
