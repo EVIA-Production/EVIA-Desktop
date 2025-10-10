@@ -263,6 +263,7 @@ const WelcomeHeader: React.FC = () => {
           display: flex;
           cursor: pointer;
           transition: background-color 0.2s;
+          align-self: center; /* FIX: Center button vertically to prevent overlap with "Get Started" */
         }
 
         .action-button:hover {
