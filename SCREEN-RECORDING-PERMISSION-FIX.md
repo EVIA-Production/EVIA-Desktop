@@ -218,30 +218,65 @@ Same as above - re-sign the new Electron bundle.
 
 ## 🔍 Troubleshooting
 
-### Permission Still Shows "Denied"
+### Permission Still Shows "Denied" (COMMON ISSUE!)
 
-1. **Verify Electron.app is in Screen Recording list:**
+**⚠️ CRITICAL: Multiple Electron.app bundles cause confusion!**
+
+If you have Glass (or other Electron apps) installed, you might have multiple `Electron.app` bundles:
+- `/Users/benekroetz/EVIA/EVIA-Desktop/node_modules/electron/dist/Electron.app` ← **EVIA (correct)**
+- `/Users/benekroetz/EVIA/glass/node_modules/electron/dist/Electron.app` ← **Glass (wrong)**
+
+Both show as "Electron" in System Settings - indistinguishable in the UI!
+
+**Solution: Use the automated fix script:**
+```bash
+./fix-electron-permission.sh
+```
+
+This script will:
+1. Scan for all Electron.app bundles
+2. Verify EVIA's Electron.app is signed
+3. Reset TCC permissions
+4. Kill all Electron processes
+5. Guide you to remove ALL "Electron" entries
+6. Guide you to add the CORRECT one (EVIA's)
+7. Restart EVIA Desktop
+
+---
+
+### Manual Troubleshooting Steps
+
+1. **Find all Electron.app bundles on your system:**
+   ```bash
+   mdfind "kMDItemFSName == 'Electron.app'"
+   ```
+   
+   Correct path: `/Users/benekroetz/EVIA/EVIA-Desktop/node_modules/electron/dist/Electron.app`
+
+2. **Verify Electron.app is in Screen Recording list:**
    - System Settings → Privacy & Security → Screen Recording
    - Look for "Electron" in the list
    - Ensure it's toggled ON
+   - **CRITICAL:** If you see multiple "Electron" entries, remove ALL of them!
 
-2. **Check the correct Electron.app was added:**
+3. **Verify the EVIA Electron.app was added (not Glass):**
    ```bash
    ls -la /Users/benekroetz/EVIA/EVIA-Desktop/node_modules/electron/dist/Electron.app
    ```
 
-3. **Verify signature:**
+4. **Verify signature has screen-recording entitlement:**
    ```bash
    codesign -d --entitlements - node_modules/electron/dist/Electron.app 2>&1 | \
      grep "com.apple.security.personal-information.screen-recording"
    ```
    Should output the entitlement key.
 
-4. **Reset and re-grant:**
+5. **Reset and re-grant (ensures clean state):**
    ```bash
    tccutil reset ScreenCapture com.github.Electron
+   pkill -9 -f electron
    ```
-   Then re-add in System Settings.
+   Then re-add the CORRECT Electron.app in System Settings using the EXACT path.
 
 ### macOS Asks for Cursor Instead of Electron
 
