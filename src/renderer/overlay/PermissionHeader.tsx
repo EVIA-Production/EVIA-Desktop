@@ -47,12 +47,13 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
         screen: result.screen as any,
       });
 
-      // Auto-continue if all permissions granted
+      // Auto-continue if all permissions granted (INSTANT - no delay)
       if (result.microphone === 'granted' && result.screen === 'granted') {
-        console.log('[PermissionHeader] ✅ All permissions granted, auto-continuing...');
+        console.log('[PermissionHeader] ✅ All permissions granted, auto-continuing INSTANTLY...');
+        // Instant transition - no window, no button, no countdown
         setTimeout(() => {
           onContinue();
-        }, 500);
+        }, 200); // Minimal delay for visual feedback
       }
     } catch (error) {
       console.error('[PermissionHeader] ❌ Error checking permissions:', error);
@@ -95,15 +96,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
     }
   };
 
-  /**
-   * Handle continue button
-   */
-  const handleContinue = () => {
-    if (permissions.microphone === 'granted' && permissions.screen === 'granted') {
-      console.log('[PermissionHeader] ✅ Continue clicked, all permissions granted');
-      onContinue();
-    }
-  };
+  // Note: handleContinue removed - auto-continue happens in checkPermissions
 
   // Check permissions on mount and set up interval
   useEffect(() => {
@@ -223,15 +216,22 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
             </button>
           </>
         ) : (
-          <button 
-            style={styles.continueButton}
-            onClick={handleContinue}
-          >
-            <div style={styles.continueBorderOverlay} />
-            <span style={{ position: 'relative', zIndex: 1 }}>
-              Continue to EVIA
+          // All permissions granted - show brief success message (auto-continues via checkPermissions)
+          <div style={{
+            ...styles.successMessage,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 16px',
+            background: 'rgba(0, 200, 0, 0.2)',
+            borderRadius: '8px',
+            border: '1px solid rgba(0, 255, 0, 0.3)',
+          }}>
+            <span style={{ fontSize: '20px' }}>✅</span>
+            <span style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '14px', fontWeight: 500 }}>
+              All permissions granted
             </span>
-          </button>
+          </div>
         )}
       </div>
     </div>
