@@ -17,6 +17,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
 
+  // Handle logout - clears auth and returns to welcome
+  const handleLogout = async () => {
+    console.log('[SettingsView] 🚪 Logout clicked');
+    try {
+      await (window as any).evia?.auth?.logout?.();
+      console.log('[SettingsView] ✅ Logout successful');
+    } catch (error) {
+      console.error('[SettingsView] ❌ Logout failed:', error);
+    }
+  };
+
+  // Handle quit - closes entire app
+  const handleQuit = async () => {
+    console.log('[SettingsView] 🛑 Quit clicked');
+    try {
+      await (window as any).evia?.app?.quit?.();
+      console.log('[SettingsView] ✅ Quit initiated');
+    } catch (error) {
+      console.error('[SettingsView] ❌ Quit failed:', error);
+    }
+  };
+
   useEffect(() => {
     // Simulate loading data
     setTimeout(() => {
@@ -174,6 +196,65 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             }}
           >
             {i18n.t('overlay.settings.english')}
+          </button>
+        </div>
+      </div>
+
+      {/* Account Actions */}
+      <div className="account-section" style={{ marginBottom: '16px' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>Account</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: 'rgba(255, 149, 0, 0.2)',
+              border: '1px solid rgba(255, 149, 0, 0.4)',
+              borderRadius: '6px',
+              color: 'white',
+              padding: '10px 16px',
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 149, 0, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 149, 0, 0.2)';
+            }}
+          >
+            <span>🚪</span>
+            <span>Logout</span>
+          </button>
+          <button
+            onClick={handleQuit}
+            style={{
+              background: 'rgba(255, 59, 48, 0.2)',
+              border: '1px solid rgba(255, 59, 48, 0.4)',
+              borderRadius: '6px',
+              color: 'white',
+              padding: '10px 16px',
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.2)';
+            }}
+          >
+            <span>🛑</span>
+            <span>Quit EVIA</span>
           </button>
         </div>
       </div>
