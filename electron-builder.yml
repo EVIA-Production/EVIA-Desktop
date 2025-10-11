@@ -23,4 +23,7 @@ mac:
     NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
     - dmg
+dmg:
+  format: UDZO
+  writeUpdateInfo: false
 publish: null
