@@ -125,11 +125,16 @@ export class ChatWebSocket {
       }
       this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
+      // 🔧 FIX: Get current language from i18n for backend transcription
+      const i18nModule = await import('../i18n/i18n');
+      const currentLang = i18nModule.i18n.getLanguage() || 'de';
+      const langParam = `&lang=${currentLang}`;
+      console.log('[WS] 🌐 Connecting with language:', currentLang);
       // MUP FIX: Use backend URL, not location.host (which is Vite dev server in dev mode)
       const backendHttp = getBackendHttpBase();
       const wsBase = backendHttp.replace(/^http/, 'ws'); // http://localhost:8000 → ws://localhost:8000
       // TRANSCRIPTION FIX: Match audio capture sample rate (24kHz, not 16kHz default)
-      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}&sample_rate=24000`;
+      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}&sample_rate=24000`;
       return new Promise((resolve, reject) => {
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';

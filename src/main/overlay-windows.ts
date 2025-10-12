@@ -34,7 +34,7 @@ const WINDOW_DATA = {
   },
   ask: {
     width: 640,  // Increased from 600 to fit form + padding
-    height: 61,  // Glass parity: starts at 61px, grows with content
+    height: 400,  // 🔧 FIX: Start at 400px minimum so responses are visible (not 61px)
     html: 'overlay.html?view=ask',
     zIndex: 1,
   },
@@ -896,6 +896,18 @@ ipcMain.handle('header:open-ask', () => {
   openAskWindow()
   return { ok: true }
 })
+
+// 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
+ipcMain.on('ask:send-and-submit', (_event, prompt: string) => {
+  console.log('[Main] 📨 ask:send-and-submit received:', prompt.substring(0, 50));
+  const askWin = childWindows.get('ask');
+  if (askWin && !askWin.isDestroyed()) {
+    askWin.webContents.send('ask:send-and-submit', prompt);
+    console.log('[Main] ✅ Prompt relayed to Ask window with auto-submit');
+  } else {
+    console.warn('[Main] ⚠️ Ask window not available for send-and-submit relay');
+  }
+});
 
 // 🔧 FIX: Expose desktopCapturer.getSources for system audio capture
 ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.SourcesOptions) => {

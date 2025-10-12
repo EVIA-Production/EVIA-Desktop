@@ -79,6 +79,32 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   }, [response, isStreaming]);
 
+  // 🔧 GLASS PARITY FIX: Listen for single-step IPC send-and-submit (from ListenView insight clicks)
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc;
+    if (!eviaIpc) {
+      console.warn('[AskView] ⚠️ IPC bridge not available for cross-window communication');
+      return;
+    }
+
+    const handleSendAndSubmit = (incomingPrompt: string) => {
+      console.log('[AskView] 📥 Received send-and-submit via IPC:', incomingPrompt.substring(0, 50));
+      setPrompt(incomingPrompt);
+      setShowTextInput(true);
+      // Auto-submit after state updates (next tick)
+      setTimeout(() => {
+        startStream(false, incomingPrompt);
+      }, 50);
+    };
+
+    eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);
+    console.log('[AskView] ✅ IPC listener registered for ask:send-and-submit');
+
+    return () => {
+      console.log('[AskView] 🧹 Cleaning up IPC listener');
+    };
+  }, []);
+
   // EVIA enhancement: Error toast with auto-dismiss
   const showError = (message: string, canRetry: boolean = false) => {
     console.error('[AskView] 💥 Error:', message);
