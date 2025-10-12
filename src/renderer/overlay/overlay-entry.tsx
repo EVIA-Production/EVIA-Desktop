@@ -24,20 +24,69 @@ console.log('[OverlayEntry] 🔍 rootEl exists:', !!rootEl)
 const savedLanguage = i18n.getLanguage()
 
 // Language toggle function that broadcasts to all windows
-const handleToggleLanguage = () => {
+const handleToggleLanguage = async () => {
   const currentLang = i18n.getLanguage()
   const newLang = currentLang === 'de' ? 'en' : 'de'
-  i18n.setLanguage(newLang)
   
-  // 🔧 REACTIVE I18N: Broadcast to all windows (no reload needed)
-  const eviaIpc = (window as any).evia?.ipc
-  if (eviaIpc) {
-    eviaIpc.send('language-changed', newLang)
+  console.log('[OverlayEntry] 🌐 Language toggle started:', currentLang, '→', newLang)
+  
+  // 🔧 FIX: Close all child windows except Settings
+  const eviaWindows = (window as any).evia?.windows
+  if (eviaWindows) {
+    console.log('[OverlayEntry] Closing child windows (keeping Settings open)...')
+    await eviaWindows.hide('listen')
+    await eviaWindows.hide('ask')
+    // Keep Settings open - user is toggling from Settings window
   }
   
-  // 🧹 REMOVED: window.location.reload() - now using reactive state updates
-  // Trigger local re-render by dispatching custom event
-  window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
+  // 🔧 SINGULARITY ANIMATION: Shrink header to point, then expand with new language
+  const headerElement = document.querySelector('.evia-header-bar') as HTMLElement
+  if (headerElement) {
+    console.log('[OverlayEntry] 🌀 Starting singularity animation...')
+    
+    // Phase 1: Compress to singularity (500ms)
+    headerElement.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease'
+    headerElement.style.transform = 'scale(0.01)'
+    headerElement.style.opacity = '0'
+    
+    // Wait for compression to complete
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Update language (happens at singularity point)
+    i18n.setLanguage(newLang)
+    
+    // 🔧 REACTIVE I18N: Broadcast to all windows
+    const eviaIpc = (window as any).evia?.ipc
+    if (eviaIpc) {
+      eviaIpc.send('language-changed', newLang)
+    }
+    
+    // Trigger local re-render
+    window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
+    
+    // Small delay for language to update in DOM
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    // Phase 2: Expand from singularity (500ms)
+    headerElement.style.transform = 'scale(1)'
+    headerElement.style.opacity = '1'
+    
+    // Wait for expansion to complete
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Reset transition for normal animations
+    headerElement.style.transition = ''
+    
+    console.log('[OverlayEntry] ✅ Singularity animation complete, language:', newLang)
+  } else {
+    // Fallback if header element not found
+    i18n.setLanguage(newLang)
+    const eviaIpc = (window as any).evia?.ipc
+    if (eviaIpc) {
+      eviaIpc.send('language-changed', newLang)
+    }
+    window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
+  }
 }
 
 function App() {
