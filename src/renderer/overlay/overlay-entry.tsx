@@ -40,7 +40,7 @@ const handleToggleLanguage = async () => {
   }
   
   // 🔧 SINGULARITY ANIMATION: Shrink header to point, then expand with new language
-  const headerElement = document.querySelector('.evia-header-bar') as HTMLElement
+  const headerElement = document.querySelector('.evia-main-header') as HTMLElement
   if (headerElement) {
     console.log('[OverlayEntry] 🌀 Starting singularity animation...')
     
