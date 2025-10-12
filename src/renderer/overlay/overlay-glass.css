@@ -1,5 +1,26 @@
 /* Minimal Glass-like overlay styles for Listen/Ask scaffolds */
 
+/* 🔧 REACTIVE I18N: Language change animations */
+@keyframes languageTransition {
+  0% {
+    opacity: 0.7;
+    transform: translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.language-transition {
+  animation: languageTransition 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Apply animation to all text content during language changes */
+[data-i18n] {
+  transition: opacity 0.2s ease;
+}
+
 /* Close Button - Ported from Glass PermissionHeader.js:58-87 */
 /* MUP FIX #5: Hidden per coordinator requirements - window closes via Esc or clicking outside */
 .close-button {

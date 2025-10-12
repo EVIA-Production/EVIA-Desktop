@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import EviaBar from './EviaBar'
 import ListenView from './ListenView'
@@ -29,19 +29,57 @@ const handleToggleLanguage = () => {
   const newLang = currentLang === 'de' ? 'en' : 'de'
   i18n.setLanguage(newLang)
   
-  // Broadcast language change to all windows via IPC
-  if (window.evia?.ipc) {
-    window.evia.ipc.send('language-changed', newLang)
+  // 🔧 REACTIVE I18N: Broadcast to all windows (no reload needed)
+  const eviaIpc = (window as any).evia?.ipc
+  if (eviaIpc) {
+    eviaIpc.send('language-changed', newLang)
   }
   
-  // Reload current window to apply new language
-  window.location.reload()
+  // 🧹 REMOVED: window.location.reload() - now using reactive state updates
+  // Trigger local re-render by dispatching custom event
+  window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
 }
 
 function App() {
   const [language, setLanguage] = useState<'de' | 'en'>(savedLanguage as 'de' | 'en')
   const [isCapturing, setIsCapturing] = useState(false)
   const captureHandleRef = useRef<any>(null)
+
+  // 🔧 REACTIVE I18N: Listen for language changes (local window event)
+  useEffect(() => {
+    const handleLanguageChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ language: 'de' | 'en' }>
+      const newLang = customEvent.detail.language
+      console.log('[OverlayEntry] 🌐 Language changed:', newLang)
+      setLanguage(newLang)
+    }
+    window.addEventListener('evia-language-changed', handleLanguageChange)
+    return () => window.removeEventListener('evia-language-changed', handleLanguageChange)
+  }, [])
+
+  // 🔧 REACTIVE I18N: Listen for language changes from OTHER windows via IPC
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc
+    if (!eviaIpc) {
+      console.warn('[OverlayEntry] IPC not available for cross-window language sync')
+      return
+    }
+
+    const handleCrossWindowLanguageChange = (newLang: 'de' | 'en') => {
+      console.log('[OverlayEntry] 🌐 Language changed from other window:', newLang)
+      i18n.setLanguage(newLang)
+      setLanguage(newLang)
+      // Trigger local event to update all components in THIS window
+      window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
+    }
+
+    eviaIpc.on('language-changed', handleCrossWindowLanguageChange)
+    console.log('[OverlayEntry] ✅ Registered cross-window language listener')
+    
+    return () => {
+      console.log('[OverlayEntry] 🧹 Cleaning up language listener')
+    }
+  }, [])
 
   const toggleLanguage = () => {
     handleToggleLanguage()
@@ -136,7 +174,7 @@ function App() {
           lines={[]}
           followLive={true}
           onToggleFollow={() => {}}
-          onClose={() => window.evia.closeWindow('listen')}
+          onClose={() => (window as any).evia?.closeWindow?.('listen')}
         />
       )
     case 'ask':

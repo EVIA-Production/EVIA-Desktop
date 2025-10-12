@@ -349,51 +349,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => window.removeEventListener('keydown', onKey);
   }, [prompt, isStreaming, language]);
 
-  // Glass parity: IPC prompt relay from insights
-  useEffect(() => {
-    if (!(window as any).evia?.ipc) return;
-    
-    // Store the received prompt in a ref to avoid React state timing issues
-    const pendingPromptRef = { current: '' };
-    
-    const handleSetPrompt = (receivedPrompt: string) => {
-      console.log('[AskView] 📨 Received prompt via IPC:', receivedPrompt.substring(0, 50));
-      pendingPromptRef.current = receivedPrompt;
-      setPrompt(receivedPrompt);
-      setTimeout(() => {
-        const input = document.querySelector('#textInput') as HTMLInputElement;
-        if (input) {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        }
-      }, 100);
-    };
-
-    // 🔧 FIX: Handle auto-submit from insights click with override prompt
-    const handleSubmitPrompt = () => {
-      console.log('[AskView] 📨 Received submit-prompt via IPC - auto-submitting with:', pendingPromptRef.current.substring(0, 50));
-      if (pendingPromptRef.current) {
-        startStream(false, pendingPromptRef.current);
-      } else {
-        console.warn('[AskView] ⚠️ No pending prompt, calling startStream with state');
-        startStream();
-      }
-    };
-
-    (window as any).evia.ipc.on('ask:set-prompt', handleSetPrompt);
-    (window as any).evia.ipc.on('ask:submit-prompt', handleSubmitPrompt);
-    
-    return () => {
-      console.log('[AskView] Cleaning up IPC listeners');
-    };
-  }, [startStream]);
+  // 🧹 REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
+  // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
 
   // Glass parity: Request window resize via IPC
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      // 🔧 FIX: Min height 450px for better UX, max 700px
-      const clampedHeight = Math.max(450, Math.min(700, targetHeight));
+      // 🔧 GLASS PARITY: Min 400px (matches WINDOW_DATA.ask.height), max 700px
+      const clampedHeight = Math.max(400, Math.min(700, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };

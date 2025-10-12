@@ -1129,15 +1129,7 @@ ipcMain.on('cancel-hide-settings-window', () => {
 
 // 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
 // Glass parity: Forward prompt from Listen/Insights to Ask window
-ipcMain.on('ask:set-prompt', (_event, prompt: string) => {
-  console.log('[overlay-windows] 🎯 Relaying prompt to Ask window:', prompt.substring(0, 50))
-  const askWin = childWindows.get('ask')
-  if (askWin && !askWin.isDestroyed()) {
-    askWin.webContents.send('ask:set-prompt', prompt)
-  } else {
-    console.warn('[overlay-windows] Ask window not available for prompt relay')
-  }
-})
+// 🧹 REMOVED: Old ask:set-prompt handler (replaced by single-step ask:send-and-submit at line ~901)
 
 // IPC relay: Forward transcript messages from Header window to Listen window
 // This is REQUIRED because Header captures audio and receives transcripts,
@@ -1147,6 +1139,24 @@ ipcMain.on('transcript-message', (_event, message: any) => {
   if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
     listenWin.webContents.send('transcript-message', message)
   }
+})
+
+// 🔧 REACTIVE I18N: Broadcast language changes to ALL windows
+ipcMain.on('language-changed', (_event, newLanguage: string) => {
+  console.log('[Main] 🌐 Broadcasting language change to all windows:', newLanguage)
+  
+  // Broadcast to header window
+  if (headerWindow && !headerWindow.isDestroyed()) {
+    headerWindow.webContents.send('language-changed', newLanguage)
+  }
+  
+  // Broadcast to all child windows
+  childWindows.forEach((win, name) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('language-changed', newLanguage)
+      console.log(`[Main] ✅ Sent language-changed to ${name} window`)
+    }
+  })
 })
 
 function getHeaderWindow(): BrowserWindow | null {
