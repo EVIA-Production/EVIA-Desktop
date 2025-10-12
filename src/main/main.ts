@@ -12,20 +12,53 @@ function getBackendHttpBase(): string {
   return 'http://localhost:8000';
 }
 
-// Windows platform stub - Glass parity requirement
-if (process.platform === 'win32') {
-  app.whenReady().then(() => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Windows Support Coming Soon',
-      message: 'EVIA Desktop for Windows is coming soon!',
-      detail: 'The Windows version with full audio capture and overlay support is currently in development. Please check back soon or contact us for updates.',
-      buttons: ['OK']
-    }).then(() => {
-      app.quit();
-    });
+// Windows platform warning + normal boot
+async function boot() {
+  await app.whenReady();
+
+  // Show one-time informational message on Windows, then continue
+  if (process.platform === 'win32') {
+    try {
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'Windows Warning',
+        message:
+          'EVIA Desktop for Windows is not fully supported. Some functions might not be working correctly.',
+        buttons: ['OK'],
+        noLink: true,
+      });
+    } catch {}
+  }
+
+  // Set up display media request handler (system audio loopback)
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    console.log('[Main] 🎥 Display media requested, getting desktop sources...');
+    desktopCapturer
+      .getSources({ types: ['screen', 'window'] })
+      .then((sources) => {
+        console.log(`[Main] ✅ Found ${sources.length} desktop sources`);
+        if (sources.length > 0) {
+          console.log(
+            `[Main] 🔊 Enabling audio loopback for source: "${sources[0].name}"`
+          );
+          callback({ video: sources[0], audio: 'loopback' });
+        } else {
+          console.warn('[Main] ⚠️  No desktop sources available');
+          callback({});
+        }
+      })
+      .catch((error) => {
+        console.error('[Main] ❌ Failed to get desktop sources:', error);
+        callback({});
+      });
   });
+
+  // Initialize header flow
+  await headerController.initialize();
+
+  // Note: Global shortcuts are registered in overlay-windows.ts
 }
+
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
 // Use require() to import it as a value
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -286,39 +319,7 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-app.whenReady().then(async () => {
-  // 🔧 ELECTRON 38+: Enable system audio loopback via Chromium's built-in support
-  // This replaces the need for external binaries (SystemAudioDump) or getDisplayMedia hacks
-  // Docs: https://www.electronjs.org/docs/latest/api/session#sessetdisplaymediarequesthandlerhandler
-  console.log('[Main] 🎤 Setting up display media request handler with audio loopback support')
-  
-  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    console.log('[Main] 🎥 Display media requested, getting desktop sources...')
-    
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      console.log(`[Main] ✅ Found ${sources.length} desktop sources`)
-      
-      if (sources.length > 0) {
-        // Use first screen source and enable audio loopback
-        // 'loopback' is the key that enables system audio capture in Chromium 31+
-        console.log(`[Main] 🔊 Enabling audio loopback for source: "${sources[0].name}"`)
-        callback({ 
-          video: sources[0],
-          audio: 'loopback'  // ← Magic keyword for system audio in Electron 31+
-        })
-      } else {
-        console.warn('[Main] ⚠️  No desktop sources available')
-        callback({})
-      }
-    }).catch((error) => {
-      console.error('[Main] ❌ Failed to get desktop sources:', error)
-      callback({})
-    })
-  })
-  
-  // Phase 4: Initialize HeaderController (handles auth/permission flow)
-  // This replaces direct createHeaderWindow() call
-  await headerController.initialize()
-  
-  // Note: Global shortcuts are registered in overlay-windows.ts
-})
+// Kick off boot
+boot().catch((err) => {
+  console.error('[Main] ❌ Boot failed:', err);
+});
