@@ -1,0 +1,47 @@
+📍 CURRENT STATE
+
+Frontend Branch: staging-unified-v2 (commit: 129985e)
+Backend Branch: backend-mvp-finish (commit: 16a61e9)
+
+🔴 ALL THESE ISSUES ARE BROKEN (NONE WORK):
+
+1. English transcription shows German text
+   → Backend NOT using lang parameter from WebSocket URL
+   
+2. Ask responses in German when set to English  
+   → Same issue as #1
+   
+3. Groq thinks user query is from prospect (not user)
+   → Backend prompt doesn't separate transcript from user query
+   
+4. Transcription stops after a few segments
+   → Possible timeout issue
+   
+5. Singularity animation doesn't happen
+   → Settings window can't animate Header (different processes)
+   
+6. Windows don't close on language toggle
+   → Settings window can't close other windows (need IPC)
+
+🎯 PRIORITY:
+Issue #1 is CRITICAL - blocks everything else
+
+📄 FULL DETAILS:
+See HUMAN-DEV-HANDOFF.md for:
+- Exact file locations
+- How to verify each fix
+- Testing checklist
+- Backend log commands
+
+🔧 QUICK START:
+cd EVIA-Backend
+git checkout backend-mvp-finish
+git pull
+docker-compose restart  ← IMPORTANT! Restart to load new code
+docker logs evia-backend-backend-1 | grep '\[LANG\]'  ← Check logs
+
+cd EVIA-Desktop  
+git checkout staging-unified-v2
+git pull
+npm run build
+
