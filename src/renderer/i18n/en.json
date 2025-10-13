@@ -40,7 +40,9 @@
       "copy": "Copy",
       "copied": "Copied!",
       "noResponse": "No response yet",
-      "screenshot": "Screenshot captured"
+      "screenshot": "Screenshot captured",
+      "aiResponse": "AI Response",
+      "thinking": "Thinking..."
     },
     "settings": {
       "title": "Settings",

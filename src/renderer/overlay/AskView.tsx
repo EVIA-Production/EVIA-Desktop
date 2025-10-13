@@ -22,7 +22,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [ttftMs, setTtftMs] = useState<number | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [showTextInput, setShowTextInput] = useState(true);
-  const [headerText, setHeaderText] = useState('AI Response');
+  const [headerText, setHeaderText] = useState(i18n.t('overlay.ask.aiResponse'));
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
@@ -136,7 +136,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setCurrentQuestion(actualPrompt);
     setErrorToast(null);
     setIsLoadingFirstToken(true);
-    setHeaderText('Thinking...');
+    setHeaderText(i18n.t('overlay.ask.thinking'));
     
     const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
     
@@ -146,7 +146,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (!token) {
       showError('Authentication required. Please login first.', false);
       setIsLoadingFirstToken(false);
-      setHeaderText('AI Response');
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
       return;
     }
 
@@ -161,14 +161,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         if (res.status === 401) {
           showError('Authentication expired. Please reconnect.', true);
           setIsLoadingFirstToken(false);
-          setHeaderText('AI Response');
+          setHeaderText(i18n.t('overlay.ask.aiResponse'));
           return;
         }
         
         if (!res.ok) {
           showError(`Failed to create chat session (HTTP ${res.status}). Reconnect?`, true);
           setIsLoadingFirstToken(false);
-          setHeaderText('AI Response');
+          setHeaderText(i18n.t('overlay.ask.aiResponse'));
           return;
         }
         
@@ -181,7 +181,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         } else {
           showError('Invalid chat session. Please reconnect.', true);
           setIsLoadingFirstToken(false);
-          setHeaderText('AI Response');
+          setHeaderText(i18n.t('overlay.ask.aiResponse'));
           return;
         }
       } catch (e: any) {
@@ -193,7 +193,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           true
         );
         setIsLoadingFirstToken(false);
-        setHeaderText('AI Response');
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
         return;
       }
     }
@@ -210,7 +210,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         } else if (result?.needsPermission) {
           showError(result.error || 'Screen Recording permission required.', false);
           setIsLoadingFirstToken(false);
-          setHeaderText('AI Response');
+          setHeaderText(i18n.t('overlay.ask.aiResponse'));
           return;
         }
       } catch (err: any) {
@@ -234,7 +234,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     handle.onDelta((d) => {
       if (isLoadingFirstToken) {
         setIsLoadingFirstToken(false);
-        setHeaderText('AI Response');
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
       }
       
       if (!hasFirstDelta && streamStartTime.current) {
@@ -249,7 +249,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     handle.onDone(() => {
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
-      setHeaderText('AI Response'); // 🔧 FIX: Ensure header updates when stream completes
+      setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
     });
@@ -258,7 +258,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       streamRef.current = null;
-      setHeaderText('AI Response');
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
       
       console.error('[AskView] ❌ Stream error:', e);
       
@@ -290,7 +290,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setIsStreaming(false);
     setIsLoadingFirstToken(false);
     streamRef.current = null;
-    setHeaderText('AI Response');
+    setHeaderText(i18n.t('overlay.ask.aiResponse'));
   };
 
   // Glass parity: Copy entire response

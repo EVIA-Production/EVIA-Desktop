@@ -24,11 +24,26 @@ console.log('[OverlayEntry] 🔍 rootEl exists:', !!rootEl)
 const savedLanguage = i18n.getLanguage()
 
 // Language toggle function that broadcasts to all windows
-const handleToggleLanguage = async () => {
+const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean, setIsCapturing: (val: boolean) => void) => {
   const currentLang = i18n.getLanguage()
   const newLang = currentLang === 'de' ? 'en' : 'de'
   
   console.log('[OverlayEntry] 🌐 Language toggle started:', currentLang, '→', newLang)
+  
+  // 🔧 FIX: Stop audio capture first (close session)
+  if (isCapturing && captureHandleRef.current) {
+    console.log('[OverlayEntry] 🛑 Stopping audio capture before language toggle...')
+    await stopCapture(captureHandleRef.current)
+    captureHandleRef.current = null
+    setIsCapturing(false)
+    
+    // Notify Listen window to stop timer
+    const eviaIpc = (window as any).evia?.ipc
+    if (eviaIpc?.send) {
+      eviaIpc.send('transcript-message', { type: 'recording_stopped' })
+      console.log('[OverlayEntry] ✅ Sent recording_stopped message')
+    }
+  }
   
   // 🔧 FIX: Close all child windows except Settings
   const eviaWindows = (window as any).evia?.windows
@@ -131,7 +146,7 @@ function App() {
   }, [])
 
   const toggleLanguage = () => {
-    handleToggleLanguage()
+    handleToggleLanguage(captureHandleRef, isCapturing, setIsCapturing)
   }
 
   const handleToggleListening = async () => {

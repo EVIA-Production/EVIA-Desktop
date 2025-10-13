@@ -40,7 +40,9 @@
       "copy": "Kopieren",
       "copied": "Kopiert!",
       "noResponse": "Noch keine Antwort",
-      "screenshot": "Screenshot aufgenommen"
+      "screenshot": "Screenshot aufgenommen",
+      "aiResponse": "EVIA-Antwort",
+      "thinking": "Denkt nach..."
     },
     "settings": {
       "title": "Einstellungen",

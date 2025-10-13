@@ -146,6 +146,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Handle recording_started to start timer
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
+        // 🔧 FIX: Clear old transcripts from previous session
+        setTranscripts([]);
+        console.log('[ListenView] 🧹 Cleared previous session transcripts');
+        // 🔧 FIX: Reset timer display
+        setElapsedTime('00:00');
         setIsSessionActive(true);
         startTimer();
         return;
@@ -422,7 +427,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
       
       console.log('[ListenView] 📊 Fetching insights for chat:', chatId);
-      const fetchedInsights = await fetchInsights({ chatId, token, language: 'de' });
+      // 🔧 FIX: Use current language from i18n instead of hardcoded 'de'
+      const currentLang = i18n.getLanguage();
+      console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
+      const fetchedInsights = await fetchInsights({ chatId, token, language: currentLang });
       const ttftMs = Date.now() - ttftStart;
       console.log('[ListenView] ✅ Insights fetched:', fetchedInsights.length, 'items, TTFT:', ttftMs, 'ms');
       setInsights(fetchedInsights);
