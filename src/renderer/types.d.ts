@@ -4,6 +4,11 @@ interface WebSocketWrapper {
   sendBinary: (data: ArrayBufferLike) => void;
   sendCommand: (cmd: any) => void;
   close: () => void;
+  // Optional event hooks provided by the preload wrapper in this app
+  onMessage?: (cb: (data: string | ArrayBuffer | Blob) => void) => void;
+  onOpen?: (cb: () => void) => void;
+  onClose?: (cb: (event: CloseEvent) => void) => void;
+  onError?: (cb: (event: Event) => void) => void;
 }
 
 interface SystemAudioBridge {
@@ -22,7 +27,7 @@ interface EviaBridge {
   createWs: (url: string) => WebSocketWrapper;
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;
-  openSystemPreferences: (section: 'screen' | 'mic') => void;
+  openSystemPreferences: (section: "screen" | "mic") => void;
   openTerminal: (script: string) => Promise<any>;
   launchMain: () => Promise<any>;
   launchAudioTest: () => Promise<any>;
@@ -31,8 +36,8 @@ interface EviaBridge {
   };
   // Add windows
   windows: {
-    show: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
-    ensureShown: (name: string) => Promise<{ ok: boolean, toggled?: string }>;
+    show: (name: string) => Promise<{ ok: boolean; toggled?: string }>;
+    ensureShown: (name: string) => Promise<{ ok: boolean; toggled?: string }>;
     hide: (name: string) => Promise<{ ok: boolean }>;
     cancelHideSettingsWindow: () => void;
   };
@@ -46,13 +51,18 @@ interface EviaBridge {
   getDesktopCapturerSources: (opts: any) => Promise<any[]>;
   // 🔐 Authentication via secure keytar storage
   auth: {
-    login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    login: (
+      username: string,
+      password: string
+    ) => Promise<{ success: boolean; error?: string }>;
     logout: () => Promise<{ success: boolean; error?: string }>;
     getToken: () => Promise<string | null>;
   };
   // 🌐 Shell API for opening external URLs
   shell: {
-    openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+    openExternal: (
+      url: string
+    ) => Promise<{ success: boolean; error?: string }>;
   };
   // 🚪 App control
   app: {
@@ -62,7 +72,9 @@ interface EviaBridge {
   permissions: {
     check: () => Promise<{ microphone: string; screen: string }>;
     requestMicrophone: () => Promise<{ status: string; error?: string }>;
-    openSystemPreferences: (pane: string) => Promise<{ success: boolean; error?: string }>;
+    openSystemPreferences: (
+      pane: string
+    ) => Promise<{ success: boolean; error?: string }>;
     markComplete: () => Promise<{ success: boolean }>;
   };
 }
@@ -84,7 +96,10 @@ declare global {
       ipcRenderer: {
         invoke: (channel: string, ...args: any[]) => Promise<any>;
         send: (channel: string, ...args: any[]) => void;
-        on: (channel: string, listener: (event: any, ...args: any[]) => void) => void;
+        on: (
+          channel: string,
+          listener: (event: any, ...args: any[]) => void
+        ) => void;
       };
     };
   }
