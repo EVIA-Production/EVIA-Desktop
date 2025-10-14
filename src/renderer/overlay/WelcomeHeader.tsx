@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React from "react";
 import "./overlay-tokens.css";
 import "./overlay-glass.css";
