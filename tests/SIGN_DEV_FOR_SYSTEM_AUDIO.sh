@@ -14,10 +14,13 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Paths
-ELECTRON_APP="./node_modules/electron/dist/Electron.app"
-BINARY_PATH="./src/main/assets/SystemAudioDump"
-ENTITLEMENTS="./build/entitlements.mac.plist"
+# Paths (robust to CWD)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ELECTRON_APP="$REPO_ROOT/node_modules/electron/dist/Electron.app"
+BINARY_PATH="$REPO_ROOT/src/main/assets/SystemAudioDump"
+ENTITLEMENTS="$REPO_ROOT/build/entitlements.mac.plist"
 
 # Step 1: Verify files exist
 echo "Step 1: Verifying files..."

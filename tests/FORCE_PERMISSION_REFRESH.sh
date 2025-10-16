@@ -10,7 +10,10 @@ echo "🔄 Force Refresh Screen Recording Permission for EVIA Desktop"
 echo "=============================================================="
 echo ""
 
-APP_PATH="/Users/benekroetz/EVIA/EVIA-Desktop/dist/mac-arm64/EVIA Desktop.app"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+APP_PATH="$REPO_ROOT/dist/mac-arm64/EVIA Desktop.app"
 
 if [ ! -d "$APP_PATH" ]; then
     echo "❌ Production app not found at: $APP_PATH"
@@ -38,7 +41,7 @@ echo ""
 # Step 2: Re-sign the app to reset its permission state
 echo "📍 Step 2: Re-signing the app with entitlements..."
 echo "-----------------------------------------------------------"
-codesign -s - --deep --force --entitlements entitlements.plist "$APP_PATH" 2>/dev/null
+codesign -s - --deep --force --entitlements "$REPO_ROOT/build/entitlements.mac.plist" "$APP_PATH" 2>/dev/null
 echo "✅ App re-signed (this clears any cached permission state)"
 echo ""
 

@@ -18,7 +18,10 @@ NC='\033[0m' # No Color
 
 # Step 1: Check binary exists
 echo -e "${BLUE}Step 1: Checking SystemAudioDump binary...${NC}"
-BINARY_PATH="/Users/benekroetz/EVIA/EVIA-Desktop/src/main/assets/SystemAudioDump"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+BINARY_PATH="$REPO_ROOT/src/main/assets/SystemAudioDump"
 
 if [ -f "$BINARY_PATH" ]; then
   echo -e "${GREEN}✅ Binary exists${NC}"

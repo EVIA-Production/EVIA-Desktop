@@ -10,7 +10,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-APP_PATH="dist/mac-arm64/EVIA Desktop.app"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+APP_PATH="$REPO_ROOT/dist/mac-arm64/EVIA Desktop.app"
 BINARY_PATH="$APP_PATH/Contents/Resources/app.asar.unpacked/src/main/assets/SystemAudioDump"
 
 echo "📍 Step 1: Check if production app exists"
@@ -62,7 +65,7 @@ if echo "$ENTITLEMENTS" | grep -q "com.apple.security.personal-information.scree
     echo -e "${GREEN}✅ App has screen-recording entitlement${NC}"
 else
     echo -e "${RED}❌ App is MISSING screen-recording entitlement${NC}"
-    echo "Run: codesign -s - --deep --force --entitlements build/entitlements.mac.plist \"$APP_PATH\""
+    echo "Run: codesign -s - --deep --force --entitlements $REPO_ROOT/build/entitlements.mac.plist \"$APP_PATH\""
 fi
 
 if echo "$ENTITLEMENTS" | grep -q "com.apple.security.device.audio-input"; then
@@ -84,7 +87,7 @@ if echo "$BINARY_ENTITLEMENTS" | grep -q "com.apple.security.personal-informatio
     echo -e "${GREEN}✅ Binary has screen-recording entitlement${NC}"
 else
     echo -e "${RED}❌ Binary is MISSING screen-recording entitlement${NC}"
-    echo "Run: codesign -s - --force --entitlements build/entitlements.mac.plist \"$BINARY_PATH\""
+    echo "Run: codesign -s - --force --entitlements $REPO_ROOT/build/entitlements.mac.plist \"$BINARY_PATH\""
 fi
 
 echo ""

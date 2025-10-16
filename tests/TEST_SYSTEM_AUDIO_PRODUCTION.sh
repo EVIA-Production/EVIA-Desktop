@@ -17,6 +17,10 @@ echo "🔐 macOS will prompt for Screen Recording permission."
 echo "    You MUST grant it for system audio to work."
 echo ""
 
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 read -p "Press Enter to continue..."
 
 # Kill any existing Electron processes
@@ -70,14 +74,14 @@ echo "✅ Build complete!"
 echo ""
 
 # Find the built app (check both universal and architecture-specific paths)
-APP_PATH="dist/mac/EVIA Desktop.app"
+APP_PATH="$REPO_ROOT/dist/mac/EVIA Desktop.app"
 
 if [ ! -d "$APP_PATH" ]; then
     # Try ARM64 path
-    APP_PATH="dist/mac-arm64/EVIA Desktop.app"
+    APP_PATH="$REPO_ROOT/dist/mac-arm64/EVIA Desktop.app"
     if [ ! -d "$APP_PATH" ]; then
         # Try x64 path
-        APP_PATH="dist/mac-x64/EVIA Desktop.app"
+    APP_PATH="$REPO_ROOT/dist/mac-x64/EVIA Desktop.app"
         if [ ! -d "$APP_PATH" ]; then
             echo "❌ App not found in any expected location:"
             echo "   - dist/mac/EVIA Desktop.app"

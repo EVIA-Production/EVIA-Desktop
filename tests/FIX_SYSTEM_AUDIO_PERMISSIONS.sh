@@ -12,7 +12,10 @@ echo ""
 echo "Press Enter to continue..."
 read
 
-APP_PATH="dist/mac-arm64/EVIA Desktop.app"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+APP_PATH="$REPO_ROOT/dist/mac-arm64/EVIA Desktop.app"
 
 # Check if app exists
 if [ ! -d "$APP_PATH" ]; then
@@ -31,7 +34,7 @@ xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 
 # Ad-hoc sign with entitlements
 echo "Signing app with Screen Recording entitlements..."
-codesign -s - --deep --force --entitlements entitlements.plist "$APP_PATH"
+codesign -s - --deep --force --entitlements "$REPO_ROOT/build/entitlements.mac.plist" "$APP_PATH"
 
 if [ $? -eq 0 ]; then
     echo "✅ App signed successfully"

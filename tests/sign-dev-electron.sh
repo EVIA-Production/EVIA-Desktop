@@ -39,9 +39,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Paths
-ELECTRON_APP="./node_modules/electron/dist/Electron.app"
-ENTITLEMENTS="./entitlements.mac.plist"
+# Paths (make paths robust regardless of CWD)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Robust paths
+ENTITLEMENTS="$REPO_ROOT/build/entitlements.mac.plist"
+ELECTRON_APP="$REPO_ROOT/node_modules/electron/dist/Electron.app"
 
 # Check if running on macOS
 if [[ "$OSTYPE" != "darwin"* ]]; then
