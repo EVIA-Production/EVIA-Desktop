@@ -24,6 +24,11 @@ interface PrefsBridge {
 }
 
 interface EviaBridge {
+  // Platform info
+  platform?: NodeJS.Platform;
+  isWindows?: boolean;
+  isMac?: boolean;
+  isLinux?: boolean;
   createWs: (url: string) => WebSocketWrapper;
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;

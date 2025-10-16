@@ -2,6 +2,7 @@
 import React from "react";
 import "./overlay-tokens.css";
 import "./overlay-glass.css";
+const IS_MAC = window.evia.isMac;
 
 /**
  * WelcomeHeader Component
@@ -25,7 +26,7 @@ const WelcomeHeader: React.FC = () => {
    * Adds ?source=desktop param so Frontend knows to redirect back via evia://
    */
   const handleLogin = async () => {
-    console.log("[WelcomeHeader] 🔐 Opening browser for login...");
+    console.log("[WelcomeHeader] Opening browser for login...");
 
     // FIXED: Use VITE env var (not process.env) in renderer
     const frontendUrl =
@@ -47,9 +48,14 @@ const WelcomeHeader: React.FC = () => {
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log("[WelcomeHeader] ✅ Browser opened successfully");
 
-        // Close welcome window immediately to avoid blocking browser view
-        console.log("[WelcomeHeader] 🔒 Closing welcome window");
-        window.close();
+        // keep window open on Windows to avoid app quit on last-window-closed
+        console.log("[WelcomeHeader] Post-login window behavior");
+        if (IS_MAC) {
+          window.close();
+        } else {
+          // On Windows/Linux, keep it open to await deep link callback
+          // Optionally: show a tiny "Waiting for login..." state in future.
+        }
       } else {
         console.error(
           "[WelcomeHeader] ❌ Shell API not available:",
