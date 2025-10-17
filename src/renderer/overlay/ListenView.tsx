@@ -174,6 +174,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
       
+      // 🔧 FIX: Handle keepalive pings from backend (sent every 25s during idle periods)
+      // Backend sends: {"type": "keepalive", "data": {"timestamp": 1234567890}}
+      // These are NOT WebSocket protocol pings, but application-level JSON messages
+      // CRITICAL: Do NOT stop transcription or close connection - just acknowledge
+      if (msg.type === 'keepalive') {
+        console.log('[ListenView] ❤️ Keepalive ping received - connection healthy');
+        // Don't process further - this is not a transcript message
+        return;
+      }
+      
       // Extract message data
       let text: string | undefined;
       let speaker: number | null = null;
@@ -409,6 +419,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, [])  // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
 
+  // 🎯 GLASS PARITY: Handle insight clicks - send to AskView via IPC
+  // When user clicks an insight (summary point, topic bullet, or action), we:
+  // 1. Log the click for debugging
+  // 2. Send to AskView via IPC with 'ask:send-and-submit' channel
+  // 3. AskView receives it, populates input, and auto-submits
+  const handleInsightClick = (insightText: string) => {
+    console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
+    
+    // Send to AskView via IPC for auto-submit
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      eviaIpc.send('ask:send-and-submit', insightText);
+      console.log('[ListenView] ✅ Sent insight to AskView via IPC');
+    } else {
+      console.error('[ListenView] ❌ IPC bridge not available for ask:send-and-submit');
+    }
+  };
+
   // 🎯 TASK 1: Extract insights fetching to reusable function
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
@@ -500,8 +528,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // Glass format insights don't have clickable items - they're informational summaries
-  // Removed handleInsightClick as insights are now read-only summary/topic/actions
+  // 🎯 GLASS PARITY: Insights ARE clickable - clicking sends to AskView for elaboration
+  // handleInsightClick is implemented above (line 427) and used in all insight items
 
   // Glass parity: Only show "Copied X" if current view matches what was copied
   const displayText = (copyState === 'copied' && copiedView === viewMode)
@@ -916,16 +944,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   Summary
                 </h3>
                 {insights.summary.map((point, idx) => (
-                  <p key={`summary-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '6px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    paddingLeft: '12px',
-                    position: 'relative'
-                  }}>
-                    <span style={{ position: 'absolute', left: '0' }}>•</span>
-                    {point}
+                  <p 
+                    key={`summary-${idx}`}
+                    onClick={() => handleInsightClick(point)}
+                    style={{ 
+                      fontSize: '13px', 
+                      lineHeight: '1.6', 
+                      marginBottom: '6px',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      paddingLeft: '12px',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      borderRadius: '4px',
+                      padding: '6px 12px',
+                      marginLeft: '0',
+                      transition: 'all 0.15s ease',
+                      background: 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.transform = 'translateX(2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'translateX(0)';
+                    }}
+                  >
+                    <span style={{ position: 'absolute', left: '12px' }}>•</span>
+                    <span style={{ marginLeft: '12px', display: 'block' }}>{point}</span>
                   </p>
                 ))}
               </div>
@@ -936,16 +982,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   {insights.topic.header}
                 </h3>
                 {insights.topic.bullets.map((bullet, idx) => (
-                  <p key={`bullet-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '6px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    paddingLeft: '12px',
-                    position: 'relative'
-                  }}>
-                    <span style={{ position: 'absolute', left: '0' }}>•</span>
-                    {bullet}
+                  <p 
+                    key={`bullet-${idx}`}
+                    onClick={() => handleInsightClick(bullet)}
+                    style={{ 
+                      fontSize: '13px', 
+                      lineHeight: '1.6', 
+                      marginBottom: '6px',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      paddingLeft: '12px',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      borderRadius: '4px',
+                      padding: '6px 12px',
+                      marginLeft: '0',
+                      transition: 'all 0.15s ease',
+                      background: 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.transform = 'translateX(2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'translateX(0)';
+                    }}
+                  >
+                    <span style={{ position: 'absolute', left: '12px' }}>•</span>
+                    <span style={{ marginLeft: '12px', display: 'block' }}>{bullet}</span>
                   </p>
                 ))}
               </div>
@@ -956,16 +1020,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   Next Actions
                 </h3>
                 {insights.actions.map((action, idx) => (
-                  <p key={`action-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '8px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    padding: '8px 12px',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)'
-                  }}>
+                  <p 
+                    key={`action-${idx}`}
+                    onClick={() => handleInsightClick(action)}
+                    style={{ 
+                      fontSize: '13px', 
+                      lineHeight: '1.6', 
+                      marginBottom: '8px',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      padding: '8px 12px',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                      e.currentTarget.style.transform = 'translateX(2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.transform = 'translateX(0)';
+                    }}
+                  >
                     {action}
                   </p>
                 ))}
