@@ -187,17 +187,18 @@ const EviaBar: React.FC<EviaBarProps> = ({
   };
 
   const hideSettingsWindow = () => {
-    console.log('[EviaBar] hideSettingsWindow called - starting 200ms timer');
-    // Hide after 200ms delay (allows mouse to move to settings panel)
+    console.log('[EviaBar] hideSettingsWindow called - starting 50ms timer');
+    // 🔧 TASK: Reduce delay from 200ms to 50ms for more responsive hide/show (per user feedback)
+    // Hide after 50ms delay (allows mouse to move to settings panel)
     if (settingsHideTimerRef.current) {
       clearTimeout(settingsHideTimerRef.current);
     }
     settingsHideTimerRef.current = setTimeout(() => {
-      console.log('[EviaBar] 200ms timer expired - hiding settings');
+      console.log('[EviaBar] 50ms timer expired - hiding settings');
       (window as any).evia?.windows?.hideSettingsWindow?.();
       setIsSettingsActive(false);
       settingsHideTimerRef.current = null;
-    }, 200);
+    }, 50);
   };
 
   const handleToggleVisibility = async () => {

@@ -268,6 +268,7 @@ const WelcomeHeader: React.FC = () => {
           cursor: pointer;
           transition: background-color 0.2s;
           align-self: flex-start; /* FIX: Align button to top of row to avoid overlap */
+          margin-top: 12px; /* 🔧 FIX #11: Move button up to prevent overlap with text */
         }
 
         .action-button:hover {

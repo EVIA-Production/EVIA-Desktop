@@ -42,7 +42,9 @@
       "noResponse": "No response yet",
       "screenshot": "Screenshot captured",
       "aiResponse": "AI Response",
-      "thinking": "Thinking..."
+      "thinking": "Thinking...",
+      "questionLabel": "Question",
+      "answerLabel": "Answer"
     },
     "settings": {
       "title": "Settings",

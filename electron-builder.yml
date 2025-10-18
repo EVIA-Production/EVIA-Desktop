@@ -1,5 +1,5 @@
-appId: com.evia.desktop
-productName: EVIA Desktop
+appId: com.evia.app
+productName: EVIA
 # 🔐 Custom URL scheme for deep linking (auth callback from web)
 protocols:
   - name: EVIA

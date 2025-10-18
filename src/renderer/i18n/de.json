@@ -42,7 +42,9 @@
       "noResponse": "Noch keine Antwort",
       "screenshot": "Screenshot aufgenommen",
       "aiResponse": "EVIA-Antwort",
-      "thinking": "Denkt nach..."
+      "thinking": "Denkt nach...",
+      "questionLabel": "Frage",
+      "answerLabel": "Antwort"
     },
     "settings": {
       "title": "Einstellungen",

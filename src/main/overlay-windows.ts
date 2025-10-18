@@ -402,7 +402,12 @@ function layoutChildWindows(visible: WindowVisibility) {
   const PAD_LOCAL = PAD
   const screenWidth = work.width
   const screenHeight = work.height
-  const headerCenterXRel = hb.x - work.x + hb.width / 2
+  
+  // 🔧 FIX #9: Calculate header center more explicitly for perfect alignment
+  // Use absolute positioning first, then convert to relative coordinates
+  const headerCenterX = hb.x + (hb.width / 2)  // Absolute center X of header
+  const headerCenterXRel = headerCenterX - work.x  // Relative to work area
+  
   const relativeY = (hb.y - work.y) / screenHeight
 
   // Determine if windows should be above or below header (Glass: determineLayoutStrategy)
@@ -758,7 +763,8 @@ function nudgeHeader(dx: number, dy: number) {
 
 function openAskWindow() {
   const vis = getVisibility()
-  const updated = { ...vis, ask: true }
+  // 🔧 FIX #5: Explicitly close settings to prevent Cmd+Enter from opening both windows
+  const updated = { ...vis, ask: true, settings: false }
   updateWindows(updated)
 }
 
@@ -795,8 +801,8 @@ app.on('browser-window-focus', () => {
 app.on('ready', () => {
   app.dock?.hide?.()
   registerShortcuts()
-  getOrCreateHeaderWindow()
-  // Don't restore persisted windows at startup - only show header
+  // DON'T create header automatically - let header-controller manage the flow
+  // header-controller.initialize() will show Welcome → Permissions → Header
   // Child windows appear on demand (Listen button, Ask command, etc.)
 })
 
@@ -900,12 +906,32 @@ ipcMain.handle('header:open-ask', () => {
 // 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
 ipcMain.on('ask:send-and-submit', (_event, prompt: string) => {
   console.log('[Main] 📨 ask:send-and-submit received:', prompt.substring(0, 50));
-  const askWin = childWindows.get('ask');
+  
+  // 🎯 CRITICAL FIX: Ensure Ask window exists and is visible BEFORE sending prompt
+  let askWin = childWindows.get('ask');
+  if (!askWin || askWin.isDestroyed()) {
+    console.log('[Main] 🔧 Ask window not found, creating...');
+    askWin = createChildWindow('ask');
+  }
+  
   if (askWin && !askWin.isDestroyed()) {
-    askWin.webContents.send('ask:send-and-submit', prompt);
-    console.log('[Main] ✅ Prompt relayed to Ask window with auto-submit');
+    // Ensure window is visible in the visibility state
+    const vis = getVisibility();
+    if (!vis.ask) {
+      console.log('[Main] 🔧 Ask window hidden, showing...');
+      updateWindows({ ...vis, ask: true });
+    }
+    
+    // Wait for window to be ready before sending prompt
+    // Small delay ensures window has fully loaded and IPC handlers are registered
+    setTimeout(() => {
+      if (askWin && !askWin.isDestroyed()) {
+        askWin.webContents.send('ask:send-and-submit', prompt);
+        console.log('[Main] ✅ Prompt relayed to Ask window with auto-submit');
+      }
+    }, 100);
   } else {
-    console.warn('[Main] ⚠️ Ask window not available for send-and-submit relay');
+    console.error('[Main] ❌ Failed to create/show Ask window for send-and-submit');
   }
 });
 
@@ -1175,7 +1201,7 @@ export function createWelcomeWindow(): BrowserWindow {
 
   welcomeWindow = new BrowserWindow({
     width: 400,
-    height: 340,
+    height: 380, // Increased from 340 to prevent button overlap
     show: false,
     frame: false,
     transparent: true,
@@ -1206,8 +1232,8 @@ export function createWelcomeWindow(): BrowserWindow {
   // Center on screen
   const { workArea } = screen.getPrimaryDisplay()
   const x = Math.round(workArea.x + (workArea.width - 400) / 2)
-  const y = Math.round(workArea.y + (workArea.height - 340) / 2)
-  welcomeWindow.setBounds({ x, y, width: 400, height: 340 })
+  const y = Math.round(workArea.y + (workArea.height - 380) / 2)
+  welcomeWindow.setBounds({ x, y, width: 400, height: 380 })
 
   welcomeWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   welcomeWindow.setAlwaysOnTop(true, 'screen-saver')

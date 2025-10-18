@@ -141,13 +141,30 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
     
     console.log('[AskView] Getting auth token from keytar...');
-    const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
+    const eviaAuth = (window as any).evia?.auth as { 
+      getToken: () => Promise<string | null>,
+      checkTokenValidity?: () => Promise<{ valid: boolean, reason: string, expiresIn?: number }>
+    } | undefined;
     const token = await eviaAuth?.getToken();
     if (!token) {
       showError('Authentication required. Please login first.', false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse'));
       return;
+    }
+    
+    // 🔧 FIX: Check token validity before making request
+    if (eviaAuth?.checkTokenValidity) {
+      const validity = await (eviaAuth as any).checkTokenValidity();
+      if (!validity.valid) {
+        showError(`Token ${validity.reason === 'expired' ? 'expired' : 'invalid'}. Please re-login.`, false);
+        setIsLoadingFirstToken(false);
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        return;
+      }
+      if (validity.reason === 'expiring_soon') {
+        console.warn('[AskView] ⚠️ Token expires in', validity.expiresIn, 'seconds');
+      }
     }
 
     let chatId = Number(localStorage.getItem('current_chat_id') || '0');
@@ -198,6 +215,31 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     }
 
+    // 🔧 GLASS PARITY: Fetch transcript context for backend
+    let transcriptContext = '';
+    try {
+      const { getChatTranscripts } = await import('../services/websocketService');
+      const transcripts = await getChatTranscripts(chatId, token, 30); // Last 30 turns
+      
+      if (transcripts && transcripts.length > 0) {
+        // Format as conversation: "You: ... | Prospect: ..."
+        transcriptContext = transcripts
+          .map(t => {
+            const speaker = t.speaker === 1 ? 'You' : 'Prospect';
+            const text = (t.text || '').trim();
+            return text ? `${speaker}: ${text}` : null;
+          })
+          .filter(Boolean)
+          .join('\n');
+        
+        console.log('[AskView] 📄 Fetched transcript context:', transcriptContext.length, 'chars,', transcripts.length, 'entries');
+      } else {
+        console.log('[AskView] ℹ️ No transcript history yet');
+      }
+    } catch (e) {
+      console.warn('[AskView] ⚠️ Could not fetch transcript (continuing without context):', e);
+    }
+
     // EVIA enhancement: Screenshot capture
     let screenshotRef: string | undefined;
     if (captureScreenshot) {
@@ -228,7 +270,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
 
-    const handle = streamAsk({ baseUrl, chatId, prompt: actualPrompt, language, token, screenshotRef });
+    // 🔧 GLASS PARITY: Pass transcript context to backend
+    const handle = streamAsk({ 
+      baseUrl, 
+      chatId, 
+      prompt: actualPrompt, 
+      transcript: transcriptContext || undefined,  // Pass transcript for context
+      language, 
+      token, 
+      screenshotRef 
+    });
     streamRef.current = handle;
 
     handle.onDelta((d) => {
@@ -297,7 +348,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const handleCopy = async () => {
     if (copyState === 'copied' || !response) return;
 
-    const textToCopy = `Question: ${currentQuestion}\n\nAnswer: ${response}`;
+    // 🔧 FIX #10: Use i18n for clipboard labels (Frage/Question, Antwort/Answer)
+    const questionLabel = i18n.t('overlay.ask.questionLabel');
+    const answerLabel = i18n.t('overlay.ask.answerLabel');
+    const textToCopy = `${questionLabel}: ${currentQuestion}\n\n${answerLabel}: ${response}`;
 
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -367,6 +421,20 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     requestWindowResize(450);
     console.log('[AskView] Set initial window height to 450px');
   }, []);
+
+  // 🔧 FIX ISSUE #7: Auto-adjust window height when response changes
+  useEffect(() => {
+    if (!response || !responseContainerRef.current) return;
+    
+    // Calculate required height based on actual content
+    const containerHeight = responseContainerRef.current.scrollHeight;
+    // Add header height (60px) + input height (50px) + padding (40px)
+    const totalHeight = containerHeight + 150;
+    
+    // Clamp between min/max (handled by requestWindowResize)
+    requestWindowResize(totalHeight);
+    console.log('[AskView] 📏 Auto-adjusted height to:', totalHeight, 'based on content');
+  }, [response]);
 
   // Glass parity: Render markdown with syntax highlighting
   const renderMarkdown = (text: string): string => {
