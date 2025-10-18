@@ -45,6 +45,13 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     }
   }
   
+  // 🔧 FIX ISSUE #4: Clear session state in ListenView (transcripts, insights, timer)
+  const eviaIpc = (window as any).evia?.ipc
+  if (eviaIpc?.send) {
+    eviaIpc.send('clear-session')
+    console.log('[OverlayEntry] ✅ Sent clear-session message to ListenView')
+  }
+  
   // 🔧 FIX: Close all child windows except Settings
   const eviaWindows = (window as any).evia?.windows
   if (eviaWindows) {

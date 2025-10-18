@@ -10,6 +10,7 @@ let micWsInstance: any = null;
 let micAudioContext: AudioContext | null = null;
 let micAudioProcessor: ScriptProcessorNode | null = null;
 let micStream: MediaStream | null = null;
+let micWsDisconnectedLogged: boolean = false; // 🔧 FIX: Prevent spam logging
 
 // System audio state  
 let systemWsInstance: any = null;
@@ -388,15 +389,22 @@ async function setupMicProcessing(stream: MediaStream) {
       const pcm16 = convertFloat32ToInt16(float32Chunk);
       
       const ws = ensureMicWs();
-      if (ws && ws.sendBinaryData) {
+      // 🔧 CRITICAL FIX: Verify WebSocket is actually connected before sending
+      if (ws && ws.isConnected() && ws.sendBinaryData) {
         try {
           ws.sendBinaryData(pcm16.buffer);
           console.log(`[AudioCapture] Sent MIC chunk: ${pcm16.byteLength} bytes (RMS: ${rms.toFixed(4)}, AEC: ${systemAudioBuffer.length > 0 ? 'YES' : 'NO'})`);
         } catch (error) {
-          console.error('[AudioCapture] Failed to send MIC chunk:', error);
+          console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
+        }
+      } else if (ws && !ws.isConnected()) {
+        // WebSocket exists but disconnected - log warning (avoid spam)
+        if (!micWsDisconnectedLogged) {
+          console.error('[AudioCapture] ❌ Mic WebSocket disconnected - cannot send audio data');
+          micWsDisconnectedLogged = true;
         }
       } else {
-        console.error('[AudioCapture] Mic WebSocket not ready');
+        console.error('[AudioCapture] ❌ Mic WebSocket not ready');
       }
     }
   };
@@ -488,6 +496,9 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 // Glass parity: Start capture with explicit permission checks
 export async function startCapture(includeSystemAudio = false) {
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
+  
+  // 🔧 FIX: Reset disconnection flag when starting new capture
+  micWsDisconnectedLogged = false;
   
   // Step 1: Ensure mic WebSocket is ready
   let micWs = ensureMicWs();

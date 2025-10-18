@@ -409,6 +409,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (eviaIpc?.on) {
       eviaIpc.on('transcript-message', handleTranscriptMessage);
       console.log('[ListenView] ✅ IPC listener registered');
+      
+      // 🔧 FIX ISSUE #4: Listen for language change session reset
+      eviaIpc.on('clear-session', () => {
+        console.log('[ListenView] 🧹 Received clear-session - resetting all state');
+        
+        // Clear all session state
+        setTranscripts([]);
+        setInsights(null);
+        setViewMode('transcript');
+        setElapsedTime('00:00');
+        setIsSessionActive(false);
+        stopTimer();
+        
+        console.log('[ListenView] ✅ Session cleared - ready for new recording');
+      });
+      console.log('[ListenView] ✅ clear-session listener registered');
     } else {
       console.error('[ListenView] ❌ window.evia.ipc.on not available');
     }
