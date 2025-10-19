@@ -55,8 +55,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         scrollDown: "Cmd+Down",
       });
       setPresets([
-        { id: 1, title: "Default Preset", is_default: 1 },
-        { id: 2, title: "Custom Preset 1", is_default: 0 },
+        { id: 1, title: "Default Preset", is_default: true },
+        { id: 2, title: "Custom Preset 1", is_default: false },
       ]);
       setSelectedPreset(2);
       setIsLoading(false);
@@ -363,7 +363,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                 marginLeft: "4px",
               }}
             >
-              ({presets.filter((p) => p.is_default === 0).length})
+              ({presets.filter((p) => !p.is_default).length})
             </span>
           </span>
           <span
@@ -387,7 +387,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             className="preset-list"
             style={{ display: "flex", flexDirection: "column", gap: "8px" }}
           >
-            {presets.filter((p) => p.is_default === 0).length === 0 ? (
+            {presets.filter((p) => !p.is_default).length === 0 ? (
               <div
                 className="no-presets-message"
                 style={{
@@ -400,7 +400,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             ) : (
               presets
-                .filter((p) => p.is_default === 0)
+                .filter((p) => !p.is_default)
                 .map((preset) => (
                   <div
                     key={preset.id}
