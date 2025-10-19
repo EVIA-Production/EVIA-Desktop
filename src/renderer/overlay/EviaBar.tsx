@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import "./overlay-tokens.css";
-import "./overlay-glass.css";
+import "./static/overlay-tokens.css";
+import "./static/overlay-glass.css";
 import { i18n } from "../i18n/i18n";
 
 const ListenIcon = new URL("./assets/Listen.svg", import.meta.url).href;

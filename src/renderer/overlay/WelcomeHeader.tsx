@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import React from "react";
-import "./overlay-tokens.css";
-import "./overlay-glass.css";
+import "./static/overlay-tokens.css";
+import "./static/overlay-glass.css";
 const IS_MAC = window.evia.isMac;
 
 /**

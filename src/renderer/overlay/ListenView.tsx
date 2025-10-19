@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import './overlay-tokens.css';
-import './overlay-glass.css';
-import { getWebSocketInstance } from '../services/websocketService';
-import { fetchInsights, Insight } from '../services/insightsService';
-import { i18n } from '../i18n/i18n';
+import React, { useEffect, useRef, useState } from "react";
+import "./static/overlay-tokens.css";
+import "./static/overlay-glass.css";
+import { getWebSocketInstance } from "../services/websocketService";
+import { fetchInsights, Insight } from "../services/insightsService";
+import { i18n } from "../i18n/i18n";
 
 declare global {
   interface Window {
@@ -31,21 +31,50 @@ interface ListenViewProps {
   onClose?: () => void;
 }
 
-const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
+const ListenView: React.FC<ListenViewProps> = ({
+  lines,
+  followLive,
+  onToggleFollow,
+  onClose,
+}) => {
   // 🔍 DIAGNOSTIC: Component function execution (runs on EVERY render)
-  console.log('[ListenView] 🔍🔍🔍 COMPONENT FUNCTION EXECUTING - PROOF OF INSTANTIATION')
-  console.log('[ListenView] 🔍 Props:', { linesCount: lines.length, followLive })
-  console.log('[ListenView] 🔍 Window location:', window.location.href)
-  console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
-  
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number}[]>([]);
+  console.log(
+    "[ListenView] 🔍🔍🔍 COMPONENT FUNCTION EXECUTING - PROOF OF INSTANTIATION"
+  );
+  console.log("[ListenView] 🔍 Props:", {
+    linesCount: lines.length,
+    followLive,
+  });
+  console.log("[ListenView] 🔍 Window location:", window.location.href);
+  console.log(
+    "[ListenView] 🔍 React:",
+    typeof React,
+    "useState:",
+    typeof useState,
+    "useEffect:",
+    typeof useEffect
+  );
+
+  const [transcripts, setTranscripts] = useState<
+    {
+      text: string;
+      speaker: number | null;
+      isFinal: boolean;
+      isPartial?: boolean;
+      timestamp?: number;
+    }[]
+  >([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
+  const [viewMode, setViewMode] = useState<"transcript" | "insights">(
+    "transcript"
+  );
   const [isHovering, setIsHovering] = useState(false);
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
-  const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
-  const [elapsedTime, setElapsedTime] = useState('00:00');
+  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [copiedView, setCopiedView] = useState<
+    "transcript" | "insights" | null
+  >(null); // Track which view was copied
+  const [elapsedTime, setElapsedTime] = useState("00:00");
   const [isSessionActive, setIsSessionActive] = useState(false);
   // Glass parity: Insights fetched from backend via fetchInsights service
   const [insights, setInsights] = useState<Insight | null>(null);
@@ -56,7 +85,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
   const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
-  
+
   // Sync autoScroll state with ref
   useEffect(() => {
     autoScrollRef.current = autoScroll;
@@ -65,7 +94,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
 
-    const topBar = document.querySelector('.top-bar') as HTMLElement;
+    const topBar = document.querySelector(".top-bar") as HTMLElement;
     const activeContent = viewportRef.current as HTMLElement;
     if (!topBar || !activeContent) return;
 
@@ -74,15 +103,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const idealHeight = topBarHeight + contentHeight;
     const targetHeight = Math.min(700, idealHeight);
 
-    window.api.listenView.adjustWindowHeight('listen', targetHeight);
+    window.api.listenView.adjustWindowHeight("listen", targetHeight);
   };
 
   const startTimer = () => {
     const startTime = Date.now();
     timerInterval.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
-      const seconds = (elapsed % 60).toString().padStart(2, '0');
+      const minutes = Math.floor(elapsed / 60)
+        .toString()
+        .padStart(2, "0");
+      const seconds = (elapsed % 60).toString().padStart(2, "0");
       setElapsedTime(`${minutes}:${seconds}`);
     }, 1000);
   };
@@ -100,12 +131,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (!viewport) return;
 
     const handleScroll = () => {
-      const isAtBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 50;
+      const isAtBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 50;
       setAutoScroll(isAtBottom);
     };
 
-    viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
+    viewport.addEventListener("scroll", handleScroll);
+    return () => viewport.removeEventListener("scroll", handleScroll);
   }, []);
 
   // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 195-204 in SttView.js)
@@ -129,7 +161,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 🔧 FIX: Cleanup timer on unmount
   useEffect(() => {
     return () => {
-      console.log('[ListenView] 🛑 Stopping timer on unmount');
+      console.log("[ListenView] 🛑 Stopping timer on unmount");
       stopTimer();
       setIsSessionActive(false);
     };
@@ -138,92 +170,112 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Listen for transcript messages forwarded from Header window via IPC
   // Header window captures audio, sends to backend via WebSocket, and forwards transcripts here
   useEffect(() => {
-    console.log('[ListenView] Setting up IPC listener for transcript messages');
-    
+    console.log("[ListenView] Setting up IPC listener for transcript messages");
+
     const handleTranscriptMessage = (msg: any) => {
-      console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
-      
+      console.log(
+        "[ListenView] 📨 Received IPC message:",
+        msg.type,
+        "_source:",
+        msg._source
+      );
+
       // Handle recording_started to start timer
-      if (msg.type === 'recording_started') {
-        console.log('[ListenView] ▶️  Recording started - starting timer');
+      if (msg.type === "recording_started") {
+        console.log("[ListenView] ▶️  Recording started - starting timer");
         // 🔧 FIX: Clear old transcripts from previous session
         setTranscripts([]);
-        console.log('[ListenView] 🧹 Cleared previous session transcripts');
+        console.log("[ListenView] 🧹 Cleared previous session transcripts");
         // 🔧 FIX: Reset timer display
-        setElapsedTime('00:00');
+        setElapsedTime("00:00");
         setIsSessionActive(true);
         startTimer();
         return;
       }
-      
+
       // Handle recording_stopped to stop timer
-      if (msg.type === 'recording_stopped') {
-        console.log('[ListenView] 🛑 Recording stopped - stopping timer');
+      if (msg.type === "recording_stopped") {
+        console.log("[ListenView] 🛑 Recording stopped - stopping timer");
         stopTimer();
         setIsSessionActive(false);
-        
+
         // 🎯 TASK 1: Auto-switch to Insights view and fetch
-        console.log('[ListenView] 🔄 Auto-switching to Insights view...');
-        setViewMode('insights');
+        console.log("[ListenView] 🔄 Auto-switching to Insights view...");
+        setViewMode("insights");
         // 🔧 FIX: Remove undo button as per user request
         setShowUndoButton(false);
-        
+
         // Fetch insights asynchronously
         fetchInsightsNow();
-        
+
         return;
       }
-      
+
       // Extract message data
       let text: string | undefined;
       let speaker: number | null = null;
       let isFinal = false;
       let isPartial = false;
-      
-      if (msg.type === 'transcript_segment' && msg.data) {
-        text = msg.data.text || '';
+
+      if (msg.type === "transcript_segment" && msg.data) {
+        text = msg.data.text || "";
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal; // If not final, it's partial
-      } else if (msg.type === 'status' && msg.data?.echo_text) {
+      } else if (msg.type === "status" && msg.data?.echo_text) {
         // 🔧 FIX: Status messages with echo_text are INTERIM/PARTIAL transcripts from Deepgram
         text = msg.data.echo_text;
         // Infer speaker from _source: 'mic' = 1, 'system' = 0
-        speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
+        speaker =
+          msg._source === "mic" ? 1 : msg._source === "system" ? 0 : null;
         isFinal = msg.data.final === true;
         isPartial = !isFinal; // If not final, it's partial
-      } else if (msg.type === 'status') {
+      } else if (msg.type === "status") {
         // Filter out connection status messages (no echo_text = connection event)
-        console.log('[ListenView] 📊 CONNECTION STATUS (console only):', msg.data);
+        console.log(
+          "[ListenView] 📊 CONNECTION STATUS (console only):",
+          msg.data
+        );
         return;
       }
-      
+
       // Only process if we have text
       if (!text) return;
-      
+
       // 🔧 FILTER: Remove "EVIA connection OK" messages from transcript display (exact match or contains)
-      if (text.trim().toLowerCase().includes('evia connection')) {
-        console.log('[ListenView] 🚫 Filtered out connection status message:', text.substring(0, 50));
+      if (text.trim().toLowerCase().includes("evia connection")) {
+        console.log(
+          "[ListenView] 🚫 Filtered out connection status message:",
+          text.substring(0, 50)
+        );
         return;
       }
-      
+
       // 🔧 STEP 1: Capture timestamp for time-based merging
       const messageTimestamp = Date.now();
-      
+
       // Log after text is confirmed to exist
-      console.log('[ListenView] 📨', msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:', 
-                  text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
-      
+      console.log(
+        "[ListenView] 📨",
+        msg.type === "transcript_segment" ? "transcript_segment:" : "status:",
+        text.substring(0, 50),
+        "speaker:",
+        speaker,
+        "isFinal:",
+        isFinal
+      );
+
       // 🔧 GLASS PARITY: Check if scrolled near bottom BEFORE update (line 120 in SttView.js)
       const container = viewportRef.current;
       if (container) {
-        shouldScrollAfterUpdate.current = 
-          container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+        shouldScrollAfterUpdate.current =
+          container.scrollTop + container.clientHeight >=
+          container.scrollHeight - 10;
       }
-      
+
       // 🔧 STEP 1 ENHANCED: Time-based + punctuation-aware bubble merging
       // Based on Glass parity + coordinator's Option A (2.5s window + punctuation check)
-      setTranscripts(prev => {
+      setTranscripts((prev) => {
         // Helper: Find last partial from same speaker
         const findLastPartialIdx = (spk: number | null) => {
           for (let i = prev.length - 1; i >= 0; i--) {
@@ -233,9 +285,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
           return -1;
         };
-        
+
         // 🔧 NEW: Find last FINAL from same speaker (for merging consecutive finals)
-        const findLastFinalIdx = (spk: number | null, searchArray?: TranscriptLine[]) => {
+        const findLastFinalIdx = (
+          spk: number | null,
+          searchArray?: TranscriptLine[]
+        ) => {
           const arr = searchArray || prev;
           for (let i = arr.length - 1; i >= 0; i--) {
             if (arr[i].speaker === spk && arr[i].isFinal) {
@@ -244,14 +299,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
           return -1;
         };
-        
+
         const newMessages = [...prev];
         const targetIdx = findLastPartialIdx(speaker);
-        
+
         if (isPartial) {
           // Partial/interim: Update existing partial or add new
           if (targetIdx !== -1) {
-            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'text:', text.substring(0, 30));
+            console.log(
+              "[ListenView] 🔄 UPDATING partial at index",
+              targetIdx,
+              "text:",
+              text.substring(0, 30)
+            );
             newMessages[targetIdx] = {
               text,
               speaker,
@@ -260,7 +320,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
             };
           } else {
-            console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
+            console.log(
+              "[ListenView] ➕ ADDING new partial, text:",
+              text.substring(0, 30)
+            );
             newMessages.push({
               text,
               speaker,
@@ -273,7 +336,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           // Final: Convert existing partial to final, OR merge with last final, OR add new
           if (targetIdx !== -1) {
             // Convert existing partial to final
-            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'text:', text.substring(0, 30));
+            console.log(
+              "[ListenView] ✅ CONVERTING partial to FINAL at index",
+              targetIdx,
+              "text:",
+              text.substring(0, 30)
+            );
             newMessages[targetIdx] = {
               text,
               speaker,
@@ -283,21 +351,28 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             };
 
             // 🔧 CRITICAL FIX: After converting, check if we should MERGE with PREVIOUS final
-            const previousFinalIdx = findLastFinalIdx(speaker, newMessages.slice(0, targetIdx));
-            
+            const previousFinalIdx = findLastFinalIdx(
+              speaker,
+              newMessages.slice(0, targetIdx)
+            );
+
             if (previousFinalIdx !== -1) {
               const prevMessage = newMessages[previousFinalIdx];
               const prevText = prevMessage.text;
               const prevTimestamp = prevMessage.timestamp || 0;
               const timeSinceLastMs = messageTimestamp - prevTimestamp;
-              
-              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(prevText.trim());
+
+              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(
+                prevText.trim()
+              );
               const startsWithCapital = /^[A-Z]/.test(text.trim());
-               // 🔧 PARAGRAPH GROUPING: 10-second window (Deepgram finalizes every 4-8s)
-               // Only split on: speaker change OR significant pause (>10s) OR clear paragraph boundary
-               const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
-               
-               console.log('[ListenView] 🔍 MERGE DECISION (post-convert):', {
+              // 🔧 PARAGRAPH GROUPING: 10-second window (Deepgram finalizes every 4-8s)
+              // Only split on: speaker change OR significant pause (>10s) OR clear paragraph boundary
+              const shouldMerge =
+                timeSinceLastMs <= 10000 &&
+                (!endsWithSentence || !startsWithCapital);
+
+              console.log("[ListenView] 🔍 MERGE DECISION (post-convert):", {
                 previousFinalIdx,
                 currentIdx: targetIdx,
                 timeSinceLastMs: `${timeSinceLastMs}ms`,
@@ -305,69 +380,91 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 startsWithCapital,
                 shouldMerge,
                 prevText: prevText.substring(Math.max(0, prevText.length - 30)),
-                newText: text.substring(0, 30)
+                newText: text.substring(0, 30),
               });
-              
+
               if (shouldMerge) {
-                console.log('[ListenView] 🔗 MERGING current final into previous at index', previousFinalIdx);
+                console.log(
+                  "[ListenView] 🔗 MERGING current final into previous at index",
+                  previousFinalIdx
+                );
                 // Merge current into previous
                 newMessages[previousFinalIdx] = {
                   ...prevMessage,
-                  text: prevText + ' ' + text,
+                  text: prevText + " " + text,
                   timestamp: messageTimestamp,
                 };
                 // Remove current (now merged) message
-                  newMessages.splice(targetIdx, 1);
-                } else {
-                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
-                  console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
-                }
+                newMessages.splice(targetIdx, 1);
+              } else {
+                const reason =
+                  timeSinceLastMs > 10000
+                    ? "TIME_EXCEEDED (>10s pause)"
+                    : "SENTENCE_BOUNDARY (paragraph break)";
+                console.log(
+                  "[ListenView] ➕ KEEPING as separate FINAL (reason:",
+                  reason + ")"
+                );
+              }
             }
           } else {
             // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
             const lastFinalIdx = findLastFinalIdx(speaker);
-            
+
             if (lastFinalIdx !== -1) {
               const lastMessage = newMessages[lastFinalIdx];
               const lastText = lastMessage.text;
               const lastTimestamp = lastMessage.timestamp || 0;
               const timeSinceLastMs = messageTimestamp - lastTimestamp;
-              
+
               // Helper: Check if text ends with sentence-ending punctuation
-              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(lastText.trim());
-              
+              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(
+                lastText.trim()
+              );
+
               // Helper: Check if new text starts with capital letter (potential new sentence)
               const startsWithCapital = /^[A-Z]/.test(text.trim());
-                
-                // MERGE CONDITIONS (paragraph-level grouping):
-                // 1. Within 10-second window (matches Deepgram's 4-8s finalization + buffer)
-                // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
-                //    This creates paragraph-like grouping: only split on speaker change, long pause (>10s), or clear paragraph boundary
-                const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
-              
-              console.log('[ListenView] 🔍 MERGE DECISION:', {
+
+              // MERGE CONDITIONS (paragraph-level grouping):
+              // 1. Within 10-second window (matches Deepgram's 4-8s finalization + buffer)
+              // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
+              //    This creates paragraph-like grouping: only split on speaker change, long pause (>10s), or clear paragraph boundary
+              const shouldMerge =
+                timeSinceLastMs <= 10000 &&
+                (!endsWithSentence || !startsWithCapital);
+
+              console.log("[ListenView] 🔍 MERGE DECISION:", {
                 lastFinalIdx,
                 timeSinceLastMs: `${timeSinceLastMs}ms`,
                 endsWithSentence,
                 startsWithCapital,
                 shouldMerge,
                 lastText: lastText.substring(Math.max(0, lastText.length - 30)),
-                newText: text.substring(0, 30)
+                newText: text.substring(0, 30),
               });
-              
+
               if (shouldMerge) {
                 // APPEND to existing final bubble
-                console.log('[ListenView] 🔗 MERGING with final at index', lastFinalIdx);
+                console.log(
+                  "[ListenView] 🔗 MERGING with final at index",
+                  lastFinalIdx
+                );
                 newMessages[lastFinalIdx] = {
                   ...lastMessage,
-                  text: lastText + ' ' + text,
+                  text: lastText + " " + text,
                   timestamp: messageTimestamp, // Update to latest timestamp
                 };
-                } else {
-                  // Create new final bubble (significant pause or paragraph boundary detected)
-                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
-                  console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
-                  newMessages.push({
+              } else {
+                // Create new final bubble (significant pause or paragraph boundary detected)
+                const reason =
+                  timeSinceLastMs > 10000
+                    ? "TIME_EXCEEDED (>10s pause)"
+                    : "SENTENCE_BOUNDARY (paragraph break)";
+                console.log(
+                  "[ListenView] ➕ ADDING new FINAL (no merge -",
+                  reason + ")"
+                );
+                newMessages.push({
                   text,
                   speaker,
                   isFinal: true,
@@ -377,7 +474,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               }
             } else {
               // No previous final - create new bubble
-              console.log('[ListenView] ➕ ADDING new FINAL (first from speaker)');
+              console.log(
+                "[ListenView] ➕ ADDING new FINAL (first from speaker)"
+              );
               newMessages.push({
                 text,
                 speaker,
@@ -388,63 +487,76 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             }
           }
         }
-        
+
         return newMessages;
       });
-      
+
       // Note: Scroll happens in useEffect AFTER React renders (see below)
     };
-    
-    const eviaIpc = (window as any).evia?.ipc as { on: (channel: string, listener: (...args: any[]) => void) => void } | undefined;
+
+    const eviaIpc = (window as any).evia?.ipc as
+      | { on: (channel: string, listener: (...args: any[]) => void) => void }
+      | undefined;
     if (eviaIpc?.on) {
-      eviaIpc.on('transcript-message', handleTranscriptMessage);
-      console.log('[ListenView] ✅ IPC listener registered');
+      eviaIpc.on("transcript-message", handleTranscriptMessage);
+      console.log("[ListenView] ✅ IPC listener registered");
     } else {
-      console.error('[ListenView] ❌ window.evia.ipc.on not available');
+      console.error("[ListenView] ❌ window.evia.ipc.on not available");
     }
-    
+
     return () => {
-      console.log('[ListenView] Cleaning up IPC listener');
+      console.log("[ListenView] Cleaning up IPC listener");
       // Note: Electron IPC doesn't provide removeListener, so we just log cleanup
     };
-  }, [])  // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
+  }, []); // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
 
   // 🎯 TASK 1: Extract insights fetching to reusable function
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
-    
+
     setIsLoadingInsights(true);
     const ttftStart = Date.now();
     try {
-      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+      const chatId = Number(localStorage.getItem("current_chat_id") || "0");
       // 🔐 FIX: Get token from keytar (secure storage), not localStorage
-      const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
+      const eviaAuth = (window as any).evia?.auth as
+        | { getToken: () => Promise<string | null> }
+        | undefined;
       const token = await eviaAuth?.getToken();
-      
+
       if (!chatId || !token) {
-        console.error('[ListenView] Missing chat_id or auth token for insights fetch');
+        console.error(
+          "[ListenView] Missing chat_id or auth token for insights fetch"
+        );
         return;
       }
-      
-      console.log('[ListenView] 📊 Fetching insights for chat:', chatId);
+
+      console.log("[ListenView] 📊 Fetching insights for chat:", chatId);
       // 🔧 FIX: Use current language from i18n instead of hardcoded 'de'
       const currentLang = i18n.getLanguage();
-      console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
-      const fetchedInsights = await fetchInsights({ chatId, token, language: currentLang });
+      console.log(
+        "[ListenView] 🌐 Fetching insights in language:",
+        currentLang
+      );
+      const fetchedInsights = await fetchInsights({
+        chatId,
+        token,
+        language: currentLang,
+      });
       const ttftMs = Date.now() - ttftStart;
       if (fetchedInsights) {
-        console.log('[ListenView] ✅ Glass insights fetched:', {
+        console.log("[ListenView] ✅ Glass insights fetched:", {
           summaryPoints: fetchedInsights.summary.length,
           topicHeader: fetchedInsights.topic.header,
           actionItems: fetchedInsights.actions.length,
-          ttftMs
+          ttftMs,
         });
         setInsights(fetchedInsights);
       } else {
-        console.log('[ListenView] ⚠️ No insights returned');
+        console.log("[ListenView] ⚠️ No insights returned");
       }
     } catch (error) {
-      console.error('[ListenView] ❌ Failed to fetch insights:', error);
+      console.error("[ListenView] ❌ Failed to fetch insights:", error);
       // Keep insights empty on error - UI will show placeholder
     } finally {
       setIsLoadingInsights(false);
@@ -452,21 +564,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   const toggleView = async () => {
-    const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
+    const newMode = viewMode === "transcript" ? "insights" : "transcript";
     setViewMode(newMode);
-    
+
     // Hide undo button when manually toggling (user has control)
     if (showUndoButton) {
       setShowUndoButton(false);
     }
-    
+
     // Glass parity: Reset copy state when switching views (only show "Copied X" for the view that was actually copied)
-    if (copyState === 'copied' && copiedView !== newMode) {
-      setCopyState('idle');
+    if (copyState === "copied" && copiedView !== newMode) {
+      setCopyState("idle");
     }
-    
+
     // Fetch insights when switching to insights view
-    if (newMode === 'insights' && !insights) {
+    if (newMode === "insights" && !insights) {
       await fetchInsightsNow();
     }
   };
@@ -476,27 +588,28 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   const handleCopy = async () => {
-    if (copyState === 'copied') return;
+    if (copyState === "copied") return;
 
-    let textToCopy = viewMode === 'transcript' 
-      ? transcripts.map(line => line.text).join('\n')
-      : insights 
-        ? `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`
-        : '';
+    let textToCopy =
+      viewMode === "transcript"
+        ? transcripts.map((line) => line.text).join("\n")
+        : insights
+          ? `Summary:\n${insights.summary.join("\n")}\n\n${insights.topic.header}:\n${insights.topic.bullets.join("\n")}\n\nActions:\n${insights.actions.join("\n")}`
+          : "";
 
     try {
       await navigator.clipboard.writeText(textToCopy);
-      setCopyState('copied');
+      setCopyState("copied");
       setCopiedView(viewMode); // Track which view was copied
       if (copyTimeout.current) {
         clearTimeout(copyTimeout.current);
       }
       copyTimeout.current = setTimeout(() => {
-        setCopyState('idle');
+        setCopyState("idle");
         setCopiedView(null); // Reset after timeout
       }, 1500);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error("Failed to copy:", err);
     }
   };
 
@@ -504,20 +617,31 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Removed handleInsightClick as insights are now read-only summary/topic/actions
 
   // Glass parity: Only show "Copied X" if current view matches what was copied
-  const displayText = (copyState === 'copied' && copiedView === viewMode)
-    ? viewMode === 'transcript'
-      ? i18n.t('overlay.listen.copiedTranscript')
-      : i18n.t('overlay.listen.copiedInsights')
-    : isHovering
-    ? viewMode === 'transcript'
-      ? i18n.t('overlay.listen.copyTranscript')
-      : i18n.t('overlay.listen.copyInsights')
-    : viewMode === 'insights'
-    ? i18n.t('overlay.listen.showInsights')
-    : `${i18n.t('overlay.listen.listening')} ${elapsedTime}`;
+  const displayText =
+    copyState === "copied" && copiedView === viewMode
+      ? viewMode === "transcript"
+        ? i18n.t("overlay.listen.copiedTranscript")
+        : i18n.t("overlay.listen.copiedInsights")
+      : isHovering
+        ? viewMode === "transcript"
+          ? i18n.t("overlay.listen.copyTranscript")
+          : i18n.t("overlay.listen.copyInsights")
+        : viewMode === "insights"
+          ? i18n.t("overlay.listen.showInsights")
+          : `${i18n.t("overlay.listen.listening")} ${elapsedTime}`;
 
   return (
-    <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
+    <div
+      className="assistant-container"
+      style={{
+        width: "400px",
+        transform: "translate3d(0, 0, 0)",
+        backfaceVisibility: "hidden",
+        transition:
+          "transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out",
+        willChange: "transform, opacity",
+      }}
+    >
       {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
       <style>
         {`
@@ -681,13 +805,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
 
           .copy-button .copy-icon {
-            opacity: ${copyState === 'copied' ? '0' : '1'};
-            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(0.5)' : 'translate(-50%, -50%) scale(1)'};
+            opacity: ${copyState === "copied" ? "0" : "1"};
+            transform: ${copyState === "copied" ? "translate(-50%, -50%) scale(0.5)" : "translate(-50%, -50%) scale(1)"};
           }
 
           .copy-button .check-icon {
-            opacity: ${copyState === 'copied' ? '1' : '0'};
-            transform: ${copyState === 'copied' ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.5)'};
+            opacity: ${copyState === "copied" ? "1" : "0"};
+            transform: ${copyState === "copied" ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.5)"};
           }
 
           .insights-placeholder {
@@ -797,25 +921,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       <div className="assistant-container">
         <div className="top-bar">
           <div className="bar-left-text">
-            <span className={`bar-left-text-content ${isHovering ? 'slide-in' : ''}`}>
+            <span
+              className={`bar-left-text-content ${isHovering ? "slide-in" : ""}`}
+            >
               {displayText}
             </span>
           </div>
           <div className="bar-controls">
             {/* 🎯 TASK 1: Undo button (shown for 10s after auto-switch) */}
-            {showUndoButton && viewMode === 'insights' && (
-              <button 
-                className="toggle-button" 
+            {showUndoButton && viewMode === "insights" && (
+              <button
+                className="toggle-button"
                 onClick={() => {
-                  setViewMode('transcript');
+                  setViewMode("transcript");
                   setShowUndoButton(false);
                 }}
-                style={{ 
-                  background: 'rgba(255, 193, 7, 0.15)',
-                  borderLeft: '2px solid rgba(255, 193, 7, 0.5)'
+                style={{
+                  background: "rgba(255, 193, 7, 0.15)",
+                  borderLeft: "2px solid rgba(255, 193, 7, 0.5)",
                 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M3 7v6h6" />
                   <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
                 </svg>
@@ -823,75 +956,105 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               </button>
             )}
             <button className="toggle-button" onClick={toggleView}>
-              {viewMode === 'insights' ? (
+              {viewMode === "insights" ? (
                 <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
-                  <span>{i18n.t('overlay.listen.showTranscript')}</span>
+                  <span>{i18n.t("overlay.listen.showTranscript")}</span>
                 </>
               ) : (
                 <>
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="8"
+                    height="8"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <path d="M9 11l3 3L22 4" />
                     <path d="M22 12v7a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h11" />
                   </svg>
-                  <span>{i18n.t('overlay.listen.showInsights')}</span>
+                  <span>{i18n.t("overlay.listen.showInsights")}</span>
                 </>
               )}
             </button>
             <button
-              className={`copy-button ${copyState === 'copied' ? 'copied' : ''}`}
+              className={`copy-button ${copyState === "copied" ? "copied" : ""}`}
               onClick={handleCopy}
               onMouseEnter={() => handleCopyHover(true)}
               onMouseLeave={() => handleCopyHover(false)}
             >
-              <svg className="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="copy-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
               </svg>
-              <svg className="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg
+                className="check-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
                 <path d="M20 6L9 17l-5-5" />
               </svg>
             </button>
           </div>
         </div>
         <div className="glass-scroll" ref={viewportRef}>
-          {viewMode === 'transcript' ? (
+          {viewMode === "transcript" ? (
             transcripts.length > 0 ? (
               transcripts.map((line, i) => {
                 // 🎨 GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
                 // null defaults to system (grey, left) for safety
                 const isMe = line.speaker === 1;
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
-                
+
                 return (
                   <div
                     key={i}
-                    className={`bubble ${isMe ? 'me' : 'them'}`}
+                    className={`bubble ${isMe ? "me" : "them"}`}
                     style={{
                       // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
                       opacity: 1.0,
                       // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                       background: isMe
-                        ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
-                        : 'rgba(255, 255, 255, 0.1)', // Glass .them color
-                      color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
+                        ? "rgba(0, 122, 255, 0.8)" // Glass .me color
+                        : "rgba(255, 255, 255, 0.1)", // Glass .them color
+                      color: isMe ? "#ffffff" : "rgba(255, 255, 255, 0.9)",
                       // 🎨 GLASS PARITY: Alignment
-                      alignSelf: isMe ? 'flex-end' : 'flex-start',
-                      marginLeft: isMe ? 'auto' : '0',
-                      marginRight: isThem ? 'auto' : '0',
+                      alignSelf: isMe ? "flex-end" : "flex-start",
+                      marginLeft: isMe ? "auto" : "0",
+                      marginRight: isThem ? "auto" : "0",
                       // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
-                      borderRadius: '12px',
-                      borderBottomLeftRadius: isThem ? '4px' : '12px',
-                      borderBottomRightRadius: isMe ? '4px' : '12px',
-                      padding: '8px 12px',
-                      marginBottom: '8px',
-                      maxWidth: '80%',
-                      wordWrap: 'break-word',
-                      fontSize: '13px',
-                      lineHeight: '1.5',
+                      borderRadius: "12px",
+                      borderBottomLeftRadius: isThem ? "4px" : "12px",
+                      borderBottomRightRadius: isMe ? "4px" : "12px",
+                      padding: "8px 12px",
+                      marginBottom: "8px",
+                      maxWidth: "80%",
+                      wordWrap: "break-word",
+                      fontSize: "13px",
+                      lineHeight: "1.5",
                     }}
                   >
                     {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
@@ -900,51 +1063,89 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 );
               })
             ) : (
-              <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-                {i18n.t('overlay.listen.waitingForSpeech')}
+              <div
+                className="insights-placeholder"
+                style={{
+                  padding: "8px 16px",
+                  textAlign: "center",
+                  fontStyle: "italic",
+                  background: "transparent",
+                  color: "rgba(255, 255, 255, 0.7)",
+                }}
+              >
+                {i18n.t("overlay.listen.waitingForSpeech")}
               </div>
             )
           ) : isLoadingInsights ? (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+            <div
+              className="insights-placeholder"
+              style={{
+                padding: "8px 16px",
+                textAlign: "center",
+                fontStyle: "italic",
+                background: "transparent",
+                color: "rgba(255, 255, 255, 0.7)",
+              }}
+            >
               Loading insights...
             </div>
           ) : insights ? (
-            <div style={{ padding: '12px 16px' }}>
+            <div style={{ padding: "12px 16px" }}>
               {/* Summary Section */}
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+              <div style={{ marginBottom: "20px" }}>
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    marginBottom: "8px",
+                    color: "rgba(255, 255, 255, 0.9)",
+                  }}
+                >
                   Summary
                 </h3>
                 {insights.summary.map((point, idx) => (
-                  <p key={`summary-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '6px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    paddingLeft: '12px',
-                    position: 'relative'
-                  }}>
-                    <span style={{ position: 'absolute', left: '0' }}>•</span>
+                  <p
+                    key={`summary-${idx}`}
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: "1.6",
+                      marginBottom: "6px",
+                      color: "rgba(255, 255, 255, 0.85)",
+                      paddingLeft: "12px",
+                      position: "relative",
+                    }}
+                  >
+                    <span style={{ position: "absolute", left: "0" }}>•</span>
                     {point}
                   </p>
                 ))}
               </div>
 
               {/* Topic Section */}
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+              <div style={{ marginBottom: "20px" }}>
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    marginBottom: "8px",
+                    color: "rgba(255, 255, 255, 0.9)",
+                  }}
+                >
                   {insights.topic.header}
                 </h3>
                 {insights.topic.bullets.map((bullet, idx) => (
-                  <p key={`bullet-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '6px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    paddingLeft: '12px',
-                    position: 'relative'
-                  }}>
-                    <span style={{ position: 'absolute', left: '0' }}>•</span>
+                  <p
+                    key={`bullet-${idx}`}
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: "1.6",
+                      marginBottom: "6px",
+                      color: "rgba(255, 255, 255, 0.85)",
+                      paddingLeft: "12px",
+                      position: "relative",
+                    }}
+                  >
+                    <span style={{ position: "absolute", left: "0" }}>•</span>
                     {bullet}
                   </p>
                 ))}
@@ -952,28 +1153,47 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
               {/* Actions Section */}
               <div>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                <h3
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    marginBottom: "8px",
+                    color: "rgba(255, 255, 255, 0.9)",
+                  }}
+                >
                   Next Actions
                 </h3>
                 {insights.actions.map((action, idx) => (
-                  <p key={`action-${idx}`} style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.6', 
-                    marginBottom: '8px',
-                    color: 'rgba(255, 255, 255, 0.85)',
-                    padding: '8px 12px',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)'
-                  }}>
+                  <p
+                    key={`action-${idx}`}
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: "1.6",
+                      marginBottom: "8px",
+                      color: "rgba(255, 255, 255, 0.85)",
+                      padding: "8px 12px",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                    }}
+                  >
                     {action}
                   </p>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-              {i18n.t('overlay.listen.noInsightsYet')}
+            <div
+              className="insights-placeholder"
+              style={{
+                padding: "8px 16px",
+                textAlign: "center",
+                fontStyle: "italic",
+                background: "transparent",
+                color: "rgba(255, 255, 255, 0.7)",
+              }}
+            >
+              {i18n.t("overlay.listen.noInsightsYet")}
             </div>
           )}
         </div>

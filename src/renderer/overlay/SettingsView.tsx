@@ -1,41 +1,47 @@
-import React, { useEffect, useState } from 'react';
-import './overlay-tokens.css';
-import './overlay-glass.css';
- import { i18n } from '../i18n/i18n';
+import React, { useEffect, useState } from "react";
+import "./static/overlay-tokens.css";
+import "./static/overlay-glass.css";
+import { i18n } from "../i18n/i18n";
 
 interface SettingsViewProps {
-  language: 'de' | 'en';
+  language: "de" | "en";
   onToggleLanguage: () => void;
   onClose?: () => void;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({
+  language,
+  onToggleLanguage,
+  onClose,
+}) => {
   const [isLoading, setIsLoading] = useState(true);
   const [shortcuts, setShortcuts] = useState<{ [key: string]: string }>({});
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<{ id: number; title: string; is_default: boolean }[]>([]);
+  const [presets, setPresets] = useState<
+    { id: number; title: string; is_default: boolean }[]
+  >([]);
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
 
   // Handle logout - clears auth and returns to welcome
   const handleLogout = async () => {
-    console.log('[SettingsView] 🚪 Logout clicked');
+    console.log("[SettingsView] 🚪 Logout clicked");
     try {
       await (window as any).evia?.auth?.logout?.();
-      console.log('[SettingsView] ✅ Logout successful');
+      console.log("[SettingsView] ✅ Logout successful");
     } catch (error) {
-      console.error('[SettingsView] ❌ Logout failed:', error);
+      console.error("[SettingsView] ❌ Logout failed:", error);
     }
   };
 
   // Handle quit - closes entire app
   const handleQuit = async () => {
-    console.log('[SettingsView] 🛑 Quit clicked');
+    console.log("[SettingsView] 🛑 Quit clicked");
     try {
       await (window as any).evia?.app?.quit?.();
-      console.log('[SettingsView] ✅ Quit initiated');
+      console.log("[SettingsView] ✅ Quit initiated");
     } catch (error) {
-      console.error('[SettingsView] ❌ Quit failed:', error);
+      console.error("[SettingsView] ❌ Quit failed:", error);
     }
   };
 
@@ -43,14 +49,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     // Simulate loading data
     setTimeout(() => {
       setShortcuts({
-        toggleVisibility: 'Cmd+\\',
-        nextStep: 'Cmd+Enter',
-        scrollUp: 'Cmd+Up',
-        scrollDown: 'Cmd+Down',
+        toggleVisibility: "Cmd+\\",
+        nextStep: "Cmd+Enter",
+        scrollUp: "Cmd+Up",
+        scrollDown: "Cmd+Down",
       });
       setPresets([
-        { id: 1, title: 'Default Preset', is_default: 1 },
-        { id: 2, title: 'Custom Preset 1', is_default: 0 },
+        { id: 1, title: "Default Preset", is_default: 1 },
+        { id: 2, title: "Custom Preset 1", is_default: 0 },
       ]);
       setSelectedPreset(2);
       setIsLoading(false);
@@ -69,18 +75,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const renderShortcutKeys = (accelerator: string) => {
     const keyMap: { [key: string]: string } = {
-      Cmd: '⌘',
-      Command: '⌘',
-      Ctrl: '⌃',
-      Alt: '⌥',
-      Shift: '⇧',
-      Enter: '↵',
-      Up: '↑',
-      Down: '↓',
-      Left: '←',
-      Right: '→',
+      Cmd: "⌘",
+      Command: "⌘",
+      Ctrl: "⌃",
+      Alt: "⌥",
+      Shift: "⇧",
+      Enter: "↵",
+      Up: "↑",
+      Down: "↓",
+      Left: "←",
+      Right: "→",
     };
-    return accelerator.split('+').map((key, index) => (
+    return accelerator.split("+").map((key, index) => (
       <span key={index} className="shortcut-key">
         {keyMap[key] || key}
       </span>
@@ -89,8 +95,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   if (isLoading) {
     return (
-      <div className="settings-container" style={{ background: '#1e1e1e', borderRadius: '12px', padding: '16px' }}>
-        <div className="loading-state" style={{ textAlign: 'center', color: 'white' }}>
+      <div
+        className="settings-container"
+        style={{ background: "#1e1e1e", borderRadius: "12px", padding: "16px" }}
+      >
+        <div
+          className="loading-state"
+          style={{ textAlign: "center", color: "white" }}
+        >
           <div className="loading-spinner"></div>
           <span>Loading...</span>
         </div>
@@ -106,20 +118,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     <div
       className="settings-container"
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        width: '100%',
-        background: 'rgba(20, 20, 20, 0.8)',
-        borderRadius: '12px',
-        outline: '0.5px rgba(255, 255, 255, 0.2) solid',
-        outlineOffset: '-1px',
-        boxSizing: 'border-box',
-        position: 'relative',
-        overflowY: 'auto',
-        padding: '12px',
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        width: "100%",
+        background: "rgba(20, 20, 20, 0.8)",
+        borderRadius: "12px",
+        outline: "0.5px rgba(255, 255, 255, 0.2) solid",
+        outlineOffset: "-1px",
+        boxSizing: "border-box",
+        position: "relative",
+        overflowY: "auto",
+        padding: "12px",
         zIndex: 1000,
-        color: 'white',
+        color: "white",
       }}
     >
       <style>{`
@@ -155,76 +167,113 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         }
       `}</style>
       {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
-      <div className="header-section" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
-        <h1 className="app-title" style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>{i18n.t('overlay.settings.title')}</h1>
-        <div className="account-info" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)' }}>Account: Not Logged In</div>
+      <div
+        className="header-section"
+        style={{
+          marginBottom: "16px",
+          borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+          paddingBottom: "8px",
+        }}
+      >
+        <h1
+          className="app-title"
+          style={{ fontSize: "18px", fontWeight: "bold", margin: 0 }}
+        >
+          {i18n.t("overlay.settings.title")}
+        </h1>
+        <div
+          className="account-info"
+          style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.7)" }}
+        >
+          Account: Not Logged In
+        </div>
       </div>
 
-      <div className="language-section" style={{ marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{i18n.t('overlay.settings.language')}</h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div className="language-section" style={{ marginBottom: "16px" }}>
+        <h2
+          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
+        >
+          {i18n.t("overlay.settings.language")}
+        </h2>
+        <div style={{ display: "flex", gap: "8px" }}>
           <button
             onClick={onToggleLanguage}
             style={{
               flex: 1,
-              background: language === 'de' ? 'rgba(0, 122, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)',
-              border: language === 'de' ? '1px solid rgba(0, 122, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '4px',
-              color: 'white',
-              padding: '8px',
-              fontSize: '12px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
+              background:
+                language === "de"
+                  ? "rgba(0, 122, 255, 0.3)"
+                  : "rgba(255, 255, 255, 0.1)",
+              border:
+                language === "de"
+                  ? "1px solid rgba(0, 122, 255, 0.5)"
+                  : "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "4px",
+              color: "white",
+              padding: "8px",
+              fontSize: "12px",
+              fontWeight: "500",
+              cursor: "pointer",
+              transition: "all 0.2s",
             }}
           >
-            {i18n.t('overlay.settings.german')}
+            {i18n.t("overlay.settings.german")}
           </button>
           <button
             onClick={onToggleLanguage}
             style={{
               flex: 1,
-              background: language === 'en' ? 'rgba(0, 122, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)',
-              border: language === 'en' ? '1px solid rgba(0, 122, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '4px',
-              color: 'white',
-              padding: '8px',
-              fontSize: '12px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
+              background:
+                language === "en"
+                  ? "rgba(0, 122, 255, 0.3)"
+                  : "rgba(255, 255, 255, 0.1)",
+              border:
+                language === "en"
+                  ? "1px solid rgba(0, 122, 255, 0.5)"
+                  : "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "4px",
+              color: "white",
+              padding: "8px",
+              fontSize: "12px",
+              fontWeight: "500",
+              cursor: "pointer",
+              transition: "all 0.2s",
             }}
           >
-            {i18n.t('overlay.settings.english')}
+            {i18n.t("overlay.settings.english")}
           </button>
         </div>
       </div>
 
       {/* Account Actions */}
-      <div className="account-section" style={{ marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>Account</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div className="account-section" style={{ marginBottom: "16px" }}>
+        <h2
+          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
+        >
+          Account
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <button
             onClick={handleLogout}
             style={{
-              background: 'rgba(255, 149, 0, 0.2)',
-              border: '1px solid rgba(255, 149, 0, 0.4)',
-              borderRadius: '6px',
-              color: 'white',
-              padding: '10px 16px',
-              fontSize: '13px',
+              background: "rgba(255, 149, 0, 0.2)",
+              border: "1px solid rgba(255, 149, 0, 0.4)",
+              borderRadius: "6px",
+              color: "white",
+              padding: "10px 16px",
+              fontSize: "13px",
               fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
+              cursor: "pointer",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 149, 0, 0.3)';
+              e.currentTarget.style.background = "rgba(255, 149, 0, 0.3)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 149, 0, 0.2)';
+              e.currentTarget.style.background = "rgba(255, 149, 0, 0.2)";
             }}
           >
             <span>🚪</span>
@@ -233,24 +282,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           <button
             onClick={handleQuit}
             style={{
-              background: 'rgba(255, 59, 48, 0.2)',
-              border: '1px solid rgba(255, 59, 48, 0.4)',
-              borderRadius: '6px',
-              color: 'white',
-              padding: '10px 16px',
-              fontSize: '13px',
+              background: "rgba(255, 59, 48, 0.2)",
+              border: "1px solid rgba(255, 59, 48, 0.4)",
+              borderRadius: "6px",
+              color: "white",
+              padding: "10px 16px",
+              fontSize: "13px",
               fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
+              cursor: "pointer",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.3)';
+              e.currentTarget.style.background = "rgba(255, 59, 48, 0.3)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.2)';
+              e.currentTarget.style.background = "rgba(255, 59, 48, 0.2)";
             }}
           >
             <span>🛑</span>
@@ -259,25 +308,61 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </div>
       </div>
 
-      <div className="shortcuts-section" style={{ marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>{i18n.t('overlay.settings.shortcuts')}</h2>
+      <div className="shortcuts-section" style={{ marginBottom: "16px" }}>
+        <h2
+          style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}
+        >
+          {i18n.t("overlay.settings.shortcuts")}
+        </h2>
         {Object.entries(shortcuts).map(([name, accelerator]) => (
-          <div key={name} className="shortcut-item" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span className="shortcut-name" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.9)' }}>
-              {name.replace(/([A-Z])/g, ' $1')}
+          <div
+            key={name}
+            className="shortcut-item"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginBottom: "8px",
+            }}
+          >
+            <span
+              className="shortcut-name"
+              style={{ fontSize: "12px", color: "rgba(255, 255, 255, 0.9)" }}
+            >
+              {name.replace(/([A-Z])/g, " $1")}
             </span>
-            <div className="shortcut-keys" style={{ display: 'flex', gap: '4px' }}>
+            <div
+              className="shortcut-keys"
+              style={{ display: "flex", gap: "4px" }}
+            >
               {renderShortcutKeys(accelerator)}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="preset-section" style={{ marginBottom: '16px' }}>
-        <div className="preset-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <span className="preset-title" style={{ fontSize: '14px', fontWeight: 'bold' }}>
-            {i18n.t('overlay.settings.presets')}
-            <span className="preset-count" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.5)', marginLeft: '4px' }}>
+      <div className="preset-section" style={{ marginBottom: "16px" }}>
+        <div
+          className="preset-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "8px",
+          }}
+        >
+          <span
+            className="preset-title"
+            style={{ fontSize: "14px", fontWeight: "bold" }}
+          >
+            {i18n.t("overlay.settings.presets")}
+            <span
+              className="preset-count"
+              style={{
+                fontSize: "12px",
+                color: "rgba(255, 255, 255, 0.5)",
+                marginLeft: "4px",
+              }}
+            >
               ({presets.filter((p) => p.is_default === 0).length})
             </span>
           </span>
@@ -285,22 +370,32 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             className="preset-toggle"
             onClick={togglePresets}
             style={{
-              fontSize: '12px',
-              color: 'rgba(255, 255, 255, 0.7)',
-              cursor: 'pointer',
-              padding: '2px 4px',
-              borderRadius: '4px',
-              transition: 'background-color 0.2s',
+              fontSize: "12px",
+              color: "rgba(255, 255, 255, 0.7)",
+              cursor: "pointer",
+              padding: "2px 4px",
+              borderRadius: "4px",
+              transition: "background-color 0.2s",
             }}
           >
-            {showPresets ? '▼' : '▶'}
+            {showPresets ? "▼" : "▶"}
           </span>
         </div>
 
         {showPresets && (
-          <div className="preset-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
+            className="preset-list"
+            style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+          >
             {presets.filter((p) => p.is_default === 0).length === 0 ? (
-              <div className="no-presets-message" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.5)', textAlign: 'center' }}>
+              <div
+                className="no-presets-message"
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(255, 255, 255, 0.5)",
+                  textAlign: "center",
+                }}
+              >
                 No custom presets yet.
               </div>
             ) : (
@@ -309,17 +404,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
                 .map((preset) => (
                   <div
                     key={preset.id}
-                    className={`preset-item ${selectedPreset === preset.id ? 'selected' : ''}`}
+                    className={`preset-item ${selectedPreset === preset.id ? "selected" : ""}`}
                     onClick={() => handlePresetSelect(preset.id)}
                     style={{
-                      padding: '8px',
-                      background: selectedPreset === preset.id ? 'rgba(0, 122, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
+                      padding: "8px",
+                      background:
+                        selectedPreset === preset.id
+                          ? "rgba(0, 122, 255, 0.2)"
+                          : "rgba(255, 255, 255, 0.05)",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      transition: "background-color 0.2s",
                     }}
                   >
-                    <span className="preset-name" style={{ fontSize: '12px', color: 'white' }}>{preset.title}</span>
+                    <span
+                      className="preset-name"
+                      style={{ fontSize: "12px", color: "white" }}
+                    >
+                      {preset.title}
+                    </span>
                   </div>
                 ))
             )}
@@ -327,23 +430,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         )}
       </div>
 
-      <div className="buttons-section" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div
+        className="buttons-section"
+        style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+      >
         <button
           className="settings-button"
           onClick={handleToggleAutoUpdate}
           style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '4px',
-            color: 'white',
-            padding: '8px',
-            fontSize: '12px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            transition: 'background-color 0.2s',
+            background: "rgba(255, 255, 255, 0.1)",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            borderRadius: "4px",
+            color: "white",
+            padding: "8px",
+            fontSize: "12px",
+            fontWeight: "500",
+            cursor: "pointer",
+            transition: "background-color 0.2s",
           }}
         >
-          {i18n.t('overlay.settings.autoUpdate')}: {autoUpdateEnabled ? 'On' : 'Off'}
+          {i18n.t("overlay.settings.autoUpdate")}:{" "}
+          {autoUpdateEnabled ? "On" : "Off"}
         </button>
       </div>
     </div>
