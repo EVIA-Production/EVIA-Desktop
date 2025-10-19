@@ -1,9 +1,12 @@
 // Insights service for fetching and managing insights
+// Glass format: {summary: [], topic: {header, bullets}, actions: []}
 export interface Insight {
-  id: string;
-  title: string;
-  prompt: string;
-  created_at: string;
+  summary: string[];
+  topic: {
+    header: string;
+    bullets: string[];
+  };
+  actions: string[];
 }
 
 interface FetchInsightsParams {
@@ -20,7 +23,7 @@ export async function fetchInsights({
   language = 'de',
   token,
   baseUrl,
-}: FetchInsightsParams): Promise<Insight[]> {
+}: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
   
   try {
@@ -39,12 +42,16 @@ export async function fetchInsights({
     }
 
     const data = await response.json();
-    console.log('[Insights] Received', data.length, 'insights');
-    return data as Insight[];
+    console.log('[Insights] Received Glass format:', {
+      summaryCount: data.summary?.length || 0,
+      topicHeader: data.topic?.header,
+      actionsCount: data.actions?.length || 0
+    });
+    return data as Insight;
   } catch (error) {
     console.error('[Insights] Fetch failed:', error);
-    // Return empty array on error
-    return [];
+    // Return null on error
+    return null;
   }
 }
 

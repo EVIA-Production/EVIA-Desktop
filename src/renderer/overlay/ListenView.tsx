@@ -48,7 +48,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
   // Glass parity: Insights fetched from backend via fetchInsights service
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [insights, setInsights] = useState<Insight | null>(null);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
@@ -432,8 +432,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
       const fetchedInsights = await fetchInsights({ chatId, token, language: currentLang });
       const ttftMs = Date.now() - ttftStart;
-      console.log('[ListenView] ✅ Insights fetched:', fetchedInsights.length, 'items, TTFT:', ttftMs, 'ms');
-      setInsights(fetchedInsights);
+      if (fetchedInsights) {
+        console.log('[ListenView] ✅ Glass insights fetched:', {
+          summaryPoints: fetchedInsights.summary.length,
+          topicHeader: fetchedInsights.topic.header,
+          actionItems: fetchedInsights.actions.length,
+          ttftMs
+        });
+        setInsights(fetchedInsights);
+      } else {
+        console.log('[ListenView] ⚠️ No insights returned');
+      }
     } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);
       // Keep insights empty on error - UI will show placeholder
@@ -457,7 +466,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
     
     // Fetch insights when switching to insights view
-    if (newMode === 'insights' && insights.length === 0) {
+    if (newMode === 'insights' && !insights) {
       await fetchInsightsNow();
     }
   };
@@ -471,7 +480,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
     let textToCopy = viewMode === 'transcript' 
       ? transcripts.map(line => line.text).join('\n')
-      : insights.map(i => `${i.title}: ${i.prompt}`).join('\n');
+      : insights 
+        ? `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`
+        : '';
 
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -489,29 +500,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  const handleInsightClick = async (insight: Insight) => {
-    console.log('[ListenView] 🎯 Insight clicked:', insight.title);
-    console.log('[ListenView] Insight prompt:', insight.prompt);
-    
-    // 🔧 GLASS PARITY FIX: Single-step IPC with prompt (not two-step set+submit)
-    try {
-      // 1. Open Ask window
-      await (window as any).evia?.windows?.openAskWindow?.();
-      console.log('[ListenView] ✅ Ask window opened');
-      
-      // 2. Send prompt AND auto-submit via single IPC call (Glass pattern)
-      const eviaIpc = (window as any).evia?.ipc as { send: (channel: string, ...args: any[]) => void } | undefined;
-      if (eviaIpc) {
-        // Send prompt with auto-submit flag (single atomic operation)
-        eviaIpc.send('ask:send-and-submit', insight.prompt);
-        console.log('[ListenView] ✅ Sent prompt with auto-submit via IPC');
-      } else {
-        console.warn('[ListenView] ⚠️ IPC not available');
-      }
-    } catch (error) {
-      console.error('[ListenView] ❌ Failed to handle insight click:', error);
-    }
-  };
+  // Glass format insights don't have clickable items - they're informational summaries
+  // Removed handleInsightClick as insights are now read-only summary/topic/actions
 
   // Glass parity: Only show "Copied X" if current view matches what was copied
   const displayText = (copyState === 'copied' && copiedView === viewMode)
@@ -918,17 +908,69 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               Loading insights...
             </div>
-          ) : insights.length > 0 ? (
-            insights.map((insight) => (
-              <div
-                key={insight.id}
-                className="insight-item"
-                onClick={() => handleInsightClick(insight)}
-              >
-                <div className="insight-title">{insight.title}</div>
-                <div className="insight-prompt">{insight.prompt}</div>
+          ) : insights ? (
+            <div style={{ padding: '12px 16px' }}>
+              {/* Summary Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  Summary
+                </h3>
+                {insights.summary.map((point, idx) => (
+                  <p key={`summary-${idx}`} style={{ 
+                    fontSize: '13px', 
+                    lineHeight: '1.6', 
+                    marginBottom: '6px',
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    paddingLeft: '12px',
+                    position: 'relative'
+                  }}>
+                    <span style={{ position: 'absolute', left: '0' }}>•</span>
+                    {point}
+                  </p>
+                ))}
               </div>
-            ))
+
+              {/* Topic Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  {insights.topic.header}
+                </h3>
+                {insights.topic.bullets.map((bullet, idx) => (
+                  <p key={`bullet-${idx}`} style={{ 
+                    fontSize: '13px', 
+                    lineHeight: '1.6', 
+                    marginBottom: '6px',
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    paddingLeft: '12px',
+                    position: 'relative'
+                  }}>
+                    <span style={{ position: 'absolute', left: '0' }}>•</span>
+                    {bullet}
+                  </p>
+                ))}
+              </div>
+
+              {/* Actions Section */}
+              <div>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  Next Actions
+                </h3>
+                {insights.actions.map((action, idx) => (
+                  <p key={`action-${idx}`} style={{ 
+                    fontSize: '13px', 
+                    lineHeight: '1.6', 
+                    marginBottom: '8px',
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    padding: '8px 12px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)'
+                  }}>
+                    {action}
+                  </p>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               {i18n.t('overlay.listen.noInsightsYet')}
