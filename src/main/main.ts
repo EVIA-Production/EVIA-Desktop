@@ -7,8 +7,9 @@ import {
   shell,
   systemPreferences,
 } from "electron";
+import * as path from "path";
 import { createHeaderWindow, getHeaderWindow } from "./overlay-windows";
-import { PLATFORM } from "./platform";
+import { PLATFORM, IS_WINDOWS } from "./platform";
 import { spawn } from "child_process";
 import * as keytar from "keytar";
 import { systemAudioService } from "./system-audio-service";
@@ -62,6 +63,14 @@ async function boot() {
 
   // Initialize header flow
   await headerController.initialize();
+
+  // Process any pending deep link once windows are ready (Windows only)
+  if (IS_WINDOWS) {
+    if (pendingDeepLink && pendingDeepLink.startsWith("evia://auth-callback")) {
+      await handleAuthCallback(pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  }
 }
 
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
@@ -285,14 +294,47 @@ ipcMain.handle("permissions:mark-complete", async () => {
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
 // 🔐 Register evia:// protocol for deep linking (auth callback from web)
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("evia", process.execPath, [process.argv[1]]);
+if (IS_WINDOWS) {
+  // On Windows during development (electron .), pass an absolute app path so Windows doesn't launch from C:\\Windows\\System32
+  try {
+    let registered = false;
+    if (process.defaultApp) {
+      const appArg = path.resolve(process.argv[1] || ".");
+      registered = app.setAsDefaultProtocolClient("evia", process.execPath, [
+        appArg,
+      ]);
+      console.log("[Protocol] Dev registration (Windows):", {
+        execPath: process.execPath,
+        appArg,
+        registered,
+      });
+    } else {
+      registered = app.setAsDefaultProtocolClient("evia");
+    }
+    console.log(
+      "[Protocol] ✅ Registered evia:// protocol (registered=",
+      registered,
+      ")"
+    );
+  } catch (e) {
+    console.warn(
+      "[Protocol] ⚠️ Failed to register evia:// protocol (Windows):",
+      e
+    );
   }
 } else {
-  app.setAsDefaultProtocolClient("evia");
+  // Keep original behavior for macOS/Linux
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient("evia", process.execPath, [
+        process.argv[1],
+      ]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient("evia");
+  }
+  console.log("[Protocol] ✅ Registered evia:// protocol");
 }
-console.log("[Protocol] ✅ Registered evia:// protocol");
 
 // 🍎 macOS: Handle evia:// URLs when app is already running
 app.on("open-url", (event, url) => {
@@ -320,6 +362,19 @@ app.on("second-instance", (event, commandLine, workingDirectory) => {
     headerWin.focus();
   }
 });
+
+// 🪟 Windows: If app is launched for the first time via evia://, capture the URL from process.argv
+let pendingDeepLink: string | null = null;
+if (IS_WINDOWS) {
+  const initialUrl = process.argv.find((arg) => arg.startsWith("evia://"));
+  if (initialUrl) {
+    pendingDeepLink = initialUrl;
+    console.log(
+      "[Protocol] 🔗 First-instance deep link detected:",
+      pendingDeepLink
+    );
+  }
+}
 
 // 🎯 Handle auth callback from Frontend (Phase 4: HeaderController integration)
 async function handleAuthCallback(url: string) {
