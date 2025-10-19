@@ -10,7 +10,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        index: 'src/renderer/index.html',
         overlay: 'src/renderer/overlay.html',
         welcome: 'src/renderer/welcome.html',
         permission: 'src/renderer/permission.html',
