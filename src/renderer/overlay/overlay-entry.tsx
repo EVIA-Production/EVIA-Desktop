@@ -7,6 +7,11 @@ import SettingsView from "./SettingsView";
 import ShortCutSettingsView from "./ShortCutSettingsView";
 import { i18n } from "../i18n/i18n";
 import { startCapture, stopCapture } from "../audio-processor-glass-parity";
+import {
+  startWindowsCapture,
+  stopWindowsCapture,
+} from "../audio/windows/windows-audio-processor";
+import ScreenPickerModal from "./ScreenPickerModal";
 import "../overlay/static/overlay-glass.css";
 
 const params = new URLSearchParams(window.location.search);
@@ -137,6 +142,8 @@ function App() {
   );
   const [isCapturing, setIsCapturing] = useState(false);
   const captureHandleRef = useRef<any>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingStart, setPendingStart] = useState(false);
 
   // 🔧 REACTIVE I18N: Listen for language changes (local window event)
   useEffect(() => {
@@ -227,8 +234,18 @@ function App() {
         console.log(
           "[OverlayEntry] Starting dual capture (mic + system audio)..."
         );
-        const handle = await startCapture(true); // Enable system audio for speaker diarization
-        captureHandleRef.current = handle;
+        const isWindows =
+          !!(window as any).evia?.isWindows ||
+          (window as any).evia?.platform === "win32";
+        if (isWindows) {
+          // Open custom picker; defer actual start until a source is chosen
+          setPendingStart(true);
+          setPickerOpen(true);
+          return; // wait for user selection
+        } else {
+          const handle = await startCapture(true);
+          captureHandleRef.current = handle;
+        }
         setIsCapturing(true);
         console.log(
           "[OverlayEntry] Audio capture started successfully (mic + system)"
@@ -252,7 +269,14 @@ function App() {
       } else {
         // Stop capture
         console.log("[OverlayEntry] Stopping audio capture...");
-        await stopCapture(captureHandleRef.current);
+        const isWindows =
+          !!(window as any).evia?.isWindows ||
+          (window as any).evia?.platform === "win32";
+        if (isWindows) {
+          await stopWindowsCapture();
+        } else {
+          await stopCapture(captureHandleRef.current);
+        }
         captureHandleRef.current = null;
         setIsCapturing(false);
         console.log("[OverlayEntry] Audio capture stopped successfully");
@@ -285,14 +309,37 @@ function App() {
     case "header":
       console.log("[OverlayEntry] 🔍 Rendering HEADER view");
       return (
-        <EviaBar
-          currentView={null}
-          onViewChange={() => {}}
-          isListening={isCapturing}
-          onToggleListening={handleToggleListening}
-          language={language}
-          onToggleLanguage={toggleLanguage}
-        />
+        <>
+          <EviaBar
+            currentView={null}
+            onViewChange={() => {}}
+            isListening={isCapturing}
+            onToggleListening={handleToggleListening}
+            language={language}
+            onToggleLanguage={toggleLanguage}
+          />
+          {pickerOpen && (
+            <ScreenPickerModal
+              onSelect={async (sourceId: string) => {
+                setPickerOpen(false);
+                if (!pendingStart) return;
+                try {
+                  const handle = await startWindowsCapture(true, { sourceId });
+                  captureHandleRef.current = handle;
+                  setIsCapturing(true);
+                } catch (e) {
+                  console.error("[OverlayEntry] Windows start failed:", e);
+                } finally {
+                  setPendingStart(false);
+                }
+              }}
+              onCancel={() => {
+                setPickerOpen(false);
+                setPendingStart(false);
+              }}
+            />
+          )}
+        </>
       );
     case "listen":
       console.log(

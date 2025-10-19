@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import "./static/overlay-tokens.css";
 import "./static/overlay-glass.css";
 import { i18n } from "../i18n/i18n";
+// Windows: request system audio picker on user gesture
+import { requestWindowsSystemAudioPermissionOnce } from "../audio/windows/windows-audio-processor";
 
 const ListenIcon = new URL("./assets/Listen.svg", import.meta.url).href;
 const SettingsIcon = new URL("./assets/setting.svg", import.meta.url).href;
@@ -165,6 +167,24 @@ const EviaBar: React.FC<EviaBarProps> = ({
     if (listenStatus === "before") {
       // Listen → Stop: Show window
       console.log("[EviaBar] Listen → Stop: Showing listen window");
+      // On Windows, trigger the native picker (with Share system audio) as part of this user gesture.
+      try {
+        const isWindows =
+          !!(window as any).evia?.isWindows ||
+          (window as any).evia?.platform === "win32";
+        if (isWindows) {
+          console.log(
+            "[EviaBar] Requesting Windows system audio permission (display media)"
+          );
+          // Fire and forget; even if the user cancels, we still proceed to open the listen window.
+          await requestWindowsSystemAudioPermissionOnce();
+        }
+      } catch (e) {
+        console.warn(
+          "[EviaBar] Windows system audio permission request failed",
+          e
+        );
+      }
       await (window as any).evia?.windows?.ensureShown?.("listen");
       setListenStatus("in");
       setIsListenActive(true);

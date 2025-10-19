@@ -38,39 +38,62 @@ async function boot() {
     } catch {}
   }
 
-  // Set up display media request handler (system audio loopback)
-  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    console.log("[Main] Display media requested, getting desktop sources...");
-    desktopCapturer
-      .getSources({ types: ["screen", "window"] })
-      .then((sources) => {
-        console.log(`[Main] Found ${sources.length} desktop sources`);
-        if (sources.length > 0) {
-          console.log(
-            `[Main] 🔊 Enabling audio loopback for source: "${sources[0].name}"`
-          );
-          callback({ video: sources[0], audio: "loopback" });
-        } else {
-          console.warn("[Main] ⚠️  No desktop sources available");
-          callback({});
-        }
-      })
-      .catch((error) => {
-        console.error("[Main] ❌ Failed to get desktop sources:", error);
-        callback({});
-      });
+  // Permissions: allow media (getUserMedia) and display-capture (getDisplayMedia)
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((wc, permission, callback) => {
+    // Allow standard getUserMedia permissions
+    if (permission === "media") {
+      console.log("[Main] ✅ Allowing permission:", permission);
+      callback(true);
+      return;
+    }
+    // Some Electron typings don't include 'display-capture' in Permission union.
+    // Handle it loosely so getDisplayMedia works when prompted by Chromium.
+    const permStr = permission as unknown as string;
+    if (permStr === "display-capture") {
+      console.log("[Main] ✅ Allowing permission:", permStr);
+      callback(true);
+      return;
+    }
+    callback(false);
   });
+
+  ses.setPermissionCheckHandler((_wc, permission) => {
+    if (permission === "media") return true;
+    const permStr = permission as unknown as string;
+    if (permStr === "display-capture") return true;
+    return false;
+  });
+
+  // Display media request handler:
+  // - On macOS, auto-select a source and enable loopback audio (Glass parity)
+  // - On Windows, do NOT override so Chromium shows the native picker (with "Share system audio")
+  if (PLATFORM === "darwin") {
+    ses.setDisplayMediaRequestHandler((request, callback) => {
+      console.log("[Main] Display media requested, getting desktop sources...");
+      desktopCapturer
+        .getSources({ types: ["screen", "window"] })
+        .then((sources) => {
+          console.log(`[Main] Found ${sources.length} desktop sources`);
+          if (sources.length > 0) {
+            console.log(
+              `[Main] 🔊 Enabling audio loopback for source: "${sources[0].name}"`
+            );
+            callback({ video: sources[0], audio: "loopback" });
+          } else {
+            console.warn("[Main] ⚠️  No desktop sources available");
+            callback({});
+          }
+        })
+        .catch((error) => {
+          console.error("[Main] ❌ Failed to get desktop sources:", error);
+          callback({});
+        });
+    });
+  }
 
   // Initialize header flow
   await headerController.initialize();
-
-  // Process any pending deep link once windows are ready (Windows only)
-  if (IS_WINDOWS) {
-    if (pendingDeepLink && pendingDeepLink.startsWith("evia://auth-callback")) {
-      await handleAuthCallback(pendingDeepLink);
-      pendingDeepLink = null;
-    }
-  }
 }
 
 // process-manager.js exports a singleton instance via CommonJS `module.exports = new ProcessManager()`
@@ -106,14 +129,6 @@ app.on("quit", async () => {
   await systemAudioService.stop();
   processManager.cleanupAllProcesses();
 });
-
-async function killExisting(name: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn("pkill", ["-f", name], { stdio: "ignore" });
-    child.on("close", () => resolve(true));
-    child.on("error", () => resolve(false));
-  });
-}
 
 // System Audio IPC Handlers - Using SystemAudioService (Glass binary approach)
 ipcMain.handle("system-audio:start", async () => {
