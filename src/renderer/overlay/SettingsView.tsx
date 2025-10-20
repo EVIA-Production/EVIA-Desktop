@@ -95,10 +95,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   if (isLoading) {
     return (
       <div className="settings-container">
-        <div
-          className="loading-state"
-          style={{ textAlign: "center", color: "white" }}
-        >
+        <div className="loading-state">
           <div className="loading-spinner"></div>
           <span>Loading...</span>
         </div>
@@ -199,10 +196,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
-      <div
-        className="buttons-section"
-        style={{ display: "flex", flexDirection: "column", gap: 8 }}
-      >
+      <div className="buttons-section">
         <button className="settings-cta-btn" onClick={handleToggleAutoUpdate}>
           {i18n.t("overlay.settings.autoUpdate")}:{" "}
           {autoUpdateEnabled ? "On" : "Off"}
