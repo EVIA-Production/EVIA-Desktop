@@ -115,6 +115,16 @@ const processManager = require("./process-manager") as {
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Ensure only a single primary instance handles lifecycle and deep links (Windows/Linux)
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  // A second instance was launched (e.g., via evia://). Quit immediately to avoid running boot() again.
+  app.quit();
+  try {
+    process.exit(0);
+  } catch {}
+}
+
 app.on("window-all-closed", () => {
   if (PLATFORM !== "darwin") app.quit();
 });
@@ -415,7 +425,27 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-// Kick off boot
-boot().catch((err) => {
-  console.error("[Main] Boot failed:", err);
-});
+// Kick off boot only in the primary instance
+if (gotSingleInstanceLock) {
+  boot().catch((err) => {
+    console.error("[Main] Boot failed:", err);
+  });
+}
+
+// After boot, if the app was launched the first time via evia:// on Windows, process it now
+app
+  .whenReady()
+  .then(async () => {
+    if (IS_WINDOWS && pendingDeepLink) {
+      console.log(
+        "[Protocol] 🔗 Processing pending deep link after ready:",
+        pendingDeepLink
+      );
+      const url = pendingDeepLink;
+      pendingDeepLink = null;
+      if (url.startsWith("evia://auth-callback")) {
+        await handleAuthCallback(url);
+      }
+    }
+  })
+  .catch(() => {});

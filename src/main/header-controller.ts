@@ -1,6 +1,6 @@
 /**
  * HeaderController - State machine for auth, permissions, and header management
- * 
+ *
  * Orchestrates the complete user onboarding flow:
  * 1. Check auth token (keytar)
  * 2. Show welcome window if no token
@@ -8,24 +8,25 @@
  * 4. Check permissions after login
  * 5. Show permission window if needed
  * 6. Show main header when ready
- * 
+ *
  * States: welcome → login → permissions → ready
  */
 
-import { app, systemPreferences } from 'electron';
-import * as keytar from 'keytar';
-import { 
-  createWelcomeWindow, 
+import { app, systemPreferences } from "electron";
+import * as keytar from "keytar";
+import {
+  createWelcomeWindow,
   closeWelcomeWindow,
   createPermissionWindow,
   closePermissionWindow,
   createHeaderWindow,
   getHeaderWindow,
-} from './overlay-windows';
-import path from 'path';
-import fs from 'fs';
+} from "./overlay-windows";
+import path from "path";
+import fs from "fs";
+import { IS_WINDOWS } from "./platform";
 
-type AppState = 'welcome' | 'login' | 'permissions' | 'ready';
+type AppState = "welcome" | "login" | "permissions" | "ready";
 
 interface StateData {
   hasToken: boolean;
@@ -35,14 +36,17 @@ interface StateData {
 }
 
 export class HeaderController {
-  private currentState: AppState = 'welcome';
+  private currentState: AppState = "welcome";
   private stateFilePath: string;
   private permissionsCompleted: boolean = false;
 
   constructor() {
-    this.stateFilePath = path.join(app.getPath('userData'), 'auth-state.json');
+    this.stateFilePath = path.join(app.getPath("userData"), "auth-state.json");
     this.loadPersistedState();
-    console.log('[HeaderController] Initialized, state file:', this.stateFilePath);
+    console.log(
+      "[HeaderController] Initialized, state file:",
+      this.stateFilePath
+    );
   }
 
   /**
@@ -51,13 +55,13 @@ export class HeaderController {
   private loadPersistedState() {
     try {
       if (fs.existsSync(this.stateFilePath)) {
-        const data = fs.readFileSync(this.stateFilePath, 'utf8');
+        const data = fs.readFileSync(this.stateFilePath, "utf8");
         const state = JSON.parse(data);
         this.permissionsCompleted = state.permissionsCompleted || false;
-        console.log('[HeaderController] Loaded persisted state:', state);
+        console.log("[HeaderController] Loaded persisted state:", state);
       }
     } catch (err) {
-      console.warn('[HeaderController] Failed to load persisted state:', err);
+      console.warn("[HeaderController] Failed to load persisted state:", err);
     }
   }
 
@@ -67,10 +71,14 @@ export class HeaderController {
   private savePersistedState() {
     try {
       const state = { permissionsCompleted: this.permissionsCompleted };
-      fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
-      console.log('[HeaderController] Saved persisted state:', state);
+      fs.writeFileSync(
+        this.stateFilePath,
+        JSON.stringify(state, null, 2),
+        "utf8"
+      );
+      console.log("[HeaderController] Saved persisted state:", state);
     } catch (err) {
-      console.error('[HeaderController] Failed to save persisted state:', err);
+      console.error("[HeaderController] Failed to save persisted state:", err);
     }
   }
 
@@ -78,21 +86,24 @@ export class HeaderController {
    * Get current state data for decision making
    */
   private async getStateData(): Promise<StateData> {
-    const token = await keytar.getPassword('evia', 'token');
+    const token = await keytar.getPassword("evia", "token");
     const hasToken = !!token;
-    
-    let micPermission = 'unknown';
-    let screenPermission = 'unknown';
-    
-    if (process.platform === 'darwin') {
+
+    let micPermission = "unknown";
+    let screenPermission = "unknown";
+
+    if (process.platform === "darwin") {
       try {
-        micPermission = systemPreferences.getMediaAccessStatus('microphone');
-        screenPermission = systemPreferences.getMediaAccessStatus('screen');
+        micPermission = systemPreferences.getMediaAccessStatus("microphone");
+        screenPermission = systemPreferences.getMediaAccessStatus("screen");
       } catch (err) {
-        console.warn('[HeaderController] Failed to get permission status:', err);
+        console.warn(
+          "[HeaderController] Failed to get permission status:",
+          err
+        );
       }
     }
-    
+
     return {
       hasToken,
       micPermission,
@@ -107,64 +118,75 @@ export class HeaderController {
   private determineNextState(data: StateData): AppState {
     // If no token, show welcome
     if (!data.hasToken) {
-      return 'welcome';
+      return "welcome";
     }
-    
+
+    // On Windows/Linux, skip explicit permission gating and proceed directly
+    // Permissions UI is macOS-specific; Chromium prompts inline as needed on Windows
+    if (process.platform !== "darwin") {
+      return "ready";
+    }
+
     // Has token, check permissions
-    const micGranted = data.micPermission === 'granted';
-    const screenGranted = data.screenPermission === 'granted';
-    
+    const micGranted = data.micPermission === "granted";
+    const screenGranted = data.screenPermission === "granted";
+
     // If permissions not completed or not granted, show permissions window
     if (!data.permissionsCompleted || !micGranted || !screenGranted) {
-      return 'permissions';
+      return "permissions";
     }
-    
+
     // All good, show main header
-    return 'ready';
+    return "ready";
   }
 
   /**
    * Transition to a new state
    */
   private async transitionTo(newState: AppState) {
-    console.log(`[HeaderController] State transition: ${this.currentState} → ${newState}`);
-    
+    console.log(
+      `[HeaderController] State transition: ${this.currentState} → ${newState}`
+    );
+
     // Close all windows first
     closeWelcomeWindow();
     closePermissionWindow();
-    
+
     // CRITICAL: Close header window if transitioning to welcome or permissions
-    if (newState === 'welcome' || newState === 'permissions') {
+    if (newState === "welcome" || newState === "permissions") {
       const header = getHeaderWindow();
       if (header) {
-        console.log('[HeaderController] Closing main header for state:', newState);
+        console.log(
+          "[HeaderController] Closing main header for state:",
+          newState
+        );
         header.close();
       }
     }
-    
+
     this.currentState = newState;
-    
+
     // Open appropriate window for new state
     switch (newState) {
-      case 'welcome':
+      case "welcome":
         createWelcomeWindow();
         break;
-        
-      case 'permissions':
+
+      case "permissions":
         createPermissionWindow();
         break;
-        
-      case 'ready':
+
+      case "ready":
         // Check if header already exists
         const existingHeader = getHeaderWindow();
         if (!existingHeader) {
           createHeaderWindow();
         }
         break;
-        
-      case 'login':
+
+      case "login":
         // Login happens in browser, no window needed
-        console.log('[HeaderController] Login state - waiting for callback');
+        console.log("[HeaderController] Login state - waiting for callback");
         break;
     }
   }
@@ -173,14 +195,14 @@ export class HeaderController {
    * Initialize on app launch - determine and show correct window
    */
   public async initialize() {
-    console.log('[HeaderController] 🚀 Initializing...');
-    
+    console.log("[HeaderController] 🚀 Initializing...");
+
     const data = await this.getStateData();
     const nextState = this.determineNextState(data);
-    
-    console.log('[HeaderController] Initial state data:', data);
-    console.log('[HeaderController] Determined state:', nextState);
-    
+
+    console.log("[HeaderController] Initial state data:", data);
+    console.log("[HeaderController] Determined state:", nextState);
+
     await this.transitionTo(nextState);
   }
 
@@ -189,22 +211,36 @@ export class HeaderController {
    * Called from main.ts when deep link received
    */
   public async handleAuthCallback(token: string) {
-    console.log('[HeaderController] 🔑 Auth callback received, storing token');
-    
+    console.log("[HeaderController] 🔑 Auth callback received, storing token");
+
     try {
-      await keytar.setPassword('evia', 'token', token);
-      console.log('[HeaderController] ✅ Token stored in keytar');
-      
+      await keytar.setPassword("evia", "token", token);
+      console.log("[HeaderController] ✅ Token stored in keytar");
+
       // Close welcome window if open
-      closeWelcomeWindow();
-      
+      if (IS_WINDOWS) {
+        // Ensure header exists/visible
+        const existingHeader = getHeaderWindow();
+        if (!existingHeader) {
+          createHeaderWindow();
+        }
+        // Update state immediately
+        this.currentState = "ready";
+        // Now close welcome window
+        closeWelcomeWindow();
+        // Ensure permissions window not showing (shouldn't on Windows)
+        closePermissionWindow();
+        return;
+      } else {
+        closeWelcomeWindow();
+      }
+
       // Re-evaluate state (should transition to permissions or ready)
       const data = await this.getStateData();
       const nextState = this.determineNextState(data);
-      
       await this.transitionTo(nextState);
     } catch (err) {
-      console.error('[HeaderController] ❌ Failed to store token:', err);
+      console.error("[HeaderController] ❌ Failed to store token:", err);
       throw err;
     }
   }
@@ -214,29 +250,29 @@ export class HeaderController {
    * Called from main.ts when deep link has error
    */
   public async handleAuthError(error: string) {
-    console.error('[HeaderController] ❌ Auth error received:', error);
-    
+    console.error("[HeaderController] ❌ Auth error received:", error);
+
     // Stay in welcome state
-    await this.transitionTo('welcome');
+    await this.transitionTo("welcome");
   }
 
   /**
    * Handle logout - delete token and return to welcome
    */
   public async handleLogout() {
-    console.log('[HeaderController] 🚪 Logging out...');
-    
+    console.log("[HeaderController] 🚪 Logging out...");
+
     try {
-      await keytar.deletePassword('evia', 'token');
+      await keytar.deletePassword("evia", "token");
       this.permissionsCompleted = false;
       this.savePersistedState();
-      
-      console.log('[HeaderController] ✅ Logged out, returning to welcome');
-      
+
+      console.log("[HeaderController] ✅ Logged out, returning to welcome");
+
       // Close all windows and show welcome
-      await this.transitionTo('welcome');
+      await this.transitionTo("welcome");
     } catch (err) {
-      console.error('[HeaderController] ❌ Logout failed:', err);
+      console.error("[HeaderController] ❌ Logout failed:", err);
       throw err;
     }
   }
@@ -246,13 +282,13 @@ export class HeaderController {
    * Called when user clicks "Continue" in permission window
    */
   public async markPermissionsComplete() {
-    console.log('[HeaderController] ✅ Permissions marked as complete');
-    
+    console.log("[HeaderController] ✅ Permissions marked as complete");
+
     this.permissionsCompleted = true;
     this.savePersistedState();
-    
+
     // Transition to ready state
-    await this.transitionTo('ready');
+    await this.transitionTo("ready");
   }
 
   /**
@@ -262,10 +298,10 @@ export class HeaderController {
   public async checkPermissions() {
     const data = await this.getStateData();
     const nextState = this.determineNextState(data);
-    
+
     // Only transition if state changed
     if (nextState !== this.currentState) {
-      console.log('[HeaderController] Permission state changed, transitioning');
+      console.log("[HeaderController] Permission state changed, transitioning");
       await this.transitionTo(nextState);
     }
   }
@@ -281,20 +317,19 @@ export class HeaderController {
    * Reset all state (for testing/debugging)
    */
   public async reset() {
-    console.log('[HeaderController] 🔄 Resetting all state...');
-    
+    console.log("[HeaderController] 🔄 Resetting all state...");
+
     try {
-      await keytar.deletePassword('evia', 'token');
+      await keytar.deletePassword("evia", "token");
       this.permissionsCompleted = false;
       this.savePersistedState();
-      
+
       await this.initialize();
     } catch (err) {
-      console.error('[HeaderController] ❌ Reset failed:', err);
+      console.error("[HeaderController] ❌ Reset failed:", err);
     }
   }
 }
 
 // Singleton instance
 export const headerController = new HeaderController();
-
