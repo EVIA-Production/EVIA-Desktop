@@ -6,7 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { app } = require("electron");
-import { PLATFORM } from "./platform";
+const { PLATFORM } = require("./platform");
 
 class ProcessManager {
   constructor() {

@@ -10,7 +10,6 @@ import {
 import * as path from "path";
 import { createHeaderWindow, getHeaderWindow } from "./overlay-windows";
 import { PLATFORM, IS_WINDOWS } from "./platform";
-import { spawn } from "child_process";
 import * as keytar from "keytar";
 import { systemAudioService } from "./system-audio-service";
 import { headerController } from "./header-controller";

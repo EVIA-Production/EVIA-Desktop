@@ -12,6 +12,17 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>;
 
 let headerWindow: BrowserWindow | null = null;
 const childWindows: Map<FeatureName, BrowserWindow> = new Map();
+// Movement: shared pool for movement managers (keys: 'header', 'ask', 'listen', 'settings', 'shortcuts')
+const windowPool: Map<string, BrowserWindow> = new Map();
+
+// Movement managers (CommonJS impls, d.ts provided in ./movement/types.d.ts)
+import WindowLayoutManager = require("./movement/windowLayoutManager");
+import SmoothMovementManager = require("./movement/smoothMovementManager");
+
+const layoutManager = new WindowLayoutManager(windowPool);
+const movementManager = new SmoothMovementManager(windowPool);
+// Allow movement manager to trigger relayout after animations
+(movementManager as any).layoutManager = layoutManager;
 
 // TEMPORARY FIX: Increased to 900px (user reported 700px still cuts off)
 // TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
@@ -34,7 +45,7 @@ const WINDOW_DATA = {
   },
   ask: {
     width: 640, // Increased from 600 to fit form + padding
-    height: 400, // 🔧 FIX: Start at 400px minimum so responses are visible (not 61px)
+    height: 220, // Smaller initial height; AskView will expand dynamically when content appears
     html: "overlay.html?view=ask",
     zIndex: 1,
   },
@@ -168,6 +179,9 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setContentProtection(true);
   headerWindow.setIgnoreMouseEvents(false);
 
+  // Movement: register header in pool
+  windowPool.set("header", headerWindow);
+
   // 🔧 Load from Vite dev server in development, built files in production
   if (isDev) {
     headerWindow.loadURL(`${VITE_DEV_SERVER_URL}/overlay.html?view=header`);
@@ -184,10 +198,14 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.on("moved", () => {
     const b = headerWindow?.getBounds();
     if (b) saveState({ headerBounds: b });
+    // Re-layout child windows using movement layout after manual drag
+    const vis = getVisibility();
+    layoutChildWindows(vis);
   });
 
   headerWindow.on("closed", () => {
     headerWindow = null;
+    windowPool.delete("header");
   });
 
   headerWindow.once("ready-to-show", () => {
@@ -223,28 +241,19 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       if (!headerWindow || headerWindow.isDestroyed()) return false;
       try {
         const bounds = headerWindow.getBounds();
-        const newWidth = Math.max(contentWidth + 20, 400); // Add padding, min 400px
-
-        console.log(
-          `[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`
-        );
-
-        // GLASS PARITY FIX: Re-center header horizontally when width changes
-        const { workArea } = screen.getDisplayNearestPoint({
-          x: bounds.x,
-          y: bounds.y,
-        });
-        const newX = Math.round(workArea.x + (workArea.width - newWidth) / 2);
-
-        headerWindow.setBounds({
-          x: newX,
-          y: bounds.y,
+        const newWidth = Math.max(contentWidth + 20, 400);
+        const target = layoutManager.calculateHeaderResize(headerWindow, {
           width: newWidth,
           height: bounds.height,
         });
-
-        // Update persisted bounds
-        saveState({ headerBounds: headerWindow.getBounds() });
+        if (!target) return false;
+        movementManager.animateWindowBounds(headerWindow, target, {
+          duration: 200,
+          onComplete: () => {
+            saveState({ headerBounds: headerWindow!.getBounds() });
+            layoutChildWindows(getVisibility());
+          },
+        });
         return true;
       } catch (error) {
         console.warn("[overlay-windows] Failed to resize window:", error);
@@ -322,6 +331,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
 
   win.on("closed", () => {
     childWindows.delete(name);
+    windowPool.delete(name);
   });
 
   // Glass parity: Open DevTools for all child windows in development (windowManager.js:726-728, 553-555)
@@ -401,6 +411,8 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   }
 
   childWindows.set(name, win);
+  // Movement: register child in pool
+  windowPool.set(name, win);
   return win;
 }
 
@@ -430,206 +442,123 @@ function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
-  const header = getOrCreateHeaderWindow();
-  const hb = header.getBounds();
-  const work = getWorkAreaBounds();
+  // Ensure windows exist before layout to have bounds
+  if (visible.ask) createChildWindow("ask");
+  if (visible.listen) createChildWindow("listen");
+  if (visible.settings) createChildWindow("settings");
+  if (visible.shortcuts) createChildWindow("shortcuts");
 
-  const PAD_LOCAL = PAD;
-  const screenWidth = work.width;
-  const screenHeight = work.height;
-  const headerCenterXRel = hb.x - work.x + hb.width / 2;
-  const relativeY = (hb.y - work.y) / screenHeight;
+  // Feature windows (ask/listen)
+  try {
+    const hbDbg = getOrCreateHeaderWindow().getBounds();
+    console.log("[layout] Header bounds:", hbDbg);
+  } catch {}
+  const featureLayout = layoutManager.calculateFeatureWindowLayout({
+    ask: !!visible.ask,
+    listen: !!visible.listen,
+  });
 
-  // Determine if windows should be above or below header (Glass: determineLayoutStrategy)
-  const isAbovePreferred = relativeY > 0.5;
+  const layout: Record<string, Electron.Rectangle> = { ...featureLayout };
+  console.log("[layout] Feature layout computed:", featureLayout);
 
-  const layout: Record<
-    string,
-    { x: number; y: number; width: number; height: number }
-  > = {};
-
-  // Handle Ask and Listen windows (horizontal stack)
-  const askVis = visible.ask;
-  const listenVis = visible.listen;
-
-  if (askVis || listenVis) {
-    const askWin = askVis ? createChildWindow("ask") : null;
-    const listenWin = listenVis ? createChildWindow("listen") : null;
-
-    const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0;
-    const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0;
-    const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0;
-    const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0;
-
-    if (askVis && listenVis) {
-      // Both windows: horizontal stack (listen left, ask center-aligned)
-      let askXRel = headerCenterXRel - askW / 2;
-      let listenXRel = askXRel - listenW - PAD_LOCAL;
-
-      // Clamp to screen bounds
-      if (listenXRel < PAD_LOCAL) {
-        listenXRel = PAD_LOCAL;
-        askXRel = listenXRel + listenW + PAD_LOCAL;
-      }
-      if (askXRel + askW > screenWidth - PAD_LOCAL) {
-        askXRel = screenWidth - PAD_LOCAL - askW;
-        listenXRel = askXRel - listenW - PAD_LOCAL;
-      }
-
-      if (isAbovePreferred) {
-        const windowBottomAbs = hb.y - PAD_LOCAL;
-        layout.ask = {
-          x: Math.round(askXRel + work.x),
-          y: Math.round(windowBottomAbs - askH),
-          width: askW,
-          height: askH,
-        };
-        layout.listen = {
-          x: Math.round(listenXRel + work.x),
-          y: Math.round(windowBottomAbs - listenH),
-          width: listenW,
-          height: listenH,
-        };
-      } else {
-        // MUP FIX: Ask window closer to header for Glass parity (4px gap instead of 8px)
-        const askGap = 4;
-        const yAbs = hb.y + hb.height + askGap;
-        layout.ask = {
-          x: Math.round(askXRel + work.x),
-          y: Math.round(yAbs),
-          width: askW,
-          height: askH,
-        };
-        layout.listen = {
-          x: Math.round(listenXRel + work.x),
-          y: Math.round(yAbs),
-          width: listenW,
-          height: listenH,
-        };
-      }
-    } else {
-      // Single window: center under header
-      const winName = askVis ? "ask" : "listen";
-      const winW = askVis ? askW : listenW;
-      const winH = askVis ? askH : listenH;
-
-      let xRel = headerCenterXRel - winW / 2;
-      xRel = Math.max(
-        PAD_LOCAL,
-        Math.min(screenWidth - winW - PAD_LOCAL, xRel)
-      );
-
-      let yPos: number;
-      if (isAbovePreferred) {
-        yPos = hb.y - work.y - PAD_LOCAL - winH;
-      } else {
-        // MUP FIX: Ask window closer to header for Glass parity (4px gap)
-        const gap = winName === "ask" ? 4 : PAD_LOCAL;
-        yPos = hb.y - work.y + hb.height + gap;
-      }
-
-      layout[winName] = {
-        x: Math.round(xRel + work.x),
-        y: Math.round(yPos + work.y),
-        width: winW,
-        height: winH,
-      };
+  // Settings
+  if (visible.settings) {
+    const pos = layoutManager.calculateSettingsWindowPosition();
+    const settingsWin = childWindows.get("settings");
+    if (pos && settingsWin && !settingsWin.isDestroyed()) {
+      const sb = settingsWin.getBounds();
+      layout.settings = {
+        x: pos.x,
+        y: pos.y,
+        width: sb.width,
+        height: sb.height,
+      } as Electron.Rectangle;
+      console.log("[layout] Settings target:", layout.settings);
     }
   }
 
-  // Handle Settings window (Glass: calculateSettingsWindowPosition)
-  // Positioned aligned with settings button (170px from right edge)
-  if (visible.settings) {
-    const settingsWin = createChildWindow("settings");
-    const settingsW = WINDOW_DATA.settings.width;
-    const settingsH = WINDOW_DATA.settings.height;
-    const buttonPadding = 170; // Distance from right edge to align with settings button
-
-    let x = hb.x + hb.width - settingsW + buttonPadding;
-    const y = hb.y + hb.height + 5; // PAD=5 from Glass
-
-    // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - settingsW));
-
-    layout.settings = {
-      x: Math.round(x),
-      y: Math.round(y),
-      width: settingsW,
-      height: settingsH,
-    };
-  }
-
-  // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
-  // Centered horizontally at header Y position
+  // Shortcuts
   if (visible.shortcuts) {
-    const shortcutsWin = createChildWindow("shortcuts");
-    const shortcutsW = WINDOW_DATA.shortcuts.width;
-    const shortcutsH = WINDOW_DATA.shortcuts.height;
-
-    let x = hb.x + hb.width / 2 - shortcutsW / 2;
-    const y = hb.y;
-
-    // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW));
-
-    layout.shortcuts = {
-      x: Math.round(x),
-      y: Math.round(y),
-      width: shortcutsW,
-      height: shortcutsH,
-    };
+    const shortcutsPos =
+      layoutManager.calculateShortcutSettingsWindowPosition();
+    if (shortcutsPos) {
+      layout.shortcuts = shortcutsPos as Electron.Rectangle;
+      console.log("[layout] Shortcuts target:", layout.shortcuts);
+    }
   }
 
-  // Apply layout
-  for (const [name, bounds] of Object.entries(layout)) {
-    const win = createChildWindow(name as FeatureName);
-    win.setBounds(clampBounds(bounds as Electron.Rectangle));
-  }
+  // Animate to layout
+  // Clamp suspicious Y offsets (defensive): if target Y is far from header, snap adjacent
+  try {
+    const header = getOrCreateHeaderWindow();
+    const hb = header.getBounds();
+    const display = screen.getDisplayNearestPoint({
+      x: hb.x + hb.width / 2,
+      y: hb.y + hb.height / 2,
+    });
+    const screenHeight = display.workArea.height;
+    const threshold = Math.max(200, Math.floor(screenHeight / 3));
+    for (const key of ["ask", "listen"] as FeatureName[]) {
+      const b = (layout as any)[key] as Electron.Rectangle | undefined;
+      const win = childWindows.get(key);
+      if (!b || !win || win.isDestroyed()) continue;
+      const desiredBelow = hb.y + hb.height + PAD;
+      const desiredAbove = hb.y - b.height - PAD;
+      const closestDesired =
+        Math.abs(b.y - desiredBelow) < Math.abs(b.y - desiredAbove)
+          ? desiredBelow
+          : desiredAbove;
+      if (Math.abs(b.y - closestDesired) > threshold) {
+        console.warn(
+          `[layout] ⚠️ Detected abnormal Y for ${key}:`,
+          b.y,
+          "→ snapping to",
+          closestDesired
+        );
+        (layout as any)[key] = { ...b, y: Math.round(closestDesired) } as any;
+      }
+    }
+  } catch {}
+
+  console.log("[layout] Applying layout (animated)");
+  movementManager.animateLayout(layout, true);
 }
 
 function animateShow(win: BrowserWindow) {
   try {
+    if (win.isDestroyed()) return;
     win.setOpacity(0);
-    win.showInactive();
-    const [x, y] = win.getPosition();
-    const targetY = y;
-    win.setPosition(x, y - 10);
-    const start = Date.now();
-    const tick = () => {
-      if (win.isDestroyed()) return;
-      const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      win.setPosition(x, targetY - Math.round((1 - eased) * 10));
-      win.setOpacity(eased);
-      if (progress < 1) setTimeout(tick, 16);
-    };
-    tick();
+    win.show();
+    movementManager.fade(win, {
+      from: 0,
+      to: 1,
+      duration: ANIM_DURATION,
+      onComplete: () => {},
+    });
   } catch (error) {
     console.warn("[overlay] animateShow failed", error);
-    win.showInactive();
+    win.show();
   }
 }
 
 function animateHide(win: BrowserWindow, onComplete: () => void) {
-  const [x, y] = win.getPosition();
-  const startOpacity = win.getOpacity();
-  const start = Date.now();
-  const tick = () => {
-    if (win.isDestroyed()) return;
-    const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION);
-    const eased = 1 - Math.pow(progress, 3);
-    win.setOpacity(startOpacity * eased);
-    win.setPosition(x, y - Math.round(progress * 10));
-    if (progress < 1) {
-      setTimeout(tick, 16);
-    } else {
-      win.hide();
-      win.setOpacity(1);
-      win.setPosition(x, y);
-      onComplete();
-    }
-  };
-  tick();
+  if (win.isDestroyed()) {
+    onComplete();
+    return;
+  }
+  movementManager.fade(win, {
+    from: win.getOpacity(),
+    to: 0,
+    duration: ANIM_DURATION,
+    onComplete: () => {
+      try {
+        win.hide();
+        win.setOpacity(1);
+      } finally {
+        onComplete();
+      }
+    },
+  });
 }
 
 function ensureVisibility(name: FeatureName, shouldShow: boolean) {
@@ -789,64 +718,21 @@ async function handleHeaderToggle() {
   }
 }
 
-let isAnimating = false;
-let animationTarget: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 };
-let animationTimer: NodeJS.Timeout | null = null;
-
 function nudgeHeader(dx: number, dy: number) {
-  // Glass parity: windowManager.js:133-154, smoothMovementManager.js:1-32
-  // Animate header movement smoothly over 300ms (Glass animation duration)
   const header = getOrCreateHeaderWindow();
-  const bounds = header.getBounds();
-
-  // If already animating, update target instead of starting new animation
-  if (isAnimating) {
-    const newTarget = clampBounds({
-      ...bounds,
-      x: bounds.x + dx,
-      y: bounds.y + dy,
-    });
-    animationTarget = newTarget;
-    return;
-  }
-
-  const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy });
-  animationTarget = target;
-
-  // Smooth animation over 300ms
-  const duration = 300;
-  const startTime = Date.now();
-  const startX = bounds.x;
-  const startY = bounds.y;
-  isAnimating = true;
-
-  const animate = () => {
-    const elapsed = Date.now() - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-
-    // Ease-out cubic for smooth deceleration
-    const eased = 1 - Math.pow(1 - progress, 3);
-
-    const currentX = startX + (animationTarget.x - startX) * eased;
-    const currentY = startY + (animationTarget.y - startY) * eased;
-
-    header.setPosition(Math.round(currentX), Math.round(currentY));
-
-    if (progress < 1) {
-      animationTimer = setTimeout(animate, 16); // ~60fps
-    } else {
-      // Animation complete
-      isAnimating = false;
-      animationTimer = null;
-
-      // Recalculate child layout and save state
-      const vis = getVisibility();
-      layoutChildWindows(vis);
-      saveState({ headerBounds: animationTarget });
-    }
-  };
-
-  animate();
+  const b = header.getBounds();
+  const clamped = layoutManager.calculateClampedPosition(header, {
+    x: b.x + dx,
+    y: b.y + dy,
+  });
+  if (!clamped) return;
+  movementManager.animateWindowPosition(header, clamped, {
+    duration: 300,
+    onComplete: () => {
+      saveState({ headerBounds: header.getBounds() });
+      layoutChildWindows(getVisibility());
+    },
+  });
 }
 
 function openAskWindow() {
@@ -953,18 +839,29 @@ ipcMain.handle("win:getHeaderPosition", () => {
 
 ipcMain.handle("win:moveHeaderTo", (_event, x: number, y: number) => {
   const header = getOrCreateHeaderWindow();
-  const bounds = clampBounds({ ...header.getBounds(), x, y });
-  header.setBounds(bounds);
-  saveState({ headerBounds: bounds });
+  const pos = layoutManager.calculateClampedPosition(header, { x, y });
+  if (!pos) return { ok: false };
+  movementManager.animateWindowPosition(header, pos, {
+    duration: 300,
+    onComplete: () => {
+      saveState({ headerBounds: header.getBounds() });
+      layoutChildWindows(getVisibility());
+    },
+  });
   return { ok: true };
 });
 
 ipcMain.handle("win:resizeHeader", (_event, width: number, height: number) => {
   const header = getOrCreateHeaderWindow();
-  const bounds = header.getBounds();
-  const newBounds = clampBounds({ ...bounds, width, height });
-  header.setBounds(newBounds);
-  saveState({ headerBounds: newBounds });
+  const target = layoutManager.calculateHeaderResize(header, { width, height });
+  if (!target) return { ok: false };
+  movementManager.animateWindowBounds(header, target, {
+    duration: 200,
+    onComplete: () => {
+      saveState({ headerBounds: header.getBounds() });
+      layoutChildWindows(getVisibility());
+    },
+  });
   return { ok: true };
 });
 
@@ -972,7 +869,12 @@ ipcMain.handle(
   "adjust-window-height",
   (_event, { winName, height }: { winName: FeatureName; height: number }) => {
     const win = createChildWindow(winName);
-    win.setBounds({ ...win.getBounds(), height });
+    const adjusted = layoutManager.calculateWindowHeightAdjustment(win, height);
+    if (adjusted) {
+      movementManager.animateWindowBounds(win, adjusted, {
+        duration: ANIM_DURATION,
+      });
+    }
     return { ok: true };
   }
 );

@@ -32,6 +32,7 @@ const AskView: React.FC<AskViewProps> = ({
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
   const responseContainerRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -56,30 +57,30 @@ const AskView: React.FC<AskViewProps> = ({
 
   // Glass parity: ResizeObserver for dynamic window height
   useEffect(() => {
-    const container = document.querySelector(".ask-container");
-    if (!container) return;
+    const target = measureRef.current;
+    if (!target) return;
 
     resizeObserverRef.current = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const needed = Math.ceil(entry.contentRect.height);
         const current = window.innerHeight;
 
-        // 🔧 FIX: Always resize to match content (allow both grow and shrink)
+        // 🔧 Resize both grow and shrink based on intrinsic content height
         const delta = Math.abs(needed - current);
-        if (delta > 10) {
-          // Only resize if difference > 10px to avoid jitter
-          requestWindowResize(needed + 20); // Add 20px padding for scrollbar
+        if (delta > 6) {
+          // small hysteresis to avoid jitter
+          requestWindowResize(needed + 8); // tiny padding
           console.log(
             "[AskView] 📏 Resizing window:",
             current,
             "→",
-            needed + 20
+            needed + 8
           );
         }
       }
     });
 
-    resizeObserverRef.current.observe(container);
+    resizeObserverRef.current.observe(target);
 
     return () => {
       resizeObserverRef.current?.disconnect();
@@ -411,17 +412,12 @@ const AskView: React.FC<AskViewProps> = ({
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      // 🔧 GLASS PARITY: Min 400px (matches WINDOW_DATA.ask.height), max 700px
-      const clampedHeight = Math.max(400, Math.min(700, targetHeight));
+      // Allow Ask to be compact when there's no content; clamp between 180 and 700
+      const clampedHeight = Math.max(180, Math.min(700, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };
-
-  // 🔧 FIX: Set initial window height to 450px on mount for better UX
-  useEffect(() => {
-    requestWindowResize(450);
-    console.log("[AskView] Set initial window height to 450px");
-  }, []);
+  // Don't force an initial tall height; start compact and let ResizeObserver grow as needed
 
   // Glass parity: Render markdown with syntax highlighting
   const renderMarkdown = (text: string): string => {
@@ -549,143 +545,151 @@ const AskView: React.FC<AskViewProps> = ({
         </div>
       )}
 
-      {/* Glass parity: Response Header */}
-      <div className={`response-header ${!hasResponse ? "hidden" : ""}`}>
-        <div className="header-left">
-          <div className="response-icon">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <span className="response-label">{headerText}</span>
-        </div>
-        <div className="header-right">
-          <span className="question-text">
-            {getTruncatedQuestion(currentQuestion)}
-          </span>
-          <div className="header-controls">
-            <button
-              className={`copy-button ${copyState === "copied" ? "copied" : ""}`}
-              onClick={handleCopy}
-              disabled={!response}
-            >
+      {/* Measure wrapper so intrinsic content height drives window size */}
+      <div ref={measureRef}>
+        {/* Glass parity: Response Header */}
+        <div className={`response-header ${!hasResponse ? "hidden" : ""}`}>
+          <div className="header-left">
+            <div className="response-icon">
               <svg
-                className="copy-icon"
-                width="14"
-                height="14"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
               >
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
               </svg>
-              <svg
-                className="check-icon"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            </button>
-            <button
-              className="close-button"
-              onClick={() => (window as any).evia?.closeWindow?.("ask")}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
+            </div>
+            <span className="response-label">{headerText}</span>
           </div>
-        </div>
-      </div>
-
-      {/* Glass parity: Response Container with markdown */}
-      <div
-        className={`response-container ${!hasResponse ? "hidden" : ""}`}
-        ref={responseContainerRef}
-        id="responseContainer"
-      >
-        {isLoadingFirstToken ? (
-          <div className="loading-dots">
-            <div className="loading-dot"></div>
-            <div className="loading-dot"></div>
-            <div className="loading-dot"></div>
-          </div>
-        ) : response ? (
-          <>
-            <div
-              className="markdown-content"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
-            />
-            {ttftMs !== null && (
-              <div
-                className="ttft-indicator"
-                style={{ color: ttftMs < 400 ? "#32CD32" : "#FFA500" }}
+          <div className="header-right">
+            <span className="question-text">
+              {getTruncatedQuestion(currentQuestion)}
+            </span>
+            <div className="header-controls">
+              <button
+                className={`copy-button ${copyState === "copied" ? "copied" : ""}`}
+                onClick={handleCopy}
+                disabled={!response}
               >
-                TTFT: {ttftMs.toFixed(0)}ms {ttftMs < 400 ? "✅" : "⚠️"}
-              </div>
-            )}
-            {isStreaming && (
-              <button onClick={onAbort} className="abort-button">
-                Abort
+                <svg
+                  className="copy-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+                <svg
+                  className="check-icon"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
               </button>
-            )}
-          </>
-        ) : (
-          <div className="empty-state">...</div>
-        )}
-      </div>
+              <button
+                className="close-button"
+                onClick={() => (window as any).evia?.closeWindow?.("ask")}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
 
-      {/* Glass parity: Text Input Container */}
-      <div
-        className={`text-input-container ${!hasResponse ? "no-response" : ""} ${!showTextInput ? "hidden" : ""}`}
-      >
-        <input
-          type="text"
-          id="textInput"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.nativeEvent as any).isComposing) return;
-            if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-              e.preventDefault();
-              startStream();
-            }
-          }}
-          placeholder={i18n.t("overlay.ask.placeholder")}
-          disabled={isStreaming}
-        />
-        <button
-          className="submit-btn"
-          onClick={() => startStream()}
-          disabled={isStreaming || !prompt.trim()}
+        {/* Glass parity: Response Container with markdown */}
+        <div
+          className={`response-container ${!hasResponse ? "hidden" : ""}`}
+          ref={responseContainerRef}
+          id="responseContainer"
         >
-          <span className="btn-label">{i18n.t("overlay.ask.submit")}</span>
-          <span className="btn-icon">↵</span>
-        </button>
+          {isLoadingFirstToken ? (
+            <div className="loading-dots">
+              <div className="loading-dot"></div>
+              <div className="loading-dot"></div>
+              <div className="loading-dot"></div>
+            </div>
+          ) : response ? (
+            <>
+              <div
+                className="markdown-content"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
+              />
+              {ttftMs !== null && (
+                <div
+                  className="ttft-indicator"
+                  style={{ color: ttftMs < 400 ? "#32CD32" : "#FFA500" }}
+                >
+                  TTFT: {ttftMs.toFixed(0)}ms {ttftMs < 400 ? "✅" : "⚠️"}
+                </div>
+              )}
+              {isStreaming && (
+                <button onClick={onAbort} className="abort-button">
+                  Abort
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="empty-state">...</div>
+          )}
+        </div>
+
+        {/* Glass parity: Text Input Container */}
+        <div
+          className={`text-input-container ${!hasResponse ? "no-response" : ""} ${!showTextInput ? "hidden" : ""}`}
+        >
+          <input
+            type="text"
+            id="textInput"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.nativeEvent as any).isComposing) return;
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.metaKey &&
+                !e.ctrlKey
+              ) {
+                e.preventDefault();
+                startStream();
+              }
+            }}
+            placeholder={i18n.t("overlay.ask.placeholder")}
+            disabled={isStreaming}
+          />
+          <button
+            className="submit-btn"
+            onClick={() => startStream()}
+            disabled={isStreaming || !prompt.trim()}
+          >
+            <span className="btn-label">{i18n.t("overlay.ask.submit")}</span>
+            <span className="btn-icon">↵</span>
+          </button>
+        </div>
       </div>
     </div>
   );

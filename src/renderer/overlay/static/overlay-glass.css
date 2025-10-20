@@ -1398,7 +1398,7 @@
 
 /* Root wrapper (size + motion) */
 .listen-root {
-  width: 400px;
+  width: 100%;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
   transition:
@@ -2119,8 +2119,8 @@
    ═══════════════════════════════════════════════════════════════ */
 
 .shortcuts-container {
-  width: 420px;
-  height: 360px;
+  width: 100%;
+  height: 100%;
   padding: 12px;
   display: flex;
   flex-direction: column;
