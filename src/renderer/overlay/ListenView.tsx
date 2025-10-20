@@ -631,294 +631,9 @@ const ListenView: React.FC<ListenViewProps> = ({
           : `${i18n.t("overlay.listen.listening")} ${elapsedTime}`;
 
   return (
-    <div
-      className="assistant-container"
-      style={{
-        width: "400px",
-        transform: "translate3d(0, 0, 0)",
-        backfaceVisibility: "hidden",
-        transition:
-          "transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out",
-        willChange: "transform, opacity",
-      }}
-    >
-      {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
-      <style>
-        {`
-          .assistant-container {
-            display: flex;
-            flex-direction: column;
-            color: #ffffff;
-            box-sizing: border-box;
-            position: relative;
-            background: rgba(0, 0, 0, 0.3); /* Lightened background */
-            overflow: hidden;
-            border-radius: 12px;
-            width: 100%;
-            height: 100%;
-          }
-
-          .assistant-container::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            border-radius: 12px;
-            padding: 1px;
-            background: linear-gradient(169deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.17) 100%);
-            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            -webkit-mask-composite: destination-out;
-            mask-composite: exclude;
-            pointer-events: none;
-            z-index: 0; /* Ensure it does not overlap buttons */
-          }
-
-          .assistant-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.15);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            border-radius: 12px;
-            z-index: -1; /* Ensure it stays behind all content */
-          }
-
-          .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 16px;
-            min-height: 32px;
-            position: relative;
-            z-index: 1; /* Ensure it stays above pseudo-elements */
-            width: 100%;
-            box-sizing: border-box;
-            flex-shrink: 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          }
-
-          .bar-left-text {
-            color: white;
-            font-size: 13px; /* Match font size */
-            font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; /* Match font family */
-            font-weight: 500; /* Match font weight */
-            position: relative;
-            overflow: hidden;
-            white-space: nowrap;
-            flex: 1;
-            min-width: 0;
-            max-width: 200px;
-          }
-
-          .bar-left-text-content {
-            display: inline-block;
-            transition: transform 0.3s ease;
-          }
-
-          .bar-left-text-content.slide-in {
-            animation: slideIn 0.3s ease forwards;
-          }
-
-          .bar-controls {
-            display: flex;
-            gap: 8px; /* Adjust spacing between buttons */
-            align-items: center;
-            flex-shrink: 0;
-            flex-wrap: nowrap; /* Prevent buttons from wrapping */
-            justify-content: flex-end;
-            box-sizing: border-box;
-            padding: 4px;
-          }
-
-          .toggle-button {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            background: transparent;
-            color: rgba(255, 255, 255, 0.9);
-            border: none;
-            outline: none;
-            box-shadow: none;
-            padding: 4px 8px;
-            border-radius: 5px;
-            font-size: 11px;
-            font-weight: 500;
-            cursor: pointer;
-            height: 24px;
-            white-space: nowrap;
-            transition: background-color 0.15s ease, color 0.15s ease;
-            justify-content: center;
-            z-index: 2; /* Ensure it stays above pseudo-elements */
-            flex-shrink: 0; /* Prevent buttons from shrinking */
-          }
-
-          .toggle-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
-          }
-
-          .toggle-button svg {
-            flex-shrink: 0;
-            width: 12px;
-            height: 12px;
-          }
-
-          .copy-button {
-            background: transparent;
-            color: rgba(255, 255, 255, 0.9);
-            border: none;
-            outline: none;
-            box-shadow: none;
-            padding: 4px;
-            border-radius: 3px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 24px;
-            height: 24px;
-            flex-shrink: 0;
-            transition: background-color 0.15s ease, color 0.15s ease;
-            position: relative;
-            overflow: hidden;
-            z-index: 2; /* Ensure it stays above pseudo-elements */
-          }
-
-          .copy-button:hover {
-            background: rgba(255, 255, 255, 0.15);
-            color: #ffffff;
-          }
-
-          .copy-button svg {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
-          }
-
-          .copy-button .copy-icon {
-            opacity: ${copyState === "copied" ? "0" : "1"};
-            transform: ${copyState === "copied" ? "translate(-50%, -50%) scale(0.5)" : "translate(-50%, -50%) scale(1)"};
-          }
-
-          .copy-button .check-icon {
-            opacity: ${copyState === "copied" ? "1" : "0"};
-            transform: ${copyState === "copied" ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.5)"};
-          }
-
-          .insights-placeholder {
-            color: rgba(255, 255, 255, 0.7); /* Match text color */
-            text-align: center;
-            padding: 16px;
-            font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; /* Match font family */
-            font-size: 12px; /* Slightly smaller font size */
-            font-weight: 400; /* Match font weight */
-            font-style: italic; /* Make the text cursive */
-          }
-
-          /* Glass parity: Scrollbar styling (hidden for ListenView) */
-          .glass-scroll {
-            flex: 1;
-            overflow-y: auto;
-            overflow-x: hidden;
-            padding: 12px 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-          }
-
-          /* 🔧 FIX: Visible scrollbar on right side (Glass override) */
-          .glass-scroll::-webkit-scrollbar {
-            width: 6px;
-            background: transparent;
-          }
-
-          .glass-scroll::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 3px;
-            margin: 4px 0;
-          }
-
-          .glass-scroll::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.4);
-            border-radius: 3px;
-            transition: background 0.2s ease;
-          }
-
-          .glass-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.6);
-          }
-          
-          /* Firefox scrollbar */
-          .glass-scroll {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.05);
-          }
-
-          /* Glass parity: Bubble styling */
-          .bubble {
-            padding: 8px 12px;
-            border-radius: 12px;
-            max-width: 80%;
-            word-wrap: break-word;
-            font-size: 13px;
-            line-height: 1.4;
-            transition: opacity 0.2s ease;
-          }
-
-          .bubble.me {
-            align-self: flex-end;
-          }
-
-          .bubble.them {
-            align-self: flex-start;
-          }
-
-          .bubble-text {
-            display: block;
-          }
-
-
-          /* Insights styling (Glass parity) */
-          .insight-item {
-            padding: 12px 16px;
-            margin-bottom: 8px;
-            background: rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-          }
-
-          .insight-item:hover {
-            background: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.2);
-            transform: translateY(-1px);
-          }
-
-          .insight-title {
-            font-size: 13px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, 0.95);
-            margin-bottom: 4px;
-          }
-
-          .insight-prompt {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.7);
-            font-style: italic;
-          }
-        `}
-      </style>
-      <div className="assistant-container">
+    <div className="listen-root">
+      {/* Glass parity: NO close button in ListenView */}
+      <div className="listen-container">
         <div className="top-bar">
           <div className="bar-left-text">
             <span
@@ -931,14 +646,10 @@ const ListenView: React.FC<ListenViewProps> = ({
             {/* 🎯 TASK 1: Undo button (shown for 10s after auto-switch) */}
             {showUndoButton && viewMode === "insights" && (
               <button
-                className="toggle-button"
+                className="toggle-button undo-button"
                 onClick={() => {
                   setViewMode("transcript");
                   setShowUndoButton(false);
-                }}
-                style={{
-                  background: "rgba(255, 193, 7, 0.15)",
-                  borderLeft: "2px solid rgba(255, 193, 7, 0.5)",
                 }}
               >
                 <svg
@@ -1030,122 +741,36 @@ const ListenView: React.FC<ListenViewProps> = ({
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
 
                 return (
-                  <div
-                    key={i}
-                    className={`bubble ${isMe ? "me" : "them"}`}
-                    style={{
-                      // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
-                      opacity: 1.0,
-                      // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
-                      background: isMe
-                        ? "rgba(0, 122, 255, 0.8)" // Glass .me color
-                        : "rgba(255, 255, 255, 0.1)", // Glass .them color
-                      color: isMe ? "#ffffff" : "rgba(255, 255, 255, 0.9)",
-                      // 🎨 GLASS PARITY: Alignment
-                      alignSelf: isMe ? "flex-end" : "flex-start",
-                      marginLeft: isMe ? "auto" : "0",
-                      marginRight: isThem ? "auto" : "0",
-                      // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
-                      borderRadius: "12px",
-                      borderBottomLeftRadius: isThem ? "4px" : "12px",
-                      borderBottomRightRadius: isMe ? "4px" : "12px",
-                      padding: "8px 12px",
-                      marginBottom: "8px",
-                      maxWidth: "80%",
-                      wordWrap: "break-word",
-                      fontSize: "13px",
-                      lineHeight: "1.5",
-                    }}
-                  >
+                  <div key={i} className={`bubble ${isMe ? "me" : "them"}`}>
                     {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
                     <span className="bubble-text">{line.text}</span>
                   </div>
                 );
               })
             ) : (
-              <div
-                className="insights-placeholder"
-                style={{
-                  padding: "8px 16px",
-                  textAlign: "center",
-                  fontStyle: "italic",
-                  background: "transparent",
-                  color: "rgba(255, 255, 255, 0.7)",
-                }}
-              >
+              <div className="insights-placeholder">
                 {i18n.t("overlay.listen.waitingForSpeech")}
               </div>
             )
           ) : isLoadingInsights ? (
-            <div
-              className="insights-placeholder"
-              style={{
-                padding: "8px 16px",
-                textAlign: "center",
-                fontStyle: "italic",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.7)",
-              }}
-            >
-              Loading insights...
-            </div>
+            <div className="insights-placeholder">Loading insights...</div>
           ) : insights ? (
-            <div style={{ padding: "12px 16px" }}>
+            <div className="insights-content">
               {/* Summary Section */}
-              <div style={{ marginBottom: "20px" }}>
-                <h3
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    marginBottom: "8px",
-                    color: "rgba(255, 255, 255, 0.9)",
-                  }}
-                >
-                  Summary
-                </h3>
+              <div className="insights-section">
+                <h3 className="insights-h3">Summary</h3>
                 {insights.summary.map((point, idx) => (
-                  <p
-                    key={`summary-${idx}`}
-                    style={{
-                      fontSize: "13px",
-                      lineHeight: "1.6",
-                      marginBottom: "6px",
-                      color: "rgba(255, 255, 255, 0.85)",
-                      paddingLeft: "12px",
-                      position: "relative",
-                    }}
-                  >
-                    <span style={{ position: "absolute", left: "0" }}>•</span>
+                  <p key={`summary-${idx}`} className="insights-p">
                     {point}
                   </p>
                 ))}
               </div>
 
               {/* Topic Section */}
-              <div style={{ marginBottom: "20px" }}>
-                <h3
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    marginBottom: "8px",
-                    color: "rgba(255, 255, 255, 0.9)",
-                  }}
-                >
-                  {insights.topic.header}
-                </h3>
+              <div className="insights-section">
+                <h3 className="insights-h3">{insights.topic.header}</h3>
                 {insights.topic.bullets.map((bullet, idx) => (
-                  <p
-                    key={`bullet-${idx}`}
-                    style={{
-                      fontSize: "13px",
-                      lineHeight: "1.6",
-                      marginBottom: "6px",
-                      color: "rgba(255, 255, 255, 0.85)",
-                      paddingLeft: "12px",
-                      position: "relative",
-                    }}
-                  >
-                    <span style={{ position: "absolute", left: "0" }}>•</span>
+                  <p key={`bullet-${idx}`} className="insights-p">
                     {bullet}
                   </p>
                 ))}
@@ -1153,46 +778,16 @@ const ListenView: React.FC<ListenViewProps> = ({
 
               {/* Actions Section */}
               <div>
-                <h3
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    marginBottom: "8px",
-                    color: "rgba(255, 255, 255, 0.9)",
-                  }}
-                >
-                  Next Actions
-                </h3>
+                <h3 className="insights-h3">Next Actions</h3>
                 {insights.actions.map((action, idx) => (
-                  <p
-                    key={`action-${idx}`}
-                    style={{
-                      fontSize: "13px",
-                      lineHeight: "1.6",
-                      marginBottom: "8px",
-                      color: "rgba(255, 255, 255, 0.85)",
-                      padding: "8px 12px",
-                      background: "rgba(255, 255, 255, 0.08)",
-                      borderRadius: "8px",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                    }}
-                  >
+                  <p key={`action-${idx}`} className="insight-pill">
                     {action}
                   </p>
                 ))}
               </div>
             </div>
           ) : (
-            <div
-              className="insights-placeholder"
-              style={{
-                padding: "8px 16px",
-                textAlign: "center",
-                fontStyle: "italic",
-                background: "transparent",
-                color: "rgba(255, 255, 255, 0.7)",
-              }}
-            >
+            <div className="insights-placeholder">
               {i18n.t("overlay.listen.noInsightsYet")}
             </div>
           )}

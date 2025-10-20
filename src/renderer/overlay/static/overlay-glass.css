@@ -1148,3 +1148,487 @@
 .evia-settings-button.active {
   background: rgba(255, 255, 255, 0.14);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   LISTEN VIEW - Styles extracted from component
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Root wrapper (size + motion) */
+.listen-root {
+  width: 400px;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  transition:
+    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.2s ease-out;
+  will-change: transform, opacity;
+}
+
+/* Main container (glass panel style) */
+.listen-container {
+  display: flex;
+  flex-direction: column;
+  color: #ffffff;
+  box-sizing: border-box;
+  position: relative;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+}
+.listen-container::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(
+    169deg,
+    rgba(255, 255, 255, 0.17) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.17) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 0;
+}
+.listen-container::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  z-index: -1;
+}
+
+/* Header bar */
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 16px;
+  min-height: 32px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bar-left-text {
+  color: white;
+  font-size: 13px;
+  font-family:
+    "Helvetica Neue",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-weight: 500;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  max-width: 200px;
+}
+.bar-left-text-content {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(4px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.bar-left-text-content.slide-in {
+  animation: slideIn 0.3s ease forwards;
+}
+
+.bar-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 4px;
+}
+
+/* Reuse glass button aesthetic */
+.toggle-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  border: none;
+  outline: none;
+  box-shadow: none;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  height: 24px;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+  justify-content: center;
+  z-index: 2;
+  flex-shrink: 0;
+}
+.toggle-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+.toggle-button svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+/* Special case: Undo button accent */
+.undo-button {
+  background: rgba(255, 193, 7, 0.15);
+  border-left: 2px solid rgba(255, 193, 7, 0.5);
+}
+
+/* Copy button state animations already exist; ensure compatibility */
+/* Additional scrollbar styling for ListenView */
+.glass-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.glass-scroll::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.glass-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  margin: 4px 0;
+}
+.glass-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+.glass-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+.glass-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.05);
+}
+
+/* Transcript bubbles (scoped to Listen View to avoid Ask view changes) */
+.listen-container .bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 80%;
+  word-wrap: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: opacity 0.2s ease;
+}
+.listen-container .bubble.me {
+  align-self: flex-end;
+  background: rgba(0, 122, 255, 0.8);
+  color: #ffffff;
+}
+.listen-container .bubble.them {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+.listen-container .bubble-text {
+  display: block;
+}
+
+/* Insights content (simple typography) */
+.insights-content {
+  padding: 12px 16px;
+}
+.insights-section {
+  margin-bottom: 20px;
+}
+.insights-h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.insights-p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  padding-left: 12px;
+  position: relative;
+}
+.insights-p::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+}
+.insight-pill {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SETTINGS VIEW - Styles extracted from component
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: rgba(20, 20, 20, 0.8);
+  border-radius: 12px;
+  outline: 0.5px rgba(255, 255, 255, 0.2) solid;
+  outline-offset: -1px;
+  box-sizing: border-box;
+  position: relative;
+  overflow-y: auto;
+  padding: 12px;
+  z-index: 1000;
+  color: white;
+}
+.settings-container::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  filter: blur(10px);
+  z-index: -1;
+  pointer-events: none;
+}
+.settings-container::-webkit-scrollbar {
+  width: 6px;
+}
+.settings-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+.settings-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.settings-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.settings-header {
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+.settings-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+.settings-subtext {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.settings-section {
+  margin-bottom: 16px;
+}
+.settings-h2 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+}
+
+.language-buttons {
+  display: flex;
+  gap: 8px;
+}
+.lang-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.lang-btn.selected {
+  background: rgba(0, 122, 255, 0.3);
+  border-color: rgba(0, 122, 255, 0.5);
+}
+
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.btn-logout,
+.btn-quit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.1);
+}
+.btn-logout {
+  background: rgba(255, 149, 0, 0.2);
+  border-color: rgba(255, 149, 0, 0.4);
+}
+.btn-logout:hover {
+  background: rgba(255, 149, 0, 0.3);
+}
+.btn-quit {
+  background: rgba(255, 59, 48, 0.2);
+  border-color: rgba(255, 59, 48, 0.4);
+}
+.btn-quit:hover {
+  background: rgba(255, 59, 48, 0.3);
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.shortcut-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.shortcut-keys {
+  display: flex;
+  gap: 4px;
+}
+.shortcut-key {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.preset-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.preset-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 4px;
+}
+.preset-toggle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+.preset-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.preset-item {
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.preset-item.selected {
+  background: rgba(0, 122, 255, 0.2);
+}
+.preset-name {
+  font-size: 12px;
+  color: white;
+}
+.no-presets-message {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+
+.settings-cta-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.settings-cta-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
