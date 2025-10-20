@@ -12,7 +12,6 @@
  * 5. Token stored → HeaderController transitions to permission window
  */
 
-import React from "react";
 import ReactDOM from "react-dom/client";
 import WelcomeHeader from "./WelcomeHeader";
 import "../overlay/static/overlay-glass.css";

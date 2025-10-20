@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import "./static/overlay-tokens.css";
 import "./static/overlay-glass.css";
 import { getWebSocketInstance } from "../services/websocketService";
 import { fetchInsights, Insight } from "../services/insightsService";

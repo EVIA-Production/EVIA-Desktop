@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import "./static/overlay-tokens.css";
 import "./static/overlay-glass.css";
 import { streamAsk } from "../lib/evia-ask-stream";
 import { i18n } from "../i18n/i18n";

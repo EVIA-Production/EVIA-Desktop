@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import "./static/overlay-tokens.css";
 import "./static/overlay-glass.css";
 import { i18n } from "../i18n/i18n";
 // Windows: request system audio picker on user gesture
