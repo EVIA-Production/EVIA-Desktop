@@ -116,6 +116,18 @@ export class ChatWebSocket {
         console.error('[WS] Missing auth token. Please login first.');
         return;
       }
+      
+      // 🔧 FIX: Check token validity before connecting
+      const validity = await (window.evia as any).auth.checkTokenValidity();
+      if (!validity.valid) {
+        console.error('[WS] ❌ Token invalid:', validity.reason);
+        // Signal to UI that re-authentication is needed
+        throw new Error(`Token invalid: ${validity.reason}. Please re-login.`);
+      }
+      if (validity.reason === 'expiring_soon') {
+        console.warn('[WS] ⚠️ Token expires in', validity.expiresIn, 'seconds - consider refresh');
+      }
+      
       console.log('[WS] ✅ Got auth token (length:', token.length, 'chars)');
       const backendUrl = getBackendHttpBase();
       const chatId = await getOrCreateChatId(backendUrl, token);
@@ -128,7 +140,7 @@ export class ChatWebSocket {
       // 🔧 FIX: Get current language from i18n for backend transcription
       const i18nModule = await import('../i18n/i18n');
       const currentLang = i18nModule.i18n.getLanguage() || 'de';
-      const langParam = `&lang=${currentLang}`;
+      const langParam = `&dg_lang=${currentLang}`;  // 🎯 FIXED: dg_lang (not lang) for Deepgram
       console.log('[WS] 🌐 Connecting with language:', currentLang);
       // MUP FIX: Use backend URL, not location.host (which is Vite dev server in dev mode)
       const backendHttp = getBackendHttpBase();
@@ -343,3 +355,51 @@ export const closeAllWebSocketInstances = () => {
     wsInstances.delete(chatId);
   });
 };
+
+/**
+ * 🔧 GLASS PARITY: Fetch chat transcripts for Ask context
+ * Backend stores final transcripts in DB, we fetch them for context
+ */
+export interface TranscriptEntry {
+  speaker: number | null;
+  text: string;
+  timestamp?: number;
+  created_at?: string;
+}
+
+export async function getChatTranscripts(chatId: number, token: string, limit: number = 30): Promise<TranscriptEntry[]> {
+  try {
+    const backendUrl = getBackendHttpBase();
+    console.log('[Transcripts] 📄 Fetching last', limit, 'transcripts for chat:', chatId);
+    
+    const res = await fetch(`${backendUrl}/chats/${chatId}/transcripts?limit=${limit}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!res.ok) {
+      if (res.status === 404) {
+        console.log('[Transcripts] ⚠️ Chat not found or no transcripts yet');
+        return [];
+      }
+      throw new Error(`Transcript fetch failed: HTTP ${res.status}`);
+    }
+    
+    const data = await res.json();
+    const transcripts = Array.isArray(data) ? data : (data.transcripts || []);
+    console.log('[Transcripts] ✅ Fetched', transcripts.length, 'transcripts');
+    
+    return transcripts.map((t: any) => ({
+      speaker: t.speaker ?? null,
+      text: t.text || t.content || '',
+      timestamp: t.timestamp,
+      created_at: t.created_at,
+    }));
+  } catch (error) {
+    console.error('[Transcripts] ❌ Failed to fetch:', error);
+    return []; // Return empty on error - graceful degradation
+  }
+}

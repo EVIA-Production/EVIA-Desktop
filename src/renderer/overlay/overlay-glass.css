@@ -414,7 +414,9 @@
   line-height: 1.6;
   background: transparent;
   min-height: 0;
-  max-height: 400px;
+  /* 🔧 FIX: Removed max-height: 400px to allow full content expansion */
+  /* Window can now expand up to 700px (JS limit in AskView.tsx:661) */
+  /* German outputs and long responses will no longer be cut off */
   position: relative;
   color: rgba(255, 255, 255, 0.9);
 }

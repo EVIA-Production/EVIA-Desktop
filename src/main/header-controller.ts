@@ -105,12 +105,22 @@ export class HeaderController {
    * Determine next state based on current data
    */
   private determineNextState(data: StateData): AppState {
-    // If no token, show welcome
+    // 🔧 UI IMPROVEMENT: ALWAYS check token, even in dev mode
+    // If no token, show welcome (no flicker)
     if (!data.hasToken) {
+      console.log('[HeaderController] 🔐 No token found - showing welcome screen');
       return 'welcome';
     }
     
-    // Has token, check permissions
+    // 🔧 DEV MODE: Skip ONLY permission checks in development
+    // Still validate token above to prevent header flicker
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      console.log('[HeaderController] 🔧 DEV MODE: Skipping permission checks, going to ready');
+      return 'ready';
+    }
+    
+    // Has token, check permissions (production only)
     const micGranted = data.micPermission === 'granted';
     const screenGranted = data.screenPermission === 'granted';
     
@@ -268,6 +278,31 @@ export class HeaderController {
       console.log('[HeaderController] Permission state changed, transitioning');
       await this.transitionTo(nextState);
     }
+  }
+
+  /**
+   * 🔧 UI IMPROVEMENT: Validate authentication status
+   * Checks if token still exists in keytar
+   * If no token, transitions to welcome state
+   * Returns true if authenticated, false if not
+   */
+  public async validateAuthentication(): Promise<boolean> {
+    console.log('[HeaderController] 🔐 Validating authentication...');
+    
+    const token = await keytar.getPassword('evia', 'token');
+    const isAuthenticated = !!token;
+    
+    if (!isAuthenticated && this.currentState === 'ready') {
+      console.log('[HeaderController] ⚠️ No token found - user logged out, returning to welcome');
+      await this.transitionTo('welcome');
+      return false;
+    }
+    
+    if (isAuthenticated) {
+      console.log('[HeaderController] ✅ Authentication valid');
+    }
+    
+    return isAuthenticated;
   }
 
   /**

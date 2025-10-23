@@ -324,8 +324,35 @@ async function setupMicProcessing(stream: MediaStream) {
   const SILENCE_RMS_THRESHOLD = 0.01; // Adjust this value based on testing
   let silenceFrameCount = 0;
 
+  let frameCounter = 0;
+  let totalAudioLevel = 0;
+  let silentFrames = 0;
+  
   micProcessor.onaudioprocess = (e) => {
     const inputData = e.inputBuffer.getChannelData(0);
+    
+    // 🎤 DIAGNOSTIC: Check audio level every 50 frames
+    frameCounter++;
+    let sum = 0;
+    for (let i = 0; i < inputData.length; i++) {
+      sum += Math.abs(inputData[i]);
+    }
+    const avgLevel = sum / inputData.length;
+    totalAudioLevel += avgLevel;
+    
+    if (avgLevel < 0.001) {
+      silentFrames++;
+    }
+    
+    if (frameCounter % 50 === 0) {
+      const avgAudioLevel = totalAudioLevel / frameCounter;
+      const silencePercent = (silentFrames / frameCounter * 100).toFixed(1);
+      console.log(`[MIC-DIAGNOSTIC] Frame ${frameCounter}: avg level=${avgAudioLevel.toFixed(5)}, silent=${silencePercent}%, current=${avgLevel.toFixed(5)}`);
+      
+      if (avgAudioLevel < 0.0001) {
+        console.warn(`[MIC-DIAGNOSTIC] ⚠️  Mic audio is very quiet or silent! Check permissions and mic settings.`);
+      }
+    }
     
     // TypeScript compat: use Array.from instead of spread
     for (let i = 0; i < inputData.length; i++) {
@@ -361,7 +388,12 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 STEP 3: Silence gate - Skip if below threshold
+      // 🎯 STEP 3: Convert to PCM16 first (needed for both debug recorder AND backend)
+      // ──────────────────────────────────────────────────────────────────────
+      const pcm16 = convertFloat32ToInt16(float32Chunk);
+      
+      // ──────────────────────────────────────────────────────────────────────
+      // 🎯 STEP 4: Silence gate - Skip sending to backend if below threshold
       // ──────────────────────────────────────────────────────────────────────
       let sumSquares = 0;
       for (let i = 0; i < float32Chunk.length; i++) {
@@ -374,7 +406,7 @@ async function setupMicProcessing(stream: MediaStream) {
         if (silenceFrameCount % 50 === 1) { // Log every 5 seconds (50 * 100ms)
           console.log(`[AudioCapture] 🔇 MIC SILENCE GATE: Suppressing silent audio (RMS: ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD})`);
         }
-        continue; // Skip this chunk entirely
+        continue; // Skip sending to backend, but debug recorder already got it
       }
       
       // Reset silence counter when audio detected
@@ -384,9 +416,8 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 STEP 4: Convert to PCM16 and send to backend
+      // 🎯 STEP 5: Send to backend (pcm16 already converted above)
       // ──────────────────────────────────────────────────────────────────────
-      const pcm16 = convertFloat32ToInt16(float32Chunk);
       
       const ws = ensureMicWs();
       // 🔧 CRITICAL FIX: Verify WebSocket is actually connected before sending
@@ -547,6 +578,14 @@ export async function startCapture(includeSystemAudio = false) {
   
   // Step 3: Request microphone permission explicitly
   try {
+    console.log('[AudioCapture] 🎤 Requesting microphone access with constraints:', {
+      sampleRate: SAMPLE_RATE,
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    });
+    
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         sampleRate: SAMPLE_RATE,
@@ -558,10 +597,17 @@ export async function startCapture(includeSystemAudio = false) {
       video: false,
     });
     
-    console.log('[AudioCapture] Microphone permission granted');
+    console.log('[AudioCapture] ✅ Microphone permission granted');
     
     // Verify we got audio tracks
     const audioTracks = micStream.getAudioTracks();
+    console.log(`[AudioCapture] 🎤 Got ${audioTracks.length} audio track(s):`, audioTracks.map(t => ({
+      label: t.label,
+      enabled: t.enabled,
+      muted: t.muted,
+      readyState: t.readyState,
+      settings: t.getSettings()
+    })));
     if (audioTracks.length === 0) {
       throw new Error('[AudioCapture] No audio track in microphone stream');
     }
@@ -832,4 +878,3 @@ export async function stopCapture(captureHandle?: any) {
     console.error('[AudioCapture] Error stopping capture:', error);
   }
 }
-

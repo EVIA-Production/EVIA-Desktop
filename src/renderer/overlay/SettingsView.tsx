@@ -69,14 +69,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const handleMoveLeft = () => {
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
-      eviaWindows.nudgeHeader(-10, 0);
+      // 🔧 FIX: Increased from -10 to -50 to match arrow key movement distance
+      eviaWindows.nudgeHeader(-50, 0);
     }
   };
 
   const handleMoveRight = () => {
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
-      eviaWindows.nudgeHeader(10, 0);
+      // 🔧 FIX: Increased from 10 to 50 to match arrow key movement distance
+      eviaWindows.nudgeHeader(50, 0);
     }
   };
 

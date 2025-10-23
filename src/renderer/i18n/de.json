@@ -24,7 +24,10 @@
       "copiedInsights": "EVIA Analyse kopiert!",
       "speaker": "Sprecher",
       "unknown": "Unbekannt",
-      "local": "Sie"
+      "local": "Sie",
+      "summary": "Zusammenfassung",
+      "nextActions": "Aktionen",
+      "followUps": "Follow-Ups"
     },
     "insights": {
       "dummyInsight1": "EVIA analysiert Ihr Gespräch...",

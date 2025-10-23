@@ -11,6 +11,7 @@ files:
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
 mac:
+  icon: src/main/assets/icon.png
   category: public.app-category.productivity
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -22,8 +23,9 @@ mac:
     NSScreenCaptureUsageDescription: "EVIA needs access to screen recording to capture system audio from meetings and calls."
     NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
-    - dmg
-dmg:
-  format: UDZO
-  writeUpdateInfo: false
+    - dir
+# DMG disabled due to asar packaging bug (file size limit error)
+# dmg:
+#   format: UDZO
+#   writeUpdateInfo: false
 publish: null

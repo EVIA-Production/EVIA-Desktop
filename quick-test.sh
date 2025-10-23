@@ -1,82 +1,95 @@
 #!/bin/bash
-# Quick E2E Test
 
-echo "🧪 Quick E2E Test"
-echo "================="
+# EVIA Desktop Quick Test Script
+# Tests the built .app directly without needing DMG
+
+set -e
+
+echo "=============================================="
+echo "🚀 EVIA DESKTOP QUICK TEST"
+echo "=============================================="
 echo ""
 
-# Backend
-echo -n "Backend: "
-if curl -s http://localhost:8000/health | grep -q "ok"; then
-    echo "✅ Running"
-else
-    echo "❌ Down"
+APP_PATH="/Users/benekroetz/EVIA/EVIA-Desktop/dist/mac-arm64/EVIA Desktop.app"
+
+# 1. Check if app exists
+if [ ! -d "$APP_PATH" ]; then
+    echo "❌ App not found at: $APP_PATH"
+    echo "Run 'npm run build' first"
     exit 1
 fi
 
-# Frontend
-echo -n "Frontend: "
-if curl -s http://localhost:5173/ | grep -q "EVIA"; then
-    echo "✅ Running"
-else
-    echo "❌ Down"
-    exit 1
+echo "✅ App found: $APP_PATH"
+echo ""
+
+# 2. Kill any running instances
+echo "🧹 Killing any running EVIA instances..."
+pkill -9 "EVIA Desktop" 2>/dev/null || true
+pkill -9 "Electron" 2>/dev/null || true
+sleep 1
+echo "✅ Clean slate"
+echo ""
+
+# 3. Optional: Fresh user reset
+read -p "🔄 Reset to fresh user state? (clears auth, permissions, cache) [y/N]: " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "🧹 Resetting user state..."
+    
+    # Clear app data
+    rm -rf ~/Library/Application\ Support/evia-desktop/ 2>/dev/null || true
+    rm -rf ~/Library/Caches/evia-desktop/ 2>/dev/null || true
+    
+    # Clear Keychain tokens
+    security delete-generic-password -s "evia-desktop-token" 2>/dev/null || true
+    
+    echo "✅ User state reset complete"
+    echo ""
+    echo "⚠️  MANUAL STEP REQUIRED:"
+    echo "   1. Open System Settings → Privacy & Security"
+    echo "   2. Remove 'EVIA Desktop' and 'Electron' from:"
+    echo "      - Screen Recording"
+    echo "      - Microphone"
+    echo ""
+    read -p "Press Enter once you've removed permissions..."
 fi
 
-# .env
-echo -n ".env file: "
-if [ -f .env ]; then
-    echo "✅ Exists"
-else
-    echo "❌ Missing"
-    exit 1
-fi
-
-# HeaderController
-echo -n "HeaderController: "
-if grep -q "getCurrentState" src/main/header-controller.ts; then
-    echo "✅ Has getCurrentState()"
-else
-    echo "❌ Missing"
-fi
-
-# Toggle blocking
-echo -n "Header toggle auth check: "
-if grep -q "currentState !== 'ready'" src/main/overlay-windows.ts; then
-    echo "✅ Implemented"
-else
-    echo "❌ Missing"
-fi
-
-# Welcome env var
-echo -n "Welcome window env var: "
-if grep -q "import.meta.env.VITE_FRONTEND_URL" src/renderer/overlay/WelcomeHeader.tsx; then
-    echo "✅ Correct"
-else
-    echo "❌ Wrong"
-fi
-
-# Header border
-echo -n "Header border fix: "
-if grep -q "margin: 1px 0" src/renderer/overlay/EviaBar.tsx; then
-    echo "✅ Implemented"
-else
-    echo "❌ Missing"
-fi
-
-# Welcome button
-echo -n "Welcome button fix: "
-if grep -q "align-self: center" src/renderer/overlay/WelcomeHeader.tsx; then
-    echo "✅ Implemented"
-else
-    echo "❌ Missing"
-fi
+# 4. Launch app
+echo ""
+echo "🚀 Launching EVIA Desktop..."
+echo "   (Watch for Welcome window)"
+echo ""
+open -a "$APP_PATH"
 
 echo ""
-echo "✅ All checks passed! Ready for manual E2E testing."
+echo "=============================================="
+echo "✅ APP LAUNCHED"
+echo "=============================================="
 echo ""
-echo "Next steps:"
-echo "1. npm run dev:renderer (in separate terminal)"
-echo "2. EVIA_DEV=1 npm run dev:main"
-echo "3. Test flow manually"
-
+echo "📋 WHAT TO TEST (from COMPLETE-TEST-PROCEDURE.md):"
+echo ""
+echo "CRITICAL (MUST WORK):"
+echo "  - Issue #3: Transcription language (EN/DE)"
+echo "  - Issue #6: Insight click auto-submit"
+echo "  - Issue #7: Ask window shows output"
+echo "  - Issue #9: Ask prompt separation"
+echo ""
+echo "HIGH PRIORITY:"
+echo "  - Issue #2: Language toggle animation"
+echo "  - Issue #8: Ask window sizing"
+echo "  - Issue #12: Settings functionality"
+echo ""
+echo "MEDIUM PRIORITY:"
+echo "  - Issue #1: Welcome button overlap"
+echo "  - Issue #11: Hide/show speed"
+echo "  - Issue #14: Window positioning"
+echo ""
+echo "📄 Full checklist: COMPLETE-TEST-PROCEDURE.md"
+echo ""
+echo "🔍 To view DevTools for debugging:"
+echo "   1. Click on any EVIA window"
+echo "   2. Press Cmd+Option+I"
+echo ""
+echo "🛑 To stop app:"
+echo "   pkill -9 'EVIA Desktop'"
+echo ""

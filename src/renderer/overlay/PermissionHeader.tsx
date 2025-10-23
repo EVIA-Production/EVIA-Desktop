@@ -27,6 +27,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
     screen: 'unknown',
   });
   const [isChecking, setIsChecking] = useState(false);
+  const [isRequestingMic, setIsRequestingMic] = useState(false);
   const checkingRef = useRef(false);
 
   /**
@@ -64,19 +65,42 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
   }, [onContinue]);
 
   /**
-   * Request microphone permission
+   * Request microphone permission (Glass pattern)
    */
   const handleMicrophoneClick = async () => {
-    if (!window.evia?.permissions || permissions.microphone === 'granted') return;
+    if (!window.evia?.permissions || permissions.microphone === 'granted' || isRequestingMic) return;
     
-    console.log('[PermissionHeader] 🎤 Requesting microphone permission...');
+    console.log('[PermissionHeader] 🎤 Checking microphone permission...');
+    setIsRequestingMic(true);
     
     try {
-      await window.evia.permissions.requestMicrophone();
-      // Check again after request
+      // First, check current status (Glass pattern)
+      const result = await window.evia.permissions.check();
+      console.log('[PermissionHeader] Current permission status:', result.microphone);
+      
+      if (result.microphone === 'granted') {
+        setPermissions(prev => ({ ...prev, microphone: 'granted' }));
+        console.log('[PermissionHeader] ✅ Microphone already granted');
+        return;
+      }
+      
+      // Only request if not determined/denied/unknown/restricted
+      if (['not-determined', 'denied', 'unknown', 'restricted'].includes(result.microphone)) {
+        console.log('[PermissionHeader] 📢 Requesting microphone permission...');
+        const res = await window.evia.permissions.requestMicrophone();
+        
+        if (res.status === 'granted') {
+          setPermissions(prev => ({ ...prev, microphone: 'granted' }));
+          console.log('[PermissionHeader] ✅ Microphone permission granted');
+        }
+      }
+      
+      // Re-check permissions after delay
       setTimeout(() => checkPermissions(), 500);
     } catch (error) {
       console.error('[PermissionHeader] ❌ Error requesting microphone permission:', error);
+    } finally {
+      setIsRequestingMic(false);
     }
   };
 
@@ -190,14 +214,19 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
             <button 
               style={{
                 ...styles.actionButton,
-                ...(permissions.microphone === 'granted' ? styles.actionButtonDisabled : {}),
+                ...(permissions.microphone === 'granted' || isRequestingMic ? styles.actionButtonDisabled : {}),
+                ...(isRequestingMic ? { cursor: 'wait' } : {}),
               }}
               onClick={handleMicrophoneClick}
-              disabled={permissions.microphone === 'granted'}
+              disabled={permissions.microphone === 'granted' || isRequestingMic}
             >
               <div style={styles.buttonBorderOverlay} />
               <span style={{ position: 'relative', zIndex: 1 }}>
-                {permissions.microphone === 'granted' ? 'Microphone Access Granted' : 'Grant Microphone Access'}
+                {isRequestingMic 
+                  ? 'Check system dialog...' 
+                  : permissions.microphone === 'granted' 
+                    ? 'Microphone Access Granted' 
+                    : 'Grant Microphone Access'}
               </span>
             </button>
 
@@ -366,10 +395,14 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative',
     overflow: 'hidden',
     marginBottom: '6px',
+    // Reset any browser default focus/active states
+    outline: 'none',
   },
   actionButtonDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed',
+    // Disable pointer events to prevent stuck hover states
+    pointerEvents: 'none' as any,
   },
   buttonBorderOverlay: {
     content: '""',

@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('evia', {
     resizeHeader: (w: number, h: number) => ipcRenderer.invoke('win:resizeHeader', w, h),
     adjustWindowHeight: (winName: 'listen' | 'ask' | 'settings' | 'shortcuts', height: number) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
     adjustAskHeight: (height: number) => ipcRenderer.invoke('adjust-window-height', { winName: 'ask', height }),
-    showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
+    showSettingsWindow: (buttonX?: number) => ipcRenderer.send('show-settings-window', buttonX),
     hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
     toggleAllVisibility: () => ipcRenderer.invoke('header:toggle-visibility'),
@@ -84,7 +84,9 @@ contextBridge.exposeInMainWorld('evia', {
   auth: {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
     getToken: () => ipcRenderer.invoke('auth:getToken'),
-    logout: () => ipcRenderer.invoke('auth:logout')
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // 🔧 NEW: Check token expiry
+    validate: () => ipcRenderer.invoke('auth:validate')  // 🔧 UI IMPROVEMENT: Proactive auth validation
   },
   // 🌐 Shell API: Open external URLs
   shell: {

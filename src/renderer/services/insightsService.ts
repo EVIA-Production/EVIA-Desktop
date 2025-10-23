@@ -1,5 +1,5 @@
 // Insights service for fetching and managing insights
-// Glass format: {summary: [], topic: {header, bullets}, actions: []}
+// Glass format: {summary: [], topic: {header, bullets}, actions: [], followUps: []}
 export interface Insight {
   summary: string[];
   topic: {
@@ -7,6 +7,7 @@ export interface Insight {
     bullets: string[];
   };
   actions: string[];
+  followUps?: string[]; // 🔧 FIX #3: Follow-up actions shown after recording completes
 }
 
 interface FetchInsightsParams {
@@ -42,12 +43,25 @@ export async function fetchInsights({
     }
 
     const data = await response.json();
-    console.log('[Insights] Received Glass format:', {
+    
+    // 🔧 FIX #3: Add default follow-up actions (Glass parity)
+    // These are shown after recording completes, providing next-step options
+    const followUps = language === 'en' 
+      ? ['✉️ Draft a follow-up email', '✅ Generate action items', '📝 Show summary']
+      : ['✉️ Verfasse eine Follow-up E-Mail', '✅ Generiere Aktionspunkte', '📝 Zeige Zusammenfassung'];
+    
+    const insightWithFollowUps = {
+      ...data,
+      followUps
+    };
+    
+    console.log('[Insights] Received Glass format with follow-ups:', {
       summaryCount: data.summary?.length || 0,
       topicHeader: data.topic?.header,
-      actionsCount: data.actions?.length || 0
+      actionsCount: data.actions?.length || 0,
+      followUpsCount: followUps.length
     });
-    return data as Insight;
+    return insightWithFollowUps as Insight;
   } catch (error) {
     console.error('[Insights] Fetch failed:', error);
     // Return null on error

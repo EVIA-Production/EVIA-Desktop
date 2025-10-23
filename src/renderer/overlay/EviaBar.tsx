@@ -33,6 +33,23 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
   const [isSettingsActive, setIsSettingsActive] = useState(currentView === 'settings');
 
+  // 🔧 SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
+  // This allows AskView to send the correct session_state to backend
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      // Map Desktop states to backend session states
+      const sessionState = listenStatus === 'in' ? 'during' : listenStatus;
+      
+      // Store in localStorage as backup for windows that open after state change
+      localStorage.setItem('evia_session_state', sessionState);
+      
+      // Broadcast via IPC for real-time sync
+      eviaIpc.send('session-state-changed', sessionState);
+      console.log('[EviaBar] 📡 Broadcast session state:', sessionState, '(from listenStatus:', listenStatus, ')');
+    }
+  }, [listenStatus]);
+
   // REMOVED: useEffect that resets listenStatus based on isListening
   // This was breaking the 'after' (Done) state by resetting to 'before' when audio stops
 
@@ -47,6 +64,61 @@ const EviaBar: React.FC<EviaBarProps> = ({
     return () => {
       if (settingsHideTimerRef.current) {
         clearTimeout(settingsHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  // 🔧 FIX #7: Listen for error blink trigger from main process
+  useEffect(() => {
+    const handleErrorBlink = () => {
+      console.log('[EviaBar] ⚠️ Triggering error blink animation');
+      if (headerRef.current) {
+        // Add error-blink class
+        headerRef.current.classList.add('error-blink');
+        // Remove after animation completes (0.5s * 2 = 1s)
+        setTimeout(() => {
+          headerRef.current?.classList.remove('error-blink');
+        }, 1000);
+      }
+    };
+
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc) {
+      eviaIpc.on('trigger-error-blink', handleErrorBlink);
+    }
+
+    return () => {
+      if (eviaIpc) {
+        eviaIpc.off('trigger-error-blink', handleErrorBlink);
+      }
+    };
+  }, []);
+
+  // 🔧 FIX: Reset listen button state when language is changed or session is cleared
+  useEffect(() => {
+    const handleLanguageChanged = () => {
+      console.log('[EviaBar] 🌐 Language changed - resetting listen button to "before" state');
+      setListenStatus('before');
+      setIsListenActive(false);
+    };
+
+    const handleSessionClosed = () => {
+      console.log('[EviaBar] 🧹 Session closed - resetting listen button to "before" state');
+      setListenStatus('before');
+      setIsListenActive(false);
+    };
+
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc) {
+      eviaIpc.on('language-changed', handleLanguageChanged);
+      eviaIpc.on('clear-session', handleSessionClosed);
+      console.log('[EviaBar] ✅ Registered language-changed and clear-session listeners');
+    }
+
+    return () => {
+      if (eviaIpc) {
+        eviaIpc.off('language-changed', handleLanguageChanged);
+        eviaIpc.off('clear-session', handleSessionClosed);
       }
     };
   }, []);
@@ -90,6 +162,17 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
     const handleMouseDown = async (event: MouseEvent) => {
       if (event.button !== 0) return;
+      
+      // 🔧 FIX #3 + BUG-2: Check for buttons BEFORE preventDefault to allow button clicks!
+      // preventDefault() blocks click events, so we must check button status first
+      const target = event.target as HTMLElement;
+      if (target.closest('button, .action, .evia-header-actions')) {
+        console.log('[EviaBar] Click on button/action, skipping drag');
+        // Don't preventDefault - let button's onClick handler fire!
+        return;
+      }
+      
+      // NOW prevent default for drag (only on header background)
       event.preventDefault();
       const pos = await (window as any).evia?.windows?.getHeaderPosition?.();
       if (!pos) return;
@@ -158,12 +241,15 @@ const EviaBar: React.FC<EviaBarProps> = ({
       onToggleListening();
       // Window remains visible for insights
     } else if (listenStatus === 'after') {
-      // Done → Listen: Hide window
-      console.log('[EviaBar] Done → Listen: Hiding listen window');
-      const result = await (window as any).evia?.windows?.hide?.('listen');
-      console.log('[EviaBar] Hide result:', result);
+      // 🔧 FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
+      console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
+      await (window as any).evia?.windows?.hide?.('listen');
+      await (window as any).evia?.windows?.hide?.('ask');
+      // Broadcast session-closed event so Ask can clear its state
+      (window as any).evia?.ipc?.send?.('session:closed');
       setListenStatus('before');
       setIsListenActive(false);
+      console.log('[EviaBar] ✅ Session closed, windows hidden');
     }
   };
 
@@ -181,7 +267,25 @@ const EviaBar: React.FC<EviaBarProps> = ({
       clearTimeout(settingsHideTimerRef.current);
       settingsHideTimerRef.current = null;
     }
-    // Show immediately
+    
+    // 🔧 FIX #1: Calculate actual 3-dot button position for settings window
+    // This fixes the issue where English header is narrower but settings position stays the same
+    const settingsButton = document.querySelector('.evia-settings-button') as HTMLElement;
+    if (settingsButton) {
+      const buttonRect = settingsButton.getBoundingClientRect();
+      const headerRect = headerRef.current?.getBoundingClientRect();
+      if (headerRect) {
+        // Calculate button position relative to header
+        const buttonX = buttonRect.left - headerRect.left;
+        console.log('[EviaBar] 📍 Settings button position:', { buttonX, buttonRect, headerRect });
+        // Send button position to main process
+        (window as any).evia?.windows?.showSettingsWindow?.(buttonX);
+        setIsSettingsActive(true);
+        return;
+      }
+    }
+    
+    // Fallback: show without position (uses old calculation)
     (window as any).evia?.windows?.showSettingsWindow?.();
     setIsSettingsActive(true);
   };
@@ -259,6 +363,16 @@ const EviaBar: React.FC<EviaBarProps> = ({
           -webkit-app-region: no-drag;
           position: relative;
           z-index: 1;
+        }
+
+        /* 🔧 FIX #7: Error blink animation - blink header border red twice */
+        @keyframes error-blink {
+          0%, 100% { border-color: rgba(255, 255, 255, 0.6); }
+          50% { border-color: rgba(255, 59, 48, 0.9); /* iOS red */ }
+        }
+        
+        .evia-main-header.error-blink {
+          animation: error-blink 0.5s ease-in-out 2;
         }
         .evia-listen-button {
           height: 26px;

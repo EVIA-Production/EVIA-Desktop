@@ -469,6 +469,12 @@ function layoutChildWindows(visible: WindowVisibility) {
         const yAbs = hb.y + hb.height + askGap
         layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+        
+        // 🔧 DIAGNOSTIC: Log positioning to verify consistent layout
+        console.log('[layoutChildWindows] Both windows positioned:');
+        console.log('  Ask:', layout.ask);
+        console.log('  Listen:', layout.listen);
+        console.log('  Gap:', layout.ask.x - (layout.listen.x + layout.listen.width), 'px (expected:', PAD_LOCAL, 'px)');
       }
     } else {
       // Single window: center under header

@@ -2,7 +2,9 @@ export type StreamAskParams = {
   baseUrl: string
   chatId: number
   prompt: string
+  transcript?: string          // 🔧 NEW: Full transcript context for backend
   language: 'de' | 'en'
+  sessionState?: 'before' | 'during' | 'after'  // 🔧 NEW: Session state for context-aware responses
   token: string
   tokenType?: string
   signal?: AbortSignal
@@ -16,13 +18,38 @@ export type StreamAskHandle = {
   abort: () => void
 }
 
-export function streamAsk({ baseUrl, chatId, prompt, language, token, tokenType = 'Bearer', signal, screenshotRef }: StreamAskParams): StreamAskHandle {
+export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessionState, token, tokenType = 'Bearer', signal, screenshotRef }: StreamAskParams): StreamAskHandle {
   const url = `${baseUrl.replace(/\/$/, '')}/ask`
   const headers: Record<string, string> = {
     'Authorization': `${tokenType} ${token}`,
     'Content-Type': 'application/json'
   }
-  const payload: any = { chat_id: chatId, prompt, language, stream: true }
+  
+  // 🔧 GLASS PARITY: Send transcript as main prompt, question as prompt_override
+  // Backend expects: prompt = transcript context, prompt_override = user question
+  const payload: any = { 
+    chat_id: chatId, 
+    prompt: transcript || prompt,  // Use transcript if available, otherwise just prompt
+    language, 
+    stream: true 
+  }
+  
+  // 🔧 SESSION STATE: Add session state for context-aware responses
+  if (sessionState) {
+    payload.session_state = sessionState;
+    console.log('[evia-ask-stream] 🎯 Session state:', sessionState);
+  } else {
+    console.log('[evia-ask-stream] ⚠️ No session state provided - backend will default to "during"');
+  }
+  
+  // If we have both transcript AND a user question (not just transcript alone)
+  if (transcript && prompt && transcript !== prompt) {
+    payload.prompt_override = prompt;  // Send question separately for Glass pattern
+    console.log('[evia-ask-stream] 📄 Sending with transcript context:', transcript.length, 'chars + question:', prompt.substring(0, 50));
+  } else if (!transcript) {
+    console.log('[evia-ask-stream] ⚠️ No transcript context - sending question only');
+  }
+  
   if (screenshotRef) {
     payload.screenshot_ref = screenshotRef
   }

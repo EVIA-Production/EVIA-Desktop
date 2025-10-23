@@ -136,6 +136,57 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('evia', 'token');
 });
 
+// 🔧 NEW: Check if token is valid and not expired
+ipcMain.handle('auth:checkTokenValidity', async () => {
+  try {
+    const token = await keytar.getPassword('evia', 'token');
+    if (!token) {
+      return { valid: false, reason: 'no_token' };
+    }
+    
+    // Decode JWT to check expiry (JWT format: header.payload.signature)
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false, reason: 'invalid_format' };
+    }
+    
+    try {
+      // Decode base64url payload
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      const exp = payload.exp; // Unix timestamp in seconds
+      
+      if (!exp || typeof exp !== 'number') {
+        // No expiry claim - assume valid (some tokens don't expire)
+        console.log('[Auth] ⚠️ Token has no exp claim - assuming valid');
+        return { valid: true, reason: 'no_expiry' };
+      }
+      
+      const now = Math.floor(Date.now() / 1000); // Current time in seconds
+      const timeUntilExpiry = exp - now;
+      
+      if (timeUntilExpiry <= 0) {
+        console.log('[Auth] ❌ Token expired', -timeUntilExpiry, 'seconds ago');
+        return { valid: false, reason: 'expired', expiresIn: timeUntilExpiry };
+      }
+      
+      if (timeUntilExpiry < 60) {
+        console.log('[Auth] ⚠️ Token expires in', timeUntilExpiry, 'seconds - refresh recommended');
+        return { valid: true, reason: 'expiring_soon', expiresIn: timeUntilExpiry };
+      }
+      
+      console.log('[Auth] ✅ Token valid, expires in', Math.floor(timeUntilExpiry / 60), 'minutes');
+      return { valid: true, reason: 'valid', expiresIn: timeUntilExpiry };
+      
+    } catch (decodeError) {
+      console.error('[Auth] ❌ Failed to decode JWT:', decodeError);
+      return { valid: false, reason: 'decode_error' };
+    }
+  } catch (err) {
+    console.error('[Auth] ❌ Token validity check failed:', err);
+    return { valid: false, reason: 'error' };
+  }
+});
+
 // 🚪 Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {

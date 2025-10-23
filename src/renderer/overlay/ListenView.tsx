@@ -146,9 +146,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Handle recording_started to start timer
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
-        // 🔧 FIX: Clear old transcripts from previous session
+        // 🔧 FIX #4: Clear old data from previous session FIRST
         setTranscripts([]);
-        console.log('[ListenView] 🧹 Cleared previous session transcripts');
+        setInsights(null); // Clear old insights too
+        setViewMode('transcript'); // 🔧 FIX: Switch to transcript view to prevent old insights from showing
+        console.log('[ListenView] 🧹 Cleared previous session transcripts & insights, switched to transcript view');
         // 🔧 FIX: Reset timer display
         setElapsedTime('00:00');
         setIsSessionActive(true);
@@ -328,7 +330,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 };
                 // Remove current (now merged) message
                   newMessages.splice(targetIdx, 1);
-                } else {
+          } else {
                   const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
                   console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
                 }
@@ -377,11 +379,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   // Create new final bubble (significant pause or paragraph boundary detected)
                   const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
                   console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
-                  newMessages.push({
-                  text,
-                  speaker,
-                  isFinal: true,
-                  isPartial: false,
+            newMessages.push({
+              text,
+              speaker,
+              isFinal: true,
+              isPartial: false,
                   timestamp: messageTimestamp,
                 });
               }
@@ -425,6 +427,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ✅ Session cleared - ready for new recording');
       });
       console.log('[ListenView] ✅ clear-session listener registered');
+      
+      // 🔧 FIX: Clear insights on language change (fixes Test 5 failure)
+      eviaIpc.on('language-changed', (newLang: string) => {
+        console.log('[ListenView] 🌐 Language changed to', newLang, '- clearing insights');
+        setInsights(null);  // Clear old language insights
+        // Keep transcripts - they're language-agnostic audio data
+        console.log('[ListenView] ✅ Insights cleared for new language');
+      });
+      console.log('[ListenView] ✅ language-changed listener registered');
     } else {
       console.error('[ListenView] ❌ window.evia.ipc.on not available');
     }
@@ -457,10 +468,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
     
-    setIsLoadingInsights(true);
+      setIsLoadingInsights(true);
     const ttftStart = Date.now();
-    try {
-      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+      try {
+        const chatId = Number(localStorage.getItem('current_chat_id') || '0');
       // 🔐 FIX: Get token from keytar (secure storage), not localStorage
       const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
       const token = await eviaAuth?.getToken();
@@ -483,17 +494,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           actionItems: fetchedInsights.actions.length,
           ttftMs
         });
-        setInsights(fetchedInsights);
+          setInsights(fetchedInsights);
       } else {
         console.log('[ListenView] ⚠️ No insights returned');
-      }
-    } catch (error) {
+        }
+      } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);
       // Keep insights empty on error - UI will show placeholder
-    } finally {
-      setIsLoadingInsights(false);
-    }
+      } finally {
+        setIsLoadingInsights(false);
+      }
   };
+
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
@@ -525,7 +537,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     let textToCopy = viewMode === 'transcript' 
       ? transcripts.map(line => line.text).join('\n')
       : insights 
-        ? `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`
+        ? (() => {
+            // Build insights text with all sections
+            let text = `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`;
+            
+            // 🔧 FIX: Include Follow-Ups in copy text if they exist
+            if (insights.followUps && insights.followUps.length > 0) {
+              text += `\n\nFollow-Ups:\n${insights.followUps.join('\n')}`;
+            }
+            
+            return text;
+          })()
         : '';
 
     try {
@@ -846,6 +868,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </span>
           </div>
           <div className="bar-controls">
+            {/* 🎙️ DEBUG: WAV recorder button */}
             {/* 🎯 TASK 1: Undo button (shown for 10s after auto-switch) */}
             {showUndoButton && viewMode === 'insights' && (
               <button 
@@ -952,27 +975,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               Loading insights...
             </div>
-          ) : insights ? (
-            <div style={{ padding: '12px 16px' }}>
+            ) : insights ? (
+              <div style={{ padding: '0px 12px 4px 12px' }}>
               {/* Summary Section */}
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  Summary
+              <div style={{ marginBottom: '4px' }}>
+                {/* 🔧 FIX #33: Added marginTop:0 to eliminate browser default spacing above "Zusammenfassung" */}
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  {i18n.t('overlay.listen.summary')}
                 </h3>
                 {insights.summary.map((point, idx) => (
                   <p 
                     key={`summary-${idx}`}
                     onClick={() => handleInsightClick(point)}
                     style={{ 
-                      fontSize: '13px', 
-                      lineHeight: '1.6', 
-                      marginBottom: '6px',
+                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
+                      lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
+                      marginBottom: '0px',
+                      marginTop: '0px',    // 🔧 FIX #16: Zero margins
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '6px 12px',
+                      padding: '4px 12px',  // 🔧 FIX #16: Reduce vertical padding
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -993,8 +1018,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               </div>
 
               {/* Topic Section */}
-              <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
+              <div style={{ marginBottom: '4px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
                   {insights.topic.header}
                 </h3>
                 {insights.topic.bullets.map((bullet, idx) => (
@@ -1002,15 +1027,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     key={`bullet-${idx}`}
                     onClick={() => handleInsightClick(bullet)}
                     style={{ 
-                      fontSize: '13px', 
-                      lineHeight: '1.6', 
-                      marginBottom: '6px',
+                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
+                      lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
+                      marginBottom: '0px',
+                      marginTop: '0px',    // 🔧 FIX #16: Zero margins
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '6px 12px',
+                      padding: '4px 12px',  // 🔧 FIX #16: Reduce vertical padding
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -1032,19 +1058,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
               {/* Actions Section */}
               <div>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  Next Actions
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  {i18n.t('overlay.listen.nextActions')}
                 </h3>
                 {insights.actions.map((action, idx) => (
                   <p 
                     key={`action-${idx}`}
                     onClick={() => handleInsightClick(action)}
                     style={{ 
-                      fontSize: '13px', 
-                      lineHeight: '1.6', 
-                      marginBottom: '8px',
+                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
+                      lineHeight: '1.4', 
+                      marginBottom: '3px',
                       color: 'rgba(255, 255, 255, 0.85)',
-                      padding: '8px 12px',
+                      padding: '6px 10px',
                       background: 'rgba(255, 255, 255, 0.08)',
                       borderRadius: '8px',
                       border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -1066,6 +1092,45 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   </p>
                 ))}
               </div>
+
+              {/* 🔧 FIX #3: Follow-Ups Section (Glass parity) - Only shown when recording is complete */}
+              {!isSessionActive && insights.followUps && insights.followUps.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                    {i18n.getLanguage() === 'en' ? 'Follow-Ups' : 'Follow-Ups'}
+                  </h3>
+                  {insights.followUps.map((followUp, idx) => (
+                    <p 
+                      key={`followup-${idx}`}
+                      onClick={() => handleInsightClick(followUp)}
+                      style={{ 
+                        fontSize: '12px',
+                        lineHeight: '1.4',
+                        marginBottom: '3px',
+                        color: 'rgba(255, 255, 255, 0.85)',
+                        padding: '6px 10px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                        e.currentTarget.style.transform = 'translateX(2px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }}
+                    >
+                      {followUp}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>

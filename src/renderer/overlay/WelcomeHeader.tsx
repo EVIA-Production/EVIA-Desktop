@@ -101,6 +101,18 @@ const WelcomeHeader: React.FC = () => {
         <div className="subtitle">Your AI-powered meeting assistant</div>
       </div>
 
+      {/* 🔧 FIX #13: Login button positioned in upper right (absolute) */}
+      <button 
+        className="action-button action-button-absolute" 
+        onClick={handleLogin}
+        aria-label="Open browser to log in"
+      >
+        <div className="button-text">Open Browser to Log in</div>
+        <div className="button-icon">
+          <div className="arrow-icon"></div>
+        </div>
+      </button>
+
       {/* Login Option Card */}
       <div className="option-card">
         <div className="divider"></div>
@@ -112,16 +124,6 @@ const WelcomeHeader: React.FC = () => {
             Access insights and meeting notes
           </div>
         </div>
-        <button 
-          className="action-button" 
-          onClick={handleLogin}
-          aria-label="Open browser to log in"
-        >
-          <div className="button-text">Open Browser to Log in</div>
-          <div className="button-icon">
-            <div className="arrow-icon"></div>
-          </div>
-        </button>
       </div>
 
       {/* Footer with Privacy Policy */}
@@ -267,8 +269,15 @@ const WelcomeHeader: React.FC = () => {
           display: flex;
           cursor: pointer;
           transition: background-color 0.2s;
-          align-self: flex-start; /* FIX: Align button to top of row to avoid overlap */
-          margin-top: 12px; /* 🔧 FIX #11: Move button up to prevent overlap with text */
+          white-space: nowrap;
+        }
+
+        .action-button-absolute {
+          /* 🔧 FIX #13: Position button in upper right corner per user's red outline */
+          position: absolute;
+          top: 80px;  /* Below header (title + subtitle + gap) */
+          right: 24px;  /* Align with container padding */
+          z-index: 10;
         }
 
         .action-button:hover {

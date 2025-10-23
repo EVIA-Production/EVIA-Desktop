@@ -1,5 +1,6 @@
 // Main-thread audio capture and worklet wiring
 import { getWebSocketInstance } from './services/websocketService';
+
 let wsInstance = null;
 function ensureWs() {
   try {
@@ -65,6 +66,7 @@ export async function startCapture(includeSystemAudio = false) {
         const s = Math.max(-1, Math.min(1, f32[i]));
         i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
+      
       try { 
         ws?.sendBinaryData?.(i16.buffer);
       } catch (error) {
@@ -131,6 +133,7 @@ export function startAudioCapture(onChunk) {
         for (let i = 0; i < buffer.length; i++) {
           pcm16[i] = Math.max(-32768, Math.min(32767, buffer[i] * 32768));
         }
+        
         onChunk(pcm16.buffer);
         console.log(`Chunk sent: size=${pcm16.byteLength}, cadence=${now - lastSend}ms`);
         lastSend = now;
