@@ -34,6 +34,21 @@ const PAD = 8;
 const ANIM_DURATION = 180;
 let settingsHideTimer: NodeJS.Timeout | null = null;
 
+// ===== Global Shortcuts (customizable) =====
+const DEFAULT_SHORTCUTS: Record<string, string> = {
+  toggleVisibility: "CommandOrControl+\\",
+  nextStep: "CommandOrControl+Enter",
+  moveUp: "CommandOrControl+Up",
+  moveDown: "CommandOrControl+Down",
+  moveLeft: "CommandOrControl+Left",
+  moveRight: "CommandOrControl+Right",
+};
+
+function getEffectiveShortcuts(): Record<string, string> {
+  const user = (persistedState.shortcuts ?? {}) as Record<string, string>;
+  return { ...DEFAULT_SHORTCUTS, ...user };
+}
+
 // Note: All windows load overlay.html with ?view=X query params for React routing.
 // The 'html' field is kept for documentation but not used in loadFile() calls.
 const WINDOW_DATA = {
@@ -72,6 +87,7 @@ const persistFile = path.join(app.getPath("userData"), "overlay-prefs.json");
 type PersistedState = {
   headerBounds?: Electron.Rectangle;
   visible?: WindowVisibility;
+  shortcuts?: Record<string, string>;
 };
 let persistedState: PersistedState = {};
 
@@ -718,22 +734,31 @@ function openAskWindow() {
 }
 
 function registerShortcuts() {
+  try {
+    globalShortcut.unregisterAll();
+  } catch {}
   // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
   const step = 80; // Glass parity: windowLayoutManager.js:243 uses 80px
-
-  // Wrap in paramless functions to avoid 'conversion from X' errors
-  const nudgeUp = () => nudgeHeader(0, -step);
-  const nudgeDown = () => nudgeHeader(0, step);
-  const nudgeLeft = () => nudgeHeader(-step, 0);
-  const nudgeRight = () => nudgeHeader(step, 0);
-
-  globalShortcut.register("CommandOrControl+\\", handleHeaderToggle);
-  globalShortcut.register("CommandOrControl+Enter", openAskWindow);
-  // Note: Glass uses 'Cmd+Up' not plain 'Up'; adjust if needed for parity
-  globalShortcut.register("CommandOrControl+Up", nudgeUp);
-  globalShortcut.register("CommandOrControl+Down", nudgeDown);
-  globalShortcut.register("CommandOrControl+Left", nudgeLeft);
-  globalShortcut.register("CommandOrControl+Right", nudgeRight);
+  const actions: Record<string, () => void> = {
+    toggleVisibility: handleHeaderToggle,
+    nextStep: openAskWindow,
+    moveUp: () => nudgeHeader(0, -step),
+    moveDown: () => nudgeHeader(0, step),
+    moveLeft: () => nudgeHeader(-step, 0),
+    moveRight: () => nudgeHeader(step, 0),
+  };
+  const map = getEffectiveShortcuts();
+  for (const [name, handler] of Object.entries(actions)) {
+    const accel = map[name];
+    if (!accel) continue; // disabled (empty string)
+    try {
+      const ok = globalShortcut.register(accel, handler);
+      if (!ok)
+        console.warn(`[shortcuts] Failed to register ${name} -> ${accel}`);
+    } catch (e) {
+      console.warn(`[shortcuts] Error registering ${name} -> ${accel}`, e);
+    }
+  }
 }
 
 function unregisterShortcuts() {
@@ -1063,6 +1088,20 @@ ipcMain.handle("prefs:get", () => {
 
 ipcMain.handle("prefs:set", (_event, data: Partial<PersistedState>) => {
   saveState(data);
+  return { ok: true };
+});
+
+// ---- Shortcuts IPC ----
+ipcMain.handle("shortcuts:get", () => {
+  return { ok: true, data: getEffectiveShortcuts() };
+});
+ipcMain.handle("shortcuts:getDefaults", () => {
+  return { ok: true, data: DEFAULT_SHORTCUTS };
+});
+ipcMain.handle("shortcuts:set", (_event, data: Record<string, string>) => {
+  const next = { ...(persistedState.shortcuts || {}), ...data };
+  saveState({ shortcuts: next });
+  registerShortcuts();
   return { ok: true };
 });
 

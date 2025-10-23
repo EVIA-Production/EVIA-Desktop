@@ -118,6 +118,12 @@ contextBridge.exposeInMainWorld("evia", {
     get: () => ipcRenderer.invoke("prefs:get"),
     set: (prefs: Record<string, any>) => ipcRenderer.invoke("prefs:set", prefs),
   },
+  shortcuts: {
+    get: () => ipcRenderer.invoke("shortcuts:get"),
+    getDefaults: () => ipcRenderer.invoke("shortcuts:getDefaults"),
+    set: (map: Record<string, string>) =>
+      ipcRenderer.invoke("shortcuts:set", map),
+  },
   closeWindow: (name: string) => ipcRenderer.invoke("close-window", name),
   auth: {
     login: (username: string, password: string) =>

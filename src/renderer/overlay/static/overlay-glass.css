@@ -1910,6 +1910,85 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   gap: 8px;
 }
 
+/* Shortcuts editor controls */
+.action-btn {
+  background: none;
+  border: none;
+  color: rgba(0, 122, 255, 0.85);
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.action-btn:hover {
+  color: #0a84ff;
+  text-decoration: underline;
+}
+.shortcut-input {
+  inline-size: 140px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font:
+    11px "SF Mono",
+    "Menlo",
+    monospace;
+  color: white;
+  text-align: right;
+  cursor: text;
+}
+.shortcut-input:focus,
+.shortcut-input.capturing {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
+}
+.feedback {
+  font-size: 10px;
+  margin-top: 2px;
+  min-height: 12px;
+}
+.feedback.error {
+  color: #ef4444;
+}
+.feedback.success {
+  color: #22c55e;
+}
+.actions {
+  display: flex;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.settings-button {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.settings-button.primary {
+  background: rgba(0, 122, 255, 0.25);
+  border-color: rgba(0, 122, 255, 0.6);
+}
+.settings-button.primary:hover {
+  background: rgba(0, 122, 255, 0.35);
+}
+.settings-button.danger {
+  background: rgba(255, 59, 48, 0.1);
+  border-color: rgba(255, 59, 48, 0.3);
+  color: rgba(255, 59, 48, 0.9);
+}
+.settings-button.danger:hover {
+  background: rgba(255, 59, 48, 0.15);
+}
+
 /* Preset Preview Modal (Settings) */
 .preset-preview-backdrop {
   position: fixed;
