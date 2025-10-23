@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
 import { streamAsk } from '../lib/evia-ask-stream';
@@ -29,12 +29,28 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseContainerRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);  // 🔧 UI IMPROVEMENT: Auto-focus input
+  const lastResponseRef = useRef<string>('');  // 🔧 UI IMPROVEMENT: Track when content actually changes
+  const storedContentHeightRef = useRef<number | null>(null);  // 🔧 CRITICAL: Store content-based height to restore after arrow key movement
   
   // EVIA-specific: Error handling
   const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
   const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
+
+  // 🔧 SESSION STATE: Track current session state for context-aware responses
+  // Values: 'before' (pre-call), 'during' (active call), 'after' (post-call)
+  // Synced from EviaBar via IPC, with localStorage as backup for initial state
+  const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>(() => {
+    const stored = localStorage.getItem('evia_session_state');
+    if (stored === 'before' || stored === 'during' || stored === 'after') {
+      console.log('[AskView] 🎯 Initial session state from localStorage:', stored);
+      return stored;
+    }
+    console.log('[AskView] 🎯 Initial session state: before (default)');
+    return 'before';
+  });
 
   // Configure marked for syntax highlighting
   useEffect(() => {
@@ -46,21 +62,54 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Note: marked v9+ uses marked.use() for extensions, but we'll highlight after render
   }, []);
 
-  // Glass parity: ResizeObserver for dynamic window height
+  // 🔧 FIX #41: ResizeObserver as primary sizing mechanism with debounce
+  // 🔧 UI IMPROVEMENT: Only resize when content changes, not on window move
+  // Glass parity: Continuously observe container size changes
   useEffect(() => {
     const container = document.querySelector('.ask-container');
     if (!container) return;
 
+    let resizeTimeout: NodeJS.Timeout | null = null;
+
     resizeObserverRef.current = new ResizeObserver(entries => {
       for (const entry of entries) {
-        const needed = Math.ceil(entry.contentRect.height);
         const current = window.innerHeight;
         
-        // 🔧 FIX: Always resize to match content (allow both grow and shrink)
-        const delta = Math.abs(needed - current);
-        if (delta > 10) {  // Only resize if difference > 10px to avoid jitter
-          requestWindowResize(needed + 20);  // Add 20px padding for scrollbar
-          console.log('[AskView] 📏 Resizing window:', current, '→', needed + 20);
+        // 🔧 CRITICAL FIX: Handle two cases:
+        // Case 1: Content has changed (streaming or new response) → Calculate new height
+        // Case 2: Content unchanged but window resized externally (arrow keys) → Restore stored height
+        
+        const contentChanged = isStreaming || response !== lastResponseRef.current;
+        
+        if (contentChanged) {
+          // CASE 1: Content changed - calculate and store new height
+          // Clear any pending resize to debounce rapid changes
+          if (resizeTimeout) {
+            clearTimeout(resizeTimeout);
+          }
+
+          // Wait 100ms after last size change to ensure DOM is stable
+          resizeTimeout = setTimeout(() => {
+            const needed = Math.ceil(entry.contentRect.height);
+            
+            // Tight threshold (3px) for precise sizing
+            const delta = Math.abs(needed - current);
+            if (delta > 3) {
+              // Minimal padding (5px) for scrollbar only
+              const targetHeight = needed + 5;
+              storedContentHeightRef.current = targetHeight;  // Store for restoration
+              requestWindowResize(targetHeight);
+              console.log('[AskView] 📏 ResizeObserver (debounced): %dpx → %dpx (delta: %dpx) [STORED]', 
+                current, targetHeight, delta);
+            }
+          }, 100);
+        } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
+          // CASE 2: Content unchanged but window height doesn't match stored height (with 5px tolerance)
+          // NOTE: This should RARELY happen now that layoutChildWindows() preserves Ask height
+          // If you see this log frequently, something is overriding the height externally
+          console.warn('[AskView] ⚠️ UNEXPECTED: Height mismatch detected, restoring: %dpx → %dpx', 
+            current, storedContentHeightRef.current);
+          requestWindowResize(storedContentHeightRef.current);
         }
       }
     });
@@ -68,9 +117,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     resizeObserverRef.current.observe(container);
 
     return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeObserverRef.current?.disconnect();
     };
-  }, []);
+  }, [isStreaming, response]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -78,6 +128,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       responseContainerRef.current.scrollTop = responseContainerRef.current.scrollHeight;
     }
   }, [response, isStreaming]);
+
+  // 🔧 UI IMPROVEMENT: Update lastResponseRef when streaming completes
+  // This allows ResizeObserver to know when content has actually changed vs just window moving
+  useEffect(() => {
+    if (!isStreaming && response) {
+      // Streaming just completed - update the reference
+      lastResponseRef.current = response;
+      console.log('[AskView] 📝 Response complete, saved for resize detection');
+    }
+  }, [isStreaming, response]);
 
   // 🔧 GLASS PARITY FIX: Listen for single-step IPC send-and-submit (from ListenView insight clicks)
   useEffect(() => {
@@ -97,18 +157,192 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }, 50);
     };
 
+    // 🔧 FIX #27: Clear response when session FULLY closes (Fertig pressed, not just Stopp)
+    const handleSessionClosed = () => {
+      console.log('[AskView] 🛑 Session closed (Fertig pressed) - clearing all state');
+      setResponse('');
+      setCurrentQuestion('');
+      setPrompt('');
+      setIsStreaming(false);
+      setHasFirstDelta(false);
+      setTtftMs(null);
+      setErrorToast(null);
+      // Window will be hidden by EviaBar, no need to resize
+    };
+
+    // 🔧 DESKTOP SENTINEL: Abort streaming if language toggle occurs
+    const handleAbortStream = () => {
+      console.log('[AskView] 🛑 Received abort-ask-stream - stopping stream');
+      if (streamRef.current?.abort) {
+        streamRef.current.abort();
+        streamRef.current = null;
+      }
+      setIsStreaming(false);
+      setIsLoadingFirstToken(false);
+      console.log('[AskView] ✅ Stream aborted due to language toggle');
+    };
+
+    // 🔧 FIX: Clear session on language change (clears question, response, etc.)
+    const handleClearSession = () => {
+      console.log('[AskView] 🧹 Received clear-session - clearing all state (language change or session end)');
+      // Abort any active stream first
+      if (streamRef.current?.abort) {
+        streamRef.current.abort();
+        streamRef.current = null;
+      }
+      // Clear all state
+      setResponse('');
+      setCurrentQuestion('');
+      setPrompt('');
+      setIsStreaming(false);
+      setHasFirstDelta(false);
+      setTtftMs(null);
+      setErrorToast(null);
+      setIsLoadingFirstToken(false);
+      lastResponseRef.current = '';  // Clear resize tracking
+      storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
+      console.log('[AskView] ✅ Session cleared');
+    };
+
+    // 🔧 SESSION STATE: Listen for session state changes from EviaBar
+    const handleSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
+      console.log('[AskView] 🎯 Session state changed:', newState);
+      setSessionState(newState);
+    };
+
+    // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
+    const handleLanguageChanged = (newLang: string) => {
+      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
+      // Abort any active stream first
+      if (streamRef.current?.abort) {
+        streamRef.current.abort();
+        streamRef.current = null;
+      }
+      // Clear all state (same as clear-session)
+      setResponse('');
+      setCurrentQuestion('');
+      setPrompt('');
+      setIsStreaming(false);
+      setIsLoadingFirstToken(false);
+      lastResponseRef.current = '';
+      storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
+      console.log('[AskView] ✅ State cleared due to language change');
+    };
+
     eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);
-    console.log('[AskView] ✅ IPC listener registered for ask:send-and-submit');
+    eviaIpc.on('session:closed', handleSessionClosed);
+    eviaIpc.on('abort-ask-stream', handleAbortStream);
+    eviaIpc.on('clear-session', handleClearSession);  // 🔧 NEW: Listen for clear-session
+    eviaIpc.on('session-state-changed', handleSessionStateChanged);
+    eviaIpc.on('language-changed', handleLanguageChanged);  // 🔧 FIX: Listen for language-changed
+    console.log('[AskView] ✅ IPC listeners registered (send-and-submit, session:closed, abort-ask-stream, clear-session, session-state-changed, language-changed)');
 
     return () => {
-      console.log('[AskView] 🧹 Cleaning up IPC listener');
+      eviaIpc.off('ask:send-and-submit', handleSendAndSubmit);
+      eviaIpc.off('session:closed', handleSessionClosed);
+      eviaIpc.off('abort-ask-stream', handleAbortStream);
+      eviaIpc.off('clear-session', handleClearSession);
+      eviaIpc.off('session-state-changed', handleSessionStateChanged);
+      eviaIpc.off('language-changed', handleLanguageChanged);
+      console.log('[AskView] 🧹 Cleaning up IPC listeners');
     };
   }, []);
 
+  // 🔧 UI IMPROVEMENT: Auto-focus input when window becomes visible
+  useEffect(() => {
+    // Helper function to focus with retry (fixes Test 4 failure)
+    const focusInputWithRetry = () => {
+      if (!inputRef.current) return;
+      
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          inputRef.current?.focus();
+          console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
+          
+          // Verify focus worked - if not, retry once
+          setTimeout(() => {
+            if (document.activeElement !== inputRef.current && inputRef.current) {
+              console.warn('[AskView] ⚠️ Focus failed, retrying...');
+              inputRef.current.focus();
+              console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
+            }
+          }, 100);
+        }, 200);  // Increased delay from 100ms to 200ms for reliability
+      });
+    };
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        focusInputWithRetry();
+      }
+    };
+
+    // Focus on mount
+    focusInputWithRetry();
+
+    // Focus when window becomes visible (e.g., reopened via keyboard shortcut)
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // 🔧 FIX #7: Blink header frame red twice to indicate error
+  const blinkHeaderRed = () => {
+    // Send IPC message to main process to blink header
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) {
+        eviaIpc.send('blink-header-error');
+      }
+    } catch (err) {
+      console.warn('[AskView] Could not blink header:', err);
+    }
+  };
+  
   // EVIA enhancement: Error toast with auto-dismiss
+  // 🔧 FIX #6: Map technical errors to user-friendly messages
   const showError = (message: string, canRetry: boolean = false) => {
     console.error('[AskView] 💥 Error:', message);
-    setErrorToast({ message, canRetry });
+    
+    // Map technical errors to user-friendly messages
+    let friendlyMessage = message;
+    let userCanRetry = canRetry;
+    
+    // Groq rate limit error
+    if (message.includes('rate_limit') || message.includes('429') || message.includes('Rate limit')) {
+      friendlyMessage = i18n.getLanguage() === 'en' 
+        ? 'Service temporarily unavailable. Please try again in a moment.'
+        : 'Service vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.';
+      userCanRetry = true;
+    }
+    // Network errors
+    else if (message.includes('Failed to fetch') || message.includes('Network')) {
+      friendlyMessage = i18n.getLanguage() === 'en'
+        ? 'Connection issue. Please check your network.'
+        : 'Verbindungsproblem. Bitte überprüfen Sie Ihre Netzwerkverbindung.';
+      userCanRetry = true;
+    }
+    // Backend not running
+    else if (message.includes('ECONNREFUSED') || message.includes('connection refused')) {
+      friendlyMessage = i18n.getLanguage() === 'en'
+        ? 'Cannot reach the service. Please ensure the backend is running.'
+        : 'Service nicht erreichbar. Bitte stellen Sie sicher, dass das Backend läuft.';
+      userCanRetry = false;
+    }
+    // Auth errors
+    else if (message.includes('Authentication') || message.includes('Token') || message.includes('401')) {
+      friendlyMessage = i18n.getLanguage() === 'en'
+        ? 'Please log in again.'
+        : 'Bitte melden Sie sich erneut an.';
+      userCanRetry = false;
+    }
+    
+    setErrorToast({ message: friendlyMessage, canRetry: userCanRetry });
+    
+    // Visual error indicator - blink header frame red
+    blinkHeaderRed();
     
     if (errorToastTimeout.current) {
       clearTimeout(errorToastTimeout.current);
@@ -263,12 +497,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (onSubmitPrompt) onSubmitPrompt(prompt);
 
     setResponse('');
+    lastResponseRef.current = '';  // 🔧 UI IMPROVEMENT: Clear last response ref on new question
+    storedContentHeightRef.current = null;  // 🔧 CRITICAL: Clear stored height for new question
     setIsStreaming(true);
     setHasFirstDelta(false);
     setTtftMs(null);
     streamStartTime.current = performance.now();
 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
+    console.log('[AskView] 🎯 Session state:', sessionState);
 
     // 🔧 GLASS PARITY: Pass transcript context to backend
     const handle = streamAsk({ 
@@ -277,6 +514,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       prompt: actualPrompt, 
       transcript: transcriptContext || undefined,  // Pass transcript for context
       language, 
+      sessionState,  // 🔧 NEW: Pass session state for context-aware responses
       token, 
       screenshotRef 
     });
@@ -406,35 +644,63 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   // 🧹 REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
   // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
 
-  // Glass parity: Request window resize via IPC
+  // 🔧 FIX #15/#17: Glass-parity window sizing (auto-expand AND auto-detract)
+  // Based on Glass AskView.js lines 1407-1428
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      // 🔧 GLASS PARITY: Min 400px (matches WINDOW_DATA.ask.height), max 700px
-      const clampedHeight = Math.max(400, Math.min(700, targetHeight));
+      // Glass formula: Math.min(700, idealHeight) - NO minimum when content exists
+      const clampedHeight = Math.min(700, targetHeight);
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };
 
-  // 🔧 FIX: Set initial window height to 450px on mount for better UX
-  useEffect(() => {
-    requestWindowResize(450);
-    console.log('[AskView] Set initial window height to 450px');
-  }, []);
-
-  // 🔧 FIX ISSUE #7: Auto-adjust window height when response changes
-  useEffect(() => {
-    if (!response || !responseContainerRef.current) return;
+  // 🔧 FIX #41: Simplified manual resize (ResizeObserver is primary, this is fallback for edge cases)
+  // Handles initial empty state and visibility changes
+  const triggerManualResize = useCallback(() => {
+    // Empty state: compact ask bar
+    if (!response || response.trim() === '') {
+      requestWindowResize(58);
+      console.log('[AskView] 📏 Manual resize: compact ask bar (58px)');
+      return;
+    }
     
-    // Calculate required height based on actual content
-    const containerHeight = responseContainerRef.current.scrollHeight;
-    // Add header height (60px) + input height (50px) + padding (40px)
-    const totalHeight = containerHeight + 150;
-    
-    // Clamp between min/max (handled by requestWindowResize)
-    requestWindowResize(totalHeight);
-    console.log('[AskView] 📏 Auto-adjusted height to:', totalHeight, 'based on content');
+    // With content: let ResizeObserver handle it, but trigger a recalc on visibility change
+    const container = document.querySelector('.ask-container') as HTMLElement;
+    if (container) {
+      const needed = Math.ceil(container.getBoundingClientRect().height);
+      const current = window.innerHeight;
+      const delta = Math.abs(needed - current);
+      
+      if (delta > 3) {
+        requestWindowResize(needed + 5);
+        console.log('[AskView] 📏 Manual resize (visibility change): %dpx → %dpx', current, needed + 5);
+      }
+    }
   }, [response]);
+
+  // Trigger on empty response (collapse to compact bar)
+  useEffect(() => {
+    if (!response || response.trim() === '') {
+      triggerManualResize();
+    }
+    // ResizeObserver handles non-empty states automatically
+  }, [response, triggerManualResize]);
+
+  // 🔧 FIX #41: On visibility change, give ResizeObserver a nudge
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[AskView] 📏 Window became visible, triggering manual resize');
+        setTimeout(triggerManualResize, 100);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [triggerManualResize]);
 
   // Glass parity: Render markdown with syntax highlighting
   const renderMarkdown = (text: string): string => {
@@ -482,10 +748,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   return (
     <div className="ask-container">
-      {/* EVIA enhancement: Error Toast */}
+      {/* EVIA enhancement: Error Toast - Compact Version */}
       {errorToast && (
         <div className="error-toast">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -493,7 +759,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           <span>{errorToast.message}</span>
           {errorToast.canRetry && (
             <button onClick={retryLastRequest} className="retry-button">
-              Reconnect
+              Retry
             </button>
           )}
           <button onClick={() => setErrorToast(null)} className="close-toast-button">
@@ -579,6 +845,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       {/* Glass parity: Text Input Container */}
       <div className={`text-input-container ${!hasResponse ? 'no-response' : ''} ${!showTextInput ? 'hidden' : ''}`}>
         <input
+          ref={inputRef}
           type="text"
           id="textInput"
           value={prompt}

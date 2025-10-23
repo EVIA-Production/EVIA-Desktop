@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, dialog, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
+import { headerController } from './header-controller'
 
 // 🔧 Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
@@ -20,7 +22,7 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
 const PAD = 8
-const ANIM_DURATION = 180
+const ANIM_DURATION = 0 // INSTANT show/hide 
 let settingsHideTimer: NodeJS.Timeout | null = null
 
 // Note: All windows load overlay.html with ?view=X query params for React routing.
@@ -34,7 +36,7 @@ const WINDOW_DATA = {
   },
   ask: {
     width: 640,  // Increased from 600 to fit form + padding
-    height: 400,  // 🔧 FIX: Start at 400px minimum so responses are visible (not 61px)
+    height: 58,   // 🔧 FIX #23: Symmetric compact size (input container: 12+12+34=58px, no extra chrome)
     html: 'overlay.html?view=ask',
     zIndex: 1,
   },
@@ -121,7 +123,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000', // Fully transparent
-    title: 'EVIA Glass Overlay',
+    title: 'EVIA Overlay',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -424,7 +426,19 @@ function layoutChildWindows(visible: WindowVisibility) {
     const listenWin = listenVis ? createChildWindow('listen') : null
 
     const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
-    const askH = askVis && askWin ? WINDOW_DATA.ask.height : 0
+    
+    // 🔧 CRITICAL FIX: Preserve Ask window's current height when it has content
+    // This prevents the "zap" when moving with arrow keys
+    // Only use default height (58px) if window is newly created or very small
+    let askH = 0
+    if (askVis && askWin) {
+      const currentBounds = askWin.getBounds()
+      const currentHeight = currentBounds.height
+      // If window has content (height > default), preserve it during movement
+      // Otherwise use default height for empty/new window
+      askH = currentHeight > WINDOW_DATA.ask.height ? currentHeight : WINDOW_DATA.ask.height
+    }
+    
     const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
     const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
 
@@ -476,19 +490,25 @@ function layoutChildWindows(visible: WindowVisibility) {
     }
   }
 
-  // Handle Settings window (Glass: calculateSettingsWindowPosition)
-  // Positioned aligned with settings button (170px from right edge)
+  // Handle Settings window
+  // 🔧 FIX #18: Custom formula - align LEFT edge of settings directly below 3-dot button
+  // User feedback: Glass formula moved it too far left
+  // Settings button: 26px wide, 10px right padding (from EviaBar.tsx)
+  // Formula: x = header.x + header.width - buttonWidth - rightPadding
   if (visible.settings) {
     const settingsWin = createChildWindow('settings')
-    const settingsW = WINDOW_DATA.settings.width
+    const settingsW = WINDOW_DATA.settings.width  // 240px
     const settingsH = WINDOW_DATA.settings.height
-    const buttonPadding = 170 // Distance from right edge to align with settings button
     
-    let x = hb.x + hb.width - settingsW + buttonPadding
-    const y = hb.y + hb.height + 5 // PAD=5 from Glass
+    const settingsButtonWidth = 26   // From EviaBar.tsx line 358
+    const headerRightPadding = 10     // From EviaBar.tsx line 233
     
-    // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - settingsW))
+    // Align settings LEFT edge with button LEFT edge
+    let x = hb.x + hb.width - settingsButtonWidth - headerRightPadding
+    const y = hb.y + hb.height + 5  // PAD=5 from Glass
+    
+    // Clamp to screen to prevent overflow
+    x = Math.max(work.x + 10, Math.min(work.x + work.width - settingsW - 10, x))
     
     layout.settings = { x: Math.round(x), y: Math.round(y), width: settingsW, height: settingsH }
   }
@@ -510,13 +530,23 @@ function layoutChildWindows(visible: WindowVisibility) {
   }
 
   // Apply layout
+  // 🔧 UI IMPROVEMENT: Set bounds BEFORE any animation/showing to prevent overlap flash
   for (const [name, bounds] of Object.entries(layout)) {
     const win = createChildWindow(name as FeatureName)
-    win.setBounds(clampBounds(bounds as Electron.Rectangle))
+    const clampedBounds = clampBounds(bounds as Electron.Rectangle)
+    win.setBounds(clampedBounds)
+    console.log(`[layoutChildWindows] 📐 ${name} bounds:`, clampedBounds)
   }
 }
 
 function animateShow(win: BrowserWindow) {
+  // 🔧 FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant show)
+  if (ANIM_DURATION === 0) {
+    win.setOpacity(1)
+    win.showInactive()
+    return
+  }
+  
   try {
     win.setOpacity(0)
     win.showInactive()
@@ -540,6 +570,14 @@ function animateShow(win: BrowserWindow) {
 }
 
 function animateHide(win: BrowserWindow, onComplete: () => void) {
+  // 🔧 FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant hide)
+  if (ANIM_DURATION === 0) {
+    win.hide()
+    win.setOpacity(1)
+    onComplete()
+    return
+  }
+  
   const [x, y] = win.getPosition()
   const startOpacity = win.getOpacity()
   const start = Date.now()
@@ -642,6 +680,30 @@ function getVisibility(): WindowVisibility {
 function toggleWindow(name: FeatureName) {
   const vis = getVisibility()
   const current = !!vis[name]
+  
+  // 🔧 FIX #34: CRITICAL - Only toggle the requested window, don't spread persisted state
+  // Problem: getVisibility() returns persisted state from disk (e.g. listen:true from previous session)
+  // Solution: Explicitly build newVis with ONLY currently active windows + the toggled window
+  
+  if (name === 'ask') {
+    // 🔧 FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
+    // Check actual current visibility to avoid state leak from disk
+    const listenWin = childWindows.get('listen')
+    const isListenCurrentlyVisible = listenWin && !listenWin.isDestroyed() && listenWin.isVisible()
+    
+    const newVis: WindowVisibility = {
+      ask: !current,
+      settings: false,  // Always close settings
+      listen: isListenCurrentlyVisible,  // Preserve Listen if visible
+      shortcuts: false, // Always close shortcuts
+    }
+    
+    console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
+    updateWindows(newVis)
+    return newVis.ask
+  }
+  
+  // For other windows (listen, settings, shortcuts), use spread to preserve ask state
   const newVis = { ...vis, [name]: !current }
   updateWindows(newVis)
   return newVis[name]
@@ -654,9 +716,9 @@ function hideAllChildWindows() {
   return vis
 }
 
-async function handleHeaderToggle() {
+function handleHeaderToggle() {
+  // 🔧 FIX #2: Remove async/await and dynamic import to eliminate button delay
   // CRITICAL AUTH CHECK: Only allow toggle if user is authenticated and has permissions
-  const { headerController } = await import('./header-controller')
   const currentState = headerController.getCurrentState()
   
   if (currentState !== 'ready') {
@@ -693,14 +755,23 @@ async function handleHeaderToggle() {
     headerWindow.setAlwaysOnTop(true, 'screen-saver')
     headerWindow.showInactive()
     
-    // Glass parity: Restore ONLY previously visible windows (windowManager.js:245-249)
+    // 🔧 FIX #6: Restore ONLY previously visible windows (windowManager.js:245-249)
     // Don't restore from persisted state - only from lastVisibleWindows Set
+    console.log('[overlay-windows] 🔄 Restoring windows:', Array.from(lastVisibleWindows))
     const vis: WindowVisibility = {}
     for (const name of lastVisibleWindows) {
       vis[name] = true
     }
     if (Object.keys(vis).length > 0) {
       updateWindows(vis)
+      // Ensure restored windows are on top and visible
+      for (const name of lastVisibleWindows) {
+        const win = childWindows.get(name)
+        if (win && !win.isDestroyed()) {
+          win.setAlwaysOnTop(true, 'screen-saver')
+          win.moveTop()
+        }
+      }
     }
   }
 }
@@ -762,10 +833,20 @@ function nudgeHeader(dx: number, dy: number) {
 }
 
 function openAskWindow() {
+  // 🔧 FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
+  // 🔧 FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
-  // 🔧 FIX #5: Explicitly close settings to prevent Cmd+Enter from opening both windows
-  const updated = { ...vis, ask: true, settings: false }
-  updateWindows(updated)
+  const askVisible = !!vis.ask
+  
+  if (askVisible) {
+    // Ask is open, close it WITHOUT affecting Listen
+    const newVis = { ...vis, ask: false }
+    console.log('[overlay-windows] Cmd+Enter: Closing Ask only, preserving Listen:', vis.listen)
+    updateWindows(newVis)
+  } else {
+    // Ask is closed, open it (this will close other windows as per normal behavior)
+    toggleWindow('ask')
+  }
 }
 
 function registerShortcuts() {
@@ -823,28 +904,24 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
     win = createChildWindow(name)
   }
   
+  // 🔧 FIX: Update visibility state FIRST, then layout ALL windows before showing
+  // This ensures Listen and Ask are positioned side-by-side, not overlapping
+  const vis = getVisibility()
+  const newVis = { ...vis, [name]: true }
+  
+  // 🔧 FIX: Call layoutChildWindows to position ALL visible windows correctly
+  // This handles the case where Ask is already open and Listen is being shown
+  layoutChildWindows(newVis)
+  
   if (win && !win.isDestroyed()) {
-    // Position and show window
-    const header = getOrCreateHeaderWindow()
-    const hb = header.getBounds()
-    const def = WINDOW_DATA[name]
-    if (def) {
-      // Center to header
-      win.setBounds({
-        x: hb.x + (hb.width - def.width) / 2,
-        y: hb.y + hb.height + PAD,
-        width: def.width,
-        height: def.height,
-      })
-      win.show()
-      win.moveTop()
-      win.setAlwaysOnTop(true, 'screen-saver')
-    }
+    // Window bounds already set by layoutChildWindows, just show it
+    win.show()
+    win.moveTop()
+    win.setAlwaysOnTop(true, 'screen-saver')
   }
   
-  // Update state
-  const vis = getVisibility()
-  saveState({ visible: { ...vis, [name]: true } })
+  // Save state
+  saveState({ visible: newVis })
   console.log(`[overlay-windows] ensureShown complete for ${name}`)
   return { ok: true }
 })
@@ -883,8 +960,19 @@ ipcMain.handle('win:resizeHeader', (_event, width: number, height: number) => {
   })
 
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
+  // 🔧 FIX #42: Ensure window exists and bounds are updated correctly
   const win = createChildWindow(winName)
-  win.setBounds({ ...win.getBounds(), height })
+  if (!win || win.isDestroyed()) {
+    console.error(`[IPC] ❌ adjust-window-height: Window '${winName}' not available`)
+    return { ok: false, error: 'window_not_available' }
+  }
+  
+  const currentBounds = win.getBounds()
+  const newBounds = { ...currentBounds, height: Math.round(height) }
+  
+  console.log(`[IPC] 📏 adjust-window-height: ${winName} ${currentBounds.height}px → ${newBounds.height}px`)
+  win.setBounds(newBounds)
+  
   return { ok: true }
 })
 
@@ -903,6 +991,13 @@ ipcMain.handle('header:open-ask', () => {
   return { ok: true }
 })
 
+// 🔧 UI IMPROVEMENT: Auth validation IPC handler
+ipcMain.handle('auth:validate', async () => {
+  const { headerController } = await import('./header-controller');
+  const isAuthenticated = await headerController.validateAuthentication();
+  return { ok: true, authenticated: isAuthenticated };
+})
+
 // 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
 ipcMain.on('ask:send-and-submit', (_event, prompt: string) => {
   console.log('[Main] 📨 ask:send-and-submit received:', prompt.substring(0, 50));
@@ -915,21 +1010,33 @@ ipcMain.on('ask:send-and-submit', (_event, prompt: string) => {
   }
   
   if (askWin && !askWin.isDestroyed()) {
-    // Ensure window is visible in the visibility state
+    // 🔧 FIX #25: Explicitly close settings when opening Ask (prevent unwanted settings popup)
     const vis = getVisibility();
-    if (!vis.ask) {
-      console.log('[Main] 🔧 Ask window hidden, showing...');
-      updateWindows({ ...vis, ask: true });
+    if (!vis.ask || vis.settings) {
+      console.log('[Main] 🔧 Opening Ask window, closing settings');
+      updateWindows({ ...vis, ask: true, settings: false });
     }
     
-    // Wait for window to be ready before sending prompt
-    // Small delay ensures window has fully loaded and IPC handlers are registered
-    setTimeout(() => {
+    // 🔧 FIX #24: Wait for window to be FULLY ready before sending prompt
+    // Use did-finish-load event to ensure IPC handlers are registered
+    const sendPrompt = () => {
       if (askWin && !askWin.isDestroyed()) {
         askWin.webContents.send('ask:send-and-submit', prompt);
         console.log('[Main] ✅ Prompt relayed to Ask window with auto-submit');
       }
-    }, 100);
+    };
+    
+    // If window just loaded, wait for ready. Otherwise send immediately.
+    if (askWin.webContents.isLoading()) {
+      console.log('[Main] ⏳ Ask window still loading, waiting for did-finish-load...');
+      askWin.webContents.once('did-finish-load', () => {
+        // Extra 100ms buffer for React to mount and register IPC handlers
+        setTimeout(sendPrompt, 100);
+      });
+    } else {
+      // Window already loaded, send with short delay for safety
+      setTimeout(sendPrompt, 50);
+    }
   } else {
     console.error('[Main] ❌ Failed to create/show Ask window for send-and-submit');
   }
@@ -1074,8 +1181,10 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
 })
 
 // Settings hover handlers (Glass parity: show/hide with delay)
-ipcMain.on('show-settings-window', () => {
+ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
   console.log('[overlay-windows] show-settings-window: Showing settings ONLY (not affecting other windows)')
+  console.log('[overlay-windows] 📍 Button position from renderer:', buttonX)
+  
   if (settingsHideTimer) {
     console.log('[overlay-windows] Clearing existing hide timer')
     clearTimeout(settingsHideTimer)
@@ -1091,10 +1200,33 @@ ipcMain.on('show-settings-window', () => {
   if (settingsWin && !settingsWin.isDestroyed()) {
     const header = getOrCreateHeaderWindow()
     const hb = header.getBounds()
-    // Position settings below header, right-aligned
+    const work = screen.getDisplayNearestPoint({ x: hb.x, y: hb.y }).workArea
+    
+    let x: number
+    
+    // 🔧 FIX #1: Use actual button position if provided (from renderer DOM measurement)
+    // This fixes the issue where English header is narrower but settings stayed in same position
+    if (typeof buttonX === 'number' && buttonX >= 0) {
+      // Button position is relative to header left edge
+      // Align settings LEFT edge with button LEFT edge
+      x = hb.x + buttonX
+      console.log('[overlay-windows] ✅ Using actual button position:', buttonX, 'absolute x:', x)
+    } else {
+      // Fallback: Use old fixed calculation (for backwards compatibility)
+      console.log('[overlay-windows] ⚠️ No button position provided, using fallback calculation')
+      const settingsButtonWidth = 26   // From EviaBar.tsx
+      const headerRightPadding = 10     // From EviaBar.tsx
+      x = hb.x + hb.width - settingsButtonWidth - headerRightPadding
+    }
+    
+    const y = hb.y + hb.height + PAD
+    
+    // Clamp to screen to prevent overflow
+    x = Math.max(work.x + 10, Math.min(work.x + work.width - WINDOW_DATA.settings.width - 10, x))
+    
     settingsWin.setBounds({
-      x: hb.x + hb.width - WINDOW_DATA.settings.width,
-      y: hb.y + hb.height + PAD,
+      x: Math.round(x),
+      y: Math.round(y),
       width: WINDOW_DATA.settings.width,
       height: WINDOW_DATA.settings.height,
     })
@@ -1153,6 +1285,16 @@ ipcMain.on('cancel-hide-settings-window', () => {
   }
 })
 
+// 🔧 FIX #7: Blink header red twice on error
+ipcMain.on('blink-header-error', () => {
+  console.log('[overlay-windows] ⚠️ Blinking header red for error indication')
+  const header = getOrCreateHeaderWindow()
+  if (header && !header.isDestroyed()) {
+    // Send message to header renderer to trigger CSS animation
+    header.webContents.send('trigger-error-blink')
+  }
+})
+
 // 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
 // Glass parity: Forward prompt from Listen/Insights to Ask window
 // 🧹 REMOVED: Old ask:set-prompt handler (replaced by single-step ask:send-and-submit at line ~901)
@@ -1164,6 +1306,15 @@ ipcMain.on('transcript-message', (_event, message: any) => {
   const listenWin = childWindows.get('listen')
   if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
     listenWin.webContents.send('transcript-message', message)
+  }
+})
+
+// 🔧 FIX #27: Relay session:closed from Header to Ask window (Fertig button pressed)
+ipcMain.on('session:closed', () => {
+  const askWin = childWindows.get('ask')
+  if (askWin && !askWin.isDestroyed()) {
+    console.log('[overlay-windows] 📤 Broadcasting session:closed to Ask window')
+    askWin.webContents.send('session:closed')
   }
 })
 
@@ -1358,5 +1509,3 @@ export {
   nudgeHeader,
   openAskWindow,
 }
-
-
