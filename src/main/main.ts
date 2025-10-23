@@ -24,18 +24,18 @@ function getBackendHttpBase(): string {
 async function boot() {
   await app.whenReady();
 
-  if (process.platform === "win32") {
-    try {
-      await dialog.showMessageBox({
-        type: "info",
-        title: "Windows Warning",
-        message:
-          "EVIA Desktop for Windows is not fully supported. Some functions might not be working correctly.",
-        buttons: ["OK"],
-        noLink: true,
-      });
-    } catch {}
-  }
+  // if (process.platform === "win32") {
+  //   try {
+  //     await dialog.showMessageBox({
+  //       type: "info",
+  //       title: "Windows Warning",
+  //       message:
+  //         "EVIA Desktop for Windows is not fully supported. Some functions might not be working correctly.",
+  //       buttons: ["OK"],
+  //       noLink: true,
+  //     });
+  //   } catch {}
+  // }
 
   // Permissions: allow media (getUserMedia) and display-capture (getDisplayMedia)
   const ses = session.defaultSession;

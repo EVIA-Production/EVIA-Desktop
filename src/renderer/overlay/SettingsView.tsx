@@ -16,10 +16,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [shortcuts, setShortcuts] = useState<{ [key: string]: string }>({});
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<
-    { id: number; title: string; is_default: boolean }[]
-  >([]);
-  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  type Prompt = {
+    id: number;
+    name: string;
+    content?: string;
+    description?: string | null;
+    language?: string;
+    is_active?: boolean;
+  };
+  const [presets, setPresets] = useState<Prompt[]>([]);
+  const [activePromptId, setActivePromptId] = useState<number | null>(null);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+  const [previewPromptId, setPreviewPromptId] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   // Global visibility: when true, windows are fully opaque (invisibility disabled)
   const [invisibilityDisabled, setInvisibilityDisabled] = useState<boolean>(
@@ -110,7 +118,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   useEffect(() => {
-    // Simulate loading data
+    // Simulate loading of basic UI bits (shortcuts) while we fetch presets separately
     setTimeout(() => {
       setShortcuts({
         toggleVisibility: "Cmd+\\",
@@ -118,23 +126,174 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         scrollUp: "Cmd+Up",
         scrollDown: "Cmd+Down",
       });
-      setPresets([
-        { id: 1, title: "Default Preset", is_default: true },
-        { id: 2, title: "Custom Preset 1", is_default: false },
-      ]);
-      setSelectedPreset(2);
       setIsLoading(false);
-    }, 1000);
+    }, 400);
+  }, []);
+
+  // Fetch presets from backend
+  const fetchPresets = async () => {
+    setIsLoadingPrompts(true);
+    try {
+      const baseUrl =
+        (window as any).EVIA_BACKEND_URL ||
+        (window as any).API_BASE_URL ||
+        "http://localhost:8000";
+      const eviaAuth = (window as any).evia?.auth as
+        | { getToken: () => Promise<string | null> }
+        | undefined;
+      const token = await eviaAuth?.getToken();
+      if (!token) {
+        console.warn("[SettingsView] No auth token for fetching prompts");
+        setPresets([]);
+        return;
+      }
+      const res = await fetch(`${String(baseUrl).replace(/\/$/, "")}/prompts`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        console.error("[SettingsView] Failed to fetch prompts:", res.status);
+        setPresets([]);
+        return;
+      }
+      const list = (await res.json()) as Prompt[];
+      setPresets(Array.isArray(list) ? list : []);
+      const active = list.find((p) => p.is_active);
+      setActivePromptId(active ? active.id : null);
+    } catch (err) {
+      console.error("[SettingsView] Error fetching prompts:", err);
+      setPresets([]);
+    } finally {
+      setIsLoadingPrompts(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPresets();
   }, []);
 
   const togglePresets = () => setShowPresets(!showPresets);
 
   const handlePresetSelect = (presetId: number) => {
-    setSelectedPreset(presetId);
+    setPreviewPromptId(presetId);
+  };
+
+  // Close preview via ESC
+  useEffect(() => {
+    if (!previewPromptId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreviewPromptId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewPromptId]);
+
+  // When opening preview, fetch full preset details if content is missing
+  useEffect(() => {
+    const run = async () => {
+      if (previewPromptId == null) return;
+      const current = presets.find((p) => p.id === previewPromptId);
+      if (!current || (current && current.content)) return;
+      try {
+        const baseUrl =
+          (window as any).EVIA_BACKEND_URL ||
+          (window as any).API_BASE_URL ||
+          "http://localhost:8000";
+        const eviaAuth = (window as any).evia?.auth as
+          | { getToken: () => Promise<string | null> }
+          | undefined;
+        const token = await eviaAuth?.getToken();
+        if (!token) return;
+        const res = await fetch(
+          `${String(baseUrl).replace(/\/$/, "")}/prompts/${previewPromptId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        if (!res.ok) return;
+        const detail = (await res.json()) as Prompt;
+        setPresets((prev) =>
+          prev.map((p) => (p.id === detail.id ? { ...p, ...detail } : p))
+        );
+      } catch (e) {
+        console.error("[SettingsView] Failed to fetch preset detail:", e);
+      }
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewPromptId]);
+
+  // PUT to set active preset
+  const setPresetActive = async (presetId: number) => {
+    try {
+      const baseUrl =
+        (window as any).EVIA_BACKEND_URL ||
+        (window as any).API_BASE_URL ||
+        "http://localhost:8000";
+      const eviaAuth = (window as any).evia?.auth as
+        | { getToken: () => Promise<string | null> }
+        | undefined;
+      const token = await eviaAuth?.getToken();
+      if (!token) return;
+      const res = await fetch(
+        `${String(baseUrl).replace(/\/$/, "")}/prompts/${presetId}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ is_active: true }),
+        }
+      );
+      if (!res.ok) {
+        console.error(
+          "[SettingsView] Failed to set active preset:",
+          res.status
+        );
+        return;
+      }
+      // Optimistically update local state so only this one is active
+      setPresets((prev) =>
+        prev.map((p) => ({ ...p, is_active: p.id === presetId }))
+      );
+      setActivePromptId(presetId);
+      setPreviewPromptId(null);
+    } catch (err) {
+      console.error("[SettingsView] Error updating preset:", err);
+    }
   };
 
   const handleToggleAutoUpdate = () => {
     setAutoUpdateEnabled(!autoUpdateEnabled);
+  };
+
+  // Open Meeting Notes in external browser
+  const handleOpenMeetingNotes = async () => {
+    try {
+      const frontendUrl =
+        (import.meta as any).env?.VITE_FRONTEND_URL || "http://localhost:5173";
+      const url = `${String(frontendUrl).replace(/\/$/, "")}/personalize`;
+      if ((window as any).evia?.shell?.openExternal) {
+        await (window as any).evia.shell.openExternal(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (err) {
+      console.error("[SettingsView] Failed to open Meeting Notes:", err);
+    }
+  };
+
+  // Open the Shortcuts window (ShortCutSettingsView)
+  const handleOpenShortcuts = async () => {
+    try {
+      await (window as any).evia?.windows?.show?.("shortcuts");
+    } catch (err) {
+      console.error("[SettingsView] Failed to open Shortcuts:", err);
+    }
   };
 
   const renderShortcutKeys = (accelerator: string) => {
@@ -210,15 +369,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         ))}
+        <div className="buttons-section">
+          <button className="settings-cta-btn" onClick={handleOpenShortcuts}>
+            Keyboard Shortcuts
+          </button>
+        </div>
       </div>
 
       <div className="settings-section">
         <div className="preset-header">
           <span className="preset-title">
-            {i18n.t("overlay.settings.presets")}
-            <span className="preset-count">
-              ({presets.filter((p) => !p.is_default).length})
-            </span>
+            {i18n.t("overlay.settings.presets")}{" "}
+            <span className="preset-count">({presets.length})</span>
           </span>
           <span className="preset-toggle" onClick={togglePresets}>
             {showPresets ? "▼" : "▶"}
@@ -227,26 +389,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
         {showPresets && (
           <div className="preset-list">
-            {presets.filter((p) => !p.is_default).length === 0 ? (
-              <div className="no-presets-message">No custom presets yet.</div>
+            {isLoadingPrompts ? (
+              <div className="no-presets-message">Loading presets…</div>
+            ) : presets.length === 0 ? (
+              <div className="no-presets-message">No presets yet.</div>
             ) : (
-              presets
-                .filter((p) => !p.is_default)
-                .map((preset) => (
-                  <div
-                    key={preset.id}
-                    className={`preset-item ${selectedPreset === preset.id ? "selected" : ""}`}
-                    onClick={() => handlePresetSelect(preset.id)}
-                  >
-                    <span className="preset-name">{preset.title}</span>
-                  </div>
-                ))
+              presets.map((preset) => (
+                <div
+                  key={preset.id}
+                  className={`preset-item ${activePromptId === preset.id ? "selected" : ""}`}
+                  onClick={() => handlePresetSelect(preset.id)}
+                  title={preset.description || preset.name}
+                >
+                  <span className="preset-name">{preset.name}</span>
+                </div>
+              ))
             )}
           </div>
         )}
       </div>
 
       <div className="buttons-section">
+        <button className="settings-cta-btn" onClick={handleOpenMeetingNotes}>
+          Meeting Notes
+        </button>
         <button className="settings-cta-btn" onClick={handleToggleAutoUpdate}>
           {i18n.t("overlay.settings.autoUpdate")}:{" "}
           {autoUpdateEnabled ? "On" : "Off"}
@@ -280,6 +446,52 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Preset Preview Modal */}
+      {previewPromptId !== null &&
+        (() => {
+          const preset = presets.find((p) => p.id === previewPromptId);
+          if (!preset) return null;
+          return (
+            <div
+              className="preset-preview-backdrop"
+              onClick={() => setPreviewPromptId(null)}
+            >
+              <div
+                className="preset-preview-card evia-glass"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  className="preset-preview-close"
+                  onClick={() => setPreviewPromptId(null)}
+                  aria-label="Close preview"
+                  title="Close"
+                >
+                  ×
+                </button>
+                <div className="preset-preview-header">
+                  <div className="preset-preview-title">{preset.name}</div>
+                  {preset.description && (
+                    <div className="preset-preview-desc">
+                      {preset.description}
+                    </div>
+                  )}
+                </div>
+                <div className="preset-preview-content">
+                  <pre>{preset.content || "(No content)"}</pre>
+                </div>
+                <div className="preset-preview-actions">
+                  <button
+                    className="settings-cta-btn"
+                    onClick={() => setPresetActive(preset.id)}
+                  >
+                    Use this preset
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 };
