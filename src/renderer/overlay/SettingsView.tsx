@@ -14,6 +14,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   onClose,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [shortcuts, setShortcuts] = useState<{ [key: string]: string }>({});
   const [showPresets, setShowPresets] = useState(false);
   type Prompt = {
@@ -101,6 +102,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       await (window as any).evia?.auth?.logout?.();
       console.log("[SettingsView] ✅ Logout successful");
+      setIsLoggedIn(false);
     } catch (error) {
       console.error("[SettingsView] ❌ Logout failed:", error);
     }
@@ -129,6 +131,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       setIsLoading(false);
     }, 400);
   }, []);
+
+  // Determine login status: presence of a valid auth token indicates logged in
+  const checkAuth = React.useCallback(async () => {
+    try {
+      const eviaAuth = (window as any).evia?.auth as
+        | { getToken: () => Promise<string | null> }
+        | undefined;
+      const token = await eviaAuth?.getToken?.();
+      setIsLoggedIn(!!token);
+    } catch {
+      setIsLoggedIn(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial check
+    checkAuth();
+    // Refresh on window focus to pick up external login/logout changes
+    const onFocus = () => {
+      void checkAuth();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [checkAuth]);
 
   // Fetch presets from backend
   const fetchPresets = async () => {
@@ -336,7 +362,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({
       {/* NO close button - Glass has no close button (SettingsView.js:1183) */}
       <div className="settings-header">
         <h1 className="settings-title">{i18n.t("overlay.settings.title")}</h1>
-        <div className="settings-subtext">Account: Not Logged In</div>
+        <div
+          className={`settings-subtext ${isLoggedIn ? "auth-logged-in" : "auth-logged-out"}`}
+        >
+          {isLoggedIn ? "Logged In" : "Not Logged In"}
+        </div>
       </div>
 
       <div className="settings-section">
@@ -357,6 +387,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* Divider between Language and Shortcuts */}
+      <div className="section-divider" />
+
       <div className="settings-section">
         <h2 className="settings-h2">{i18n.t("overlay.settings.shortcuts")}</h2>
         {Object.entries(shortcuts).map(([name, accelerator]) => (
@@ -369,12 +402,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         ))}
-        <div className="buttons-section">
-          <button className="settings-cta-btn" onClick={handleOpenShortcuts}>
+        <div className="buttons-section no-divider">
+          <button
+            className="settings-button full-width"
+            onClick={handleOpenShortcuts}
+          >
             Keyboard Shortcuts
           </button>
         </div>
       </div>
+
+      {/* Divider between Shortcuts button and Presets */}
+      <div className="section-divider" />
 
       <div className="settings-section">
         <div className="preset-header">
@@ -409,40 +448,41 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
+      {/* Unified buttons block (Glass-like spacing and sizing) */}
       <div className="buttons-section">
-        <button className="settings-cta-btn" onClick={handleOpenMeetingNotes}>
+        <button
+          className="settings-button full-width"
+          onClick={handleOpenMeetingNotes}
+        >
           Meeting Notes
         </button>
-        <button className="settings-cta-btn" onClick={handleToggleAutoUpdate}>
+        <button
+          className="settings-button full-width"
+          onClick={handleToggleAutoUpdate}
+        >
           {i18n.t("overlay.settings.autoUpdate")}:{" "}
           {autoUpdateEnabled ? "On" : "Off"}
         </button>
+        {/* Invisibility toggle (stacked with same style) */}
+        <button
+          className="settings-button full-width"
+          onClick={() => setInvisibilityDisabled((v) => !v)}
+        >
+          Disable Invisibility: {invisibilityDisabled ? "On" : "Off"}
+        </button>
       </div>
 
-      {/* Visibility / Invisibility toggle */}
+      {/* Account Actions (no header) */}
       <div className="settings-section">
-        <h2 className="settings-h2">Visibility</h2>
-        <div className="buttons-section">
-          <button
-            className="settings-cta-btn"
-            onClick={() => setInvisibilityDisabled((v) => !v)}
-          >
-            Disable Invisibility: {invisibilityDisabled ? "On" : "Off"}
-          </button>
-        </div>
-      </div>
-
-      {/* Account Actions */}
-      <div className="settings-section">
-        <h2 className="settings-h2">Account</h2>
         <div className="account-actions">
-          <button onClick={handleLogout} className="btn-logout">
-            <span>🚪</span>
-            <span>Logout</span>
+          <button onClick={handleLogout} className="settings-button half-width">
+            Logout
           </button>
-          <button onClick={handleQuit} className="btn-quit">
-            <span>🛑</span>
-            <span>Quit EVIA</span>
+          <button
+            onClick={handleQuit}
+            className="settings-button half-width danger"
+          >
+            Quit
           </button>
         </div>
       </div>

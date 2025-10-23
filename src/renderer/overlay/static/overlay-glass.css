@@ -1739,9 +1739,20 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
 }
+.settings-subtext.auth-logged-in {
+  color: #22c55e; /* green */
+}
+.settings-subtext.auth-logged-out {
+  color: #ef4444; /* red */
+}
 
 .settings-section {
   margin-bottom: 16px;
+}
+.section-divider {
+  height: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 8px 0 12px 0;
 }
 .settings-h2 {
   font-size: 14px;
@@ -1771,46 +1782,12 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
 }
 
 .account-actions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  margin-top: 8px;
 }
-.btn-logout,
-.btn-quit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 4px;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 400;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
-  white-space: nowrap;
-}
-.btn-logout:hover,
-.btn-quit:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-.btn-logout:active,
-.btn-quit:active {
-  transform: translateY(1px);
-}
-/* Destructive styling for Quit button (Glass parity) */
-.btn-quit {
-  background: rgba(255, 59, 48, 0.1);
-  border-color: rgba(255, 59, 48, 0.3);
-  color: rgba(255, 59, 48, 0.9);
-}
-.btn-quit:hover {
-  background: rgba(255, 59, 48, 0.15);
-  border-color: rgba(255, 59, 48, 0.4);
-}
+/* Button classes unified: use .settings-button and .settings-button.danger */
 
 .shortcut-item {
   display: flex;
@@ -1884,6 +1861,7 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   text-align: center;
 }
 
+/* Legacy CTA button (kept for backward compat) */
 .settings-cta-btn {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1908,6 +1886,12 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-top: 6px; /* Glass parity */
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.buttons-section.no-divider {
+  border-top: none;
+  padding-top: 0;
 }
 
 /* Shortcuts editor controls */
@@ -1966,12 +1950,22 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   color: white;
-  padding: 5px 10px;
-  font-size: 11px;
+  padding: 8px 10px; /* match SettingsView.js */
+  font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 .settings-button:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+.settings-button.full-width {
+  width: 100%;
+}
+.settings-button.half-width {
+  width: 100%; /* inside 2-col grid each fills its column */
 }
 .settings-button.primary {
   background: rgba(0, 122, 255, 0.25);
