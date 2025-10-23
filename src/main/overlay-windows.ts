@@ -21,7 +21,9 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Adding 40% buffer for safety: 635 * 1.4 = 900px
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
-const PAD = 8
+// 🔧 SPACING FIX: Increased from 8px to 12px for better visual separation (prevent overlap)
+// Glass uses 8px, but users reported slight overlap between Ask and Listen windows
+const PAD = 12
 const ANIM_DURATION = 0 // INSTANT show/hide 
 let settingsHideTimer: NodeJS.Timeout | null = null
 

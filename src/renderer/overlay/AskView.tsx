@@ -90,7 +90,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
           // Wait 100ms after last size change to ensure DOM is stable
           resizeTimeout = setTimeout(() => {
-            const needed = Math.ceil(entry.contentRect.height);
+            // 🔧 CRITICAL FIX: Use scrollHeight to measure FULL content, not just visible area
+            // Glass uses scrollHeight (line 1418) to handle max-height: 400px constraint
+            // entry.contentRect.height only measures visible area (clamped by max-height)
+            // scrollHeight measures the actual content size including overflow
+            const container = entry.target as HTMLElement;
+            const needed = Math.ceil(container.scrollHeight);
+            
+            console.log('[AskView] 📏 Measuring content: visible=%dpx, scroll=%dpx', 
+              Math.ceil(entry.contentRect.height), needed);
             
             // Tight threshold (3px) for precise sizing
             const delta = Math.abs(needed - current);
@@ -668,7 +676,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // With content: let ResizeObserver handle it, but trigger a recalc on visibility change
     const container = document.querySelector('.ask-container') as HTMLElement;
     if (container) {
-      const needed = Math.ceil(container.getBoundingClientRect().height);
+      // 🔧 Use scrollHeight for full content measurement (matches ResizeObserver fix)
+      const needed = Math.ceil(container.scrollHeight);
       const current = window.innerHeight;
       const delta = Math.abs(needed - current);
       
