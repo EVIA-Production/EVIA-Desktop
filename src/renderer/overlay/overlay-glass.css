@@ -154,7 +154,9 @@
 .ask-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 🔧 FIX #42: Remove fixed height to allow content-based sizing */
+  /* OLD: height: 100%; - prevented ResizeObserver from detecting content growth */
+  min-height: 100%;  /* Fill window at minimum */
   width: 100%;
   background: rgba(0, 0, 0, 0.6);
   border-radius: 12px;
@@ -186,33 +188,46 @@
 /* Error Toast (EVIA enhancement) */
 .error-toast {
   position: fixed;
-  top: 20px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
   background: rgba(255, 59, 48, 0.95);
   color: white;
-  padding: 12px 20px;
-  border-radius: 8px;
+  padding: 8px 14px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px 20px */
+  border-radius: 6px;  /* 🔧 UI IMPROVEMENT: Reduced from 8px */
   border: 1px solid rgba(255, 255, 255, 0.3);
   display: flex;
   align-items: center;
-  gap: 12px;
-  fontSize: 13px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  gap: 8px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px */
+  font-size: 11px;  /* 🔧 UI IMPROVEMENT: Reduced from 13px */
+  max-width: 320px;  /* 🔧 UI IMPROVEMENT: Limit width to fit in header area */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);  /* 🔧 UI IMPROVEMENT: Reduced shadow */
   animation: slideDown 0.3s ease;
+  line-height: 1.3;  /* 🔧 UI IMPROVEMENT: Tighter line height */
+}
+
+/* 🔧 UI IMPROVEMENT: Truncate long error messages */
+.error-toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .retry-button {
-  padding: 4px 12px;
+  padding: 3px 8px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px 12px */
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: 3px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px */
+  font-size: 10px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px */
   cursor: pointer;
   font-weight: 500;
   transition: background 0.15s;
+  white-space: nowrap;  /* 🔧 UI IMPROVEMENT: Prevent wrapping */
+  flex-shrink: 0;  /* 🔧 UI IMPROVEMENT: Don't shrink button */
 }
 
 .retry-button:hover {
@@ -224,9 +239,12 @@
   border: none;
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  padding: 4px;
+  padding: 2px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px */
   display: flex;
   align-items: center;
+  font-size: 14px;  /* 🔧 UI IMPROVEMENT: Smaller close icon */
+  line-height: 1;
+  flex-shrink: 0;  /* 🔧 UI IMPROVEMENT: Don't shrink button */
 }
 
 @keyframes slideDown {
@@ -736,3 +754,388 @@
 }
 
 
+
+/* ============================================
+   SETTINGS VIEW (Glass Parity)
+   ============================================ */
+
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: rgba(20, 20, 20, 0.8);
+  border-radius: 12px;
+  outline: 0.5px rgba(255, 255, 255, 0.2) solid;
+  outline-offset: -1px;
+  box-sizing: border-box;
+  position: relative;
+  overflow-y: auto;
+  padding: 12px;
+  z-index: 1000;
+}
+
+.settings-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.settings-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.settings-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.settings-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  filter: blur(10px);
+  z-index: -1;
+}
+
+/* Header Section */
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.title-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.app-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  margin: 0 0 4px 0;
+}
+
+.account-info {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+}
+
+.invisibility-icon {
+  padding-top: 2px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.invisibility-icon.visible {
+  opacity: 1;
+}
+
+.invisibility-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Language Section (EVIA-specific) */
+.language-section {
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.language-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 2px;
+}
+
+.language-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.language-button {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.language-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.language-button.active {
+  background: rgba(0, 122, 255, 0.25);
+  border-color: rgba(0, 122, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
+}
+
+.language-button:active {
+  transform: translateY(1px);
+}
+
+/* Model Section */
+.model-section {
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 2px;
+  margin-bottom: 2px;
+}
+
+/* Shortcuts Section */
+.shortcuts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  color: white;
+  font-size: 11px;
+}
+
+.shortcut-name {
+  font-weight: 300;
+}
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.cmd-key, .shortcut-key {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Preset Management Section */
+.preset-section {
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.preset-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+}
+
+.preset-count {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 4px;
+}
+
+.preset-toggle {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: background-color 0.15s ease;
+}
+
+.preset-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.preset-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 11px;
+  border: 1px solid transparent;
+}
+
+.preset-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.preset-item.selected {
+  background: rgba(0, 122, 255, 0.25);
+  border-color: rgba(0, 122, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
+}
+
+.preset-name {
+  color: white;
+  flex: 1;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 300;
+}
+
+.preset-item.selected .preset-name {
+  font-weight: 500;
+}
+
+.preset-status {
+  font-size: 9px;
+  color: rgba(0, 122, 255, 0.8);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.no-presets-message {
+  padding: 12px 8px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.no-presets-message .web-link {
+  color: rgba(0, 122, 255, 0.8);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.no-presets-message .web-link:hover {
+  color: rgba(0, 122, 255, 1);
+}
+
+/* Buttons Section */
+.buttons-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  z-index: 1;
+  flex: 1;
+}
+
+.settings-button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+}
+
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.settings-button:active {
+  transform: translateY(1px);
+}
+
+.settings-button.full-width {
+  width: 100%;
+}
+
+.settings-button.half-width {
+  flex: 1;
+}
+
+.settings-button.danger {
+  background: rgba(255, 59, 48, 0.1);
+  border-color: rgba(255, 59, 48, 0.3);
+  color: rgba(255, 59, 48, 0.9);
+}
+
+.settings-button.danger:hover {
+  background: rgba(255, 59, 48, 0.15);
+  border-color: rgba(255, 59, 48, 0.4);
+}
+
+.move-buttons, .bottom-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.hidden {
+  display: none;
+}
