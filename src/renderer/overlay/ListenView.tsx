@@ -629,6 +629,32 @@ const ListenView: React.FC<ListenViewProps> = ({
           ? i18n.t("overlay.listen.showInsights")
           : `${i18n.t("overlay.listen.listening")} ${elapsedTime}`;
 
+  // Visibility sync: respond to global invisibility toggle
+  useEffect(() => {
+    const bc = new BroadcastChannel("evia-visibility");
+    const applyFromStorage = () => {
+      try {
+        const stored =
+          localStorage.getItem("evia:invisibilityDisabled") === "1";
+        document.body.classList.toggle("invisibility-disabled", stored);
+      } catch {}
+    };
+    applyFromStorage();
+    const onMessage = (e: MessageEvent) => {
+      const next = (e as any)?.data?.invisibilityDisabled;
+      if (typeof next === "boolean") {
+        document.body.classList.toggle("invisibility-disabled", next);
+      }
+    };
+    bc.addEventListener("message", onMessage as any);
+    return () => {
+      try {
+        bc.removeEventListener("message", onMessage as any);
+      } catch {}
+      bc.close();
+    };
+  }, []);
+
   return (
     <div className="listen-root">
       {/* Glass parity: NO close button in ListenView */}

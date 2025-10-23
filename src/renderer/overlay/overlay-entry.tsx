@@ -320,6 +320,7 @@ function App() {
           />
           {pickerOpen && (
             <ScreenPickerModal
+              backdrop={false}
               onSelect={async (sourceId: string) => {
                 setPickerOpen(false);
                 if (!pendingStart) return;

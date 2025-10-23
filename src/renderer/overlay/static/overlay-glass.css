@@ -308,6 +308,55 @@
   mask-composite: exclude;
   pointer-events: none;
 }
+
+/* ================= Invisibility disabled (opaque mode) ================= */
+/* When the user disables invisibility, we remove transparency and blur */
+body.invisibility-disabled .evia-glass,
+body.invisibility-disabled .evia-main-header,
+body.invisibility-disabled .glass-panel,
+body.invisibility-disabled .ask-container,
+body.invisibility-disabled .listen-container,
+body.invisibility-disabled .settings-container,
+body.invisibility-disabled .screen-picker-modal,
+body.invisibility-disabled .screen-picker-backdrop {
+  background: rgba(16, 16, 16, 1) !important; /* fully opaque */
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+body.invisibility-disabled .evia-header::before,
+body.invisibility-disabled .evia-main-header::before,
+body.invisibility-disabled .ask-container::before,
+body.invisibility-disabled .listen-container::before,
+body.invisibility-disabled .settings-container::before {
+  background: rgba(0, 0, 0, 0) !important;
+  filter: none !important;
+}
+/* Borders remain subtle for definition */
+body.invisibility-disabled .evia-glass,
+body.invisibility-disabled .evia-main-header,
+body.invisibility-disabled .glass-panel,
+body.invisibility-disabled .ask-container,
+body.invisibility-disabled .listen-container,
+body.invisibility-disabled .settings-container,
+body.invisibility-disabled .screen-picker-modal {
+  outline: 1px solid rgba(255, 255, 255, 0.08) !important;
+  outline-offset: -1px;
+}
+
+/* Screen Picker inner tiles and margins opaque in invisibility-disabled mode */
+body.invisibility-disabled .screen-picker-item {
+  background: #121212 !important; /* darker, fully opaque tile background */
+  border-color: rgba(
+    255,
+    255,
+    255,
+    0.08
+  ) !important; /* subtle border visible in opaque mode */
+}
+body.invisibility-disabled .screen-picker-thumb-placeholder {
+  background: #1e1e1e !important; /* fully opaque placeholder area */
+}
 .glass-topbar {
   display: flex;
   justify-content: space-between;
@@ -1730,30 +1779,37 @@
 .btn-quit {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: var(--radius-md);
-  color: white;
-  font-size: 13px;
-  font-weight: 500;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 400;
   cursor: pointer;
-  transition: background-color 0.2s;
-  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
 }
-.btn-logout {
-  background: rgba(255, 149, 0, 0.2);
-  border-color: rgba(255, 149, 0, 0.4);
+.btn-logout:hover,
+.btn-quit:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
 }
-.btn-logout:hover {
-  background: rgba(255, 149, 0, 0.3);
+.btn-logout:active,
+.btn-quit:active {
+  transform: translateY(1px);
 }
+/* Destructive styling for Quit button (Glass parity) */
 .btn-quit {
-  background: rgba(255, 59, 48, 0.2);
-  border-color: rgba(255, 59, 48, 0.4);
+  background: rgba(255, 59, 48, 0.1);
+  border-color: rgba(255, 59, 48, 0.3);
+  color: rgba(255, 59, 48, 0.9);
 }
 .btn-quit:hover {
-  background: rgba(255, 59, 48, 0.3);
+  background: rgba(255, 59, 48, 0.15);
+  border-color: rgba(255, 59, 48, 0.4);
 }
 
 .shortcut-item {
@@ -1871,25 +1927,51 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, 320px);
   gap: 12px;
-  background: #1f1f1f;
+  background: rgba(
+    24,
+    24,
+    24,
+    0.32
+  ); /* more translucent so transparency is evident */
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   padding: 20px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--panel-radius);
   max-height: 80vh;
   overflow: auto;
+}
+/* Floating variant: no full-screen backdrop */
+.screen-picker-modal--floating {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-height: 70vh; /* slightly smaller so it never touches edges */
+  max-width: calc(100vw - 48px);
 }
 
 .screen-picker-item {
   cursor: pointer;
   color: white;
   text-align: center;
-  border: 2px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-sm);
   padding: 4px;
-  background: #2a2a2a;
-  transition: border-color 0.15s ease;
+  background: rgba(
+    34,
+    34,
+    34,
+    0.82
+  ); /* tiles are more opaque to contrast with modal */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 .screen-picker-item:hover {
   border-color: #00bfff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 .screen-picker-thumb {
@@ -1901,7 +1983,12 @@
 .screen-picker-thumb-placeholder {
   width: 320px;
   height: 200px;
-  background: #444;
+  background: rgba(
+    68,
+    68,
+    68,
+    0.55
+  ); /* slightly more visible inside opaque-ish tile */
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;

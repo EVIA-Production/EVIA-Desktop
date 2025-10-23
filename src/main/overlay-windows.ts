@@ -416,30 +416,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   return win;
 }
 
-function getWorkAreaBounds() {
-  const header = getOrCreateHeaderWindow();
-  const hb = header.getBounds();
-  const display = screen.getDisplayNearestPoint({
-    x: hb.x + hb.width / 2,
-    y: hb.y + hb.height / 2,
-  });
-  return display.workArea;
-}
-
-function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
-  const work = getWorkAreaBounds();
-  // Allow header to reach the right edge (remove invisible wall)
-  // Account for any rendering differences by allowing exact fit
-  const maxX = work.x + work.width - bounds.width + 10; // +10px buffer for right edge
-  const maxY = work.y + work.height - bounds.height;
-  return {
-    x: Math.max(work.x, Math.min(bounds.x, maxX)),
-    y: Math.max(work.y, Math.min(bounds.y, maxY)),
-    width: bounds.width,
-    height: bounds.height,
-  };
-}
-
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
   // Ensure windows exist before layout to have bounds

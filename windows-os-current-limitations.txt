@@ -1,0 +1,1 @@
+Windows can't remain alwaysOnTop if other app also has the same instruction. There is not a electron option for it for windows OS.

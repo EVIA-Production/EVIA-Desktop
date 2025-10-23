@@ -21,6 +21,71 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   >([]);
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
+  // Global visibility: when true, windows are fully opaque (invisibility disabled)
+  const [invisibilityDisabled, setInvisibilityDisabled] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem("evia:invisibilityDisabled") === "1";
+      } catch {
+        return false;
+      }
+    }
+  );
+
+  // BroadcastChannel to sync visibility across overlay windows
+  const bcRef = React.useRef<BroadcastChannel | null>(null);
+
+  // Initialize BroadcastChannel and listen for external changes
+  useEffect(() => {
+    // Apply current state to this window
+    document.body.classList.toggle(
+      "invisibility-disabled",
+      invisibilityDisabled
+    );
+
+    const bc = new BroadcastChannel("evia-visibility");
+    bcRef.current = bc;
+
+    const onMessage = (e: MessageEvent) => {
+      const next = (e as any)?.data?.invisibilityDisabled;
+      if (typeof next === "boolean") {
+        setInvisibilityDisabled(next);
+        document.body.classList.toggle("invisibility-disabled", next);
+      }
+    };
+    bc.addEventListener("message", onMessage as any);
+
+    // Announce current state so newly opened windows sync
+    try {
+      bc.postMessage({ invisibilityDisabled });
+    } catch {}
+
+    return () => {
+      try {
+        bc.removeEventListener("message", onMessage as any);
+      } catch {}
+      bc.close();
+      bcRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist and broadcast when toggled
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "evia:invisibilityDisabled",
+        invisibilityDisabled ? "1" : "0"
+      );
+    } catch {}
+    document.body.classList.toggle(
+      "invisibility-disabled",
+      invisibilityDisabled
+    );
+    try {
+      bcRef.current?.postMessage({ invisibilityDisabled });
+    } catch {}
+  }, [invisibilityDisabled]);
 
   // Handle logout - clears auth and returns to welcome
   const handleLogout = async () => {
@@ -133,21 +198,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Account Actions */}
-      <div className="settings-section">
-        <h2 className="settings-h2">Account</h2>
-        <div className="account-actions">
-          <button onClick={handleLogout} className="btn-logout">
-            <span>🚪</span>
-            <span>Logout</span>
-          </button>
-          <button onClick={handleQuit} className="btn-quit">
-            <span>🛑</span>
-            <span>Quit EVIA</span>
-          </button>
-        </div>
-      </div>
-
       <div className="settings-section">
         <h2 className="settings-h2">{i18n.t("overlay.settings.shortcuts")}</h2>
         {Object.entries(shortcuts).map(([name, accelerator]) => (
@@ -201,6 +251,34 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           {i18n.t("overlay.settings.autoUpdate")}:{" "}
           {autoUpdateEnabled ? "On" : "Off"}
         </button>
+      </div>
+
+      {/* Visibility / Invisibility toggle */}
+      <div className="settings-section">
+        <h2 className="settings-h2">Visibility</h2>
+        <div className="buttons-section">
+          <button
+            className="settings-cta-btn"
+            onClick={() => setInvisibilityDisabled((v) => !v)}
+          >
+            Disable Invisibility: {invisibilityDisabled ? "On" : "Off"}
+          </button>
+        </div>
+      </div>
+
+      {/* Account Actions */}
+      <div className="settings-section">
+        <h2 className="settings-h2">Account</h2>
+        <div className="account-actions">
+          <button onClick={handleLogout} className="btn-logout">
+            <span>🚪</span>
+            <span>Logout</span>
+          </button>
+          <button onClick={handleQuit} className="btn-quit">
+            <span>🛑</span>
+            <span>Quit EVIA</span>
+          </button>
+        </div>
       </div>
     </div>
   );
