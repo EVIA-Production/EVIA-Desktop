@@ -211,6 +211,33 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   }
 });
 
+// 👻 Invisibility: Toggle click-through on all windows
+ipcMain.handle('window:set-click-through', async (_event, enabled: boolean) => {
+  try {
+    const { getHeaderWindow, getAllChildWindows } = await import('./overlay-windows');
+    const headerWin = getHeaderWindow();
+    const childWins = getAllChildWindows();
+    
+    // Set click-through on header
+    if (headerWin && !headerWin.isDestroyed()) {
+      headerWin.setIgnoreMouseEvents(enabled, { forward: true });
+    }
+    
+    // Set click-through on all child windows
+    childWins.forEach(win => {
+      if (win && !win.isDestroyed()) {
+        win.setIgnoreMouseEvents(enabled, { forward: true });
+      }
+    });
+    
+    console.log('[Invisibility] ✅ Click-through', enabled ? 'enabled' : 'disabled', 'on all windows');
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Invisibility] ❌ Failed to set click-through:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
 // 🚪 App quit handler
 ipcMain.handle('app:quit', () => {
   console.log('[App] ✅ Quit requested via IPC');

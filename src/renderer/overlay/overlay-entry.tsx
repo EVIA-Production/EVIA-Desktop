@@ -4,7 +4,7 @@ import EviaBar from './EviaBar'
 import ListenView from './ListenView'
 import AskView from './AskView'
 import SettingsView from './SettingsView'
-import ShortCutSettingsView from './ShortCutSettingsView'
+import ShortcutsView from './ShortcutsView'
 import { i18n } from '../i18n/i18n'
 import { startCapture, stopCapture } from '../audio-processor-glass-parity'
 import '../overlay/overlay-glass.css'
@@ -397,7 +397,7 @@ function App() {
       return (
         <>
           <ToastContainer position="top-right" />
-          <ShortCutSettingsView />
+          <ShortcutsView language={language} />
         </>
       )
     default:

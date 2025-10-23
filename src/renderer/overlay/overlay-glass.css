@@ -758,6 +758,125 @@
 
 
 /* ============================================
+   SHORTCUTS VIEW
+   ============================================ */
+.shortcuts-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  background: rgba(30, 30, 30, 0.95);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  gap: 16px;
+}
+
+.shortcuts-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.shortcuts-header p {
+  font-size: 13px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.shortcut-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.shortcut-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.shortcut-value {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shortcut-value:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.shortcut-value.editing {
+  background: rgba(66, 133, 244, 0.2);
+  border: 1px solid rgba(66, 133, 244, 0.5);
+}
+
+.shortcut-key {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 0 2px;
+}
+
+.recording-indicator {
+  font-size: 12px;
+  color: rgba(66, 133, 244, 1);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.shortcuts-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-button.primary {
+  background: rgba(66, 133, 244, 0.8);
+}
+
+.settings-button.primary:hover:not(:disabled) {
+  background: rgba(66, 133, 244, 1);
+}
+
+.settings-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
    SETTINGS VIEW (Glass Parity)
    ============================================ */
 

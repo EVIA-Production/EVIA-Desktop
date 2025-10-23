@@ -72,6 +72,10 @@ contextBridge.exposeInMainWorld('evia', {
     toggleAllVisibility: () => ipcRenderer.invoke('header:toggle-visibility'),
     nudgeHeader: (dx: number, dy: number) => ipcRenderer.invoke('header:nudge', { dx, dy }),
     openAskWindow: () => ipcRenderer.invoke('header:open-ask'),
+    // 🔧 NEW: Invisibility toggle (click-through)
+    setClickThrough: (enabled: boolean) => ipcRenderer.invoke('window:set-click-through', enabled),
+    // 🔧 NEW: Open external URL in browser
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
   capture: {
     takeScreenshot: () => ipcRenderer.invoke('capture:screenshot'),

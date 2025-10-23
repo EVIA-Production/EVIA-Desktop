@@ -10,7 +10,7 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
-  const [accountInfo, setAccountInfo] = useState<string>('Not Logged In');
+  const [accountInfo, setAccountInfo] = useState<string>('');
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
@@ -25,11 +25,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         if (eviaAuth?.validate) {
           const result = await eviaAuth.validate();
           if (result && result.authenticated && result.user) {
-            setAccountInfo(`Logged in as ${result.user.email || result.user.username}`);
+            const email = result.user.email || result.user.username;
+            setAccountInfo(email);
+          } else {
+            setAccountInfo('');
           }
         }
       } catch (error) {
         console.error('[SettingsView] Failed to fetch account info:', error);
+        setAccountInfo('');
       }
     };
     fetchAccountInfo();
@@ -58,12 +62,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handlePersonalize = () => {
     console.log('[SettingsView] 📝 Personalize clicked - opening web app');
-    // TODO: Open web app in browser for personalization
+    // TODO: Open EVIA-Frontend in browser for personalization
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.openExternal) {
+      eviaWindows.openExternal('https://app.evia.ai/presets');
+    }
   };
 
   const handleToggleAutoUpdate = () => {
     setAutoUpdateEnabled(!autoUpdateEnabled);
     console.log('[SettingsView] 🔄 Auto-update:', !autoUpdateEnabled);
+    // TODO: Persist to user preferences via IPC
   };
 
   const handleMoveLeft = () => {
@@ -82,21 +91,40 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
-  const handleToggleInvisibility = () => {
-    setIsInvisible(!isInvisible);
-    console.log('[SettingsView] 👻 Invisibility:', !isInvisible);
-    // TODO: Implement invisibility toggle via IPC
+  const handleToggleInvisibility = async () => {
+    const newState = !isInvisible;
+    setIsInvisible(newState);
+    console.log('[SettingsView] 👻 Invisibility:', newState);
+    
+    // 🔧 NEW: Implement invisibility via IPC
+    try {
+      const eviaWindows = (window as any).evia?.windows;
+      if (eviaWindows?.setClickThrough) {
+        await eviaWindows.setClickThrough(newState);
+        console.log('[SettingsView] ✅ Click-through', newState ? 'enabled' : 'disabled');
+      }
+    } catch (error) {
+      console.error('[SettingsView] ❌ Failed to toggle invisibility:', error);
+    }
   };
 
   const handleEditShortcuts = () => {
     console.log('[SettingsView] ⌨️ Edit Shortcuts clicked');
-    // TODO: Open shortcuts editing modal/window
+    // 🔧 NEW: Open shortcuts window
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.show) {
+      eviaWindows.show('shortcuts');
+    }
   };
 
   const handleChangeSttModel = () => {
     console.log('[SettingsView] 🎤 Change STT Model clicked');
-    // TODO: Open STT model selector
+    // TODO: Open STT model selector modal
+    // For now, just log
   };
+
+  // Get translated strings
+  const t = (key: string) => i18n.t(`overlay.settings.${key}`);
 
   return (
     <div className="settings-container">
@@ -104,8 +132,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       <div className="header-section">
         <div className="title-line">
           <div>
-            <h1 className="app-title">EVIA</h1>
-            <p className="account-info">{accountInfo}</p>
+            <h1 className="app-title">{t('title')}</h1>
+            <p className="account-info">
+              {accountInfo 
+                ? `${t('accountLoggedInAs')} ${accountInfo}` 
+                : t('accountNotLoggedIn')}
+            </p>
           </div>
           <div className={`invisibility-icon ${isInvisible ? 'visible' : ''}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -118,52 +150,52 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
       {/* Language Selection */}
       <div className="language-section">
-        <label className="language-label">Language</label>
+        <label className="language-label">{t('language')}</label>
         <div className="language-toggle">
           <button
             className={`language-button ${language === 'de' ? 'active' : ''}`}
             onClick={() => language !== 'de' && onToggleLanguage()}
           >
-            Deutsch
+            {t('languageDeutsch')}
           </button>
           <button
             className={`language-button ${language === 'en' ? 'active' : ''}`}
             onClick={() => language !== 'en' && onToggleLanguage()}
           >
-            English
+            {t('languageEnglish')}
           </button>
         </div>
       </div>
 
       {/* STT Model Section */}
       <div className="model-section">
-        <label className="model-label">STT Model</label>
+        <label className="model-label">{t('sttModel')}</label>
         <button className="settings-button full-width" onClick={handleChangeSttModel}>
-          <span>Nova-3 (General)</span>
+          <span>{t('sttModelNova3')}</span>
         </button>
         <button className="settings-button full-width" onClick={handleEditShortcuts}>
-          <span>Edit Shortcuts</span>
+          <span>{t('editShortcuts')}</span>
         </button>
       </div>
 
       {/* Shortcuts Section */}
       <div className="shortcuts-section">
         <div className="shortcut-item">
-          <span className="shortcut-name">Show / Hide</span>
+          <span className="shortcut-name">{t('shortcutShowHide')}</span>
           <div className="shortcut-keys">
             <span className="cmd-key">⌘</span>
             <span className="shortcut-key">\</span>
           </div>
         </div>
         <div className="shortcut-item">
-          <span className="shortcut-name">Ask Anything</span>
+          <span className="shortcut-name">{t('shortcutAskAnything')}</span>
           <div className="shortcut-keys">
             <span className="cmd-key">⌘</span>
             <span className="shortcut-key">↵</span>
           </div>
         </div>
         <div className="shortcut-item">
-          <span className="shortcut-name">Scroll Up Response</span>
+          <span className="shortcut-name">{t('shortcutScrollUp')}</span>
           <div className="shortcut-keys">
             <span className="cmd-key">⌘</span>
             <span className="cmd-key">⇧</span>
@@ -171,7 +203,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           </div>
         </div>
         <div className="shortcut-item">
-          <span className="shortcut-name">Scroll Down Response</span>
+          <span className="shortcut-name">{t('shortcutScrollDown')}</span>
           <div className="shortcut-keys">
             <span className="cmd-key">⌘</span>
             <span className="cmd-key">⇧</span>
@@ -184,7 +216,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       <div className="preset-section">
         <div className="preset-header">
           <div>
-            <span className="preset-title">My Presets</span>
+            <span className="preset-title">{t('myPresets')}</span>
             <span className="preset-count">({presets.filter(p => !p.is_default).length})</span>
           </div>
           <span className="preset-toggle" onClick={() => setShowPresets(!showPresets)}>
@@ -194,9 +226,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <div className={`preset-list ${showPresets ? '' : 'hidden'}`}>
           {presets.filter(p => !p.is_default).length === 0 ? (
             <div className="no-presets-message">
-              No custom presets yet.<br />
+              {t('noPresetsMessage')}<br />
               <span className="web-link" onClick={handlePersonalize}>
-                Create your first preset
+                {t('createFirstPreset')}
               </span>
             </div>
           ) : (
@@ -217,31 +249,31 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       {/* Action Buttons */}
       <div className="buttons-section">
         <button className="settings-button full-width" onClick={handlePersonalize}>
-          <span>Personalize / Meeting Notes</span>
+          <span>{t('personalizeButton')}</span>
         </button>
         <button className="settings-button full-width" onClick={handleToggleAutoUpdate}>
-          <span>Automatic Updates: {autoUpdateEnabled ? 'On' : 'Off'}</span>
+          <span>{autoUpdateEnabled ? t('automaticUpdatesOn') : t('automaticUpdatesOff')}</span>
         </button>
 
         <div className="move-buttons">
           <button className="settings-button half-width" onClick={handleMoveLeft}>
-            <span>← Move</span>
+            <span>{t('moveLeft')}</span>
           </button>
           <button className="settings-button half-width" onClick={handleMoveRight}>
-            <span>Move →</span>
+            <span>{t('moveRight')}</span>
           </button>
         </div>
 
         <button className="settings-button full-width" onClick={handleToggleInvisibility}>
-          <span>Enable Invisibility</span>
+          <span>{isInvisible ? t('disableInvisibility') : t('enableInvisibility')}</span>
         </button>
 
         <div className="bottom-buttons">
           <button className="settings-button half-width" onClick={handleLogout}>
-            <span>Login</span>
+            <span>{t('login')}</span>
           </button>
           <button className="settings-button half-width danger" onClick={handleQuit}>
-            <span>Quit</span>
+            <span>{t('quit')}</span>
           </button>
         </div>
       </div>
