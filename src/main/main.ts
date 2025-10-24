@@ -246,6 +246,27 @@ ipcMain.handle('app:quit', () => {
   app.quit();
 });
 
+// 🎯 Session state broadcast handler (CRITICAL FIX for Demo)
+// Receives session state from EviaBar (Header window) and broadcasts to all windows
+// This ensures AskView always has the correct session state (before/during/after meeting)
+ipcMain.on('session-state-changed', (_event, newState: string) => {
+  console.log(`[Main] 📡 Broadcasting session state to all windows: ${newState}`);
+  
+  // Import BrowserWindow to get all windows
+  const { BrowserWindow } = require('electron');
+  const allWindows = BrowserWindow.getAllWindows();
+  
+  let broadcastCount = 0;
+  allWindows.forEach((win: any) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('session-state-changed', newState);
+      broadcastCount++;
+    }
+  });
+  
+  console.log(`[Main] ✅ Broadcast complete - sent to ${broadcastCount} window(s)`);
+});
+
 // 🔐 Permission handlers (Phase 3: Permission window)
 // Check microphone and screen recording permissions
 ipcMain.handle('permissions:check', async () => {

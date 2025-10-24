@@ -541,9 +541,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             // Build insights text with all sections
             let text = `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`;
             
-            // 🔧 FIX: Include Follow-Ups in copy text if they exist
-            if (insights.followUps && insights.followUps.length > 0) {
+            // 🔧 DEMO FIX: Only include Follow-Ups if session is NOT active (after meeting)
+            // During active recording, user only wants Summary/Topics/Actions copied
+            if (insights.followUps && insights.followUps.length > 0 && !isSessionActive) {
               text += `\n\nFollow-Ups:\n${insights.followUps.join('\n')}`;
+              console.log('[ListenView] 📋 Copy: Included Follow-Ups (session inactive)');
+            } else if (isSessionActive) {
+              console.log('[ListenView] 📋 Copy: Excluded Follow-Ups (session active)');
             }
             
             return text;
