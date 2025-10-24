@@ -47,6 +47,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
+  // 🔥 CRITICAL FIX: Track session state for insights context
+  const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>('before');
   // Glass parity: Insights fetched from backend via fetchInsights service
   const [insights, setInsights] = useState<Insight | null>(null);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
@@ -436,6 +438,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ✅ Insights cleared for new language');
       });
       console.log('[ListenView] ✅ language-changed listener registered');
+      
+      // 🔥 CRITICAL FIX: Listen for session state changes from main process
+      eviaIpc.on('session-state-changed', (newState: 'before' | 'during' | 'after') => {
+        console.log('[ListenView] 📡 Session state changed:', newState);
+        setSessionState(newState);
+        if (newState === 'during') {
+          setIsSessionActive(true);
+        } else if (newState === 'after') {
+          setIsSessionActive(false);
+        }
+      });
+      console.log('[ListenView] ✅ session-state-changed listener registered');
     } else {
       console.error('[ListenView] ❌ window.evia.ipc.on not available');
     }
@@ -481,11 +495,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
       
-      console.log('[ListenView] 📊 Fetching insights for chat:', chatId);
+      console.log('[ListenView] 📊 Fetching insights for chat:', chatId, 'session_state:', sessionState);
       // 🔧 FIX: Use current language from i18n instead of hardcoded 'de'
       const currentLang = i18n.getLanguage();
       console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
-      const fetchedInsights = await fetchInsights({ chatId, token, language: currentLang });
+      // 🔥 CRITICAL FIX: Pass session state to backend for context-aware insights
+      const fetchedInsights = await fetchInsights({ 
+        chatId, 
+        token, 
+        language: currentLang,
+        sessionState 
+      });
       const ttftMs = Date.now() - ttftStart;
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights fetched:', {
@@ -538,13 +558,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       ? transcripts.map(line => line.text).join('\n')
       : insights 
         ? (() => {
-            // Build insights text with all sections
-            let text = `Summary:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\nActions:\n${insights.actions.join('\n')}`;
+            // 🔥 FIX: Use translated headers instead of hardcoded "Summary"
+            const currentLang = i18n.getLanguage();
+            const summaryHeader = currentLang === 'de' ? 'Zusammenfassung' : 'Summary';
+            const actionsHeader = currentLang === 'de' ? 'Actions' : 'Actions';
+            const followUpsHeader = currentLang === 'de' ? 'Follow-Ups' : 'Follow-Ups';
+            
+            // Build insights text with translated sections
+            let text = `${summaryHeader}:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\n${actionsHeader}:\n${insights.actions.join('\n')}`;
             
             // 🔧 DEMO FIX: Only include Follow-Ups if session is NOT active (after meeting)
             // During active recording, user only wants Summary/Topics/Actions copied
             if (insights.followUps && insights.followUps.length > 0 && !isSessionActive) {
-              text += `\n\nFollow-Ups:\n${insights.followUps.join('\n')}`;
+              text += `\n\n${followUpsHeader}:\n${insights.followUps.join('\n')}`;
               console.log('[ListenView] 📋 Copy: Included Follow-Ups (session inactive)');
             } else if (isSessionActive) {
               console.log('[ListenView] 📋 Copy: Excluded Follow-Ups (session active)');

@@ -16,6 +16,7 @@ interface FetchInsightsParams {
   language?: string;
   token: string;
   baseUrl?: string;
+  sessionState?: 'before' | 'during' | 'after'; // 🔥 CRITICAL FIX: Add session state
 }
 
 export async function fetchInsights({
@@ -24,18 +25,19 @@ export async function fetchInsights({
   language = 'de',
   token,
   baseUrl,
+  sessionState = 'before', // 🔥 Default to 'before' if not provided
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
   
   try {
-    console.log('[Insights] Fetching insights for chat', chatId);
+    console.log('[Insights] Fetching insights for chat', chatId, 'session_state:', sessionState);
     const response = await fetch(`${url.replace(/\/$/, '')}/insights`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ chat_id: chatId, k, language }),
+      body: JSON.stringify({ chat_id: chatId, k, language, session_state: sessionState }),
     });
 
     if (!response.ok) {
