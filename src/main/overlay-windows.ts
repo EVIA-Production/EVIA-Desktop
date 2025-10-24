@@ -15,10 +15,11 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-// TEMPORARY FIX: Increased to 900px (user reported 700px still cuts off)
-// TODO: Implement dynamic width calculation based on button content (see DYNAMIC_HEADER_WIDTH.md)
-// Math: German "Anzeigen/Ausblenden" ~185px + other buttons ~300px + padding/gaps ~150px = ~635px
-// Adding 40% buffer for safety: 635 * 1.4 = 900px
+// ✅ DYNAMIC WIDTH: Header automatically resizes to fit content (EviaBar.tsx:192-222)
+// - Measures content width using getBoundingClientRect() on mount + language change
+// - IPC: header:set-window-width sends width to main process (lines 213-239)
+// - Main re-centers header and persists bounds (Glass parity)
+// Initial size: 900x49px (used for createHeaderWindow, then dynamically adjusted)
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
 // 🔧 SPACING FIX: Increased from 8px to 12px for better visual separation (prevent overlap)
@@ -940,7 +941,8 @@ function registerShortcuts() {
   registerSafe(shortcuts.moveLeft, nudgeLeft)
   registerSafe(shortcuts.moveRight, nudgeRight)
   
-  // TODO: Implement scroll, toggleClickThrough, manualScreenshot, previousResponse, nextResponse handlers
+  // NOTE: scroll/toggleClickThrough/screenshot/response handlers will be added in Phase 2
+  // Current implementation covers core navigation shortcuts (6/12 implemented)
   
   console.log('[Shortcuts] Registered shortcuts:', Object.keys(shortcuts).length)
 }
