@@ -50,7 +50,7 @@ const WINDOW_DATA = {
   },
   shortcuts: {
     width: 353, // Glass parity: windowManager.js:562
-    height: 720, // Glass parity: windowManager.js:563 - tall for all 12 shortcuts
+    height: 580, // Calculated: 12 shortcuts + header + buttons + padding (was 720, reduced to fit tighter)
     html: 'overlay.html?view=shortcuts',
     zIndex: 0,
   },

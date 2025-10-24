@@ -158,12 +158,32 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     }, 1500);
   };
 
+  // Glass parity: Symbol mapping for keyboard shortcuts
+  const keyMap: { [key: string]: string } = {
+    'Cmd': '⌘',
+    'Command': '⌘',
+    'Ctrl': '⌃',
+    'Control': '⌃',
+    'Alt': '⌥',
+    'Option': '⌥',
+    'Shift': '⇧',
+    'Enter': '↵',
+    'Backspace': '⌫',
+    'Delete': '⌦',
+    'Tab': '⇥',
+    'Escape': '⎋',
+    'Up': '↑',
+    'Down': '↓',
+    'Left': '←',
+    'Right': '→',
+  };
+
   const renderShortcutKey = (accelerator: string) => {
     if (!accelerator) return <span className="shortcut-key">N/A</span>;
     const keys = accelerator.split('+');
     return keys.map((key, index) => (
       <span key={index} className="shortcut-key">
-        {key === 'Cmd' ? '⌘' : key === 'Shift' ? '⇧' : key === 'Alt' ? '⌥' : key === 'Ctrl' ? '⌃' : key}
+        {keyMap[key] || key}
       </span>
     ));
   };

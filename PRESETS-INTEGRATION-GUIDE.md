@@ -1,4 +1,4 @@
-# 📋 PRESETS INTEGRATION GUIDE
+-# 📋 PRESETS INTEGRATION GUIDE
 
 **For**: Backend + Desktop integration to display user presets in Settings
 

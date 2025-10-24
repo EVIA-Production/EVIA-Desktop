@@ -763,16 +763,17 @@
 .shortcuts-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100%; /* Fill window height */
   padding: 12px;
   background: rgba(20, 20, 20, 0.9);
   border-radius: 12px;
   outline: 0.5px rgba(255, 255, 255, 0.2) solid;
   outline-offset: -1px;
   color: rgba(255, 255, 255, 0.9);
-  gap: 8px;
+  gap: 0; /* Remove gap - use padding/margin on children instead */
   position: relative;
   overflow: hidden;
+  box-sizing: border-box; /* Include padding in height calculation */
 }
 
 /* Glass parity: Close button */
@@ -800,6 +801,11 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
+.shortcuts-header {
+  flex-shrink: 0; /* Never shrink header */
+  margin-bottom: 8px;
+}
+
 .shortcuts-header h2 {
   font-size: 14px;
   font-weight: 500;
@@ -821,10 +827,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
+  flex: 1 1 auto; /* Glass parity: Grow to fill space, shrink if needed */
   overflow-y: auto;
   margin: 0 -4px;
   padding: 4px;
+  min-height: 0; /* Allows flex child to shrink below content size */
 }
 
 .shortcut-row {
@@ -932,6 +939,8 @@
   gap: 4px;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0; /* Never shrink buttons - Glass parity */
+  margin-top: 8px; /* Space above buttons */
 }
 
 .button-group {
