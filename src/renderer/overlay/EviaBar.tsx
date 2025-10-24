@@ -94,6 +94,71 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, []);
 
+  // 🆕 BACKEND INTEGRATION: Sync session state on app load
+  useEffect(() => {
+    const syncSessionState = async () => {
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        const chatId = localStorage.getItem('current_chat_id');
+        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        
+        if (!token || !chatId) {
+          console.log('[EviaBar] ⏭️ Skipping session status sync: no token or chat_id');
+          return;
+        }
+        
+        console.log('[EviaBar] 🔄 Syncing session state with backend...');
+        const response = await fetch(`${baseUrl}/session/status`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ chat_id: Number(chatId) })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[EviaBar] ✅ Backend session status:', data.status);
+          
+          // Map backend states to Desktop states
+          if (data.status === 'during') {
+            setListenStatus('in');
+          } else if (data.status === 'after') {
+            setListenStatus('after');
+          } else {
+            setListenStatus('before');
+          }
+        } else {
+          console.error('[EviaBar] ❌ Failed to get session status:', response.status, await response.text());
+        }
+      } catch (error) {
+        console.error('[EviaBar] ❌ Error syncing session state:', error);
+      }
+    };
+    
+    // Sync on mount
+    syncSessionState();
+    
+    // Re-sync when chat_id changes (user switches chats)
+    const handleChatChanged = () => {
+      console.log('[EviaBar] 💬 Chat changed - syncing session state');
+      syncSessionState();
+    };
+    
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc) {
+      eviaIpc.on('chat-changed', handleChatChanged);
+    }
+    
+    return () => {
+      if (eviaIpc) {
+        eviaIpc.off('chat-changed', handleChatChanged);
+      }
+    };
+  }, []);
+
   // 🔧 FIX: Reset listen button state when language is changed or session is cleared
   useEffect(() => {
     const handleLanguageChanged = () => {
@@ -233,6 +298,38 @@ const EviaBar: React.FC<EviaBarProps> = ({
       setListenStatus('in');
       setIsListenActive(true);
       onToggleListening();
+      
+      // 🆕 BACKEND INTEGRATION: Call /session/start
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        const chatId = localStorage.getItem('current_chat_id');
+        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        
+        if (token && chatId) {
+          console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
+          const response = await fetch(`${baseUrl}/session/start`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ chat_id: Number(chatId) })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[EviaBar] ✅ Session started:', data);
+          } else {
+            console.error('[EviaBar] ❌ Failed to start session:', response.status, await response.text());
+          }
+        } else {
+          console.warn('[EviaBar] ⚠️ Cannot call /session/start: missing token or chat_id');
+        }
+      } catch (error) {
+        console.error('[EviaBar] ❌ Error calling /session/start:', error);
+      }
+      
     } else if (listenStatus === 'in') {
       // Stop → Done: Window STAYS visible
       console.log('[EviaBar] Stop → Done: Window stays visible');
@@ -243,6 +340,42 @@ const EviaBar: React.FC<EviaBarProps> = ({
     } else if (listenStatus === 'after') {
       // 🔧 FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
       console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
+      
+      // 🆕 BACKEND INTEGRATION: Call /session/complete BEFORE hiding windows
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        const chatId = localStorage.getItem('current_chat_id');
+        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        
+        if (token && chatId) {
+          console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
+          const response = await fetch(`${baseUrl}/session/complete`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+              chat_id: Number(chatId),
+              summary: null  // Optional - can add user input later
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[EviaBar] ✅ Session completed:', data);
+            console.log(`[EviaBar] 📦 Archived ${data.transcript_count} transcripts`);
+          } else {
+            console.error('[EviaBar] ❌ Failed to complete session:', response.status, await response.text());
+          }
+        } else {
+          console.warn('[EviaBar] ⚠️ Cannot call /session/complete: missing token or chat_id');
+        }
+      } catch (error) {
+        console.error('[EviaBar] ❌ Error calling /session/complete:', error);
+      }
+      
       await (window as any).evia?.windows?.hide?.('listen');
       await (window as any).evia?.windows?.hide?.('ask');
       // Broadcast session-closed event so Ask can clear its state
