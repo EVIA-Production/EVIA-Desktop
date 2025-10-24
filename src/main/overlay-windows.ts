@@ -1352,9 +1352,6 @@ function getAllChildWindows(): BrowserWindow[] {
   return Array.from(childWindows.values()).filter(win => win && !win.isDestroyed())
 }
 
-// Export for use in main.ts (invisibility toggle, etc.)
-export { getHeaderWindow, getAllChildWindows }
-
 // 🔐 Welcome Window (Phase 2: Auth Flow)
 // Shown when user is not logged in (no token in keytar)
 let welcomeWindow: BrowserWindow | null = null
@@ -1517,6 +1514,7 @@ export {
   getOrCreateHeaderWindow as createHeaderWindow,
   getOrCreateHeaderWindow,
   getHeaderWindow,
+  getAllChildWindows,
   createChildWindow,
   updateWindows,
   toggleWindow,

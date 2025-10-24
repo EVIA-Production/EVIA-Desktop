@@ -513,4 +513,3 @@ All features are **fully implemented** and **ready to test**:
 ---
 
 **Implementation Complete** | **Branch**: `prep-fixes/desktop-polish` | **Commit**: `e9bd38d`
-
