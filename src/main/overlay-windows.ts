@@ -59,10 +59,15 @@ const WINDOW_DATA = {
 const WORKSPACES_OPTS = { visibleOnFullScreen: true }
 
 const persistFile = path.join(app.getPath('userData'), 'overlay-prefs.json')
+type ShortcutConfig = {
+  [key: string]: string  // action -> accelerator mapping
+}
+
 type PersistedState = {
   headerBounds?: Electron.Rectangle
   visible?: WindowVisibility
   autoUpdate?: boolean  // User preference for automatic updates
+  shortcuts?: ShortcutConfig  // User-customized keyboard shortcuts
 }
 let persistedState: PersistedState = {}
 
@@ -870,23 +875,74 @@ function openAskWindow() {
   }
 }
 
+// 🔥 GLASS PARITY: Default shortcuts (Glass: shortcutsService.js:59-75)
+function getDefaultShortcuts(): ShortcutConfig {
+  const isMac = process.platform === 'darwin'
+  const mod = isMac ? 'Cmd' : 'Ctrl'
+  
+  return {
+    toggleVisibility: `${mod}+\\`,
+    nextStep: `${mod}+Enter`,
+    moveUp: `${mod}+Up`,
+    moveDown: `${mod}+Down`,
+    moveLeft: `${mod}+Left`,
+    moveRight: `${mod}+Right`,
+    scrollUp: `${mod}+Shift+Up`,
+    scrollDown: `${mod}+Shift+Down`,
+    toggleClickThrough: `${mod}+M`,
+    manualScreenshot: `${mod}+Shift+S`,
+    previousResponse: `${mod}+[`,
+    nextResponse: `${mod}+]`,
+  }
+}
+
+// 🔥 GLASS PARITY: Load shortcuts from persisted state or use defaults
+function loadShortcuts(): ShortcutConfig {
+  if (persistedState.shortcuts) {
+    // Merge saved shortcuts with defaults (in case new shortcuts added)
+    const defaults = getDefaultShortcuts()
+    return { ...defaults, ...persistedState.shortcuts }
+  }
+  return getDefaultShortcuts()
+}
+
+// 🔥 GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
 function registerShortcuts() {
-  // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
+  // Unregister all first (Glass does this)
+  globalShortcut.unregisterAll()
+  
+  const shortcuts = loadShortcuts()
   const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
   
-  // Wrap in paramless functions to avoid 'conversion from X' errors
+  // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
   const nudgeUp = () => nudgeHeader(0, -step)
   const nudgeDown = () => nudgeHeader(0, step)
   const nudgeLeft = () => nudgeHeader(-step, 0)
   const nudgeRight = () => nudgeHeader(step, 0)
   
-  globalShortcut.register('CommandOrControl+\\', handleHeaderToggle)
-  globalShortcut.register('CommandOrControl+Enter', openAskWindow)
-  // Note: Glass uses 'Cmd+Up' not plain 'Up'; adjust if needed for parity
-  globalShortcut.register('CommandOrControl+Up', nudgeUp)
-  globalShortcut.register('CommandOrControl+Down', nudgeDown)
-  globalShortcut.register('CommandOrControl+Left', nudgeLeft)
-  globalShortcut.register('CommandOrControl+Right', nudgeRight)
+  // Register each shortcut with its handler
+  const registerSafe = (accelerator: string | undefined, handler: () => void) => {
+    if (!accelerator) return
+    try {
+      const success = globalShortcut.register(accelerator, handler)
+      if (!success) {
+        console.warn(`[Shortcuts] Failed to register: ${accelerator}`)
+      }
+    } catch (error) {
+      console.error(`[Shortcuts] Error registering ${accelerator}:`, error)
+    }
+  }
+  
+  registerSafe(shortcuts.toggleVisibility, handleHeaderToggle)
+  registerSafe(shortcuts.nextStep, openAskWindow)
+  registerSafe(shortcuts.moveUp, nudgeUp)
+  registerSafe(shortcuts.moveDown, nudgeDown)
+  registerSafe(shortcuts.moveLeft, nudgeLeft)
+  registerSafe(shortcuts.moveRight, nudgeRight)
+  
+  // TODO: Implement scroll, toggleClickThrough, manualScreenshot, previousResponse, nextResponse handlers
+  
+  console.log('[Shortcuts] Registered shortcuts:', Object.keys(shortcuts).length)
 }
 
 function unregisterShortcuts() {
@@ -1030,6 +1086,29 @@ ipcMain.handle('settings:set-auto-update', (_event, enabled: boolean) => {
   console.log('[Settings] 💾 set-auto-update:', enabled);
   saveState({ autoUpdate: enabled });
   return { ok: true };
+})
+
+// 🔥 GLASS PARITY: Shortcuts persistence (Glass: shortcutsService.js:77-121)
+ipcMain.handle('shortcuts:get', () => {
+  const shortcuts = loadShortcuts();
+  console.log('[Shortcuts] 📡 get-shortcuts:', shortcuts);
+  return { ok: true, shortcuts };
+})
+
+ipcMain.handle('shortcuts:set', (_event, shortcuts: ShortcutConfig) => {
+  console.log('[Shortcuts] 💾 set-shortcuts:', shortcuts);
+  saveState({ shortcuts });
+  // Re-register shortcuts with new values (Glass does this)
+  registerShortcuts();
+  return { ok: true };
+})
+
+ipcMain.handle('shortcuts:reset', () => {
+  console.log('[Shortcuts] 🔄 reset-shortcuts');
+  const defaults = getDefaultShortcuts();
+  saveState({ shortcuts: defaults });
+  registerShortcuts();
+  return { ok: true, shortcuts: defaults };
 })
 
 // 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)

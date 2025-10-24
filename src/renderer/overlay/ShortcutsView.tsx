@@ -130,12 +130,46 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     };
   }, []);
 
+  // 🔥 GLASS PARITY: Load shortcuts from main process on mount
+  useEffect(() => {
+    const loadSavedShortcuts = async () => {
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        const result = await eviaIpc?.invoke('shortcuts:get');
+        if (result?.ok && result.shortcuts) {
+          // Convert from main process format to UI format
+          const shortcutsArray = DEFAULT_SHORTCUTS.map(defaultShortcut => ({
+            ...defaultShortcut,
+            accelerator: result.shortcuts[defaultShortcut.id] || defaultShortcut.accelerator
+          }));
+          setShortcuts(shortcutsArray);
+          console.log('[ShortcutsView] ✅ Loaded shortcuts from main process');
+        }
+      } catch (error) {
+        console.error('[ShortcutsView] ❌ Failed to load shortcuts:', error);
+      }
+    };
+    loadSavedShortcuts();
+  }, []);
+
   const handleSave = async () => {
     console.log('[ShortcutsView] 💾 Saving shortcuts:', shortcuts);
-    // TODO: Implement IPC call to save shortcuts to main process
-    // await (window as any).evia?.prefs?.set({ shortcuts });
-    setHasChanges(false);
-    if (onClose) onClose();
+    
+    // 🔥 GLASS PARITY: Convert to main process format and save via IPC
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      const shortcutsMap: { [key: string]: string } = {};
+      shortcuts.forEach(s => {
+        shortcutsMap[s.id] = s.accelerator;
+      });
+      
+      await eviaIpc?.invoke('shortcuts:set', shortcutsMap);
+      console.log('[ShortcutsView] ✅ Shortcuts saved and re-registered');
+      setHasChanges(false);
+      if (onClose) onClose();
+    } catch (error) {
+      console.error('[ShortcutsView] ❌ Failed to save shortcuts:', error);
+    }
   };
 
   const handleCancel = () => {
@@ -157,10 +191,29 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     if (onClose) onClose();
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     console.log('[ShortcutsView] 🔄 Reset to defaults');
-    setShortcuts(DEFAULT_SHORTCUTS);
-    setHasChanges(true);
+    
+    // 🔥 GLASS PARITY: Reset via IPC (main process will save and re-register)
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      const result = await eviaIpc?.invoke('shortcuts:reset');
+      if (result?.ok && result.shortcuts) {
+        // Convert from main process format to UI format
+        const shortcutsArray = DEFAULT_SHORTCUTS.map(defaultShortcut => ({
+          ...defaultShortcut,
+          accelerator: result.shortcuts[defaultShortcut.id] || defaultShortcut.accelerator
+        }));
+        setShortcuts(shortcutsArray);
+        setHasChanges(false);  // No changes after reset (already saved)
+        console.log('[ShortcutsView] ✅ Shortcuts reset to defaults');
+      }
+    } catch (error) {
+      console.error('[ShortcutsView] ❌ Failed to reset shortcuts:', error);
+      // Fallback to local reset if IPC fails
+      setShortcuts(DEFAULT_SHORTCUTS);
+      setHasChanges(true);
+    }
   };
 
   const handleDisable = (id: string) => {
@@ -199,7 +252,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     
     const i18nKey = i18nKeyMap[shortcut.id];
     if (i18nKey) {
-      return i18n(currentLanguage, `settings.${i18nKey}`);
+      return i18n.t(`overlay.settings.${i18nKey}`);
     }
     
     // Fallback to English name
