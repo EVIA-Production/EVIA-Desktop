@@ -88,29 +88,35 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             clearTimeout(resizeTimeout);
           }
 
-          // Wait 100ms after last size change to ensure DOM is stable
+          // 🔧 CRITICAL FIX: Wait for layout completion before measuring
+          // - Increased debounce: 100ms → 200ms for complex content (markdown, code blocks)
+          // - Added RAF: Ensures measurement AFTER browser completes layout/paint cycle
+          // - Fixes: 15-35px undersizing for long responses (>150 chars)
           resizeTimeout = setTimeout(() => {
-            // 🔧 CRITICAL FIX: Use scrollHeight to measure FULL content, not just visible area
-            // Glass uses scrollHeight (line 1418) to handle max-height: 400px constraint
-            // entry.contentRect.height only measures visible area (clamped by max-height)
-            // scrollHeight measures the actual content size including overflow
-            const container = entry.target as HTMLElement;
-            const needed = Math.ceil(container.scrollHeight);
-            
-            console.log('[AskView] 📏 Measuring content: visible=%dpx, scroll=%dpx', 
-              Math.ceil(entry.contentRect.height), needed);
-            
-            // Tight threshold (3px) for precise sizing
-            const delta = Math.abs(needed - current);
-            if (delta > 3) {
-              // Minimal padding (5px) for scrollbar only
-              const targetHeight = needed + 5;
-              storedContentHeightRef.current = targetHeight;  // Store for restoration
-              requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 ResizeObserver (debounced): %dpx → %dpx (delta: %dpx) [STORED]', 
-                current, targetHeight, delta);
-            }
-          }, 100);
+            // Wait for next browser paint cycle to ensure layout is complete
+            requestAnimationFrame(() => {
+              // 🔧 CRITICAL FIX: Use scrollHeight to measure FULL content, not just visible area
+              // Glass uses scrollHeight (line 1418) to handle max-height: 400px constraint
+              // entry.contentRect.height only measures visible area (clamped by max-height)
+              // scrollHeight measures the actual content size including overflow
+              const container = entry.target as HTMLElement;
+              const needed = Math.ceil(container.scrollHeight);
+              
+              console.log('[AskView] 📏 Measuring content: visible=%dpx, scroll=%dpx', 
+                Math.ceil(entry.contentRect.height), needed);
+              
+              // Tight threshold (3px) for precise sizing
+              const delta = Math.abs(needed - current);
+              if (delta > 3) {
+                // Minimal padding (5px) for scrollbar only
+                const targetHeight = needed + 5;
+                storedContentHeightRef.current = targetHeight;  // Store for restoration
+                requestWindowResize(targetHeight);
+                console.log('[AskView] 📏 ResizeObserver (RAF + debounced): %dpx → %dpx (delta: %dpx) [STORED]', 
+                  current, targetHeight, delta);
+              }
+            });
+          }, 200);  // Increased from 100ms to 200ms for complex layout completion
         } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
           // CASE 2: Content unchanged but window height doesn't match stored height (with 5px tolerance)
           // NOTE: This should RARELY happen now that layoutChildWindows() preserves Ask height
