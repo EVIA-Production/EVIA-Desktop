@@ -32,6 +32,8 @@ const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
 ];
 
 const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
+  // 🔧 FIX: Track language state to force re-render on language change
+  const [currentLanguage, setCurrentLanguage] = useState<'de' | 'en'>(language);
   const [shortcuts, setShortcuts] = useState<ShortcutConfig[]>(DEFAULT_SHORTCUTS);
   const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
   const [recordedKeys, setRecordedKeys] = useState<string[]>([]);
@@ -109,6 +111,25 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     };
   }, [editingShortcut, recordedKeys, shortcuts, feedback]);
 
+  // 🔧 FIX: Listen for language changes and update current language
+  useEffect(() => {
+    const handleLanguageChanged = (newLang: string) => {
+      console.log('[ShortcutsView] 🌐 Language changed to:', newLang);
+      setCurrentLanguage(newLang as 'de' | 'en');
+    };
+    
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc) {
+      eviaIpc.on('language-changed', handleLanguageChanged);
+    }
+    
+    return () => {
+      if (eviaIpc) {
+        eviaIpc.off('language-changed', handleLanguageChanged);
+      }
+    };
+  }, []);
+
   const handleSave = async () => {
     console.log('[ShortcutsView] 💾 Saving shortcuts:', shortcuts);
     // TODO: Implement IPC call to save shortcuts to main process
@@ -158,6 +179,33 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     }, 1500);
   };
 
+  // 🔧 FIX: Helper function to get translated shortcut name
+  const getShortcutName = (shortcut: ShortcutConfig): string => {
+    // Map shortcut IDs to i18n keys
+    const i18nKeyMap: { [key: string]: string } = {
+      'toggleVisibility': 'shortcutShowHide',
+      'nextStep': 'shortcutAskAnything',
+      'moveUp': 'shortcutMoveUp',
+      'moveDown': 'shortcutMoveDown',
+      'moveLeft': 'shortcutMoveLeft',
+      'moveRight': 'shortcutMoveRight',
+      'scrollUp': 'shortcutScrollUp',
+      'scrollDown': 'shortcutScrollDown',
+      'toggleClickThrough': 'shortcutToggleClickThrough',
+      'manualScreenshot': 'shortcutManualScreenshot',
+      'previousResponse': 'shortcutPreviousResponse',
+      'nextResponse': 'shortcutNextResponse',
+    };
+    
+    const i18nKey = i18nKeyMap[shortcut.id];
+    if (i18nKey) {
+      return i18n(currentLanguage, `settings.${i18nKey}`);
+    }
+    
+    // Fallback to English name
+    return shortcut.name;
+  };
+
   // Glass parity: Symbol mapping for keyboard shortcuts
   const keyMap: { [key: string]: string } = {
     'Cmd': '⌘',
@@ -203,7 +251,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
         {shortcuts.map(shortcut => (
           <div key={shortcut.id}>
             <div className="shortcut-row">
-              <span className="shortcut-name">{shortcut.name}</span>
+              <span className="shortcut-name">{getShortcutName(shortcut)}</span>
               
               <button className="action-btn" onClick={() => setEditingShortcut(shortcut.id)}>
                 Edit

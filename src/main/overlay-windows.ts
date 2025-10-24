@@ -526,14 +526,22 @@ function layoutChildWindows(visible: WindowVisibility) {
   }
 
   // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
-  // Centered horizontally at header Y position
+  // Position to the right of settings if settings is visible, otherwise center at header
   if (visible.shortcuts) {
     const shortcutsWin = createChildWindow('shortcuts')
     const shortcutsW = WINDOW_DATA.shortcuts.width
     const shortcutsH = WINDOW_DATA.shortcuts.height
     
-    let x = hb.x + (hb.width / 2) - (shortcutsW / 2)
-    const y = hb.y
+    let x, y
+    if (visible.settings && layout.settings) {
+      // 🔧 FIX: Position to the right of settings window (Glass parity)
+      x = layout.settings.x + layout.settings.width + PAD
+      y = layout.settings.y
+    } else {
+      // Fallback: Center horizontally at header Y position
+      x = hb.x + (hb.width / 2) - (shortcutsW / 2)
+      y = hb.y
+    }
     
     // Clamp to screen
     x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW))
