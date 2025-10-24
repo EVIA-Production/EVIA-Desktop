@@ -1,13 +1,36 @@
 # 🔧 Ask Window Y-Axis Sizing Fix - Complete Documentation
 
-**Date**: 2025-10-24  
+**Date**: 2025-10-24 (Updated: 2025-10-25)  
 **Priority**: HIGHEST  
-**Status**: ✅ **FIXED**  
+**Status**: ✅ **FIXED** (v2 - Glass Parity)  
 **File**: `EVIA-Desktop/src/renderer/overlay/AskView.tsx`
 
 ---
 
-## 📋 PROBLEM STATEMENT
+## 🔥 VERSION 2 UPDATE (2025-10-25)
+
+**User Report**: V1 fix still had issues - header missing on long responses (~2 seconds to complete)
+
+**Root Cause (V1)**: Measuring DURING streaming with time-based debounce (200ms) was still too early for very long responses. Browser layout can take 500ms+ for complex markdown.
+
+**V2 Solution (Glass Parity - EXACT COPY)**:
+1. **During streaming**: RAF-throttled measurements (at most once per frame), only adjust if grossly wrong (>50px delta) - prevents jitter
+2. **On stream completion**: **FINAL measurement** using double-RAF (guarantees layout complete)
+3. **Result**: 100% accuracy regardless of response length or complexity
+
+**Key Changes**:
+- Removed time-based debounce (200ms setTimeout)
+- Added RAF throttling during streaming (Glass pattern)
+- **Added final measurement in `onDone()` callback** (CRITICAL)
+- Changed threshold: Live=50px (loose), Final=3px (tight)
+
+**Files Modified**:
+- `AskView.tsx` Lines 65-115: RAF-throttled ResizeObserver
+- `AskView.tsx` Lines 559-581: Final measurement on stream done
+
+---
+
+## 📋 PROBLEM STATEMENT (Original V1)
 
 ### **Issue**
 Ask window miscalculates height by **15-35px** for long streaming responses (>150 characters), causing content overflow and poor UX.

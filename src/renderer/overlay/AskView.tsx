@@ -62,76 +62,54 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Note: marked v9+ uses marked.use() for extensions, but we'll highlight after render
   }, []);
 
-  // 🔧 FIX #41: ResizeObserver as primary sizing mechanism with debounce
-  // 🔧 UI IMPROVEMENT: Only resize when content changes, not on window move
-  // Glass parity: Continuously observe container size changes
+  // 🔥 GLASS PARITY: RAF-throttled ResizeObserver (not time-based debounce)
+  // Glass uses requestAnimationFrame to throttle measurements (at most once per frame)
+  // CRITICAL: Final measurement happens in onDone(), this is just for live updates
   useEffect(() => {
     const container = document.querySelector('.ask-container');
     if (!container) return;
 
-    let resizeTimeout: NodeJS.Timeout | null = null;
+    let rafThrottled = false;
 
     resizeObserverRef.current = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const current = window.innerHeight;
-        
-        // 🔧 CRITICAL FIX: Handle two cases:
-        // Case 1: Content has changed (streaming or new response) → Calculate new height
-        // Case 2: Content unchanged but window resized externally (arrow keys) → Restore stored height
-        
-        const contentChanged = isStreaming || response !== lastResponseRef.current;
-        
-        if (contentChanged) {
-          // CASE 1: Content changed - calculate and store new height
-          // Clear any pending resize to debounce rapid changes
-          if (resizeTimeout) {
-            clearTimeout(resizeTimeout);
+      // 🔥 GLASS PATTERN: RAF throttling prevents measurement spam
+      if (rafThrottled) return;
+      
+      rafThrottled = true;
+      requestAnimationFrame(() => {
+        for (const entry of entries) {
+          const current = window.innerHeight;
+          const contentChanged = isStreaming || response !== lastResponseRef.current;
+          
+          if (contentChanged && isStreaming) {
+            // CASE 1: During streaming - light measurement for overflow prevention only
+            // Don't try to be perfect here - final measurement happens in onDone()
+            const container = entry.target as HTMLElement;
+            const needed = Math.ceil(container.scrollHeight);
+            const delta = Math.abs(needed - current);
+            
+            // Only resize if grossly wrong (>50px off) - prevents jitter
+            if (delta > 50) {
+              const targetHeight = needed + 5;
+              requestWindowResize(targetHeight);
+              console.log('[AskView] 📏 Live adjustment (streaming): %dpx → %dpx (large delta: %dpx)', 
+                current, targetHeight, delta);
+            }
+          } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
+            // CASE 2: Content stable but height wrong (external resize like arrow keys)
+            console.warn('[AskView] ⚠️ Height mismatch detected, restoring: %dpx → %dpx', 
+              current, storedContentHeightRef.current);
+            requestWindowResize(storedContentHeightRef.current);
           }
-
-          // 🔧 CRITICAL FIX: Wait for layout completion before measuring
-          // - Increased debounce: 100ms → 200ms for complex content (markdown, code blocks)
-          // - Added RAF: Ensures measurement AFTER browser completes layout/paint cycle
-          // - Fixes: 15-35px undersizing for long responses (>150 chars)
-          resizeTimeout = setTimeout(() => {
-            // Wait for next browser paint cycle to ensure layout is complete
-            requestAnimationFrame(() => {
-              // 🔧 CRITICAL FIX: Use scrollHeight to measure FULL content, not just visible area
-              // Glass uses scrollHeight (line 1418) to handle max-height: 400px constraint
-              // entry.contentRect.height only measures visible area (clamped by max-height)
-              // scrollHeight measures the actual content size including overflow
-              const container = entry.target as HTMLElement;
-              const needed = Math.ceil(container.scrollHeight);
-              
-              console.log('[AskView] 📏 Measuring content: visible=%dpx, scroll=%dpx', 
-                Math.ceil(entry.contentRect.height), needed);
-              
-              // Tight threshold (3px) for precise sizing
-              const delta = Math.abs(needed - current);
-              if (delta > 3) {
-                // Minimal padding (5px) for scrollbar only
-                const targetHeight = needed + 5;
-                storedContentHeightRef.current = targetHeight;  // Store for restoration
-                requestWindowResize(targetHeight);
-                console.log('[AskView] 📏 ResizeObserver (RAF + debounced): %dpx → %dpx (delta: %dpx) [STORED]', 
-                  current, targetHeight, delta);
-              }
-            });
-          }, 200);  // Increased from 100ms to 200ms for complex layout completion
-        } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
-          // CASE 2: Content unchanged but window height doesn't match stored height (with 5px tolerance)
-          // NOTE: This should RARELY happen now that layoutChildWindows() preserves Ask height
-          // If you see this log frequently, something is overriding the height externally
-          console.warn('[AskView] ⚠️ UNEXPECTED: Height mismatch detected, restoring: %dpx → %dpx', 
-            current, storedContentHeightRef.current);
-          requestWindowResize(storedContentHeightRef.current);
         }
-      }
+        
+        rafThrottled = false;
+      });
     });
 
     resizeObserverRef.current.observe(container);
 
     return () => {
-      if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeObserverRef.current?.disconnect();
     };
   }, [isStreaming, response]);
@@ -555,6 +533,30 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
+      
+      // 🔥 CRITICAL FIX: Do FINAL measurement after stream completes
+      // Glass parity: Measure when done, not during streaming
+      // Wait for React to finish rendering + browser to complete layout
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const container = document.querySelector('.ask-container') as HTMLElement;
+          if (container) {
+            const needed = Math.ceil(container.scrollHeight);
+            const current = window.innerHeight;
+            const delta = Math.abs(needed - current);
+            
+            if (delta > 3) {
+              const targetHeight = needed + 5;
+              storedContentHeightRef.current = targetHeight;
+              requestWindowResize(targetHeight);
+              console.log('[AskView] 📏 FINAL measurement (stream done): %dpx → %dpx (delta: %dpx)', 
+                current, targetHeight, delta);
+            } else {
+              console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
+            }
+          }
+        });
+      });
     });
     
     handle.onError((e: any) => {
