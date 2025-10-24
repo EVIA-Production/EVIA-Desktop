@@ -118,7 +118,21 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
   };
 
   const handleCancel = () => {
-    console.log('[ShortcutsView] ❌ Cancel clicked');
+    console.log('[ShortcutsView] ❌ Cancel clicked - closing window');
+    // Glass parity: Close the shortcuts window via IPC
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.hide) {
+      eviaWindows.hide('shortcuts');
+    }
+    if (onClose) onClose();
+  };
+  
+  const handleClose = () => {
+    console.log('[ShortcutsView] ✕ Close button clicked');
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.hide) {
+      eviaWindows.hide('shortcuts');
+    }
     if (onClose) onClose();
   };
 
@@ -158,7 +172,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 
   return (
     <div className="shortcuts-container">
-      <button className="close-button" onClick={handleCancel} title="Close">&times;</button>
+      <button className="close-button" onClick={handleClose} title="Close">&times;</button>
       
       <div className="shortcuts-header">
         <h2>{t('title')}</h2>

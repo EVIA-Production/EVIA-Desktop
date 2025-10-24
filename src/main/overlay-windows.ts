@@ -49,8 +49,8 @@ const WINDOW_DATA = {
     zIndex: 2,
   },
   shortcuts: {
-    width: 320,
-    height: 360,
+    width: 353, // Glass parity: windowManager.js:562
+    height: 720, // Glass parity: windowManager.js:563 - tall for all 12 shortcuts
     html: 'overlay.html?view=shortcuts',
     zIndex: 0,
   },
@@ -155,7 +155,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   headerWindow.setAlwaysOnTop(true, 'screen-saver')
-  headerWindow.setContentProtection(true)
+  headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
 
   // 🔧 Load from Vite dev server in development, built files in production
@@ -245,18 +245,22 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Glass parity: Ask/Settings/Shortcuts need to be focusable for input
   const needsFocus = name === 'ask' || name === 'settings' || name === 'shortcuts'
   
+  // Glass parity: Shortcuts window is independent (no parent) and movable (windowManager.js:560-568)
+  const isShortcuts = name === 'shortcuts'
+  
   const win = new BrowserWindow({
-    parent,
+    parent: isShortcuts ? undefined : parent, // Shortcuts has no parent so it can be moved
     show: false,
     frame: false,
     transparent: true,
     resizable: false,
-    movable: false,
+    movable: isShortcuts, // Only shortcuts window is movable
     minimizable: false,
     maximizable: false,
     focusable: needsFocus, // Ask/Settings/Shortcuts can receive focus
     skipTaskbar: true,
     alwaysOnTop: true,
+    modal: false, // Glass parity: Shortcuts is not modal
     width: def.width,
     height: def.height,
     hasShadow: false,
@@ -279,7 +283,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
 
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.setContentProtection(true)
+  win.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   
   // Glass parity: All windows are interactive by default (windowManager.js:287)
   win.setIgnoreMouseEvents(false)
