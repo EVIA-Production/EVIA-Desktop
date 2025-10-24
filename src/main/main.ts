@@ -211,29 +211,31 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   }
 });
 
-// 👻 Invisibility: Toggle click-through on all windows
+// 👻 Invisibility: Toggle content protection (screen recording invisibility)
+// Glass parity: Uses setContentProtection to make windows invisible to screenshots/screen recording
+// while still allowing user interaction
 ipcMain.handle('window:set-click-through', async (_event, enabled: boolean) => {
   try {
     const { getHeaderWindow, getAllChildWindows } = await import('./overlay-windows');
     const headerWin = getHeaderWindow();
     const childWins = getAllChildWindows();
     
-    // Set click-through on header
+    // Set content protection on header
     if (headerWin && !headerWin.isDestroyed()) {
-      headerWin.setIgnoreMouseEvents(enabled, { forward: true });
+      headerWin.setContentProtection(enabled);
     }
     
-    // Set click-through on all child windows
+    // Set content protection on all child windows
     childWins.forEach(win => {
       if (win && !win.isDestroyed()) {
-        win.setIgnoreMouseEvents(enabled, { forward: true });
+        win.setContentProtection(enabled);
       }
     });
     
-    console.log('[Invisibility] ✅ Click-through', enabled ? 'enabled' : 'disabled', 'on all windows');
+    console.log('[Invisibility] ✅ Content protection', enabled ? 'enabled' : 'disabled', '(invisible to screen recording)');
     return { success: true };
   } catch (err: unknown) {
-    console.error('[Invisibility] ❌ Failed to set click-through:', err);
+    console.error('[Invisibility] ❌ Failed to set content protection:', err);
     return { success: false, error: (err as Error).message };
   }
 });

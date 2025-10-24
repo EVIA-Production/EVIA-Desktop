@@ -61,11 +61,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   const handlePersonalize = () => {
-    console.log('[SettingsView] 📝 Personalize clicked - opening web app');
-    // TODO: Open EVIA-Frontend in browser for personalization
+    console.log('[SettingsView] 📝 Personalize / Meeting Notes clicked - opening /activity');
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.openExternal) {
-      eviaWindows.openExternal('https://app.evia.ai/presets');
+      eviaWindows.openExternal('http://localhost:5173/activity');
+    }
+  };
+  
+  const handleCreatePreset = () => {
+    console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.openExternal) {
+      eviaWindows.openExternal('http://localhost:5173/personalize');
     }
   };
 
@@ -227,7 +234,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           {presets.filter(p => !p.is_default).length === 0 ? (
             <div className="no-presets-message">
               {t('noPresetsMessage')}<br />
-              <span className="web-link" onClick={handlePersonalize}>
+              <span className="web-link" onClick={handleCreatePreset}>
                 {t('createFirstPreset')}
               </span>
             </div>

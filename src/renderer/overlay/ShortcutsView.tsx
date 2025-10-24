@@ -15,17 +15,28 @@ interface ShortcutConfig {
   category: 'window' | 'navigation' | 'action';
 }
 
+// Glass parity: All 12 shortcuts from DEFAULT_KEYBINDS
+const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
+  { id: 'toggleVisibility', name: 'Show / Hide', accelerator: 'Cmd+\\', category: 'window' },
+  { id: 'nextStep', name: 'Ask Anything', accelerator: 'Cmd+Enter', category: 'action' },
+  { id: 'moveUp', name: 'Move Up Window', accelerator: 'Cmd+Up', category: 'navigation' },
+  { id: 'moveDown', name: 'Move Down Window', accelerator: 'Cmd+Down', category: 'navigation' },
+  { id: 'moveLeft', name: 'Move Left Window', accelerator: 'Cmd+Left', category: 'navigation' },
+  { id: 'moveRight', name: 'Move Right Window', accelerator: 'Cmd+Right', category: 'navigation' },
+  { id: 'scrollUp', name: 'Scroll Up Response', accelerator: 'Cmd+Shift+Up', category: 'navigation' },
+  { id: 'scrollDown', name: 'Scroll Down Response', accelerator: 'Cmd+Shift+Down', category: 'navigation' },
+  { id: 'toggleClickThrough', name: 'Toggle Click Through', accelerator: 'Cmd+M', category: 'action' },
+  { id: 'manualScreenshot', name: 'Manual Screenshot', accelerator: 'Cmd+Shift+S', category: 'action' },
+  { id: 'previousResponse', name: 'Previous Response', accelerator: 'Cmd+[', category: 'navigation' },
+  { id: 'nextResponse', name: 'Next Response', accelerator: 'Cmd+]', category: 'navigation' },
+];
+
 const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
-  const [shortcuts, setShortcuts] = useState<ShortcutConfig[]>([
-    { id: 'toggle-visibility', name: i18n.t('overlay.settings.shortcutShowHide'), accelerator: 'Cmd+\\', category: 'window' },
-    { id: 'open-ask', name: i18n.t('overlay.settings.shortcutAskAnything'), accelerator: 'Cmd+Enter', category: 'window' },
-    { id: 'scroll-up', name: i18n.t('overlay.settings.shortcutScrollUp'), accelerator: 'Cmd+Shift+Up', category: 'navigation' },
-    { id: 'scroll-down', name: i18n.t('overlay.settings.shortcutScrollDown'), accelerator: 'Cmd+Shift+Down', category: 'navigation' },
-  ]);
-  
+  const [shortcuts, setShortcuts] = useState<ShortcutConfig[]>(DEFAULT_SHORTCUTS);
   const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
   const [recordedKeys, setRecordedKeys] = useState<string[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
+  const [feedback, setFeedback] = useState<{ [key: string]: { type: 'error' | 'success'; msg: string } }>({});
 
   // Handle keyboard input when recording a new shortcut
   useEffect(() => {
@@ -42,8 +53,13 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
       
       // Add the actual key if it's not a modifier
       if (!['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) {
-        const key = e.key === ' ' ? 'Space' : e.key;
-        keys.push(key.toUpperCase());
+        let key = e.key;
+        if (key === ' ') key = 'Space';
+        else if (key === '\\') key = '\\';
+        else if (key === '[') key = '[';
+        else if (key === ']') key = ']';
+        else if (key.length === 1) key = key.toUpperCase();
+        keys.push(key);
       }
       
       setRecordedKeys(keys);
@@ -53,12 +69,32 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
       if (recordedKeys.length >= 2) {
         // Valid shortcut (at least one modifier + one key)
         const accelerator = recordedKeys.join('+');
-        setShortcuts(prev =>
-          prev.map(s =>
-            s.id === editingShortcut ? { ...s, accelerator } : s
-          )
-        );
-        setHasChanges(true);
+        
+        // Check if already used
+        const existing = shortcuts.find(s => s.accelerator === accelerator && s.id !== editingShortcut);
+        if (existing) {
+          setFeedback({
+            ...feedback,
+            [editingShortcut]: { type: 'error', msg: `Already used by ${existing.name}` }
+          });
+          setTimeout(() => {
+            setFeedback(f => { const newF = { ...f }; delete newF[editingShortcut]; return newF; });
+          }, 2000);
+        } else {
+          setShortcuts(prev =>
+            prev.map(s =>
+              s.id === editingShortcut ? { ...s, accelerator } : s
+            )
+          );
+          setFeedback({
+            ...feedback,
+            [editingShortcut]: { type: 'success', msg: 'Shortcut updated!' }
+          });
+          setTimeout(() => {
+            setFeedback(f => { const newF = { ...f }; delete newF[editingShortcut]; return newF; });
+          }, 1500);
+          setHasChanges(true);
+        }
         setEditingShortcut(null);
         setRecordedKeys([]);
       }
@@ -71,7 +107,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [editingShortcut, recordedKeys]);
+  }, [editingShortcut, recordedKeys, shortcuts, feedback]);
 
   const handleSave = async () => {
     console.log('[ShortcutsView] 💾 Saving shortcuts:', shortcuts);
@@ -88,17 +124,28 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 
   const handleReset = () => {
     console.log('[ShortcutsView] 🔄 Reset to defaults');
-    // Reset to default shortcuts
-    setShortcuts([
-      { id: 'toggle-visibility', name: i18n.t('overlay.settings.shortcutShowHide'), accelerator: 'Cmd+\\', category: 'window' },
-      { id: 'open-ask', name: i18n.t('overlay.settings.shortcutAskAnything'), accelerator: 'Cmd+Enter', category: 'window' },
-      { id: 'scroll-up', name: i18n.t('overlay.settings.shortcutScrollUp'), accelerator: 'Cmd+Shift+Up', category: 'navigation' },
-      { id: 'scroll-down', name: i18n.t('overlay.settings.shortcutScrollDown'), accelerator: 'Cmd+Shift+Down', category: 'navigation' },
-    ]);
+    setShortcuts(DEFAULT_SHORTCUTS);
     setHasChanges(true);
   };
 
+  const handleDisable = (id: string) => {
+    setShortcuts(prev =>
+      prev.map(s =>
+        s.id === id ? { ...s, accelerator: '' } : s
+      )
+    );
+    setHasChanges(true);
+    setFeedback({
+      ...feedback,
+      [id]: { type: 'success', msg: 'Shortcut disabled' }
+    });
+    setTimeout(() => {
+      setFeedback(f => { const newF = { ...f }; delete newF[id]; return newF; });
+    }, 1500);
+  };
+
   const renderShortcutKey = (accelerator: string) => {
+    if (!accelerator) return <span className="shortcut-key">N/A</span>;
     const keys = accelerator.split('+');
     return keys.map((key, index) => (
       <span key={index} className="shortcut-key">
@@ -111,6 +158,8 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 
   return (
     <div className="shortcuts-container">
+      <button className="close-button" onClick={handleCancel} title="Close">&times;</button>
+      
       <div className="shortcuts-header">
         <h2>{t('title')}</h2>
         <p>{t('description')}</p>
@@ -118,29 +167,45 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 
       <div className="shortcuts-list">
         {shortcuts.map(shortcut => (
-          <div key={shortcut.id} className="shortcut-row">
-            <span className="shortcut-name">{shortcut.name}</span>
-            <div
-              className={`shortcut-value ${editingShortcut === shortcut.id ? 'editing' : ''}`}
-              onClick={() => {
-                setEditingShortcut(shortcut.id);
-                setRecordedKeys([]);
-              }}
-            >
-              {editingShortcut === shortcut.id ? (
-                <span className="recording-indicator">
-                  {recordedKeys.length > 0 ? recordedKeys.join('+') : 'Press keys...'}
-                </span>
-              ) : (
-                renderShortcutKey(shortcut.accelerator)
-              )}
+          <div key={shortcut.id}>
+            <div className="shortcut-row">
+              <span className="shortcut-name">{shortcut.name}</span>
+              
+              <button className="action-btn" onClick={() => setEditingShortcut(shortcut.id)}>
+                Edit
+              </button>
+              <button className="action-btn" onClick={() => handleDisable(shortcut.id)}>
+                Disable
+              </button>
+              
+              <div
+                className={`shortcut-value ${editingShortcut === shortcut.id ? 'editing' : ''}`}
+                onClick={() => {
+                  setEditingShortcut(shortcut.id);
+                  setRecordedKeys([]);
+                }}
+              >
+                {editingShortcut === shortcut.id ? (
+                  <span className="recording-indicator">
+                    {recordedKeys.length > 0 ? recordedKeys.join('+') : 'Press new shortcut...'}
+                  </span>
+                ) : (
+                  renderShortcutKey(shortcut.accelerator)
+                )}
+              </div>
             </div>
+            
+            {feedback[shortcut.id] && (
+              <div className={`feedback ${feedback[shortcut.id].type}`}>
+                {feedback[shortcut.id].msg}
+              </div>
+            )}
           </div>
         ))}
       </div>
 
       <div className="shortcuts-actions">
-        <button className="settings-button" onClick={handleReset}>
+        <button className="settings-button danger" onClick={handleReset}>
           {t('reset')}
         </button>
         <div className="button-group">
@@ -161,4 +226,3 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 };
 
 export default ShortcutsView;
-
