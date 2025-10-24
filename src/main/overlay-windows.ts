@@ -62,6 +62,7 @@ const persistFile = path.join(app.getPath('userData'), 'overlay-prefs.json')
 type PersistedState = {
   headerBounds?: Electron.Rectangle
   visible?: WindowVisibility
+  autoUpdate?: boolean  // User preference for automatic updates
 }
 let persistedState: PersistedState = {}
 
@@ -1016,6 +1017,19 @@ ipcMain.handle('auth:validate', async () => {
   const { headerController } = await import('./header-controller');
   const isAuthenticated = await headerController.validateAuthentication();
   return { ok: true, authenticated: isAuthenticated };
+})
+
+// 🔧 FIX ISSUE #2: Auto-update toggle persistence
+ipcMain.handle('settings:get-auto-update', () => {
+  const enabled = persistedState.autoUpdate !== undefined ? persistedState.autoUpdate : true;
+  console.log('[Settings] 📡 get-auto-update:', enabled);
+  return { ok: true, enabled };
+})
+
+ipcMain.handle('settings:set-auto-update', (_event, enabled: boolean) => {
+  console.log('[Settings] 💾 set-auto-update:', enabled);
+  saveState({ autoUpdate: enabled });
+  return { ok: true };
 })
 
 // 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)

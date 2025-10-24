@@ -39,6 +39,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     fetchAccountInfo();
   }, []);
 
+  // 🔧 FIX ISSUE #2: Load auto-update setting on mount
+  useEffect(() => {
+    const loadAutoUpdateSetting = async () => {
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        const result = await eviaIpc?.invoke('settings:get-auto-update');
+        if (result?.enabled !== undefined) {
+          setAutoUpdateEnabled(result.enabled);
+          console.log('[SettingsView] ✅ Loaded auto-update setting:', result.enabled);
+        }
+      } catch (error) {
+        console.error('[SettingsView] ❌ Failed to load auto-update setting:', error);
+      }
+    };
+    loadAutoUpdateSetting();
+  }, []);
+
   // Handlers
   const handleLogout = async () => {
     console.log('[SettingsView] 🚪 Logout clicked');
@@ -76,10 +93,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
-  const handleToggleAutoUpdate = () => {
-    setAutoUpdateEnabled(!autoUpdateEnabled);
-    console.log('[SettingsView] 🔄 Auto-update:', !autoUpdateEnabled);
-    // TODO: Persist to user preferences via IPC
+  // 🔧 FIX ISSUE #2: Persist auto-update toggle via IPC
+  const handleToggleAutoUpdate = async () => {
+    const newState = !autoUpdateEnabled;
+    setAutoUpdateEnabled(newState);
+    console.log('[SettingsView] 🔄 Auto-update:', newState);
+    
+    // Persist to main process
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      await eviaIpc?.invoke('settings:set-auto-update', newState);
+      console.log('[SettingsView] ✅ Auto-update persisted:', newState);
+    } catch (error) {
+      console.error('[SettingsView] ❌ Failed to persist auto-update:', error);
+      // Revert UI state on failure
+      setAutoUpdateEnabled(!newState);
+    }
   };
 
   const handleMoveLeft = () => {
