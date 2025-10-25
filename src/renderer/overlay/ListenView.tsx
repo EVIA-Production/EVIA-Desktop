@@ -4,6 +4,7 @@ import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
+import { showToast, ToastContainer } from '../components/ToastNotification';
 
 declare global {
   interface Window {

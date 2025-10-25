@@ -68,53 +68,87 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
   }
 
   ;(async () => {
-    try {
-      const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal })
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-      const reader = res.body?.getReader()
-      if (!reader) throw new Error('No response body')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) {
-          try { doneHandler() } catch {}
-          break
+    // 🔥 CRITICAL FIX: Retry logic for transient errors (Ask endpoint)
+    const MAX_RETRIES = 2; // Shorter for streaming (user expects fast response)
+    const RETRY_DELAY = 1500;
+    
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[Ask] Sending request (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal })
+        
+        if (!res.ok) {
+          // Only retry on 5xx errors
+          if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
+            console.warn(`[Ask] ⚠️ Server error ${res.status}, retrying in ${RETRY_DELAY}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            continue;
+          }
+          throw new Error(`HTTP ${res.status}`)
         }
-        buffer += decoder.decode(value, { stream: true })
-        let lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        
+        const reader = res.body?.getReader()
+        if (!reader) throw new Error('No response body')
 
-        for (const raw of lines) {
-          const line = raw.trim()
-          if (!line) continue
-          let obj: any
-          try {
-            obj = JSON.parse(line)
-          } catch (e) {
-            try { errorHandler(new Error('Malformed JSONL line')) } catch {}
-            continue
-          }
-          const delta = typeof obj?.delta === 'string' ? obj.delta : ''
-          const doneFlag = obj?.done === true
+        const decoder = new TextDecoder()
+        let buffer = ''
 
-          if (delta) {
-            try { deltaHandler(delta) } catch {}
-          }
-          if (doneFlag) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
             try { doneHandler() } catch {}
-            try { controller.abort() } catch {}
-            return
+            break
+          }
+          buffer += decoder.decode(value, { stream: true })
+          let lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const raw of lines) {
+            const line = raw.trim()
+            if (!line) continue
+            let obj: any
+            try {
+              obj = JSON.parse(line)
+            } catch (e) {
+              try { errorHandler(new Error('Malformed JSONL line')) } catch {}
+              continue
+            }
+            const delta = typeof obj?.delta === 'string' ? obj.delta : ''
+            const doneFlag = obj?.done === true
+
+            if (delta) {
+              try { deltaHandler(delta) } catch {}
+            }
+            if (doneFlag) {
+              try { doneHandler() } catch {}
+              try { controller.abort() } catch {}
+              return
+            }
           }
         }
+        
+        // Success - break out of retry loop
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        
+        lastError = err instanceof Error ? err : new Error(String(err));
+        
+        // Retry on network errors only
+        const isNetworkError = err instanceof TypeError || 
+                               (err instanceof Error && err.message.includes('Failed to fetch'));
+        
+        if (isNetworkError && attempt < MAX_RETRIES - 1) {
+          console.warn(`[Ask] ⚠️ Network error, retrying in ${RETRY_DELAY}ms...`, err);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          continue;
+        }
+        
+        // Final error - emit to handler
+        try { errorHandler(lastError) } catch {}
+        return;
       }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return
-      try { errorHandler(err instanceof Error ? err : new Error(String(err))) } catch {}
     }
   })()
 

@@ -178,6 +178,10 @@ export class ChatWebSocket {
           console.error('[WS] Error:', ev);
           this.isConnectedFlag = false;
           const errorMsg = (ev as ErrorEvent).message || 'Unknown error';
+          
+          // 🔥 CRITICAL FIX: Emit user-facing error notification
+          this.emitErrorNotification(`Connection error: ${errorMsg}. Attempting to reconnect...`);
+          
           reject(new Error(`WS Error: ${errorMsg}`));
         };
         this.ws.onmessage = (event) => {
@@ -211,6 +215,7 @@ export class ChatWebSocket {
 
   private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
   private connectionChangeHandlers: ((connected: boolean) => void)[] = [];
+  private errorNotificationHandlers: ((error: string) => void)[] = [];
 
   sendMessage(message: WebSocketMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -293,11 +298,27 @@ export class ChatWebSocket {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 32000);
+    
+    // 🔥 CRITICAL FIX: Cap exponential backoff at 32 seconds + max 10 attempts
+    const MAX_RECONNECT_ATTEMPTS = 10;
+    const MAX_DELAY = 32000;
+    
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.error(`[WS] ❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`);
+      this.emitErrorNotification('Connection lost. Please check your network and restart recording.');
+      return;
+    }
+    
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), MAX_DELAY);
+    console.log(`[WS] 🔄 Scheduling reconnect attempt ${this.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
+    
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
-      console.log(`Reconnecting attempt ${this.reconnectAttempts}...`);
-      this.connect();
+      console.log(`[WS] Reconnecting attempt ${this.reconnectAttempts}...`);
+      this.connect().catch(err => {
+        console.error('[WS] Reconnect failed:', err);
+        // scheduleReconnect will be called again by onclose handler
+      });
     }, delay);
   }
 
@@ -320,6 +341,25 @@ export class ChatWebSocket {
     while (this.queue.length > 0) {
       this.ws!.send(this.queue.shift()!);
     }
+  }
+  
+  // 🔥 CRITICAL FIX: Error notification system for user feedback
+  onErrorNotification(handler: (error: string) => void) {
+    this.errorNotificationHandlers.push(handler);
+    return () => {
+      this.errorNotificationHandlers = this.errorNotificationHandlers.filter(h => h !== handler);
+    };
+  }
+  
+  private emitErrorNotification(error: string) {
+    console.error('[WS] 🚨 Error notification:', error);
+    this.errorNotificationHandlers.forEach(h => {
+      try {
+        h(error);
+      } catch (err) {
+        console.error('[WS] Error notification handler failed:', err);
+      }
+    });
   }
 }
 
