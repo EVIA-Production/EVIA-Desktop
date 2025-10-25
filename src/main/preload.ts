@@ -117,6 +117,11 @@ contextBridge.exposeInMainWorld('evia', {
       console.log('[Preload] IPC listener registered for:', channel);
       // Remove the 'event' parameter that Electron provides
       ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+    },
+    // 🔥 CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
+    invoke: (channel: string, ...args: any[]) => {
+      console.log('[Preload] IPC invoke:', channel, args);
+      return ipcRenderer.invoke(channel, ...args);
     }
   }
 })
