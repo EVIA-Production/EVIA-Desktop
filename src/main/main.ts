@@ -79,10 +79,57 @@ app.on('window-all-closed', () => {
   if (platform !== 'darwin') app.quit()
 })
 
-app.on('activate', () => {
-  // Re-create header if needed
-  if (!getHeaderWindow()) createHeaderWindow()
-})
+app.on("activate", () => {
+  // On macOS 'activate' may be emitted at launch; only create header here
+  // if the user is already authenticated and (on macOS) has the required permissions.
+  // We intentionally avoid calling validateAuthentication() here to use the
+  // existing, already-implemented checks (keytar + systemPreferences).
+  (async () => {
+    try {
+      const exists = !!getHeaderWindow();
+      if (exists) return;
+
+      // Check token presence via keytar
+      let hasToken = false;
+      try {
+        const token = await keytar.getPassword("evia", "token");
+        hasToken = !!token;
+      } catch (e) {
+        console.warn("[Main] activate: keytar read failed:", e);
+      }
+
+      if (!hasToken) {
+        console.log("[Main] activate: no token present — not creating header");
+        return;
+      }
+
+      // On macOS also ensure microphone and screen permissions are granted
+      if (process.platform === "darwin") {
+        try {
+          const mic = systemPreferences.getMediaAccessStatus("microphone");
+          const screen = systemPreferences.getMediaAccessStatus("screen");
+          const micOk = mic === "granted";
+          const screenOk = screen === "granted";
+          if (!micOk || !screenOk) {
+            console.log(
+              "[Main] activate: token present but permissions missing — not creating header",
+              { mic, screen }
+            );
+            return;
+          }
+        } catch (e) {
+          console.warn("[Main] activate: permission check failed:", e);
+          return;
+        }
+      }
+
+      // If we reached here, token + (macOS) permissions are satisfied — create header
+      createHeaderWindow();
+    } catch (err) {
+      console.error("[Main] activate handler failed:", err);
+    }
+  })();
+});
 
 app.on('quit', async () => {
   console.log('[Main] App quitting, cleaning up system audio...')
