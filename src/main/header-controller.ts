@@ -45,6 +45,38 @@ export class HeaderController {
     console.log('[HeaderController] Initialized, state file:', this.stateFilePath);
   }
 
+    /**
+   * Validate authentication & permissions and ensure the correct windows/state are shown.
+   * Returns true when the controller is in the 'ready' state (token present and permissions granted/completed).
+   */
+  public async validateAuthentication(): Promise<boolean> {
+    try {
+      const data = await this.getStateData();
+      const nextState = this.determineNextState(data);
+
+      // If the next desired state differs from current, transition.
+      if (nextState !== this.currentState) {
+        console.log(
+          "[HeaderController] validateAuthentication: state mismatch, transitioning",
+          this.currentState,
+          "→",
+          nextState
+        );
+        await this.transitionTo(nextState);
+      } else {
+        console.log(
+          "[HeaderController] validateAuthentication: state unchanged:",
+          this.currentState
+        );
+      }
+
+      return this.currentState === "ready";
+    } catch (err) {
+      console.error("[HeaderController] validateAuthentication failed:", err);
+      return false;
+    }
+  }
+
   /**
    * Load persisted state from disk (permissions completed flag)
    */
