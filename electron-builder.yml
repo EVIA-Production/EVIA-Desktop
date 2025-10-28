@@ -1,5 +1,5 @@
 appId: com.evia.desktop
-productName: EVIA Desktop
+productName: EVIA
 # 🔐 Custom URL scheme for deep linking (auth callback from web)
 protocols:
   - name: EVIA
@@ -8,6 +8,7 @@ protocols:
 files:
   - dist/**
   - src/main/assets/**
+icon: src/main/assets/icon.icns
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
 mac:
