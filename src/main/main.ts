@@ -80,8 +80,27 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // Re-create header if needed
-  if (!getHeaderWindow()) createHeaderWindow()
+    // Re-create header if needed, but only when authentication+permissions are satisfied.
+  // On macOS the 'activate' event can fire at launch which previously caused the header
+  // to be created unconditionally. That made the bar appear before the auth flow completed.
+  (async () => {
+    try {
+      const exists = !!getHeaderWindow();
+      if (exists) return;
+      const isReady = await headerController.validateAuthentication();
+      if (isReady) {
+        createHeaderWindow();
+      } else {
+        // If not ready, headerController will have already shown Welcome/Permission windows
+        // during boot or validateAuthentication(); do not create the header here.
+        console.log(
+          "[Main] activate: Header not created because user is not authenticated/ready"
+        );
+      }
+    } catch (err) {
+      console.error("[Main] activate handler failed:", err);
+    }
+  })();
 })
 
 app.on('quit', async () => {
