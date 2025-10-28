@@ -1515,7 +1515,7 @@ export function createWelcomeWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // 🔥 ENABLE in production for debugging
     },
   })
 
@@ -1540,6 +1540,32 @@ export function createWelcomeWindow(): BrowserWindow {
   } else {
     welcomeWindow.loadFile(path.join(__dirname, '../renderer/welcome.html'))
   }
+
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  welcomeWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+          if (welcomeWindow.webContents.isDevToolsOpened()) {
+            welcomeWindow.webContents.closeDevTools()
+          } else {
+            welcomeWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+          if (welcomeWindow.webContents.isDevToolsOpened()) {
+            welcomeWindow.webContents.closeDevTools()
+          } else {
+            welcomeWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+    }
+  })
 
   welcomeWindow.on('closed', () => {
     welcomeWindow = null
@@ -1592,7 +1618,7 @@ export function createPermissionWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // 🔥 ENABLE in production for debugging
     },
   })
 
@@ -1617,6 +1643,32 @@ export function createPermissionWindow(): BrowserWindow {
   } else {
     permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'))
   }
+
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  permissionWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (permissionWindow && !permissionWindow.isDestroyed()) {
+          if (permissionWindow.webContents.isDevToolsOpened()) {
+            permissionWindow.webContents.closeDevTools()
+          } else {
+            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (permissionWindow && !permissionWindow.isDestroyed()) {
+          if (permissionWindow.webContents.isDevToolsOpened()) {
+            permissionWindow.webContents.closeDevTools()
+          } else {
+            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+    }
+  })
 
   permissionWindow.on('closed', () => {
     permissionWindow = null
