@@ -1,10 +1,10 @@
 // Create new file with full content
 import { BACKEND_URL, WS_BASE_URL } from '../config/config';
-import type { SessionState } from '../lib/evia-ask-stream';
 
 interface WebSocketMessage {
   type?: string;
   command?: string;
+  language?: string; // For change_language command
   data?: {
     text?: string;
     speaker?: number | null;

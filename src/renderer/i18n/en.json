@@ -85,6 +85,7 @@
       "enableInvisibility": "Enable Invisibility",
       "disableInvisibility": "Disable Invisibility",
       "login": "Login",
+      "logout": "Logout",
       "quit": "Quit"
     },
     "shortcuts": {

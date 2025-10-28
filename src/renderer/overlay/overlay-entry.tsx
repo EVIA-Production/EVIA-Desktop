@@ -11,6 +11,7 @@ import '../overlay/overlay-glass.css'
 import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
+import { BACKEND_URL } from '../config/config'
 
 const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()

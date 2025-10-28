@@ -85,6 +85,7 @@
       "enableInvisibility": "Unsichtbarkeit aktivieren",
       "disableInvisibility": "Unsichtbarkeit deaktivieren",
       "login": "Anmelden",
+      "logout": "Abmelden",
       "quit": "Beenden"
     },
     "shortcuts": {
