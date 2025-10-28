@@ -287,7 +287,7 @@ function App() {
         // 🔧 Get auth token from keytar (secure credential storage)
         console.log('[OverlayEntry] 🔍 Getting auth token from keytar...')
         const token = await (window as any).evia?.auth?.getToken?.()
-        const backend = (window as any).EVIA_BACKEND_URL || 'http://localhost:8000'
+        const backend = BACKEND_URL
         
         if (!token) {
           console.error('[OverlayEntry] ❌ No auth token found - user must login first')

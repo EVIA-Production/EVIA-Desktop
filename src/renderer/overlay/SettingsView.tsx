@@ -12,6 +12,7 @@ interface SettingsViewProps {
 
 const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
   const [accountInfo, setAccountInfo] = useState<string>('');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
@@ -28,13 +29,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           if (result && result.authenticated && result.user) {
             const email = result.user.email || result.user.username;
             setAccountInfo(email);
+            setIsLoggedIn(true);
           } else {
             setAccountInfo('');
+            setIsLoggedIn(false);
           }
         }
       } catch (error) {
         console.error('[SettingsView] Failed to fetch account info:', error);
         setAccountInfo('');
+        setIsLoggedIn(false);
       }
     };
     fetchAccountInfo();
@@ -192,7 +196,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <div className="title-line">
           <div>
             <h1 className="app-title">{t('title')}</h1>
-            <p className="account-info">
+            <p className={`account-info ${isLoggedIn ? 'logged-in' : ''}`}>
               {accountInfo 
                 ? `${t('accountLoggedInAs')} ${accountInfo}` 
                 : t('accountNotLoggedIn')}
@@ -328,9 +332,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </button>
 
         <div className="bottom-buttons">
-          <button className="settings-button half-width" onClick={handleLogout}>
-            <span>{t('login')}</span>
-          </button>
+          {isLoggedIn ? (
+            <button className="settings-button half-width" onClick={handleLogout}>
+              <span>{t('logout')}</span>
+            </button>
+          ) : (
+            <button className="settings-button half-width" onClick={() => {
+              const eviaWindows = (window as any).evia?.windows;
+              eviaWindows?.openExternal?.(`${FRONTEND_URL}/login?source=desktop`);
+            }}>
+              <span>{t('login')}</span>
+            </button>
+          )}
           <button className="settings-button half-width danger" onClick={handleQuit}>
             <span>{t('quit')}</span>
           </button>

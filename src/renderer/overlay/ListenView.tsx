@@ -59,6 +59,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
   const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
+  const finalTranscriptCountRef = useRef(0); // 🔥 GLASS PARITY: Counter for triggering auto-insights every 5 final transcripts
   
   // Sync autoScroll state with ref
   useEffect(() => {
@@ -157,6 +158,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // 🔧 FIX: Reset timer display
         setElapsedTime('00:00');
         setIsSessionActive(true);
+        finalTranscriptCountRef.current = 0; // 🔥 GLASS PARITY: Reset final transcript counter
+        console.log('[ListenView] 🔄 Reset final transcript counter');
         startTimer();
         return;
       }
@@ -333,10 +336,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 };
                 // Remove current (now merged) message
                   newMessages.splice(targetIdx, 1);
-          } else {
-                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
-                  console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
+              } else {
+                const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
+                console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
+                // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
+                finalTranscriptCountRef.current += 1;
+                if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
+                  console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
+                  setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
                 }
+              }
             }
           } else {
             // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
@@ -389,6 +398,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isPartial: false,
                   timestamp: messageTimestamp,
                 });
+                // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
+                finalTranscriptCountRef.current += 1;
+                if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
+                  console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
+                  setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
+                }
               }
             } else {
               // No previous final - create new bubble
@@ -400,6 +415,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isPartial: false,
                 timestamp: messageTimestamp,
               });
+              // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
+              finalTranscriptCountRef.current += 1;
+              if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
+                console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
+                setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
+              }
             }
           }
         }

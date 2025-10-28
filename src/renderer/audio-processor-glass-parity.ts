@@ -1,5 +1,6 @@
 // Glass parity: Audio capture using ScriptProcessorNode (reliable, no CSP issues)
 import { getWebSocketInstance, getOrCreateChatId, closeWebSocketInstance } from './services/websocketService';
+import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
 const BUFFER_SIZE = 2048;
@@ -550,7 +551,7 @@ export async function startCapture(includeSystemAudio = false) {
       console.log('[AudioCapture] Chat ID was cleared - auto-creating new chat...');
       
       // Get backend URL and token
-      const backendUrl = (window as any).EVIA_BACKEND_URL || 'http://localhost:8000';
+      const backendUrl = BACKEND_URL;
       const token = localStorage.getItem('auth_token') || '';
       
       // Force create new chat

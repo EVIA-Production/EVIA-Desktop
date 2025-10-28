@@ -316,6 +316,31 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     win.webContents.openDevTools({ mode: 'detach' })
   }
 
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools in production
+  // Cmd+Option+I (macOS) or F12 (all platforms)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      // Cmd+Option+I on macOS
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools({ mode: 'detach' })
+        }
+      }
+      // F12 on all platforms
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools({ mode: 'detach' })
+        }
+      }
+    }
+  })
+
   // Glass parity: Settings window cursor tracking
   // Since Electron doesn't have window hover events, we poll cursor position
   if (name === 'settings') {
