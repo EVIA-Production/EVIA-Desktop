@@ -1099,7 +1099,30 @@ ipcMain.handle('header:open-ask', () => {
 ipcMain.handle('auth:validate', async () => {
   const { headerController } = await import('./header-controller');
   const isAuthenticated = await headerController.validateAuthentication();
-  return { ok: true, authenticated: isAuthenticated };
+  
+  let user = null;
+  if (isAuthenticated) {
+    try {
+      const keytar = require('keytar');
+      const token = await keytar.getPassword('evia', 'token');
+      if (token) {
+        // Decode JWT to get user info (JWT format: header.payload.signature)
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          user = {
+            username: payload.sub || payload.username || 'User',
+            email: payload.email || null
+          };
+          console.log('[Auth] ✅ Decoded user from token:', user.username);
+        }
+      }
+    } catch (error) {
+      console.error('[Auth] ❌ Failed to decode token:', error);
+    }
+  }
+  
+  return { ok: true, authenticated: isAuthenticated, user };
 })
 
 // 🔧 FIX ISSUE #2: Auto-update toggle persistence
