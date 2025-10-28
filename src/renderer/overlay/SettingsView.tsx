@@ -151,6 +151,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     // Refresh on window focus to pick up external login/logout changes
     const onFocus = () => {
       void checkAuth();
+      // 🚨 URGENT FIX: Also refresh presets when window gains focus (sync with web)
+      void fetchPresets();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -436,11 +438,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               presets.map((preset) => (
                 <div
                   key={preset.id}
-                  className={`preset-item ${activePromptId === preset.id ? "selected" : ""}`}
+                  className={`preset-item ${activePromptId === preset.id ? "selected" : ""} ${preset.is_active ? "active" : ""}`}
                   onClick={() => handlePresetSelect(preset.id)}
                   title={preset.description || preset.name}
                 >
                   <span className="preset-name">{preset.name}</span>
+                  {preset.is_active && <span className="preset-status">Active</span>}
                 </div>
               ))
             )}

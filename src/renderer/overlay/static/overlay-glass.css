@@ -1847,13 +1847,32 @@ body.invisibility-disabled .screen-picker-thumb-placeholder {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color 0.2s;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .preset-item.selected {
   background: rgba(0, 122, 255, 0.2);
 }
+/* 🚨 URGENT FIX: Visual indicator for active preset */
+.preset-item.active {
+  border-color: rgba(52, 199, 89, 0.6);
+  background: rgba(52, 199, 89, 0.15);
+}
 .preset-name {
   font-size: 12px;
   color: white;
+  flex: 1;
+}
+.preset-item.active .preset-name {
+  font-weight: 500;
+}
+.preset-status {
+  font-size: 9px;
+  color: rgba(52, 199, 89, 0.9);
+  font-weight: 500;
+  margin-left: 8px;
 }
 .no-presets-message {
   font-size: 12px;
