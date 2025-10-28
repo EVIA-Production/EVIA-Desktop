@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import React from "react";
 import "./static/overlay-glass.css";
+import { FRONTEND_URL } from "../config/config";
 const IS_MAC = window.evia.isMac;
 
 /**
@@ -27,10 +28,7 @@ const WelcomeHeader: React.FC = () => {
   const handleLogin = async () => {
     console.log("[WelcomeHeader] Opening browser for login...");
 
-    // FIXED: Use VITE env var (not process.env) in renderer
-    const frontendUrl =
-      import.meta.env.VITE_FRONTEND_URL || "http://localhost:5173";
-    const loginUrl = `${frontendUrl}/login?source=desktop`;
+    const loginUrl = `${FRONTEND_URL}/login?source=desktop`;
 
     console.log("[WelcomeHeader] 🌐 Login URL:", loginUrl);
     console.log(

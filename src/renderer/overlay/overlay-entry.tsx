@@ -7,6 +7,7 @@ import SettingsView from "./SettingsView";
 import ShortCutSettingsView from "./ShortCutSettingsView";
 import { i18n } from "../i18n/i18n";
 import { startCapture, stopCapture } from "../audio-processor-glass-parity";
+import { BACKEND_URL } from "../config/config";
 import {
   startWindowsCapture,
   stopWindowsCapture,
@@ -205,7 +206,7 @@ function App() {
         console.log("[OverlayEntry] 🔍 Getting auth token from keytar...");
         const token = await (window as any).evia?.auth?.getToken?.();
         const backend =
-          (window as any).EVIA_BACKEND_URL || "http://localhost:8000";
+          BACKEND_URL;
 
         if (!token) {
           console.error(

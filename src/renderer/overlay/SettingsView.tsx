@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import "./static/overlay-glass.css";
 import { i18n } from "../i18n/i18n";
+import { FRONTEND_URL, BACKEND_URL } from "../config/config";
 
 interface SettingsViewProps {
   language: "de" | "en";
@@ -161,9 +162,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     setIsLoadingPrompts(true);
     try {
       const baseUrl =
-        (window as any).EVIA_BACKEND_URL ||
-        (window as any).API_BASE_URL ||
-        "http://localhost:8000";
+        BACKEND_URL;
       const eviaAuth = (window as any).evia?.auth as
         | { getToken: () => Promise<string | null> }
         | undefined;
@@ -256,9 +255,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const setPresetActive = async (presetId: number) => {
     try {
       const baseUrl =
-        (window as any).EVIA_BACKEND_URL ||
-        (window as any).API_BASE_URL ||
-        "http://localhost:8000";
+        BACKEND_URL;
       const eviaAuth = (window as any).evia?.auth as
         | { getToken: () => Promise<string | null> }
         | undefined;
@@ -300,9 +297,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   // Open Meeting Notes in external browser
   const handleOpenMeetingNotes = async () => {
     try {
-      const frontendUrl =
-        (import.meta as any).env?.VITE_FRONTEND_URL || "http://localhost:5173";
-      const url = `${String(frontendUrl).replace(/\/$/, "")}/personalize`;
+      const url = `${FRONTEND_URL.replace(/\/$/, "")}/personalize`;
       if ((window as any).evia?.shell?.openExternal) {
         await (window as any).evia.shell.openExternal(url);
       } else {

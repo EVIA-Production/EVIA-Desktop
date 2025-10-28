@@ -1,5 +1,5 @@
-// Create new file with full content
-import { WS_BASE_URL } from '../config/config'; // Add if needed
+// WebSocket Service - Real-time transcription
+import { WS_BASE_URL, BACKEND_URL } from '../config/config';
 
 interface WebSocketMessage {
   type?: string;
@@ -16,9 +16,8 @@ interface WebSocketMessage {
 }
 
 function getBackendHttpBase(): string {
-  const fromWin = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL;
-  if (typeof fromWin === 'string' && fromWin.trim()) return String(fromWin).replace(/\/$/, '');
-  return 'http://localhost:8000';
+  // Use centralized config (automatically selects prod vs dev)
+  return BACKEND_URL.replace(/\/$/, '');
 }
 
 export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
