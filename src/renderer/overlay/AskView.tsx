@@ -844,11 +844,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               className="markdown-content"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
             />
-            {ttftMs !== null && (
-              <div className="ttft-indicator" style={{ color: ttftMs < 400 ? '#32CD32' : '#FFA500' }}>
-                TTFT: {ttftMs.toFixed(0)}ms {ttftMs < 400 ? '✅' : '⚠️'}
-              </div>
-            )}
             {isStreaming && (
               <button onClick={onAbort} className="abort-button">
                 Abort
