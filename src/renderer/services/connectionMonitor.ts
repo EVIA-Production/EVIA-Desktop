@@ -1,5 +1,6 @@
 // Connection Monitor - Detects backend availability and manages offline mode
 import { showToast } from '../components/ToastNotification';
+import { BACKEND_URL } from '../config/config';
 
 export interface ConnectionStatus {
   isOnline: boolean;
@@ -84,9 +85,7 @@ class ConnectionMonitor {
   }
 
   private getBackendUrl(): string {
-    const fromWin = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL;
-    if (typeof fromWin === 'string' && fromWin.trim()) return String(fromWin).replace(/\/$/, '');
-    return 'http://localhost:8000';
+    return BACKEND_URL.replace(/\/$/, '');
   }
 
   private notifyListeners() {

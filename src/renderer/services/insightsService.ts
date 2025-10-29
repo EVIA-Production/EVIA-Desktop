@@ -1,5 +1,7 @@
 // Insights service for fetching and managing insights
 // Glass format: {summary: [], topic: {header, bullets}, actions: [], followUps: []}
+import { BACKEND_URL } from '../config/config';
+
 export interface Insight {
   summary: string[];
   topic: {
@@ -27,7 +29,7 @@ export async function fetchInsights({
   baseUrl,
   sessionState = 'before', // 🔥 Default to 'before' if not provided
 }: FetchInsightsParams): Promise<Insight | null> {
-  const url = baseUrl || (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
+  const url = baseUrl || BACKEND_URL;
   
   // 🔥 CRITICAL FIX: Retry logic for transient network errors
   const MAX_RETRIES = 3;

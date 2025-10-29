@@ -6,6 +6,7 @@ import { i18n } from '../i18n/i18n';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
+import { BACKEND_URL } from '../config/config';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -364,7 +365,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setIsLoadingFirstToken(true);
     setHeaderText(i18n.t('overlay.ask.thinking'));
     
-    const baseUrl = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL || 'http://localhost:8000';
+    const baseUrl = BACKEND_URL;
     
     console.log('[AskView] Getting auth token from keytar...');
     const eviaAuth = (window as any).evia?.auth as { 
@@ -843,11 +844,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               className="markdown-content"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
             />
-            {ttftMs !== null && (
-              <div className="ttft-indicator" style={{ color: ttftMs < 400 ? '#32CD32' : '#FFA500' }}>
-                TTFT: {ttftMs.toFixed(0)}ms {ttftMs < 400 ? '✅' : '⚠️'}
-              </div>
-            )}
             {isStreaming && (
               <button onClick={onAbort} className="abort-button">
                 Abort

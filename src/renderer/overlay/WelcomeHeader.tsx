@@ -1,6 +1,7 @@
 import React from 'react';
 import './overlay-tokens.css';
 import './overlay-glass.css';
+import { FRONTEND_URL } from '../config/config';
 
 /**
  * WelcomeHeader Component
@@ -26,9 +27,7 @@ const WelcomeHeader: React.FC = () => {
   const handleLogin = async () => {
     console.log('[WelcomeHeader] 🔐 Opening browser for login...');
     
-    // FIXED: Use VITE env var (not process.env) in renderer
-    const frontendUrl = import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173';
-    const loginUrl = `${frontendUrl}/login?source=desktop`;
+    const loginUrl = `${FRONTEND_URL}/login?source=desktop`;
     
     console.log('[WelcomeHeader] 🌐 Login URL:', loginUrl);
     console.log('[WelcomeHeader] 🔍 Checking evia bridge:', (window as any).evia);

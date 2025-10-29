@@ -316,6 +316,31 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     win.webContents.openDevTools({ mode: 'detach' })
   }
 
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools in production
+  // Cmd+Option+I (macOS) or F12 (all platforms)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      // Cmd+Option+I on macOS
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools({ mode: 'detach' })
+        }
+      }
+      // F12 on all platforms
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools({ mode: 'detach' })
+        }
+      }
+    }
+  })
+
   // Glass parity: Settings window cursor tracking
   // Since Electron doesn't have window hover events, we poll cursor position
   if (name === 'settings') {
@@ -1074,7 +1099,30 @@ ipcMain.handle('header:open-ask', () => {
 ipcMain.handle('auth:validate', async () => {
   const { headerController } = await import('./header-controller');
   const isAuthenticated = await headerController.validateAuthentication();
-  return { ok: true, authenticated: isAuthenticated };
+  
+  let user = null;
+  if (isAuthenticated) {
+    try {
+      const keytar = require('keytar');
+      const token = await keytar.getPassword('evia', 'token');
+      if (token) {
+        // Decode JWT to get user info (JWT format: header.payload.signature)
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          user = {
+            username: payload.sub || payload.username || 'User',
+            email: payload.email || null
+          };
+          console.log('[Auth] ✅ Decoded user from token:', user.username);
+        }
+      }
+    } catch (error) {
+      console.error('[Auth] ❌ Failed to decode token:', error);
+    }
+  }
+  
+  return { ok: true, authenticated: isAuthenticated, user };
 })
 
 // 🔧 FIX ISSUE #2: Auto-update toggle persistence
@@ -1490,7 +1538,7 @@ export function createWelcomeWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // 🔥 ENABLE in production for debugging
     },
   })
 
@@ -1515,6 +1563,32 @@ export function createWelcomeWindow(): BrowserWindow {
   } else {
     welcomeWindow.loadFile(path.join(__dirname, '../renderer/welcome.html'))
   }
+
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  welcomeWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+          if (welcomeWindow.webContents.isDevToolsOpened()) {
+            welcomeWindow.webContents.closeDevTools()
+          } else {
+            welcomeWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+          if (welcomeWindow.webContents.isDevToolsOpened()) {
+            welcomeWindow.webContents.closeDevTools()
+          } else {
+            welcomeWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+    }
+  })
 
   welcomeWindow.on('closed', () => {
     welcomeWindow = null
@@ -1567,7 +1641,7 @@ export function createPermissionWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // 🔥 ENABLE in production for debugging
     },
   })
 
@@ -1592,6 +1666,32 @@ export function createPermissionWindow(): BrowserWindow {
   } else {
     permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'))
   }
+
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  permissionWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (permissionWindow && !permissionWindow.isDestroyed()) {
+          if (permissionWindow.webContents.isDevToolsOpened()) {
+            permissionWindow.webContents.closeDevTools()
+          } else {
+            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (permissionWindow && !permissionWindow.isDestroyed()) {
+          if (permissionWindow.webContents.isDevToolsOpened()) {
+            permissionWindow.webContents.closeDevTools()
+          } else {
+            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+    }
+  })
 
   permissionWindow.on('closed', () => {
     permissionWindow = null

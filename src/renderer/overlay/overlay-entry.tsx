@@ -11,6 +11,7 @@ import '../overlay/overlay-glass.css'
 import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
+import { BACKEND_URL } from '../config/config'
 
 const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
@@ -287,7 +288,7 @@ function App() {
         // 🔧 Get auth token from keytar (secure credential storage)
         console.log('[OverlayEntry] 🔍 Getting auth token from keytar...')
         const token = await (window as any).evia?.auth?.getToken?.()
-        const backend = (window as any).EVIA_BACKEND_URL || 'http://localhost:8000'
+        const backend = BACKEND_URL
         
         if (!token) {
           console.error('[OverlayEntry] ❌ No auth token found - user must login first')

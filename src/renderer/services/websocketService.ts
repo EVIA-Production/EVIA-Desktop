@@ -1,9 +1,10 @@
 // Create new file with full content
-import { WS_BASE_URL } from '../config/config'; // Add if needed
+import { BACKEND_URL, WS_BASE_URL } from '../config/config';
 
 interface WebSocketMessage {
   type?: string;
   command?: string;
+  language?: string; // For change_language command
   data?: {
     text?: string;
     speaker?: number | null;
@@ -16,9 +17,7 @@ interface WebSocketMessage {
 }
 
 function getBackendHttpBase(): string {
-  const fromWin = (window as any).EVIA_BACKEND_URL || (window as any).API_BASE_URL;
-  if (typeof fromWin === 'string' && fromWin.trim()) return String(fromWin).replace(/\/$/, '');
-  return 'http://localhost:8000';
+  return BACKEND_URL.replace(/\/$/, '');
 }
 
 export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
@@ -142,11 +141,8 @@ export class ChatWebSocket {
       const currentLang = i18nModule.i18n.getLanguage() || 'de';
       const langParam = `&dg_lang=${currentLang}`;  // 🎯 FIXED: dg_lang (not lang) for Deepgram
       console.log('[WS] 🌐 Connecting with language:', currentLang);
-      // MUP FIX: Use backend URL, not location.host (which is Vite dev server in dev mode)
-      const backendHttp = getBackendHttpBase();
-      const wsBase = backendHttp.replace(/^http/, 'ws'); // http://localhost:8000 → ws://localhost:8000
-      // TRANSCRIPTION FIX: Match audio capture sample rate (24kHz, not 16kHz default)
-      const wsUrl = `${wsBase}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}&sample_rate=24000`;
+      // MUP FIX: Use WS_BASE_URL from config (already http/ws protocol handled)
+      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}&sample_rate=24000`;
       return new Promise((resolve, reject) => {
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';

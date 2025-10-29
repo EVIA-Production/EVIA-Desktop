@@ -101,7 +101,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
-        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        const { BACKEND_URL: baseUrl } = await import('../config/config');
         
         if (!token || !chatId) {
           console.log('[EviaBar] ⏭️ Skipping session status sync: no token or chat_id');
@@ -304,7 +304,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
-        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        const { BACKEND_URL: baseUrl } = await import('../config/config');
         
         if (token && chatId) {
           console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
@@ -346,7 +346,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
-        const baseUrl = localStorage.getItem('backend_base_url') || 'http://localhost:8000';
+        const { BACKEND_URL: baseUrl } = await import('../config/config');
         
         if (token && chatId) {
           console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
@@ -380,6 +380,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
       await (window as any).evia?.windows?.hide?.('ask');
       // Broadcast session-closed event so Ask can clear its state
       (window as any).evia?.ipc?.send?.('session:closed');
+      
+      // 🔧 FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
+      // This ensures each "Listen → Done" cycle creates a separate session
+      localStorage.removeItem('current_chat_id');
+      console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
+      
       setListenStatus('before');
       setIsListenActive(false);
       console.log('[EviaBar] ✅ Session closed, windows hidden');

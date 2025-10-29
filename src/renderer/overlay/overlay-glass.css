@@ -1059,6 +1059,10 @@
   margin: 0;
 }
 
+.account-info.logged-in {
+  color: rgb(52, 199, 89); /* Green when logged in */
+}
+
 .invisibility-icon {
   padding-top: 2px;
   opacity: 0;
