@@ -380,6 +380,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
       await (window as any).evia?.windows?.hide?.('ask');
       // Broadcast session-closed event so Ask can clear its state
       (window as any).evia?.ipc?.send?.('session:closed');
+      
+      // 🔧 FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
+      // This ensures each "Listen → Done" cycle creates a separate session
+      localStorage.removeItem('current_chat_id');
+      console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
+      
       setListenStatus('before');
       setIsListenActive(false);
       console.log('[EviaBar] ✅ Session closed, windows hidden');
