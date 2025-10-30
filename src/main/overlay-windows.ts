@@ -1626,7 +1626,7 @@ export function createPermissionWindow(): BrowserWindow {
     show: false,
     frame: false,
     transparent: true,
-    resizable: false,
+    resizable: true,  // 🔧 FIX: Allow resizing for DevTools console access
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: true,

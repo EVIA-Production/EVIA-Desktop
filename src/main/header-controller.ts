@@ -86,8 +86,20 @@ export class HeaderController {
     
     if (process.platform === 'darwin') {
       try {
+        // 🔥 FIX: Force fresh permission check (bypass macOS cache)
         micPermission = systemPreferences.getMediaAccessStatus('microphone');
         screenPermission = systemPreferences.getMediaAccessStatus('screen');
+        
+        // 🔥 FIX: If permissions completed but not actually granted, reset flag
+        // This handles the case where user grants permission, we mark as complete,
+        // but macOS hasn't updated the status yet on relaunch
+        if (this.permissionsCompleted && (micPermission !== 'granted' || screenPermission !== 'granted')) {
+          console.log('[HeaderController] ⚠️ Permissions marked complete but not granted');
+          console.log('[HeaderController] Mic:', micPermission, '| Screen:', screenPermission);
+          console.log('[HeaderController] Resetting permissionsCompleted flag to re-check');
+          this.permissionsCompleted = false;
+          this.savePersistedState();
+        }
       } catch (err) {
         console.warn('[HeaderController] Failed to get permission status:', err);
       }
@@ -303,6 +315,39 @@ export class HeaderController {
     }
     
     return isAuthenticated;
+  }
+
+  /**
+   * 🔥 FIX: Force re-check permissions when app activated
+   * Handles macOS permission cache issue after relaunch
+   */
+  public async onAppActivated() {
+    console.log('[HeaderController] 🔄 App activated, forcing permission re-check...');
+    
+    // Wait 500ms for macOS to update permission status cache
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Re-check permissions (will reset permissionsCompleted if needed)
+    await this.checkPermissions();
+  }
+
+  /**
+   * 🔥 FIX: Force show permission window (for debugging/review)
+   * Allows users to re-check permissions even after they're granted
+   */
+  public async showPermissionWindow() {
+    console.log('[HeaderController] 🔐 Force showing permission window');
+    
+    // Close all windows first
+    closeWelcomeWindow();
+    const header = getHeaderWindow();
+    if (header) {
+      console.log('[HeaderController] Closing main header to show permissions');
+      header.close();
+    }
+    
+    // Open permission window (even if permissionsCompleted=true)
+    await this.transitionTo('permissions');
   }
 
   /**

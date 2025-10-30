@@ -79,9 +79,18 @@ app.on('window-all-closed', () => {
   if (platform !== 'darwin') app.quit()
 })
 
-app.on('activate', () => {
-  // Re-create header if needed
-  if (!getHeaderWindow()) createHeaderWindow()
+app.on('activate', async () => {
+  console.log('[Main] 🔄 App activated');
+  
+  // 🔥 FIX: Force permission re-check on activation (fixes macOS caching issue)
+  // This handles the case where user grants permission in System Settings
+  // and relaunches/activates the app
+  await headerController.onAppActivated();
+  
+  // Re-create header if needed (only if in 'ready' state)
+  if (!getHeaderWindow() && headerController.getCurrentState() === 'ready') {
+    createHeaderWindow();
+  }
 })
 
 app.on('quit', async () => {
@@ -352,6 +361,18 @@ ipcMain.handle('permissions:mark-complete', async () => {
     return { success: true };
   } catch (err: unknown) {
     console.error('[Permissions] ❌ Failed to mark complete:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 🔥 FIX: Force show permission window (for debugging/review)
+ipcMain.handle('permissions:show-window', async () => {
+  console.log('[Permissions] 🔐 Force showing permission window via HeaderController');
+  try {
+    await headerController.showPermissionWindow();
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('[Permissions] ❌ Failed to show permission window:', err);
     return { success: false, error: (err as Error).message };
   }
 });
