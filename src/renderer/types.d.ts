@@ -87,6 +87,12 @@ declare global {
         on: (channel: string, listener: (event: any, ...args: any[]) => void) => void;
       };
     };
+    platformInfo?: {
+      platform: string;
+      isWindows: boolean;
+      isMac: boolean;
+      isLinux: boolean;
+    }
   }
 }
 

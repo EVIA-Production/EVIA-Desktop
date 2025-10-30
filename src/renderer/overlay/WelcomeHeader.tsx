@@ -20,6 +20,7 @@ import { FRONTEND_URL } from '../config/config';
  */
 
 const WelcomeHeader: React.FC = () => {
+  const isMac = (window as any).platformInfo?.isMac || false;
   /**
    * Opens default browser to Frontend login page
    * Adds ?source=desktop param so Frontend knows to redirect back via evia://
@@ -39,9 +40,11 @@ const WelcomeHeader: React.FC = () => {
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log('[WelcomeHeader] ✅ Browser opened successfully');
         
-        // Close welcome window immediately to avoid blocking browser view
-        console.log('[WelcomeHeader] 🔒 Closing welcome window');
+        // Close welcome window immediately to avoid blocking browser view (on macOS)
+        console.log("[WelcomeHeader] 🔒 Closing welcome window");
+        if (isMac) {
         window.close();
+        }
       } else {
         console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
         // Fallback: Try window.open (may be blocked by browser)

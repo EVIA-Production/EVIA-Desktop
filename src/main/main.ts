@@ -1,10 +1,54 @@
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
+import path from 'path'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
 import { systemAudioService } from './system-audio-service';
 import { headerController } from './header-controller';
+
+let pendingDeepLink: string | null = null;
+
+if (process.platform === "win32") {
+  // Capture possible deeplink in initial argv (may be quoted)
+  try {
+    const rawStartup = process.argv.find((a) => typeof a === "string" && a.includes("evia://"));
+    if (rawStartup) {
+      pendingDeepLink = String(rawStartup).trim().replace(/^"+|"+$/g, "");
+      console.log("[Protocol] 🔗 Detected cold-start deep link (pending):", pendingDeepLink);
+    }
+  } catch (e) {
+    console.warn('[Protocol] Failed to inspect process.argv for deep link:', e);
+  }
+
+  const gotLock = app.requestSingleInstanceLock();
+  console.log('[Main] singleInstanceLock acquired:', gotLock);
+  if (!gotLock) {
+    console.log('[Main] secondary instance - exiting');
+    try { app.quit(); } finally { try { process.exit(0); } catch {} }
+  } else {
+    app.on('second-instance', (_event, argv) => {
+      console.log('[Protocol] second-instance argv:', argv);
+      const raw = argv.find((a) => typeof a === 'string' && a.includes('evia://'));
+      if (raw) {
+        const url = String(raw).trim().replace(/^"+|"+$/g, '');
+        console.log('[Protocol] second-instance found url:', url);
+        // If app is ready, handle immediately, otherwise queue
+        if (app.isReady()) {
+          try { handleAuthCallback(url); } catch (err) { console.error('[Protocol] handleAuthCallback failed:', err); }
+        } else {
+          pendingDeepLink = url;
+        }
+      }
+
+      // Focus primary window if exists
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        try { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } catch {}
+      }
+    });
+  }
+}
 
 function getBackendHttpBase(): string {
   const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
@@ -15,6 +59,11 @@ function getBackendHttpBase(): string {
 // Windows platform warning + normal boot
 async function boot() {
   await app.whenReady();
+
+  // 🪟 Windows: Handle deep link on cold launch
+  if (process.platform === "win32" && pendingDeepLink) {
+    handleAuthCallback(pendingDeepLink);
+  }
 
   // Show one-time informational message on Windows, then continue
   if (process.platform === 'win32') {
@@ -414,6 +463,10 @@ if (process.defaultApp) {
 } else {
   app.setAsDefaultProtocolClient('evia');
 }
+if (process.env.NODE_ENV === 'development' && process.platform === 'win32') {
+  app.setAsDefaultProtocolClient('evia', process.execPath, [path.resolve(process.argv[1])]);
+  console.log('[Protocol] 🔧 Dev evia:// handler re-registered');
+}
 console.log('[Protocol] ✅ Registered evia:// protocol');
 
 // 🍎 macOS: Handle evia:// URLs when app is already running
@@ -423,23 +476,6 @@ app.on('open-url', (event, url) => {
   
   if (url.startsWith('evia://auth-callback')) {
     handleAuthCallback(url);
-  }
-});
-
-// 🪟 Windows/Linux: Handle evia:// URLs from second instance
-app.on('second-instance', (event, commandLine, workingDirectory) => {
-  console.log('[Protocol] 🔗 Second instance:', commandLine);
-  
-  const protocolUrl = commandLine.find(arg => arg.startsWith('evia://'));
-  if (protocolUrl && protocolUrl.startsWith('evia://auth-callback')) {
-    handleAuthCallback(protocolUrl);
-  }
-  
-  // Focus main window if exists
-  const headerWin = getHeaderWindow();
-  if (headerWin) {
-    if (headerWin.isMinimized()) headerWin.restore();
-    headerWin.focus();
   }
 });
 

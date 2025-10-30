@@ -142,4 +142,11 @@ contextBridge.exposeInMainWorld('electron', {
   },
 })
 
+contextBridge.exposeInMainWorld('platformInfo', {
+  platform: process.platform,                 // 'darwin' | 'win32' | 'linux'
+  isWindows: process.platform === 'win32',
+  isMac: process.platform === 'darwin',
+  isLinux: process.platform === 'linux'
+});
+
 export {}
