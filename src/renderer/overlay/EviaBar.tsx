@@ -173,20 +173,60 @@ const EviaBar: React.FC<EviaBarProps> = ({
       setIsListenActive(false);
     };
 
+    // 🔧 TODO #9 FIX: Handle graceful shutdown - complete active session before quit
+    const handleBeforeQuit = async () => {
+      console.log('[EviaBar] 🚪 App quitting - completing active session...');
+      
+      // Only complete if session is active (during or after state)
+      if (listenStatus === 'in' || listenStatus === 'after') {
+        try {
+          const eviaAuth = (window as any).evia?.auth;
+          const token = await eviaAuth?.getToken?.();
+          const chatId = localStorage.getItem('current_chat_id');
+          const { BACKEND_URL: baseUrl } = await import('../config/config');
+          
+          if (token && chatId) {
+            console.log('[EviaBar] 🎯 Completing session before quit:', chatId);
+            const response = await fetch(`${baseUrl}/session/complete`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ 
+                chat_id: Number(chatId),
+                summary: 'Session ended by app quit'
+              })
+            });
+            
+            if (response.ok) {
+              console.log('[EviaBar] ✅ Session completed before quit');
+            } else {
+              console.error('[EviaBar] ❌ Failed to complete session:', response.status);
+            }
+          }
+        } catch (error) {
+          console.error('[EviaBar] ❌ Error completing session on quit:', error);
+        }
+      }
+    };
+
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc) {
       eviaIpc.on('language-changed', handleLanguageChanged);
       eviaIpc.on('clear-session', handleSessionClosed);
-      console.log('[EviaBar] ✅ Registered language-changed and clear-session listeners');
+      eviaIpc.on('app:before-quit', handleBeforeQuit);
+      console.log('[EviaBar] ✅ Registered language-changed, clear-session, and before-quit listeners');
     }
 
     return () => {
       if (eviaIpc) {
         eviaIpc.off('language-changed', handleLanguageChanged);
         eviaIpc.off('clear-session', handleSessionClosed);
+        eviaIpc.off('app:before-quit', handleBeforeQuit);
       }
     };
-  }, []);
+  }, [listenStatus]);
 
   // Dynamic window sizing: measure content and resize window to fit
   useEffect(() => {
@@ -333,6 +373,38 @@ const EviaBar: React.FC<EviaBarProps> = ({
     } else if (listenStatus === 'in') {
       // Stop → Done: Window STAYS visible
       console.log('[EviaBar] Stop → Done: Window stays visible');
+      
+      // 🔥 FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        const chatId = localStorage.getItem('current_chat_id');
+        const { BACKEND_URL: baseUrl } = await import('../config/config');
+        
+        if (token && chatId) {
+          console.log('[EviaBar] 🎯 Calling /session/pause for chat_id:', chatId);
+          const response = await fetch(`${baseUrl}/session/pause`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ chat_id: Number(chatId) })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[EviaBar] ✅ Session paused:', data);
+          } else {
+            console.error('[EviaBar] ❌ Failed to pause session:', response.status, await response.text());
+          }
+        } else {
+          console.warn('[EviaBar] ⚠️ Cannot call /session/pause: missing token or chat_id');
+        }
+      } catch (error) {
+        console.error('[EviaBar] ❌ Error calling /session/pause:', error);
+      }
+      
       setListenStatus('after');
       setIsListenActive(false);
       onToggleListening();

@@ -1,10 +1,31 @@
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
 import { systemAudioService } from './system-audio-service';
 import { headerController } from './header-controller';
+
+// 🔒 SINGLE INSTANCE LOCK
+// Prevents multiple EVIA instances from running simultaneously
+// This can cause permission state conflicts and cache issues
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('[Main] ⚠️  Another instance of EVIA is already running. Quitting this instance.');
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    console.log('[Main] 🔄 Second instance attempted to start, focusing existing window');
+    
+    // Focus the existing window
+    const headerWindow = getHeaderWindow();
+    if (headerWindow) {
+      if (headerWindow.isMinimized()) headerWindow.restore();
+      headerWindow.focus();
+    }
+  });
+}
 
 function getBackendHttpBase(): string {
   const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
@@ -93,8 +114,48 @@ app.on('activate', async () => {
   }
 })
 
+// 🔧 TODO #9 FIX: Add before-quit handler for graceful session cleanup
+app.on('before-quit', async (event) => {
+  console.log('[Main] 🚪 App about to quit - performing graceful cleanup...');
+  
+  // Prevent quit to allow async cleanup
+  event.preventDefault();
+  
+  try {
+    // 1. Complete any active backend session
+    const token = await keytar.getPassword('evia', 'token');
+    const chatId = global?.localStorage?.getItem?.('current_chat_id'); // Note: localStorage not available in main process
+    
+    // Since we can't access localStorage from main process, we'll send IPC to renderer
+    // to trigger session completion before quit
+    const headerWin = getHeaderWindow();
+    if (headerWin && !headerWin.isDestroyed()) {
+      console.log('[Main] 📤 Sending graceful-shutdown signal to renderer...');
+      headerWin.webContents.send('app:before-quit');
+      
+      // Wait 500ms for renderer to complete session cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    // 2. Stop system audio
+    console.log('[Main] 🔊 Stopping system audio...');
+    await systemAudioService.stop();
+    
+    // 3. Clean up processes
+    console.log('[Main] 🧹 Cleaning up processes...');
+    processManager.cleanupAllProcesses();
+    
+    console.log('[Main] ✅ Cleanup complete, quitting app');
+  } catch (error) {
+    console.error('[Main] ❌ Cleanup error (continuing quit):', error);
+  }
+  
+  // Now actually quit
+  app.quit();
+});
+
 app.on('quit', async () => {
-  console.log('[Main] App quitting, cleaning up system audio...')
+  console.log('[Main] App quit event - final cleanup')
   await systemAudioService.stop()
   processManager.cleanupAllProcesses()
 })
@@ -276,6 +337,24 @@ ipcMain.on('session-state-changed', (_event, newState: string) => {
   console.log(`[Main] ✅ Broadcast complete - sent to ${broadcastCount} window(s)`);
 });
 
+// 🔧 CRITICAL: Debug log forwarding from Listen window to Ask window
+// Since F12 doesn't work in Listen window (volume control), forward logs via IPC
+ipcMain.on('debug-log', (event, message: string) => {
+  // Log in main process console for debugging
+  console.log('[Main] [🔊 LISTEN WINDOW]', message);
+  
+  // Broadcast to all windows (Ask window will display it)
+  const allWindows = BrowserWindow.getAllWindows();
+  allWindows.forEach((win: any) => {
+    if (win && !win.isDestroyed() && win.webContents !== event.sender) {
+      win.webContents.send('debug-log', message);
+    }
+  });
+});
+
+  // ✅ v1.0.0 FIX: No IPC routing needed for mic audio
+  // EVIA uses renderer-based WebSockets (direct send from onaudioprocess)
+
 // 🔐 Permission handlers (Phase 3: Permission window)
 // Check microphone and screen recording permissions
 ipcMain.handle('permissions:check', async () => {
@@ -441,7 +520,9 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-// Kick off boot
-boot().catch((err) => {
-  console.error('[Main] ❌ Boot failed:', err);
-});
+// Kick off boot (only if we got the single instance lock)
+if (gotTheLock) {
+  boot().catch((err) => {
+    console.error('[Main] ❌ Boot failed:', err);
+  });
+}
