@@ -1,30 +1,53 @@
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
+import path from 'path'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
 import { systemAudioService } from './system-audio-service';
 import { headerController } from './header-controller';
 
-// 🔒 SINGLE INSTANCE LOCK
-// Prevents multiple EVIA instances from running simultaneously
-// This can cause permission state conflicts and cache issues
-const gotTheLock = app.requestSingleInstanceLock();
+let pendingDeepLink: string | null = null;
 
-if (!gotTheLock) {
-  console.log('[Main] ⚠️  Another instance of EVIA is already running. Quitting this instance.');
-  app.quit();
-} else {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
-    console.log('[Main] 🔄 Second instance attempted to start, focusing existing window');
-    
-    // Focus the existing window
-    const headerWindow = getHeaderWindow();
-    if (headerWindow) {
-      if (headerWindow.isMinimized()) headerWindow.restore();
-      headerWindow.focus();
+if (process.platform === "win32") {
+  // Capture possible deeplink in initial argv (may be quoted)
+  try {
+    const rawStartup = process.argv.find((a) => typeof a === "string" && a.includes("evia://"));
+    if (rawStartup) {
+      pendingDeepLink = String(rawStartup).trim().replace(/^"+|"+$/g, "");
+      console.log("[Protocol] 🔗 Detected cold-start deep link (pending):", pendingDeepLink);
     }
-  });
+  } catch (e) {
+    console.warn('[Protocol] Failed to inspect process.argv for deep link:', e);
+  }
+
+  const gotLock = app.requestSingleInstanceLock();
+  console.log('[Main] singleInstanceLock acquired:', gotLock);
+  if (!gotLock) {
+    console.log('[Main] secondary instance - exiting');
+    try { app.quit(); } finally { try { process.exit(0); } catch {} }
+  } else {
+    app.on('second-instance', (_event, argv) => {
+      console.log('[Protocol] second-instance argv:', argv);
+      const raw = argv.find((a) => typeof a === 'string' && a.includes('evia://'));
+      if (raw) {
+        const url = String(raw).trim().replace(/^"+|"+$/g, '');
+        console.log('[Protocol] second-instance found url:', url);
+        // If app is ready, handle immediately, otherwise queue
+        if (app.isReady()) {
+          try { handleAuthCallback(url); } catch (err) { console.error('[Protocol] handleAuthCallback failed:', err); }
+        } else {
+          pendingDeepLink = url;
+        }
+      }
+
+      // Focus primary window if exists
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        try { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } catch {}
+      }
+    });
+  }
 }
 
 function getBackendHttpBase(): string {
@@ -36,6 +59,11 @@ function getBackendHttpBase(): string {
 // Windows platform warning + normal boot
 async function boot() {
   await app.whenReady();
+
+  // 🪟 Windows: Handle deep link on cold launch
+  if (process.platform === "win32" && pendingDeepLink) {
+    handleAuthCallback(pendingDeepLink);
+  }
 
   // Show one-time informational message on Windows, then continue
   if (process.platform === 'win32') {
@@ -100,67 +128,60 @@ app.on('window-all-closed', () => {
   if (platform !== 'darwin') app.quit()
 })
 
-app.on('activate', async () => {
-  console.log('[Main] 🔄 App activated');
-  
-  // 🔥 FIX: Force permission re-check on activation (fixes macOS caching issue)
-  // This handles the case where user grants permission in System Settings
-  // and relaunches/activates the app
-  await headerController.onAppActivated();
-  
-  // Re-create header if needed (only if in 'ready' state)
-  if (!getHeaderWindow() && headerController.getCurrentState() === 'ready') {
-    createHeaderWindow();
-  }
-})
+app.on("activate", () => {
+  // On macOS 'activate' may be emitted at launch; only create header here
+  // if the user is already authenticated and (on macOS) has the required permissions.
+  // We intentionally avoid calling validateAuthentication() here to use the
+  // existing, already-implemented checks (keytar + systemPreferences).
+  (async () => {
+    try {
+      const exists = !!getHeaderWindow();
+      if (exists) return;
 
-// 🔧 FIX: Graceful session cleanup before quit
-// Track if cleanup already done to prevent infinite loop
-let isQuitting = false;
+      // Check token presence via keytar
+      let hasToken = false;
+      try {
+        const token = await keytar.getPassword("evia", "token");
+        hasToken = !!token;
+      } catch (e) {
+        console.warn("[Main] activate: keytar read failed:", e);
+      }
 
-app.on('before-quit', async (event) => {
-  // If already quitting, allow it to proceed
-  if (isQuitting) {
-    console.log('[Main] ✅ Cleanup already done, allowing quit');
-    return;
-  }
-  
-  console.log('[Main] 🚪 App about to quit - performing graceful cleanup...');
-  
-  // Prevent quit to allow async cleanup (ONLY FIRST TIME)
-  event.preventDefault();
-  isQuitting = true;
-  
-  try {
-    // 1. Send shutdown signal to renderer
-    const headerWin = getHeaderWindow();
-    if (headerWin && !headerWin.isDestroyed()) {
-      console.log('[Main] 📤 Sending graceful-shutdown signal to renderer...');
-      headerWin.webContents.send('app:before-quit');
-      
-      // Wait 500ms for renderer to complete session cleanup
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (!hasToken) {
+        console.log("[Main] activate: no token present — not creating header");
+        return;
+      }
+
+      // On macOS also ensure microphone and screen permissions are granted
+      if (process.platform === "darwin") {
+        try {
+          const mic = systemPreferences.getMediaAccessStatus("microphone");
+          const screen = systemPreferences.getMediaAccessStatus("screen");
+          const micOk = mic === "granted";
+          const screenOk = screen === "granted";
+          if (!micOk || !screenOk) {
+            console.log(
+              "[Main] activate: token present but permissions missing — not creating header",
+              { mic, screen }
+            );
+            return;
+          }
+        } catch (e) {
+          console.warn("[Main] activate: permission check failed:", e);
+          return;
+        }
+      }
+
+      // If we reached here, token + (macOS) permissions are satisfied — create header
+      createHeaderWindow();
+    } catch (err) {
+      console.error("[Main] activate handler failed:", err);
     }
-    
-    // 2. Stop system audio
-    console.log('[Main] 🔊 Stopping system audio...');
-    await systemAudioService.stop();
-    
-    // 3. Clean up processes
-    console.log('[Main] 🧹 Cleaning up processes...');
-    processManager.cleanupAllProcesses();
-    
-    console.log('[Main] ✅ Cleanup complete, quitting app');
-  } catch (error) {
-    console.error('[Main] ❌ Cleanup error (continuing quit):', error);
-  }
-  
-  // Now actually quit (won't trigger this handler again due to isQuitting flag)
-  app.quit();
+  })();
 });
 
 app.on('quit', async () => {
-  console.log('[Main] App quit event - final cleanup')
+  console.log('[Main] App quitting, cleaning up system audio...')
   await systemAudioService.stop()
   processManager.cleanupAllProcesses()
 })
@@ -342,24 +363,6 @@ ipcMain.on('session-state-changed', (_event, newState: string) => {
   console.log(`[Main] ✅ Broadcast complete - sent to ${broadcastCount} window(s)`);
 });
 
-// 🔧 CRITICAL: Debug log forwarding from Listen window to Ask window
-// Since F12 doesn't work in Listen window (volume control), forward logs via IPC
-ipcMain.on('debug-log', (event, message: string) => {
-  // Log in main process console for debugging
-  console.log('[Main] [🔊 LISTEN WINDOW]', message);
-  
-  // Broadcast to all windows (Ask window will display it)
-  const allWindows = BrowserWindow.getAllWindows();
-  allWindows.forEach((win: any) => {
-    if (win && !win.isDestroyed() && win.webContents !== event.sender) {
-      win.webContents.send('debug-log', message);
-    }
-  });
-});
-
-  // ✅ v1.0.0 FIX: No IPC routing needed for mic audio
-  // EVIA uses renderer-based WebSockets (direct send from onaudioprocess)
-
 // 🔐 Permission handlers (Phase 3: Permission window)
 // Check microphone and screen recording permissions
 ipcMain.handle('permissions:check', async () => {
@@ -449,18 +452,6 @@ ipcMain.handle('permissions:mark-complete', async () => {
   }
 });
 
-// 🔥 FIX: Force show permission window (for debugging/review)
-ipcMain.handle('permissions:show-window', async () => {
-  console.log('[Permissions] 🔐 Force showing permission window via HeaderController');
-  try {
-    await headerController.showPermissionWindow();
-    return { success: true };
-  } catch (err: unknown) {
-    console.error('[Permissions] ❌ Failed to show permission window:', err);
-    return { success: false, error: (err as Error).message };
-  }
-});
-
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
@@ -472,6 +463,10 @@ if (process.defaultApp) {
 } else {
   app.setAsDefaultProtocolClient('evia');
 }
+if (process.env.NODE_ENV === 'development' && process.platform === 'win32') {
+  app.setAsDefaultProtocolClient('evia', process.execPath, [path.resolve(process.argv[1])]);
+  console.log('[Protocol] 🔧 Dev evia:// handler re-registered');
+}
 console.log('[Protocol] ✅ Registered evia:// protocol');
 
 // 🍎 macOS: Handle evia:// URLs when app is already running
@@ -481,23 +476,6 @@ app.on('open-url', (event, url) => {
   
   if (url.startsWith('evia://auth-callback')) {
     handleAuthCallback(url);
-  }
-});
-
-// 🪟 Windows/Linux: Handle evia:// URLs from second instance
-app.on('second-instance', (event, commandLine, workingDirectory) => {
-  console.log('[Protocol] 🔗 Second instance:', commandLine);
-  
-  const protocolUrl = commandLine.find(arg => arg.startsWith('evia://'));
-  if (protocolUrl && protocolUrl.startsWith('evia://auth-callback')) {
-    handleAuthCallback(protocolUrl);
-  }
-  
-  // Focus main window if exists
-  const headerWin = getHeaderWindow();
-  if (headerWin) {
-    if (headerWin.isMinimized()) headerWin.restore();
-    headerWin.focus();
   }
 });
 
@@ -525,9 +503,7 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-// Kick off boot (only if we got the single instance lock)
-if (gotTheLock) {
-  boot().catch((err) => {
-    console.error('[Main] ❌ Boot failed:', err);
-  });
-}
+// Kick off boot
+boot().catch((err) => {
+  console.error('[Main] ❌ Boot failed:', err);
+});
