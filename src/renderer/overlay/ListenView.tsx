@@ -54,6 +54,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [insights, setInsights] = useState<Insight | null>(null);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
+  
+  // 🔥 COLD CALLING FIX: Enable cold calling mode (default true for now, can be auto-detected later)
+  const [coldCallingMode, setColdCallingMode] = useState(true); // Force "What should I say next?" as Action #1
   const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -517,16 +520,35 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
 
-      console.log('[ListenView] 📊 Fetching insights for chat:', chatId, 'session_state:', sessionState);
+      // 🔥 FIX: Derive session state from UI state, not stale state variable
+      // If session is active (recording/stop button visible), state is "during"
+      const derivedSessionState = isSessionActive ? 'during' : sessionState;
+      
+      console.log('[ListenView] 📊 Fetching insights for chat:', chatId, 'session_state:', derivedSessionState, 'cold_calling_mode:', coldCallingMode);
+      console.log('[ListenView] 🔥 SESSION STATE FIX:', {
+        isSessionActive,
+        stateVariable: sessionState,
+        derivedState: derivedSessionState,
+        using: derivedSessionState
+      });
       // 🔧 FIX: Use current language from i18n instead of hardcoded 'de'
       const currentLang = i18n.getLanguage();
       console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
+      console.log('[ListenView] 🔥 REQUEST DETAILS:', {
+        chatId,
+        language: currentLang,
+        sessionState: derivedSessionState,
+        coldCallingMode,
+        transcriptCount: transcripts.length
+      });
       // 🔥 CRITICAL FIX: Pass session state to backend for context-aware insights
+      // 🔥 COLD CALLING FIX: Pass cold calling mode to force "What should I say next?" as Action #1
       const fetchedInsights = await fetchInsights({
         chatId,
         token,
         language: currentLang,
-        sessionState 
+        sessionState: derivedSessionState, // 🔥 FIX: Use derived state from UI, not stale variable
+        coldCallingMode // 🔥 NEW: Enable forced action slot for cold calling
       });
       const ttftMs = Date.now() - ttftStart;
       if (fetchedInsights) {
@@ -551,6 +573,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
+    console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
     setViewMode(newMode);
 
     // Hide undo button when manually toggling (user has control)
@@ -563,9 +586,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setCopyState('idle');
     }
 
-    // Fetch insights when switching to insights view
-    if (newMode === 'insights' && !insights) {
+    // 🔥 COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
+    // This ensures insights reflect the latest transcript context, critical for real-time coaching
+    if (newMode === 'insights') {
+      console.log(`[ListenView] 🔥 COLD CALLING FIX ACTIVE - Fetching fresh insights (coldCallingMode=${coldCallingMode})`);
       await fetchInsightsNow();
+    } else {
+      console.log(`[ListenView] Switched to transcript view, no fetch needed`);
     }
   };
 
@@ -1113,36 +1140,46 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
-                {insights.actions.map((action, idx) => (
-                  <p 
-                    key={`action-${idx}`}
-                    onClick={() => handleInsightClick(action)}
-                    style={{ 
-                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
-                      lineHeight: '1.4', 
-                      marginBottom: '3px',
-                      color: 'rgba(255, 255, 255, 0.85)',
-                      padding: '6px 10px',
-                      background: 'rgba(255, 255, 255, 0.08)',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                      e.currentTarget.style.transform = 'translateX(2px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
-                  >
-                    {action}
-                  </p>
-                ))}
+                {insights.actions.map((action, idx) => {
+                  // 🔥 FIX: Only display title (before ":"), but send full question when clicked
+                  // Backend now returns format: "💬 Title: Answer text..."
+                  // Button should only show "💬 Title"
+                  // When clicked, send "💬 Title" (the question) to Ask bar
+                  const colonIndex = action.indexOf(':');
+                  const displayText = colonIndex > -1 ? action.substring(0, colonIndex) : action;
+                  const questionText = displayText; // Send the title/question to Ask bar
+                  
+                  return (
+                    <p 
+                      key={`action-${idx}`}
+                      onClick={() => handleInsightClick(questionText)}
+                      style={{ 
+                        fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
+                        lineHeight: '1.4', 
+                        marginBottom: '3px',
+                        color: 'rgba(255, 255, 255, 0.85)',
+                        padding: '6px 10px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                        e.currentTarget.style.transform = 'translateX(2px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }}
+                    >
+                      {displayText}
+                    </p>
+                  );
+                })}
               </div>
 
               {/* 🔧 FIX #3: Follow-Ups Section (Glass parity) - Only shown when recording is complete */}

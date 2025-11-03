@@ -19,6 +19,7 @@ interface FetchInsightsParams {
   token: string;
   baseUrl?: string;
   sessionState?: 'before' | 'during' | 'after'; // 🔥 CRITICAL FIX: Add session state
+  coldCallingMode?: boolean; // 🔥 COLD CALLING FIX: Enable forced "What should I say next?" action
 }
 
 export async function fetchInsights({
@@ -28,6 +29,7 @@ export async function fetchInsights({
   token,
   baseUrl,
   sessionState = 'before', // 🔥 Default to 'before' if not provided
+  coldCallingMode = false, // 🔥 COLD CALLING FIX: Default false for backward compatibility
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || BACKEND_URL;
   
@@ -37,14 +39,14 @@ export async function fetchInsights({
   
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      console.log(`[Insights] Fetching insights for chat ${chatId} (attempt ${attempt + 1}/${MAX_RETRIES}) session_state: ${sessionState}`);
+      console.log(`[Insights] Fetching insights for chat ${chatId} (attempt ${attempt + 1}/${MAX_RETRIES}) session_state: ${sessionState}, cold_calling_mode: ${coldCallingMode}`);
       const response = await fetch(`${url.replace(/\/$/, '')}/insights`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ chat_id: chatId, k, language, session_state: sessionState }),
+        body: JSON.stringify({ chat_id: chatId, k, language, session_state: sessionState, cold_calling_mode: coldCallingMode }),
       });
 
       if (!response.ok) {

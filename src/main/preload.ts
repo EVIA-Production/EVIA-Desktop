@@ -35,6 +35,9 @@ function createWs(url: string): WsHandle {
   }
 }
 
+// 🔧 Store wrapped IPC listeners for proper cleanup
+const listenerMap = new Map<string, Map<any, any>>();
+
 contextBridge.exposeInMainWorld('evia', {
   createWs,
   getDesktopCapturerSources: (options: Electron.SourcesOptions) => ipcRenderer.invoke('desktop-capturer:getSources', options),
@@ -115,8 +118,35 @@ contextBridge.exposeInMainWorld('evia', {
     },
     on: (channel: string, listener: (...args: any[]) => void) => {
       console.log('[Preload] IPC listener registered for:', channel);
-      // Remove the 'event' parameter that Electron provides
-      ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+      // Wrap the listener to remove the 'event' parameter
+      const wrappedListener = (_event: any, ...args: any[]) => listener(...args);
+      
+      // Store the mapping for cleanup
+      if (!listenerMap.has(channel)) {
+        listenerMap.set(channel, new Map());
+      }
+      listenerMap.get(channel)!.set(listener, wrappedListener);
+      
+      ipcRenderer.on(channel, wrappedListener);
+    },
+    // 🔥 CRITICAL FIX: Add off method for cleanup (React useEffect cleanup)
+    off: (channel: string, listener: (...args: any[]) => void) => {
+      console.log('[Preload] IPC listener removed for:', channel);
+      
+      // Find the wrapped listener
+      const channelListeners = listenerMap.get(channel);
+      if (channelListeners) {
+        const wrappedListener = channelListeners.get(listener);
+        if (wrappedListener) {
+          ipcRenderer.removeListener(channel, wrappedListener);
+          channelListeners.delete(listener);
+          
+          // Clean up empty maps
+          if (channelListeners.size === 0) {
+            listenerMap.delete(channel);
+          }
+        }
+      }
     },
     // 🔥 CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
     invoke: (channel: string, ...args: any[]) => {

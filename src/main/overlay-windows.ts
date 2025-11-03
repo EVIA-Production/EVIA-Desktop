@@ -185,10 +185,41 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   })
 
   headerWindow.once('ready-to-show', () => {
+    console.log('[overlay-windows] 🎯 HEADER ready-to-show event - calling showInactive()')
     headerWindow?.showInactive()
+    console.log('[overlay-windows] ✅ HEADER showInactive() called - header should be visible now')
+    
+    // 🔧 DIAGNOSTIC: Log header state after showing
+    setTimeout(() => {
+      if (headerWindow && !headerWindow.isDestroyed()) {
+        console.log('[overlay-windows] 🔍 HEADER state check (100ms after show):')
+        console.log('  - isVisible:', headerWindow.isVisible())
+        console.log('  - isMinimized:', headerWindow.isMinimized())
+        console.log('  - isFocused:', headerWindow.isFocused())
+        const bounds = headerWindow.getBounds()
+        console.log('  - bounds:', bounds)
+      } else {
+        console.log('[overlay-windows] ❌ HEADER DESTROYED within 100ms of showing!')
+      }
+    }, 100)
   })
 
   // Listen for content width requests from renderer (for dynamic sizing)
+  // 🔴 CRITICAL FIX: Prevent dragging header off-screen
+  // This handler fires BEFORE the window moves, allowing us to clamp the position
+  headerWindow.on('will-move', (event, newBounds) => {
+    const clamped = clampBounds(newBounds)
+    if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
+      event.preventDefault()
+      if (headerWindow && !headerWindow.isDestroyed()) {
+        headerWindow.setBounds(clamped)
+        // Also reposition child windows
+        const vis = getVisibility()
+        layoutChildWindows(vis)
+      }
+    }
+  })
+
   ipcMain.removeHandler('header:get-content-width')
   ipcMain.handle('header:get-content-width', async () => {
     if (!headerWindow || headerWindow.isDestroyed()) return null
@@ -215,7 +246,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     if (!headerWindow || headerWindow.isDestroyed()) return false
     try {
       const bounds = headerWindow.getBounds()
-      const newWidth = Math.max(contentWidth + 20, 400) // Add padding, min 400px
+      const newWidth = contentWidth // 🔴 FIX: Use exact content width, no minimum or padding
       
       console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
       
@@ -267,7 +298,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     focusable: needsFocus, // Ask/Settings/Shortcuts can receive focus
     skipTaskbar: true,
     alwaysOnTop: true,
-    modal: false, // Glass parity: Shortcuts is not modal
+    modal: false,
     width: def.width,
     height: def.height,
     hasShadow: false,
@@ -340,6 +371,18 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       }
     }
   })
+
+  // 🔴 CRITICAL FIX: Prevent dragging windows off-screen
+  // Only shortcuts window is movable, but we enforce boundaries for all windows
+  if (isShortcuts) {
+    win.on('will-move', (event, newBounds) => {
+      const clamped = clampBounds(newBounds)
+      if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
+        event.preventDefault()
+        win.setBounds(clamped)
+      }
+    })
+  }
 
   // Glass parity: Settings window cursor tracking
   // Since Electron doesn't have window hover events, we poll cursor position
@@ -419,18 +462,48 @@ function getWorkAreaBounds() {
   return display.workArea
 }
 
-function clampBounds(bounds: Electron.Rectangle): Electron.Rectangle {
-  const work = getWorkAreaBounds()
-  // Allow header to reach the right edge (remove invisible wall)
-  // Account for any rendering differences by allowing exact fit
-  const maxX = work.x + work.width - bounds.width + 10 // +10px buffer for right edge
-  const maxY = work.y + work.height - bounds.height
-  return {
-    x: Math.max(work.x, Math.min(bounds.x, maxX)),
-    y: Math.max(work.y, Math.min(bounds.y, maxY)),
+function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.Rectangle {
+  // Use bounds center point to find display (avoid circular dependency with header)
+  const centerX = bounds.x + bounds.width / 2
+  const centerY = bounds.y + bounds.height / 2
+  const display = screen.getDisplayNearestPoint({ x: centerX, y: centerY })
+  
+  const screenBounds = display.bounds  // Full screen (for X axis - reach actual edge)
+  const workArea = display.workArea    // Work area (for Y axis - avoid menu bar)
+  
+  // 🔴 USER FIX: Use screenBounds for X (reach actual right edge, not dock edge)
+  // Use workArea for Y (avoid menu bar at top)
+  const padding = skipPadding ? 0 : 0  // No padding for any window
+  
+  const minX = screenBounds.x + padding
+  const maxX = screenBounds.x + screenBounds.width - bounds.width - padding
+  
+  const minY = workArea.y + padding
+  const maxY = workArea.y + workArea.height - bounds.height - padding
+  
+  console.log(`[clampBounds] 📥 Input: (${bounds.x}, ${bounds.y}), size: ${bounds.width}x${bounds.height}`)
+  console.log(`[clampBounds] 📏 Screen: ${screenBounds.width}x${screenBounds.height}, WorkArea: ${workArea.width}x${workArea.height}`)
+  console.log(`[clampBounds] 📏 Boundaries: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY}, padding=${padding}`)
+  console.log(`[clampBounds] 📏 Right edge gap: ${screenBounds.x + screenBounds.width - (bounds.x + bounds.width)}px (should be ${padding}px after clamping)`)
+  
+  const clamped = {
+    x: Math.max(minX, Math.min(bounds.x, maxX)),
+    y: Math.max(minY, Math.min(bounds.y, maxY)),
     width: bounds.width,
     height: bounds.height,
   }
+  
+  console.log(`[clampBounds] 📤 Output: (${clamped.x}, ${clamped.y}), clamped: x=${bounds.x !== clamped.x}, y=${bounds.y !== clamped.y}`)
+  console.log(`[clampBounds] 📏 Final right edge gap: ${screenBounds.x + screenBounds.width - (clamped.x + clamped.width)}px`)
+  
+  // 🔍 DIAGNOSTIC: Validate output is not NaN
+  if (isNaN(clamped.x) || isNaN(clamped.y)) {
+    console.error(`[clampBounds] ❌ Invalid clamped bounds:`, clamped, 'from input:', bounds)
+    // Return original bounds if clamping failed
+    return bounds
+  }
+  
+  return clamped
 }
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
@@ -438,15 +511,21 @@ function layoutChildWindows(visible: WindowVisibility) {
   const header = getOrCreateHeaderWindow()
   const hb = header.getBounds()
   const work = getWorkAreaBounds()
+  
+  // 🔴 CRITICAL FIX: Get screen bounds for horizontal calculations (match clampBounds behavior)
+  const centerX = hb.x + hb.width / 2
+  const centerY = hb.y + hb.height / 2
+  const display = screen.getDisplayNearestPoint({ x: centerX, y: centerY })
+  const screenBounds = display.bounds  // Full screen width (for X axis - reach actual edge)
 
   const PAD_LOCAL = PAD
-  const screenWidth = work.width
-  const screenHeight = work.height
+  const screenWidth = screenBounds.width  // 🔴 Use SCREEN width (not workArea) for X axis
+  const screenHeight = work.height        // Use workArea height for Y axis (avoid menu bar)
   
   // 🔧 FIX #9: Calculate header center more explicitly for perfect alignment
   // Use absolute positioning first, then convert to relative coordinates
   const headerCenterX = hb.x + (hb.width / 2)  // Absolute center X of header
-  const headerCenterXRel = headerCenterX - work.x  // Relative to work area
+  const headerCenterXRel = headerCenterX - screenBounds.x  // 🔴 Relative to SCREEN (not workArea)
   
   const relativeY = (hb.y - work.y) / screenHeight
 
@@ -481,30 +560,35 @@ function layoutChildWindows(visible: WindowVisibility) {
     const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
 
     if (askVis && listenVis) {
-      // Both windows: horizontal stack (listen left, ask center-aligned)
-      let askXRel = headerCenterXRel - askW / 2
-      let listenXRel = askXRel - listenW - PAD_LOCAL
+      // Both windows: horizontal stack (listen left, ask right)
+      // 🔧 FIX: Center the ENTIRE group (listen + gap + ask) under header
+      const totalWidth = listenW + PAD_LOCAL + askW
+      const groupCenterXRel = headerCenterXRel - totalWidth / 2
+      
+      let listenXRel = groupCenterXRel
+      let askXRel = listenXRel + listenW + PAD_LOCAL
 
-      // Clamp to screen bounds
-      if (listenXRel < PAD_LOCAL) {
-        listenXRel = PAD_LOCAL
+      // 🔴 FIX: Use 0 padding (same as header) to ensure identical boundaries
+      // Child windows should reach exact screen edges like header does
+      if (listenXRel < 0) {
+        listenXRel = 0
         askXRel = listenXRel + listenW + PAD_LOCAL
       }
-      if (askXRel + askW > screenWidth - PAD_LOCAL) {
-        askXRel = screenWidth - PAD_LOCAL - askW
+      if (askXRel + askW > screenWidth) {
+        askXRel = screenWidth - askW
         listenXRel = askXRel - listenW - PAD_LOCAL
       }
 
       if (isAbovePreferred) {
         const windowBottomAbs = hb.y - PAD_LOCAL
-        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
-        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
+        layout.ask = { x: Math.round(askXRel + screenBounds.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
+        layout.listen = { x: Math.round(listenXRel + screenBounds.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
       } else {
         // MUP FIX: Ask window closer to header for Glass parity (4px gap instead of 8px)
         const askGap = 4
         const yAbs = hb.y + hb.height + askGap
-        layout.ask = { x: Math.round(askXRel + work.x), y: Math.round(yAbs), width: askW, height: askH }
-        layout.listen = { x: Math.round(listenXRel + work.x), y: Math.round(yAbs), width: listenW, height: listenH }
+        layout.ask = { x: Math.round(askXRel + screenBounds.x), y: Math.round(yAbs), width: askW, height: askH }
+        layout.listen = { x: Math.round(listenXRel + screenBounds.x), y: Math.round(yAbs), width: listenW, height: listenH }
         
         // 🔧 DIAGNOSTIC: Log positioning to verify consistent layout
         console.log('[layoutChildWindows] Both windows positioned:');
@@ -519,7 +603,8 @@ function layoutChildWindows(visible: WindowVisibility) {
       const winH = askVis ? askH : listenH
 
       let xRel = headerCenterXRel - winW / 2
-      xRel = Math.max(PAD_LOCAL, Math.min(screenWidth - winW - PAD_LOCAL, xRel))
+      // 🔴 FIX: Use 0 padding (same as header) to ensure identical boundaries
+      xRel = Math.max(0, Math.min(screenWidth - winW, xRel))
 
       let yPos: number
       if (isAbovePreferred) {
@@ -530,31 +615,31 @@ function layoutChildWindows(visible: WindowVisibility) {
         yPos = hb.y - work.y + hb.height + gap
       }
 
-      layout[winName] = { x: Math.round(xRel + work.x), y: Math.round(yPos + work.y), width: winW, height: winH }
+      layout[winName] = { x: Math.round(xRel + screenBounds.x), y: Math.round(yPos + work.y), width: winW, height: winH }
     }
   }
 
   // Handle Settings window
-  // 🔧 FIX #18: Custom formula - align LEFT edge of settings directly below 3-dot button
-  // User feedback: Glass formula moved it too far left
-  // Settings button: 26px wide, 10px right padding (from EviaBar.tsx)
-  // Formula: x = header.x + header.width - buttonWidth - rightPadding
+  // 🔴 GLASS PARITY: Position settings window (windowLayoutManager.js:71-94)
+  // Align settings' RIGHT edge with header's right edge (+ button padding 170px)
   if (visible.settings) {
     const settingsWin = createChildWindow('settings')
     const settingsW = WINDOW_DATA.settings.width  // 240px
-    const settingsH = WINDOW_DATA.settings.height
+    const settingsH = WINDOW_DATA.settings.height // 388px
     
-    const settingsButtonWidth = 26   // From EviaBar.tsx line 358
-    const headerRightPadding = 10     // From EviaBar.tsx line 233
+    const PAD = 5  // Glass uses 5px gap
+    const buttonPadding = 170  // Glass positions settings relative to button (170px from right)
     
-    // Align settings LEFT edge with button LEFT edge
-    let x = hb.x + hb.width - settingsButtonWidth - headerRightPadding
-    const y = hb.y + hb.height + 5  // PAD=5 from Glass
+    // Glass formula: x = headerBounds.x + headerBounds.width - settingsBounds.width + buttonPadding
+    const x = hb.x + hb.width - settingsW + buttonPadding
+    const y = hb.y + hb.height + PAD
     
-    // Clamp to screen to prevent overflow
-    x = Math.max(work.x + 10, Math.min(work.x + work.width - settingsW - 10, x))
+    // Clamp to screen (Glass uses 10px margin)
+    const clampedX = Math.max(work.x + 10, Math.min(work.x + work.width - settingsW - 10, x))
+    const clampedY = Math.max(work.y + 10, Math.min(work.y + work.height - settingsH - 10, y))
     
-    layout.settings = { x: Math.round(x), y: Math.round(y), width: settingsW, height: settingsH }
+    layout.settings = { x: Math.round(clampedX), y: Math.round(clampedY), width: settingsW, height: settingsH }
+    console.log(`[layoutChildWindows] 📐 Settings (Glass parity): x=${Math.round(clampedX)}, y=${Math.round(clampedY)}, buttonPadding=${buttonPadding}`)
   }
 
   // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
@@ -752,6 +837,16 @@ function toggleWindow(name: FeatureName) {
     
     console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
     updateWindows(newVis)
+    
+    // 🔧 CONSERVATIVE FIX: Focus Ask window when showing
+    if (!current) {  // If we're showing the Ask window (toggled from hidden to shown)
+      const askWin = childWindows.get('ask')
+      if (askWin && !askWin.isDestroyed()) {
+        askWin.focus()
+        console.log(`[overlay-windows] ✅ Ask window focused after toggle`)
+      }
+    }
+    
     return newVis.ask
   }
   
@@ -830,42 +925,86 @@ function handleHeaderToggle() {
 
 let isAnimating = false
 let animationTarget: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
+let animationStartPos: { x: number, y: number } = { x: 0, y: 0 }
+let animationStartTime = 0
 let animationTimer: NodeJS.Timeout | null = null
 
 function nudgeHeader(dx: number, dy: number) {
-  // Glass parity: windowManager.js:133-154, smoothMovementManager.js:1-32
-  // Animate header movement smoothly over 300ms (Glass animation duration)
+  // 🔴 CRITICAL FIX #3: Smooth movement even with rapid/held key presses
   const header = getOrCreateHeaderWindow()
-  const bounds = header.getBounds()
   
-  // If already animating, update target instead of starting new animation
+  // 🔴 FIX 3a: If already animating, restart animation from current position to new target
+  // User requirement: "press twice = move for 600ms" (extend duration)
   if (isAnimating) {
-    const newTarget = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
+    // Stop current animation
+    if (animationTimer) {
+      clearTimeout(animationTimer)
+      animationTimer = null
+    }
+    
+    // Calculate new target from CURRENT target (not current position)
+    const newTarget = clampBounds({ 
+      ...animationTarget,
+      x: animationTarget.x + dx, 
+      y: animationTarget.y + dy 
+    })
+    
+    // Restart animation from CURRENT position to new target
+    const currentBounds = header.getBounds()
     animationTarget = newTarget
-    return
+    animationStartPos = { x: currentBounds.x, y: currentBounds.y }
+    animationStartTime = Date.now()
+    
+    console.log(`[nudgeHeader] ⚡ Restarted animation: (${currentBounds.x}, ${currentBounds.y}) → (${newTarget.x}, ${newTarget.y})`)
+    
+    // Continue animating with new parameters (fall through to animate())
+  } else {
+    // Start new animation
+    const bounds = header.getBounds()
+    const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
+    animationTarget = target
+    animationStartPos = { x: bounds.x, y: bounds.y }
+    animationStartTime = Date.now()
   }
   
-  const target = clampBounds({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
-  animationTarget = target
-  
-  // Smooth animation over 300ms
+  // Smooth animation over 300ms (Glass parity)
   const duration = 300
-  const startTime = Date.now()
-  const startX = bounds.x
-  const startY = bounds.y
   isAnimating = true
   
   const animate = () => {
-    const elapsed = Date.now() - startTime
+    // 🔴 CRITICAL FIX: Validate header still exists
+    if (!header || header.isDestroyed()) {
+      console.error('[nudgeHeader] ❌ Header destroyed during animation')
+      isAnimating = false
+      if (animationTimer) clearTimeout(animationTimer)
+      animationTimer = null
+      return
+    }
+    
+    const elapsed = Date.now() - animationStartTime
     const progress = Math.min(elapsed / duration, 1)
     
     // Ease-out cubic for smooth deceleration
     const eased = 1 - Math.pow(1 - progress, 3)
     
-    const currentX = startX + (animationTarget.x - startX) * eased
-    const currentY = startY + (animationTarget.y - startY) * eased
+    const currentX = animationStartPos.x + (animationTarget.x - animationStartPos.x) * eased
+    const currentY = animationStartPos.y + (animationTarget.y - animationStartPos.y) * eased
+    
+    // 🔴 CRITICAL FIX: Validate coordinates are valid numbers
+    if (isNaN(currentX) || isNaN(currentY)) {
+      console.error('[nudgeHeader] ❌ Invalid coordinates:', { currentX, currentY, animationStartPos, animationTarget })
+      isAnimating = false
+      if (animationTimer) clearTimeout(animationTimer)
+      animationTimer = null
+      return
+    }
     
     header.setPosition(Math.round(currentX), Math.round(currentY))
+    
+    // 🔴 CRITICAL FIX: Reposition child windows DURING animation (not just at end)
+    // This prevents windows from "appearing in borders" until arrow key is pressed
+    const vis = getVisibility()
+    layoutChildWindows(vis)
     
     if (progress < 1) {
       animationTimer = setTimeout(animate, 16) // ~60fps
@@ -874,8 +1013,7 @@ function nudgeHeader(dx: number, dy: number) {
       isAnimating = false
       animationTimer = null
       
-      // Recalculate child layout and save state
-      const vis = getVisibility()
+      // Final layout and save state
       layoutChildWindows(vis)
       saveState({ headerBounds: animationTarget })
     }
@@ -885,6 +1023,9 @@ function nudgeHeader(dx: number, dy: number) {
 }
 
 function openAskWindow() {
+  console.log('[overlay-windows] 🚨 openAskWindow() CALLED - STACK TRACE:')
+  console.trace()
+  
   // 🔧 FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
   // 🔧 FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
@@ -897,6 +1038,7 @@ function openAskWindow() {
     updateWindows(newVis)
   } else {
     // Ask is closed, open it (this will close other windows as per normal behavior)
+    console.log('[overlay-windows] 🚨 Opening Ask window via toggleWindow')
     toggleWindow('ask')
   }
 }
@@ -1001,31 +1143,77 @@ ipcMain.handle('win:show', (_event, name: FeatureName) => {
 })
 
 ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
-  console.log(`[overlay-windows] win:ensureShown called for ${name}`)
-  // CRITICAL FIX: Only show the requested window, don't call updateWindows (which opens ALL windows in state)
+  console.log(`[overlay-windows] 🚨 win:ensureShown called for ${name}`)
+  
+  // 🔧 GLASS PARITY: Check ACTUAL window visibility, not saved state
+  // Glass windowManager.js:353-368 checks isOtherWinVisible by calling win.isVisible()
+  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
+  
+  // Build visibility based on ACTUAL state, not saved state
+  const actualVis: WindowVisibility = {
+    listen: false,
+    ask: false,
+    settings: false,
+    shortcuts: false,
+  }
+  
+  // Set the window we're showing
+  actualVis[name] = true
+  
+  // Check if the OTHER window (ask/listen) is ACTUALLY visible
+  if (otherName) {
+    const otherWin = childWindows.get(otherName)
+    const isOtherActuallyVisible = otherWin && !otherWin.isDestroyed() && otherWin.isVisible()
+    console.log(`[overlay-windows] 🔍 Checking ${otherName}: exists=${!!otherWin}, destroyed=${otherWin?.isDestroyed()}, visible=${otherWin?.isVisible()} → actuallyVisible=${isOtherActuallyVisible}`)
+    if (isOtherActuallyVisible) {
+      actualVis[otherName] = true
+    }
+  }
+  
+  console.log(`[overlay-windows] 📊 ACTUAL visibility for layout:`, actualVis)
+  
+  // Create window if needed
   let win = childWindows.get(name)
   if (!win || win.isDestroyed()) {
     win = createChildWindow(name)
   }
   
-  // 🔧 FIX: Update visibility state FIRST, then layout ALL windows before showing
-  // This ensures Listen and Ask are positioned side-by-side, not overlapping
-  const vis = getVisibility()
-  const newVis = { ...vis, [name]: true }
-  
-  // 🔧 FIX: Call layoutChildWindows to position ALL visible windows correctly
-  // This handles the case where Ask is already open and Listen is being shown
-  layoutChildWindows(newVis)
+  // Layout based on ACTUAL visibility
+  layoutChildWindows(actualVis)
   
   if (win && !win.isDestroyed()) {
-    // Window bounds already set by layoutChildWindows, just show it
     win.show()
-    win.moveTop()
     win.setAlwaysOnTop(true, 'screen-saver')
+    
+    if (name === 'ask') {
+      win.focus()
+      console.log(`[overlay-windows] ✅ Ask window focused for input auto-focus`)
+    }
   }
   
-  // Save state
-  saveState({ visible: newVis })
+  // 🔧 CRITICAL FIX: Ensure proper z-order (header above child)
+  // Due to parent-child relationship, must call moveTop() in correct order:
+  // 1. Child window first (so it's on top of other windows)
+  // 2. Header second (so it's above its children)
+  const header = getOrCreateHeaderWindow()
+  if (header && !header.isDestroyed()) {
+    header.setAlwaysOnTop(true, 'screen-saver')
+    if (!header.isVisible()) {
+      header.show()
+      console.log(`[overlay-windows] 📺 Header was hidden, showing it`)
+    }
+    
+    // Move child window to top first, then header above it
+    if (win && !win.isDestroyed()) {
+      win.moveTop()
+      console.log(`[overlay-windows] 📊 Child ${name} moved to top`)
+    }
+    header.moveTop()
+    console.log(`[overlay-windows] ✅ Header moved to top after showing ${name} (header above child)`)
+  }
+  
+  // Save the ACTUAL visibility state
+  saveState({ visible: actualVis })
   console.log(`[overlay-windows] ensureShown complete for ${name}`)
   return { ok: true }
 })
@@ -1048,11 +1236,46 @@ ipcMain.handle('win:hide', (_event, name: FeatureName) => {
 
 ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   const header = getOrCreateHeaderWindow()
-  const bounds = clampBounds({ ...header.getBounds(), x, y })
-  header.setBounds(bounds)
-  saveState({ headerBounds: bounds })
-    return { ok: true }
-  })
+  const currentBounds = header.getBounds()
+  
+  // 🔴 DIAGNOSTIC: Log every step to find why clamping fails
+  console.log(`[win:moveHeaderTo] 📥 Input: (${x}, ${y})`)
+  console.log(`[win:moveHeaderTo] 📊 Current header bounds:`, currentBounds)
+  
+  // Get display info
+  const display = screen.getDisplayNearestPoint({ x, y })
+  console.log(`[win:moveHeaderTo] 🖥️ Display bounds:`, display.bounds)
+  console.log(`[win:moveHeaderTo] 🖥️ Display workArea:`, display.workArea)
+  
+  // Create requested bounds
+  const requestedBounds = { ...currentBounds, x, y }
+  console.log(`[win:moveHeaderTo] 📐 Requested bounds:`, requestedBounds)
+  
+  // Clamp bounds
+  const clampedBounds = clampBounds(requestedBounds)
+  console.log(`[win:moveHeaderTo] 🔒 Clamped bounds:`, clampedBounds)
+  console.log(`[win:moveHeaderTo] 📏 Clamping applied: x=${x !== clampedBounds.x}, y=${y !== clampedBounds.y}`)
+  
+  // Set bounds
+  header.setBounds(clampedBounds)
+  
+  // Verify actual bounds after setting
+  const actualBounds = header.getBounds()
+  console.log(`[win:moveHeaderTo] ✅ Actual bounds after setBounds:`, actualBounds)
+  
+  // Check if setBounds actually worked
+  if (actualBounds.x !== clampedBounds.x || actualBounds.y !== clampedBounds.y) {
+    console.error(`[win:moveHeaderTo] ❌ setBounds FAILED! Expected (${clampedBounds.x}, ${clampedBounds.y}), got (${actualBounds.x}, ${actualBounds.y})`)
+  }
+  
+  saveState({ headerBounds: clampedBounds })
+  
+  // 🔴 CRITICAL: Reposition child windows CONTINUOUSLY during drag
+  const vis = getVisibility()
+  layoutChildWindows(vis)
+  
+  return { ok: true }
+})
 
 ipcMain.handle('win:resizeHeader', (_event, width: number, height: number) => {
   const header = getOrCreateHeaderWindow()
@@ -1345,7 +1568,7 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
 
 // Settings hover handlers (Glass parity: show/hide with delay)
 ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
-  console.log('[overlay-windows] show-settings-window: Showing settings ONLY (not affecting other windows)')
+  console.log('[overlay-windows] show-settings-window: START')
   console.log('[overlay-windows] 📍 Button position from renderer:', buttonX)
   
   if (settingsHideTimer) {
@@ -1354,54 +1577,45 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     settingsHideTimer = null
   }
   
-  // CRITICAL FIX: Only create/show settings, NEVER touch listen/ask windows
+  // 🔴 ATOMIC FIX STEP 2: Use layoutChildWindows() for correct positioning
+  // Old hardcoded logic was wrong - always placed below, never flipped, wrong alignment
+  
+  // Get current visibility and add settings
+  const vis = getVisibility()
+  const newVis = { ...vis, settings: true }
+  
+  // Calculate correct position using space-aware, flip-aware, alignment-aware logic
+  console.log('[overlay-windows] 🔄 Calling layoutChildWindows for settings positioning')
+  layoutChildWindows(newVis)
+  
+  // Now show the window (position was set by layoutChildWindows)
   let settingsWin = childWindows.get('settings')
   if (!settingsWin || settingsWin.isDestroyed()) {
     settingsWin = createChildWindow('settings')
   }
   
   if (settingsWin && !settingsWin.isDestroyed()) {
-    const header = getOrCreateHeaderWindow()
-    const hb = header.getBounds()
-    const work = screen.getDisplayNearestPoint({ x: hb.x, y: hb.y }).workArea
+    const actualBounds = settingsWin.getBounds()
+    console.log('[overlay-windows] 📍 Settings bounds BEFORE show:', actualBounds)
     
-    let x: number
-    
-    // 🔧 FIX #1: Use actual button position if provided (from renderer DOM measurement)
-    // This fixes the issue where English header is narrower but settings stayed in same position
-    if (typeof buttonX === 'number' && buttonX >= 0) {
-      // Button position is relative to header left edge
-      // Align settings LEFT edge with button LEFT edge
-      x = hb.x + buttonX
-      console.log('[overlay-windows] ✅ Using actual button position:', buttonX, 'absolute x:', x)
-    } else {
-      // Fallback: Use old fixed calculation (for backwards compatibility)
-      console.log('[overlay-windows] ⚠️ No button position provided, using fallback calculation')
-      const settingsButtonWidth = 26   // From EviaBar.tsx
-      const headerRightPadding = 10     // From EviaBar.tsx
-      x = hb.x + hb.width - settingsButtonWidth - headerRightPadding
-    }
-    
-    const y = hb.y + hb.height + PAD
-    
-    // Clamp to screen to prevent overflow
-    x = Math.max(work.x + 10, Math.min(work.x + work.width - WINDOW_DATA.settings.width - 10, x))
-    
-    settingsWin.setBounds({
-      x: Math.round(x),
-      y: Math.round(y),
-      width: WINDOW_DATA.settings.width,
-      height: WINDOW_DATA.settings.height,
-    })
     settingsWin.show()
     settingsWin.moveTop()
     settingsWin.setAlwaysOnTop(true, 'screen-saver')
+    
+    // Verify position after show
+    const finalBounds = settingsWin.getBounds()
+    console.log('[overlay-windows] 📍 Settings bounds AFTER show:', finalBounds)
+    
+    // Double-check header position for debugging
+    const header = getOrCreateHeaderWindow()
+    const hb = header.getBounds()
+    console.log('[overlay-windows] 📍 Header bounds:', hb)
+    console.log('[overlay-windows] 📐 Settings relative to header: x_offset=${finalBounds.x - hb.x}, y_offset=${finalBounds.y - hb.y}')
   }
   
-  // Update state but don't call updateWindows (which would relayout all windows)
-  const vis = getVisibility()
-  saveState({ visible: { ...vis, settings: true } })
-  console.log('[overlay-windows] Settings shown')
+  // Update state
+  saveState({ visible: newVis })
+  console.log('[overlay-windows] show-settings-window: COMPLETE')
 })
 
 ipcMain.on('hide-settings-window', () => {
@@ -1590,6 +1804,28 @@ export function createWelcomeWindow(): BrowserWindow {
     }
   })
 
+  // 🔴 CRITICAL FIX: Prevent dragging welcome window off-screen
+  welcomeWindow.on('will-move', (event, newBounds) => {
+    const display = screen.getDisplayNearestPoint({ x: newBounds.x, y: newBounds.y })
+    const work = display.workArea
+    const minX = work.x
+    const maxX = work.x + work.width - newBounds.width
+    const minY = work.y
+    const maxY = work.y + work.height - newBounds.height
+    
+    const clamped = {
+      x: Math.max(minX, Math.min(newBounds.x, maxX)),
+      y: Math.max(minY, Math.min(newBounds.y, maxY)),
+      width: newBounds.width,
+      height: newBounds.height,
+    }
+    
+    if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
+      event.preventDefault()
+      welcomeWindow?.setBounds(clamped)
+    }
+  })
+
   welcomeWindow.on('closed', () => {
     welcomeWindow = null
   })
@@ -1623,6 +1859,8 @@ export function createPermissionWindow(): BrowserWindow {
   permissionWindow = new BrowserWindow({
     width: 305,
     height: 235,
+    minWidth: 305, // Allow resizing wider if needed
+    minHeight: 235, // Keep original compact height
     show: false,
     frame: false,
     transparent: true,
@@ -1676,7 +1914,29 @@ export function createPermissionWindow(): BrowserWindow {
           if (permissionWindow.webContents.isDevToolsOpened()) {
             permissionWindow.webContents.closeDevTools()
           } else {
-            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+            // 🔧 FIX: Open DevTools in detached mode with console activated
+            permissionWindow.webContents.openDevTools({ mode: 'detach', activate: true })
+            
+            // 🔧 FIX: Switch to Console tab after opening
+            // DevTools needs a moment to initialize before we can switch tabs
+            setTimeout(() => {
+              if (permissionWindow && !permissionWindow.isDestroyed()) {
+                const devTools = permissionWindow.webContents.devToolsWebContents;
+                if (devTools) {
+                  devTools.executeJavaScript(`
+                    // Switch to Console panel in DevTools
+                    UI.inspectorView.showPanel('console');
+                  `).catch(() => {
+                    // Fallback: If the above doesn't work, try DevTools API
+                    devTools.executeJavaScript(`
+                      DevToolsAPI?.showPanel?.('console');
+                    `).catch(() => {
+                      console.log('[DevTools] Could not auto-switch to console tab');
+                    });
+                  });
+                }
+              }
+            }, 500);
           }
         }
       }
@@ -1686,7 +1946,29 @@ export function createPermissionWindow(): BrowserWindow {
           if (permissionWindow.webContents.isDevToolsOpened()) {
             permissionWindow.webContents.closeDevTools()
           } else {
-            permissionWindow.webContents.openDevTools({ mode: 'detach' })
+            // 🔧 FIX: Open DevTools in detached mode with console activated
+            permissionWindow.webContents.openDevTools({ mode: 'detach', activate: true })
+            
+            // 🔧 FIX: Switch to Console tab after opening
+            // DevTools needs a moment to initialize before we can switch tabs
+            setTimeout(() => {
+              if (permissionWindow && !permissionWindow.isDestroyed()) {
+                const devTools = permissionWindow.webContents.devToolsWebContents;
+                if (devTools) {
+                  devTools.executeJavaScript(`
+                    // Switch to Console panel in DevTools
+                    UI.inspectorView.showPanel('console');
+                  `).catch(() => {
+                    // Fallback: If the above doesn't work, try DevTools API
+                    devTools.executeJavaScript(`
+                      DevToolsAPI?.showPanel?.('console');
+                    `).catch(() => {
+                      console.log('[DevTools] Could not auto-switch to console tab');
+                    });
+                  });
+                }
+              }
+            }, 500);
           }
         }
       }

@@ -100,6 +100,10 @@
       "auth": "Authentication failed. Please login again.",
       "unknown": "An unexpected error occurred.",
       "screenshot": "Failed to capture screenshot"
+    },
+    "offline": {
+      "title": "No Connection",
+      "subtitle": "Reconnecting..."
     }
   }
 }

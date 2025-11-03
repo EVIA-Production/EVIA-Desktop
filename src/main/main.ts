@@ -114,20 +114,25 @@ app.on('activate', async () => {
   }
 })
 
-// 🔧 TODO #9 FIX: Add before-quit handler for graceful session cleanup
+// 🔧 FIX: Graceful session cleanup before quit
+// Track if cleanup already done to prevent infinite loop
+let isQuitting = false;
+
 app.on('before-quit', async (event) => {
+  // If already quitting, allow it to proceed
+  if (isQuitting) {
+    console.log('[Main] ✅ Cleanup already done, allowing quit');
+    return;
+  }
+  
   console.log('[Main] 🚪 App about to quit - performing graceful cleanup...');
   
-  // Prevent quit to allow async cleanup
+  // Prevent quit to allow async cleanup (ONLY FIRST TIME)
   event.preventDefault();
+  isQuitting = true;
   
   try {
-    // 1. Complete any active backend session
-    const token = await keytar.getPassword('evia', 'token');
-    const chatId = global?.localStorage?.getItem?.('current_chat_id'); // Note: localStorage not available in main process
-    
-    // Since we can't access localStorage from main process, we'll send IPC to renderer
-    // to trigger session completion before quit
+    // 1. Send shutdown signal to renderer
     const headerWin = getHeaderWindow();
     if (headerWin && !headerWin.isDestroyed()) {
       console.log('[Main] 📤 Sending graceful-shutdown signal to renderer...');
@@ -150,7 +155,7 @@ app.on('before-quit', async (event) => {
     console.error('[Main] ❌ Cleanup error (continuing quit):', error);
   }
   
-  // Now actually quit
+  // Now actually quit (won't trigger this handler again due to isQuitting flag)
   app.quit();
 });
 

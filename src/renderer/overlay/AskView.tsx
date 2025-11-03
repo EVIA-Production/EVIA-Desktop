@@ -228,7 +228,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     eviaIpc.on('clear-session', handleClearSession);  // 🔧 NEW: Listen for clear-session
     eviaIpc.on('session-state-changed', handleSessionStateChanged);
     eviaIpc.on('language-changed', handleLanguageChanged);  // 🔧 FIX: Listen for language-changed
-    console.log('[AskView] ✅ IPC listeners registered (send-and-submit, session:closed, abort-ask-stream, clear-session, session-state-changed, language-changed)');
+    
+    // 🔧 CRITICAL: Register debug-log listener to show Listen window logs here
+    // (since F12 doesn't work in Listen window due to volume controls)
+    eviaIpc.on('debug-log', (message: string) => {
+      console.log('[🔊 LISTEN WINDOW]', message);
+    });
+    
+    console.log('[AskView] ✅ IPC listeners registered (send-and-submit, session:closed, abort-ask-stream, clear-session, session-state-changed, language-changed, debug-log)');
 
     return () => {
       eviaIpc.off('ask:send-and-submit', handleSendAndSubmit);
@@ -237,11 +244,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       eviaIpc.off('clear-session', handleClearSession);
       eviaIpc.off('session-state-changed', handleSessionStateChanged);
       eviaIpc.off('language-changed', handleLanguageChanged);
+      eviaIpc.off('debug-log');  // 🔧 Clean up debug-log listener
       console.log('[AskView] 🧹 Cleaning up IPC listeners');
     };
   }, []);
 
   // 🔧 UI IMPROVEMENT: Auto-focus input when window becomes visible
+  // 🐛 CRITICAL FIX: Window persists between opens (not unmounted), so useEffect with []
+  // only runs once. Must listen to window focus AND visibility changes.
   useEffect(() => {
     // Helper function to focus with retry (fixes Test 4 failure)
     const focusInputWithRetry = () => {
@@ -264,20 +274,33 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       });
     };
     
+    // 🔥 CRITICAL: Listen to visibility change (when window shows/hides)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        console.log('[AskView] 👁️ Window became visible, focusing input');
         focusInputWithRetry();
       }
     };
+    
+    // 🔥 CRITICAL: Listen to window focus (when user clicks window or Cmd+Tab back)
+    const handleWindowFocus = () => {
+      console.log('[AskView] 🎯 Window gained focus, focusing input');
+      focusInputWithRetry();
+    };
 
-    // Focus on mount
+    // Focus on mount (first open)
+    console.log('[AskView] 🚀 Component mounted, initial focus');
     focusInputWithRetry();
 
-    // Focus when window becomes visible (e.g., reopened via keyboard shortcut)
+    // Focus when window becomes visible (Cmd+Enter reopens)
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Focus when window gains focus (Cmd+Tab back to app)
+    window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
 
@@ -497,23 +520,60 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setTtftMs(null);
     streamStartTime.current = performance.now();
 
+    // 🔴 CRITICAL FIX: Re-read session state from localStorage before streaming
+    // EviaBar updates localStorage immediately when Listen starts, but the IPC event
+    // might arrive too late (after user clicks shortcut button)
+    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'before';
+    if (currentSessionState !== sessionState) {
+      console.log('[AskView] 🔄 Syncing session state from localStorage:', currentSessionState, '(was:', sessionState, ')');
+      setSessionState(currentSessionState);
+    }
+
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
-    console.log('[AskView] 🎯 Session state:', sessionState);
+    console.log('[AskView] 🎯 Session state:', currentSessionState);
 
     // 🔧 GLASS PARITY: Pass transcript context to backend
+    // Use currentSessionState (freshly read from localStorage) instead of stale sessionState
     const handle = streamAsk({ 
       baseUrl, 
       chatId, 
       prompt: actualPrompt, 
       transcript: transcriptContext || undefined,  // Pass transcript for context
       language, 
-      sessionState,  // 🔧 NEW: Pass session state for context-aware responses
+      sessionState: currentSessionState,  // 🔧 CRITICAL: Use freshly synced session state
       token, 
       screenshotRef 
     });
     streamRef.current = handle;
 
     handle.onDelta((d) => {
+      // 🔴 CRITICAL FIX #2: Detect backend error messages and show friendly error
+      // Backend yields "Error generating suggestion: <error>" on failures
+      if (d.includes('Error generating suggestion:')) {
+        console.error('[AskView] ❌ Backend error detected in stream:', d);
+        
+        // Check if it's a rate limit error
+        if (d.includes('rate_limit') || d.includes('429') || d.includes('Rate limit')) {
+          showError(language === 'en' 
+            ? 'Service temporarily unavailable. Please try again in a moment.'
+            : 'Service vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.', 
+            true
+          );
+        } else if (d.includes('401') || d.includes('Unauthorized')) {
+          showError('Authentication expired. Please reconnect.', true);
+        } else {
+          // Generic error
+          showError('Request failed. Please try again.', true);
+        }
+        
+        // Abort the stream
+        handle.abort();
+        setIsStreaming(false);
+        setIsLoadingFirstToken(false);
+        streamRef.current = null;
+        return; // Don't add error text to response
+      }
+      
       if (isLoadingFirstToken) {
         setIsLoadingFirstToken(false);
         setHeaderText(i18n.t('overlay.ask.aiResponse'));

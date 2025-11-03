@@ -27,6 +27,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 }) => {
   const headerRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+  const lastMoveTimeRef = useRef<number>(0); // Throttle mouse move events
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
   const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before');
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
@@ -294,12 +295,22 @@ const EviaBar: React.FC<EviaBarProps> = ({
     const handleMouseMove = (event: MouseEvent) => {
       if (!dragState.current) return;
       event.preventDefault();
+      
+      // 🔴 CRITICAL FIX: Throttle to 60fps (16ms) to prevent IPC queue overload
+      const now = Date.now();
+      if (now - lastMoveTimeRef.current < 16) {
+        return;
+      }
+      lastMoveTimeRef.current = now;
+      
       const dx = event.screenX - dragState.current.startX;
       const dy = event.screenY - dragState.current.startY;
-      (window as any).evia?.windows?.moveHeaderTo?.(
-        dragState.current.initialX + dx,
-        dragState.current.initialY + dy,
-      );
+      const newX = dragState.current.initialX + dx;
+      const newY = dragState.current.initialY + dy;
+      
+      console.log(`[EviaBar] 🖱️ Mouse move: requesting (${newX}, ${newY})`);
+      
+      (window as any).evia?.windows?.moveHeaderTo?.(newX, newY);
     };
 
     const handleMouseUp = () => {
