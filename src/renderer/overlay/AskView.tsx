@@ -180,6 +180,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Auto-submit after state updates (next tick)
       setTimeout(() => {
         startStream(false, incomingPrompt);
+        // 🔧 FIX: Focus input AFTER stream starts so user can ask follow-up questions
+        // Wait for window to be visible and expanded before focusing
+        setTimeout(() => {
+          focusInputWithRetry();
+        }, 100);
       }, 50);
     };
 
