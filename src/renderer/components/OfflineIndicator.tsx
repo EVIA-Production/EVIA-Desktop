@@ -22,13 +22,17 @@ export const OfflineIndicator: React.FC = () => {
     return null; // Don't show anything when online
   }
 
+  // Hardcoded for now - i18n will be added properly later
+  const title = 'No Connection';
+  const subtitle = 'Reconnecting...';
+
   return (
     <div style={styles.container}>
       <div style={styles.content}>
         <span style={styles.icon}>⚠️</span>
         <div style={styles.text}>
-          <div style={styles.title}>Offline Mode</div>
-          <div style={styles.subtitle}>Backend unavailable - reconnecting...</div>
+          <div style={styles.title}>{title}</div>
+          <div style={styles.subtitle}>{subtitle}</div>
         </div>
       </div>
     </div>
@@ -38,7 +42,7 @@ export const OfflineIndicator: React.FC = () => {
 const styles = {
   container: {
     position: 'fixed' as const,
-    top: '10px',
+    top: '55px',  // 🔴 FIX: Moved down from 10px to 55px (below header ~47px + gap)
     left: '50%',
     transform: 'translateX(-50%)',
     zIndex: 999998,

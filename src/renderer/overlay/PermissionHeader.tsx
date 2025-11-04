@@ -28,6 +28,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
   });
   const [isChecking, setIsChecking] = useState(false);
   const [isRequestingMic, setIsRequestingMic] = useState(false);
+  const [isRequestingScreen, setIsRequestingScreen] = useState(false); // 🔄 Match mic button animation
   const checkingRef = useRef(false);
 
   /**
@@ -108,25 +109,33 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
    * Open System Preferences for screen recording permission
    */
   const handleScreenClick = async () => {
-    if (!window.evia?.permissions || permissions.screen === 'granted') return;
+    if (!window.evia?.permissions || permissions.screen === 'granted' || isRequestingScreen) return;
     
     console.log('[PermissionHeader] 🖥️  Opening System Preferences for screen recording...');
+    setIsRequestingScreen(true); // 🔄 Match mic button animation
     
     try {
       await window.evia.permissions.openSystemPreferences('screen-recording');
       console.log('[PermissionHeader] ✅ System Preferences opened');
     } catch (error) {
       console.error('[PermissionHeader] ❌ Error opening System Preferences:', error);
+    } finally {
+      // Keep loading state briefly, then let polling detect the change
+      setTimeout(() => setIsRequestingScreen(false), 1000);
     }
   };
 
   // Note: handleContinue removed - auto-continue happens in checkPermissions
 
-  // Check permissions on mount and set up interval
+  // 🔥 v1.0.0 LOGIC: Check permissions immediately and poll every 1 second
+  // This is the PROVEN working logic from the release that works
   useEffect(() => {
     console.log('[PermissionHeader] 🚀 Component mounted, starting permission checks');
+    
+    // Check immediately on mount (v1.0.0 pattern)
     checkPermissions();
     
+    // Then check every 1 second (v1.0.0 pattern - proven to work)
     const interval = setInterval(() => {
       checkPermissions();
     }, 1000);
@@ -140,17 +149,24 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
   const allGranted = permissions.microphone === 'granted' && permissions.screen === 'granted';
 
   return (
-    <div style={styles.container}>
-      {/* Glass border effect */}
-      <div style={styles.borderOverlay} />
+    <div style={{
+      ...styles.container,
+      ...(allGranted ? styles.containerSuccess : {})
+    }}>
+      {!allGranted && (
+        <>
+          {/* Glass border effect */}
+          <div style={styles.borderOverlay} />
 
-      {/* Close button */}
-      <button style={styles.closeButton} onClick={onClose} title="Close application">
-        ×
-      </button>
-      
-      {/* Title */}
-      <h1 style={styles.title}>Permission Setup Required</h1>
+          {/* Close button */}
+          <button style={styles.closeButton} onClick={onClose} title="Close application">
+            ×
+          </button>
+          
+          {/* Title */}
+          <h1 style={styles.title}>Permission Setup Required</h1>
+        </>
+      )}
 
       {/* Content */}
       <div style={{
@@ -233,34 +249,37 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
             <button 
               style={{
                 ...styles.actionButton,
-                ...(permissions.screen === 'granted' ? styles.actionButtonDisabled : {}),
+                ...(permissions.screen === 'granted' || isRequestingScreen ? styles.actionButtonDisabled : {}),
+                ...(isRequestingScreen ? { cursor: 'wait' } : {}),
               }}
               onClick={handleScreenClick}
-              disabled={permissions.screen === 'granted'}
+              disabled={permissions.screen === 'granted' || isRequestingScreen}
             >
               <div style={styles.buttonBorderOverlay} />
               <span style={{ position: 'relative', zIndex: 1 }}>
-                {permissions.screen === 'granted' ? 'Screen Recording Granted' : 'Grant Screen Recording Access'}
+                {isRequestingScreen 
+                  ? 'Opening System Settings...' 
+                  : permissions.screen === 'granted' 
+                    ? 'Screen Recording Granted' 
+                    : 'Grant Screen Recording Access'}
               </span>
             </button>
           </>
         ) : (
-          // All permissions granted - show brief success message (auto-continues via checkPermissions)
-          <div style={{
-            ...styles.successMessage,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 16px',
-            background: 'rgba(0, 200, 0, 0.2)',
-            borderRadius: '8px',
-            border: '1px solid rgba(0, 255, 0, 0.3)',
-          }}>
-            <span style={{ fontSize: '20px' }}>✅</span>
-            <span style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '14px', fontWeight: 500 }}>
-              All permissions granted
-            </span>
-          </div>
+          // All permissions granted - show big green checkmark filling entire window
+          <svg 
+            width="80" 
+            height="80" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="rgba(52, 199, 89, 1)" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{ marginTop: '20px' }}
+          >
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
         )}
       </div>
     </div>
@@ -341,6 +360,7 @@ const styles: Record<string, React.CSSProperties> = {
   formContentAllGranted: {
     flexGrow: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 0,
   },
   subtitle: {
@@ -449,6 +469,11 @@ const styles: Record<string, React.CSSProperties> = {
     WebkitMaskComposite: 'destination-out' as any,
     maskComposite: 'exclude',
     pointerEvents: 'none',
+  },
+  // Container when all permissions granted - green background with checkmark
+  containerSuccess: {
+    background: 'rgba(52, 199, 89, 0.15)', // Light green background
+    border: '2px solid rgba(52, 199, 89, 0.4)', // Green border
   },
 };
 

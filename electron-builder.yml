@@ -10,6 +10,8 @@ files:
   - src/main/assets/**
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
+# 🔧 Run afterPack script to sign SystemAudioDump with entitlements
+afterPack: scripts/afterPack.js
 mac:
   icon: src/main/assets/icon.png
   category: public.app-category.productivity

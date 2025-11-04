@@ -27,6 +27,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 }) => {
   const headerRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+  const lastMoveTimeRef = useRef<number>(0); // Throttle mouse move events
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
   const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before');
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
@@ -173,20 +174,60 @@ const EviaBar: React.FC<EviaBarProps> = ({
       setIsListenActive(false);
     };
 
+    // 🔧 TODO #9 FIX: Handle graceful shutdown - complete active session before quit
+    const handleBeforeQuit = async () => {
+      console.log('[EviaBar] 🚪 App quitting - completing active session...');
+      
+      // Only complete if session is active (during or after state)
+      if (listenStatus === 'in' || listenStatus === 'after') {
+        try {
+          const eviaAuth = (window as any).evia?.auth;
+          const token = await eviaAuth?.getToken?.();
+          const chatId = localStorage.getItem('current_chat_id');
+          const { BACKEND_URL: baseUrl } = await import('../config/config');
+          
+          if (token && chatId) {
+            console.log('[EviaBar] 🎯 Completing session before quit:', chatId);
+            const response = await fetch(`${baseUrl}/session/complete`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ 
+                chat_id: Number(chatId),
+                summary: 'Session ended by app quit'
+              })
+            });
+            
+            if (response.ok) {
+              console.log('[EviaBar] ✅ Session completed before quit');
+            } else {
+              console.error('[EviaBar] ❌ Failed to complete session:', response.status);
+            }
+          }
+        } catch (error) {
+          console.error('[EviaBar] ❌ Error completing session on quit:', error);
+        }
+      }
+    };
+
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc) {
       eviaIpc.on('language-changed', handleLanguageChanged);
       eviaIpc.on('clear-session', handleSessionClosed);
-      console.log('[EviaBar] ✅ Registered language-changed and clear-session listeners');
+      eviaIpc.on('app:before-quit', handleBeforeQuit);
+      console.log('[EviaBar] ✅ Registered language-changed, clear-session, and before-quit listeners');
     }
 
     return () => {
       if (eviaIpc) {
         eviaIpc.off('language-changed', handleLanguageChanged);
         eviaIpc.off('clear-session', handleSessionClosed);
+        eviaIpc.off('app:before-quit', handleBeforeQuit);
       }
     };
-  }, []);
+  }, [listenStatus]);
 
   // Dynamic window sizing: measure content and resize window to fit
   useEffect(() => {
@@ -254,12 +295,22 @@ const EviaBar: React.FC<EviaBarProps> = ({
     const handleMouseMove = (event: MouseEvent) => {
       if (!dragState.current) return;
       event.preventDefault();
+      
+      // 🔴 CRITICAL FIX: Throttle to 60fps (16ms) to prevent IPC queue overload
+      const now = Date.now();
+      if (now - lastMoveTimeRef.current < 16) {
+        return;
+      }
+      lastMoveTimeRef.current = now;
+      
       const dx = event.screenX - dragState.current.startX;
       const dy = event.screenY - dragState.current.startY;
-      (window as any).evia?.windows?.moveHeaderTo?.(
-        dragState.current.initialX + dx,
-        dragState.current.initialY + dy,
-      );
+      const newX = dragState.current.initialX + dx;
+      const newY = dragState.current.initialY + dy;
+      
+      console.log(`[EviaBar] 🖱️ Mouse move: requesting (${newX}, ${newY})`);
+      
+      (window as any).evia?.windows?.moveHeaderTo?.(newX, newY);
     };
 
     const handleMouseUp = () => {
@@ -333,6 +384,38 @@ const EviaBar: React.FC<EviaBarProps> = ({
     } else if (listenStatus === 'in') {
       // Stop → Done: Window STAYS visible
       console.log('[EviaBar] Stop → Done: Window stays visible');
+      
+      // 🔥 FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        const chatId = localStorage.getItem('current_chat_id');
+        const { BACKEND_URL: baseUrl } = await import('../config/config');
+        
+        if (token && chatId) {
+          console.log('[EviaBar] 🎯 Calling /session/pause for chat_id:', chatId);
+          const response = await fetch(`${baseUrl}/session/pause`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ chat_id: Number(chatId) })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[EviaBar] ✅ Session paused:', data);
+          } else {
+            console.error('[EviaBar] ❌ Failed to pause session:', response.status, await response.text());
+          }
+        } else {
+          console.warn('[EviaBar] ⚠️ Cannot call /session/pause: missing token or chat_id');
+        }
+      } catch (error) {
+        console.error('[EviaBar] ❌ Error calling /session/pause:', error);
+      }
+      
       setListenStatus('after');
       setIsListenActive(false);
       onToggleListening();

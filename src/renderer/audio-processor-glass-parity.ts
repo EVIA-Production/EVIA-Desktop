@@ -223,14 +223,34 @@ function ensureMicWs() {
       
       // 🔧 FIX: Forward all transcript messages to Listen window via IPC
       // 🏷️ TAG with source so ListenView can infer speaker for status messages
+      console.log('[AudioCapture] 🔥🔥🔥 REGISTERING MIC MESSAGE HANDLER');
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) {
+        eviaIpc.send('debug-log', '[AudioCapture] 🔥 MIC HANDLER REGISTERED');
+      }
+      
       micWsInstance.onMessage((msg: any) => {
+        console.log('[AudioCapture] 🔥🔥🔥 MIC MESSAGE RECEIVED:', msg.type, msg);
+        if (eviaIpc?.send) {
+          eviaIpc.send('debug-log', `[AudioCapture] 🔥 MIC MSG: ${msg.type}`);
+        }
+        
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           console.log('[AudioCapture] Forwarding MIC message to Listen window:', msg.type);
-          // Forward to Listen window via IPC with source tag
-          const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', `[AudioCapture] 🔥 FORWARDING MIC ${msg.type} via IPC`);
             // Tag message with _source: 'mic' (speaker 1)
             eviaIpc.send('transcript-message', { ...msg, _source: 'mic' });
+            console.log('[AudioCapture] ✅ MIC transcript forwarded via IPC');
+            eviaIpc.send('debug-log', `[AudioCapture] ✅ MIC ${msg.type} FORWARDED to Listen window`);
+          } else {
+            console.error('[AudioCapture] ❌ IPC not available for forwarding');
+            eviaIpc.send('debug-log', '[AudioCapture] ❌ IPC NOT AVAILABLE!');
+          }
+        } else {
+          console.log('[AudioCapture] ⚠️ MIC message type not transcript/status, skipping:', msg.type);
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', `[AudioCapture] ⚠️ MIC MSG TYPE: ${msg.type} (not transcript/status)`);
           }
         }
       });
@@ -258,14 +278,19 @@ function ensureSystemWs(chatId?: string) {
       
       // 🔧 FIX: Forward all transcript messages to Listen window via IPC
       // 🏷️ TAG with source so ListenView can infer speaker for status messages
+      console.log('[AudioCapture] 🟢 REGISTERING SYSTEM MESSAGE HANDLER');
+      const eviaIpc = (window as any).evia?.ipc;
+      
       systemWsInstance.onMessage((msg: any) => {
+        console.log('[AudioCapture] 🟢 SYSTEM MESSAGE RECEIVED:', msg.type);
+        
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           console.log('[AudioCapture] Forwarding SYSTEM message to Listen window:', msg.type);
           // Forward to Listen window via IPC with source tag
-          const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
             // Tag message with _source: 'system' (speaker 0)
             eviaIpc.send('transcript-message', { ...msg, _source: 'system' });
+            console.log('[AudioCapture] ✅ SYSTEM transcript forwarded via IPC');
           }
         }
       });
@@ -328,8 +353,23 @@ async function setupMicProcessing(stream: MediaStream) {
   let frameCounter = 0;
   let totalAudioLevel = 0;
   let silentFrames = 0;
+  let chunkCount = 0; // Track chunks sent for logging
   
   micProcessor.onaudioprocess = (e) => {
+    // 🔥 CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
+    // Log diagnostic info instead
+    if (frameCounter === 0) {
+      console.log('[MIC-DIAGNOSTIC] 🎤 onaudioprocess FIRING! First frame received!');
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        if (eviaIpc?.send) {
+          eviaIpc.send('debug-log', '[MIC-DIAGNOSTIC] 🎤 onaudioprocess FIRING! First frame received!');
+        }
+      } catch (e) {
+        // Ignore
+      }
+    }
+    
     const inputData = e.inputBuffer.getChannelData(0);
     
     // 🎤 DIAGNOSTIC: Check audio level every 50 frames
@@ -376,7 +416,8 @@ async function setupMicProcessing(stream: MediaStream) {
           
           // 🔧 STEP 2: Run AEC and verify it actually processed
           const originalChunk = new Float32Array(chunk);
-          float32Chunk = runAecSync(originalChunk, sysF32);
+          const aecResult = runAecSync(originalChunk, sysF32);
+          float32Chunk = new Float32Array(aecResult); // Explicit copy to fix type
           
           // Only log success if AEC actually ran (check if output differs from input)
           if (float32Chunk !== originalChunk && aecMod && aecPtr) {
@@ -406,6 +447,13 @@ async function setupMicProcessing(stream: MediaStream) {
         silenceFrameCount++;
         if (silenceFrameCount % 50 === 1) { // Log every 5 seconds (50 * 100ms)
           console.log(`[AudioCapture] 🔇 MIC SILENCE GATE: Suppressing silent audio (RMS: ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD})`);
+          // 🔧 CRITICAL: Forward to Ask console
+          try {
+            const eviaIpc = (window as any).evia?.ipc;
+            if (eviaIpc?.send) {
+              eviaIpc.send('debug-log', `[AudioCapture] 🔇 SILENCE GATE ACTIVE: RMS ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD}`);
+            }
+          } catch {}
         }
         continue; // Skip sending to backend, but debug recorder already got it
       }
@@ -413,6 +461,13 @@ async function setupMicProcessing(stream: MediaStream) {
       // Reset silence counter when audio detected
       if (silenceFrameCount > 0) {
         console.log(`[AudioCapture] 🎤 MIC AUDIO DETECTED after ${silenceFrameCount} silent frames (RMS: ${rms.toFixed(4)})`);
+        // 🔧 CRITICAL: Forward to Ask console
+        try {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', `[AudioCapture] 🎤 AUDIO DETECTED! RMS: ${rms.toFixed(4)} (after ${silenceFrameCount} silent frames)`);
+          }
+        } catch {}
         silenceFrameCount = 0;
       }
       
@@ -420,29 +475,74 @@ async function setupMicProcessing(stream: MediaStream) {
       // 🎯 STEP 5: Send to backend (pcm16 already converted above)
       // ──────────────────────────────────────────────────────────────────────
       
+      // 🔥 v1.0.0 FIX: Direct WebSocket send (no IPC routing!)
+      // EVIA uses renderer-based WebSockets (unlike Glass which uses main process)
       const ws = ensureMicWs();
       // 🔧 CRITICAL FIX: Verify WebSocket is actually connected before sending
       if (ws && ws.isConnected() && ws.sendBinaryData) {
         try {
           ws.sendBinaryData(pcm16.buffer);
-          console.log(`[AudioCapture] Sent MIC chunk: ${pcm16.byteLength} bytes (RMS: ${rms.toFixed(4)}, AEC: ${systemAudioBuffer.length > 0 ? 'YES' : 'NO'})`);
+          chunkCount++;
+          // 🔧 ULTRA-CRITICAL: Log EVERY chunk send for diagnosis
+          console.log(`[AudioCapture] 📤 Sent MIC chunk #${chunkCount}: ${pcm16.byteLength} bytes (RMS: ${rms.toFixed(4)}, AEC: ${systemAudioBuffer.length > 0 ? 'YES' : 'NO'})`);
+          // Forward to Ask console
+          try {
+            const eviaIpc = (window as any).evia?.ipc;
+            if (eviaIpc?.send) {
+              eviaIpc.send('debug-log', `[AudioCapture] 📤 SENT MIC CHUNK #${chunkCount}: ${pcm16.byteLength} bytes, RMS: ${rms.toFixed(4)}`);
+            }
+          } catch {}
         } catch (error) {
           console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
+          try {
+            const eviaIpc = (window as any).evia?.ipc;
+            if (eviaIpc?.send) {
+              eviaIpc.send('debug-log', `[AudioCapture] ❌ SEND FAILED: ${error}`);
+            }
+          } catch {}
         }
       } else if (ws && !ws.isConnected()) {
         // WebSocket exists but disconnected - log warning (avoid spam)
         if (!micWsDisconnectedLogged) {
           console.error('[AudioCapture] ❌ Mic WebSocket disconnected - cannot send audio data');
+          try {
+            const eviaIpc = (window as any).evia?.ipc;
+            if (eviaIpc?.send) {
+              eviaIpc.send('debug-log', '[AudioCapture] ❌ MIC WS DISCONNECTED!');
+            }
+          } catch {}
           micWsDisconnectedLogged = true;
         }
       } else {
         console.error('[AudioCapture] ❌ Mic WebSocket not ready');
+        try {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', '[AudioCapture] ❌ MIC WS NOT READY!');
+          }
+        } catch {}
       }
     }
   };
 
   micSource.connect(micProcessor);
   micProcessor.connect(micAudioContext.destination); // Required for processing to work!
+
+  console.log('[AudioCapture] 🔊 Mic audio processing setup complete');
+  console.log('[AudioCapture] 🔊 AudioContext state:', micAudioContext.state);
+  console.log('[AudioCapture] 🔊 Sample rate:', micAudioContext.sampleRate);
+  console.log('[AudioCapture] 🔊 Processor connected:', !!micProcessor);
+  
+  // 🔥 CRITICAL: Forward diagnostics to Ask console
+  try {
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      eviaIpc.send('debug-log', `[AudioCapture] 🔊 Mic setup complete - context state: ${micAudioContext.state}`);
+      eviaIpc.send('debug-log', `[AudioCapture] 🔊 Waiting for onaudioprocess to fire...`);
+    }
+  } catch (e) {
+    // Ignore
+  }
 
   return { context: micAudioContext, processor: micProcessor };
 }
@@ -525,25 +625,154 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   return { context: sysAudioContext, processor: sysProcessor };
 }
 
+// ✅ v1.0.0 FIX: No IPC routing needed for mic audio
+// EVIA uses renderer-based WebSockets (direct send from onaudioprocess)
+
 // Glass parity: Start capture with explicit permission checks
 export async function startCapture(includeSystemAudio = false) {
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
   
+  // 🔧 CRITICAL: Also log to Ask window for debugging (since F12 doesn't work in Listen window)
+  try {
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      eviaIpc.send('debug-log', `[AudioCapture] ✅ startCapture CALLED! includeSystemAudio=${includeSystemAudio}`);
+    }
+  } catch (e) {
+    // Ignore if Ask window not available
+  }
+  
   // 🔧 FIX: Reset disconnection flag when starting new capture
   micWsDisconnectedLogged = false;
   
-  // Step 1: Ensure mic WebSocket is ready
-  let micWs = ensureMicWs();
-  if (!micWs) {
-    throw new Error('[AudioCapture] No valid chat_id - cannot start capture');
+  // 🔥 GLASS PARITY FIX: Call getUserMedia FIRST (like Glass does at line 453)
+  // This prevents the hang that was occurring when we tried to connect WebSocket before getUserMedia
+  // Step 1: Request microphone permission (MOVED TO TOP!)
+  try {
+    console.log('[AudioCapture] 🎤 Requesting microphone access with constraints:', {
+      sampleRate: SAMPLE_RATE,
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    });
+    
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', '[AudioCapture] 🎤 Requesting microphone access...');
+    } catch {}
+    
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: SAMPLE_RATE,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    
+    console.log('[AudioCapture] ✅ Microphone permission granted');
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', '[AudioCapture] ✅ MIC STREAM ACQUIRED!');
+    } catch {}
+    
+    // Verify we got audio tracks
+    const audioTracks = micStream.getAudioTracks();
+    console.log(`[AudioCapture] 🎤 Got ${audioTracks.length} audio track(s):`, audioTracks.map(t => ({
+      label: t.label,
+      enabled: t.enabled,
+      muted: t.muted,
+      readyState: t.readyState,
+      settings: t.getSettings()
+    })));
+    
+    // 🔧 CRITICAL DIAGNOSTIC: Log device info to Ask console
+    if (audioTracks.length > 0) {
+      const track = audioTracks[0];
+      const settings = track.getSettings();
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        if (eviaIpc?.send) {
+          eviaIpc.send('debug-log', `[AudioCapture] 🎤 Got ${audioTracks.length} audio track(s)`);
+          eviaIpc.send('debug-log', `[AudioCapture] 🎤 DEVICE: "${track.label}"`);
+          eviaIpc.send('debug-log', `[AudioCapture] 🎤 Sample Rate: ${settings.sampleRate}Hz, Channels: ${settings.channelCount}`);
+          eviaIpc.send('debug-log', `[AudioCapture] 🎤 Enabled: ${track.enabled}, Muted: ${track.muted}, State: ${track.readyState}`);
+        }
+      } catch (e) {
+        console.error('[AudioCapture] Failed to forward device info:', e);
+      }
+    } else {
+      console.error('[AudioCapture] ❌ NO AUDIO TRACKS IN MIC STREAM!');
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        if (eviaIpc?.send) {
+          eviaIpc.send('debug-log', '[AudioCapture] ❌ NO AUDIO TRACKS IN MIC STREAM!');
+        }
+      } catch (e) {}
+    }
+    
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', `[AudioCapture] 🎤 Got ${audioTracks.length} audio track(s)`);
+    } catch {}
+    
+    if (audioTracks.length === 0) {
+      throw new Error('[AudioCapture] No audio track in microphone stream');
+    }
+    
+  } catch (error: any) {
+    const errorMsg = `[AudioCapture] ❌ Microphone access denied: ${error.message}`;
+    console.error(errorMsg);
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', `❌ MIC FAILED: ${error.message}`);
+    } catch {}
+    throw new Error(`Microphone permission denied: ${error.message}`);
   }
   
-  // Step 2: Connect mic WebSocket first (with auto-recreate on 403)
+  // Step 2: Setup mic audio processing (with AEC) - GLASS PARITY (line 465)
+  console.log('[AudioCapture] Setting up mic audio processing...');
+  const micSetup = await setupMicProcessing(micStream);
+  micAudioContext = micSetup.context;
+  micAudioProcessor = micSetup.processor;
+  
+  // Step 3: Resume mic AudioContext (required by browsers)
+  if (micAudioContext.state === 'suspended') {
+    await micAudioContext.resume();
+    console.log('[AudioCapture] Mic AudioContext resumed');
+  }
+  
+  // Step 4: NOW create and connect mic WebSocket (AFTER getUserMedia succeeds)
+  // This prevents the hang that was occurring when we tried to connect before getUserMedia
+  let micWs = ensureMicWs();
+  if (!micWs) {
+    const errorMsg = '[AudioCapture] ❌ No valid chat_id - cannot start capture';
+    console.error(errorMsg);
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', errorMsg);
+    } catch {}
+    throw new Error(errorMsg);
+  }
+  
+  // Connect mic WebSocket (with auto-recreate on 403)
   try {
     await micWs.connect();
     console.log('[AudioCapture] Mic WebSocket connected');
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', '[AudioCapture] ✅ Mic WebSocket connected');
+    } catch {}
   } catch (error) {
-    console.error('[AudioCapture] Mic WebSocket connect failed:', error);
+    const errorMsg = `[AudioCapture] ❌ Mic WebSocket connect failed: ${error}`;
+    console.error(errorMsg);
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      if (eviaIpc?.send) eviaIpc.send('debug-log', errorMsg);
+    } catch {}
     
     // 🔧 FIX: Check if chat_id was cleared (signal for 403/404)
     const currentChatId = localStorage.getItem('current_chat_id');
@@ -577,66 +806,7 @@ export async function startCapture(includeSystemAudio = false) {
     }
   }
   
-  // Step 3: Request microphone permission explicitly
-  try {
-    console.log('[AudioCapture] 🎤 Requesting microphone access with constraints:', {
-      sampleRate: SAMPLE_RATE,
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    });
-    
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        sampleRate: SAMPLE_RATE,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
-    
-    console.log('[AudioCapture] ✅ Microphone permission granted');
-    
-    // Verify we got audio tracks
-    const audioTracks = micStream.getAudioTracks();
-    console.log(`[AudioCapture] 🎤 Got ${audioTracks.length} audio track(s):`, audioTracks.map(t => ({
-      label: t.label,
-      enabled: t.enabled,
-      muted: t.muted,
-      readyState: t.readyState,
-      settings: t.getSettings()
-    })));
-    if (audioTracks.length === 0) {
-      throw new Error('[AudioCapture] No audio track in microphone stream');
-    }
-    
-    console.log('[AudioCapture] Audio tracks:', audioTracks.map(t => ({
-      label: t.label,
-      enabled: t.enabled,
-      muted: t.muted,
-      readyState: t.readyState,
-    })));
-    
-  } catch (error: any) {
-    console.error('[AudioCapture] Microphone access denied:', error);
-    throw new Error(`Microphone permission denied: ${error.message}`);
-  }
-  
-  // Step 4: Setup mic audio processing (with AEC)
-  const micSetup = await setupMicProcessing(micStream);
-  micAudioContext = micSetup.context;
-  micAudioProcessor = micSetup.processor;
-  
-  // Step 5: Resume mic AudioContext (required by browsers)
-  if (micAudioContext.state === 'suspended') {
-    await micAudioContext.resume();
-    console.log('[AudioCapture] Mic AudioContext resumed');
-  }
-  
-  // Step 6: Setup system audio if requested (Glass binary approach)
+  // Step 5: Setup system audio if requested (Glass binary approach)
   if (includeSystemAudio) {
     console.log('[AudioCapture] 🔊 Starting system audio capture via SystemAudioDump binary (Glass approach)...');
     

@@ -305,11 +305,52 @@ function App() {
         console.log('[OverlayEntry] Using chat_id:', chatId)
         
         // Start audio capture (mic + system audio for meeting transcription)
-        console.log('[OverlayEntry] Starting dual capture (mic + system audio)...')
-        const handle = await startCapture(true) // Enable system audio for speaker diarization
+        // 🔥🔥🔥 ULTRA-CRITICAL DIAGNOSTIC: Force visible output
+        console.error('[OverlayEntry] ═══════════════════════════════════');
+        console.error('[OverlayEntry] 🚀 ABOUT TO CALL startCapture()');
+        console.error('[OverlayEntry] ═══════════════════════════════════');
+        console.error('[OverlayEntry] startCapture type:', typeof startCapture);
+        console.error('[OverlayEntry] startCapture function:', startCapture);
+        
+        // Test IPC before calling startCapture
+        const eviaIpc = (window as any).evia?.ipc;
+        if (eviaIpc?.send) {
+          eviaIpc.send('debug-log', '🔥🔥🔥 HEADER: About to call startCapture()');
+          console.error('[OverlayEntry] ✅ IPC send successful');
+        } else {
+          console.error('[OverlayEntry] ❌ IPC NOT AVAILABLE!');
+        }
+        
+        // Call startCapture with try/catch to see any errors
+        try {
+          console.error('[OverlayEntry] Calling startCapture(true)...');
+          const handle = await startCapture(true)
+          console.error('[OverlayEntry] ✅ startCapture returned:', handle);
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', '✅ HEADER: startCapture completed successfully');
+          }
+        } catch (error) {
+          console.error('[OverlayEntry] ❌ startCapture FAILED:', error);
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', `❌ HEADER: startCapture FAILED: ${error}`);
+          }
+          throw error; // Re-throw so user sees error
+        }
+        
+        const handle = { success: true } // Placeholder since we already called startCapture above
         captureHandleRef.current = handle
         setIsCapturing(true)
-        console.log('[OverlayEntry] Audio capture started successfully (mic + system)')
+        console.log('[OverlayEntry] ✅ Audio capture started successfully (mic + system)')
+        
+        // 🔧 CRITICAL: Forward success to Ask console
+        try {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            eviaIpc.send('debug-log', '[OverlayEntry] ✅ Audio capture started successfully');
+          }
+        } catch (e) {
+          console.error('[OverlayEntry] ❌ Failed to send success debug-log:', e);
+        }
         
         // 🔧 FIX: Notify Listen window to start timer
         try {

@@ -156,6 +156,8 @@ async function connect() {
     log(`[connect] backend=${base} chat_id=${chatIdNum}`)
     // 🎯 FIX: Get language from settings instead of hardcoding
     const userLang = localStorage.getItem('language') || 'de';  // Default German
+    // 🔥 FIX: Remove profile=mic parameter (backend doesn't extract it, causes Nova-3 timeout)
+    // System audio works without it, so mic should too
     const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=24000&dg_lang=${userLang}`
     const urlSys = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatIdNum))}&token=${encodeURIComponent(token)}&source=system&debug=1&sample_rate=24000&dg_lang=${userLang}`
 
@@ -407,7 +409,8 @@ async function connectMicOnly() {
 
     const base = toWsBase(backend)
     const userLang = localStorage.getItem('language') || 'de';
-    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=24000&dg_lang=${userLang}`
+    // 🔥 COLD CALLING FIX: Add profile=mic for fast finalization
+    const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&profile=mic&sample_rate=24000&dg_lang=${userLang}`
     log(`[mic-only] connecting ${urlMic.split('?')[0]}`)
     const ws = window.evia.createWs(urlMic)
     wsMic = { sendBinary: (d) => ws.sendBinary(d), sendCommand: (c) => ws.sendCommand(c), close: () => ws.close() }
@@ -575,7 +578,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const base = toWsBase(backend)
       const userLang = localStorage.getItem('language') || 'de';
-      const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&sample_rate=24000&dg_lang=${userLang}`
+      // 🔥 COLD CALLING FIX: Add profile=mic for fast finalization
+      const urlMic = `${base}/ws/transcribe?chat_id=${encodeURIComponent(String(chatId))}&token=${encodeURIComponent(token)}&source=mic&profile=mic&sample_rate=24000&dg_lang=${userLang}`
       log(`[mic-only] connecting ${urlMic.split('?')[0]}`)
       const ws = window.evia.createWs(urlMic)
       wsMic = { sendBinary: (d) => ws.sendBinary(d), sendCommand: (c) => ws.sendCommand(c), close: () => ws.close() }

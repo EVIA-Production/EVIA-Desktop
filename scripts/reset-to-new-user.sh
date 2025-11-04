@@ -15,6 +15,7 @@ echo "🔄 EVIA: Reset to New User State"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "This will:"
+echo "  ❌ Log out current user"
 echo "  ❌ Remove macOS permissions (Screen Recording, Microphone)"
 echo "  ❌ Clear localStorage data"
 echo "  ❌ Remove keychain credentials"
@@ -59,10 +60,10 @@ else
     echo "   ℹ️  No localStorage found"
 fi
 
-# 4. Clear keychain credentials
+# 4. Clear keychain credentials (logs out user)
 echo ""
-echo "4️⃣  Clearing keychain credentials..."
-security delete-generic-password -s "evia-auth-token" 2>/dev/null && echo "   ✅ Removed auth token" || echo "   ℹ️  No auth token found"
+echo "4️⃣  Logging out & clearing keychain credentials..."
+security delete-generic-password -s "evia-auth-token" 2>/dev/null && echo "   ✅ Removed auth token (user logged out)" || echo "   ℹ️  No auth token found (already logged out)"
 security delete-generic-password -s "evia-backend-url" 2>/dev/null && echo "   ✅ Removed backend URL" || echo "   ℹ️  No backend URL found"
 
 # 5. Clear browser cache/cookies for frontend (optional - user can do manually)
