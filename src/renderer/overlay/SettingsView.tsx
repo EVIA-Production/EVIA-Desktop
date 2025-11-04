@@ -18,6 +18,36 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
   const [isInvisible, setIsInvisible] = useState(false);
+  const [isSessionActive, setIsSessionActive] = useState(false);
+
+  // 🔧 FIX: Track session state to disable preset changes during recording
+  useEffect(() => {
+    const checkSessionState = () => {
+      const sessionState = localStorage.getItem('evia_session_state');
+      setIsSessionActive(sessionState === 'during');
+    };
+    
+    // Check on mount
+    checkSessionState();
+    
+    // Listen for session state changes
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc) {
+      eviaIpc.on('session-state-changed', (newState: string) => {
+        setIsSessionActive(newState === 'during');
+      });
+    }
+    
+    // Poll every second as backup
+    const intervalId = setInterval(checkSessionState, 1000);
+    
+    return () => {
+      clearInterval(intervalId);
+      if (eviaIpc) {
+        eviaIpc.off('session-state-changed');
+      }
+    };
+  }, []);
 
   // Fetch account info on mount
   useEffect(() => {
@@ -214,6 +244,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   const handlePresetSelect = async (preset: any) => {
+    // 🔒 PREVENT preset changes during active recording session
+    if (isSessionActive) {
+      console.warn('[SettingsView] ⚠️ Cannot change preset during active recording session');
+      console.warn('[SettingsView] ⚠️ Please stop recording first, then change preset');
+      return;
+    }
+    
     console.log('[SettingsView] 🎨 Activating preset:', preset.name);
     
     try {
@@ -384,11 +421,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             presets.filter(p => !p.is_default).map(preset => (
               <div
                 key={preset.id}
-                className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
+                className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''} ${isSessionActive ? 'disabled' : ''}`}
                 onClick={() => handlePresetSelect(preset)}
+                title={isSessionActive ? 'Cannot change preset during active recording' : ''}
               >
                 <span className="preset-name">{preset.name || preset.title}</span>
                 {preset.is_active && <span className="preset-status">Active</span>}
+                {isSessionActive && <span className="preset-locked">🔒</span>}
               </div>
             ))
           )}

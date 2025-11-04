@@ -514,11 +514,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Session state:', sessionState);
     console.log('[ListenView] 🔍 Is session active:', isSessionActive);
 
-    // ⏳ CRITICAL FIX: Wait 2 seconds for transcripts to be saved to backend database
+    // ⏳ CRITICAL FIX: Wait for transcripts to be saved to backend database
     // WebSocket saves transcripts asynchronously, and fetchInsightsNow is called immediately
     // after recording_stopped event. Without this delay, backend query returns empty transcripts.
-    console.log('[ListenView] ⏳ Waiting 2s for transcripts to save to database...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Reduced from 2s to 1s based on user feedback (insights were "very slow")
+    console.log('[ListenView] ⏳ Waiting 1s for transcripts to save to database...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
     console.log('[ListenView] ✅ Wait complete, proceeding with fetch');
 
     setIsLoadingInsights(true);
