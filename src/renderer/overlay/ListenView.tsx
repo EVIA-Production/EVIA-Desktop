@@ -488,16 +488,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 🎯 GLASS PARITY: Handle insight clicks - send to AskView via IPC
   // When user clicks an insight (summary point, topic bullet, or action), we:
   // 1. Log the click for debugging
-  // 2. Send to AskView via IPC with 'ask:send-and-submit' channel
-  // 3. AskView receives it, populates input, and auto-submits
+  // 2. Determine current session state (after recording stops, isSessionActive = false)
+  // 3. Send to AskView via IPC with 'ask:send-and-submit' channel INCLUDING session state
+  // 4. AskView receives it, populates input, updates session state, and auto-submits
   const handleInsightClick = (insightText: string) => {
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
     
-    // Send to AskView via IPC for auto-submit
+    // 🔧 FIX: Determine current session state based on recording status
+    // After recording stops (Done pressed), isSessionActive becomes false → session is 'after'
+    const currentSessionState = isSessionActive ? 'during' : 'after';
+    console.log('[ListenView] 🎯 Insight click session state:', currentSessionState, '(isSessionActive:', isSessionActive, ')');
+    
+    // Send to AskView via IPC for auto-submit WITH explicit session state
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
-      eviaIpc.send('ask:send-and-submit', insightText);
-      console.log('[ListenView] ✅ Sent insight to AskView via IPC');
+      // Send as object with text and sessionState (new format)
+      eviaIpc.send('ask:send-and-submit', { 
+        text: insightText,
+        sessionState: currentSessionState
+      });
+      console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', currentSessionState);
     } else {
       console.error('[ListenView] ❌ IPC bridge not available for ask:send-and-submit');
     }
@@ -514,67 +524,97 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Session state:', sessionState);
     console.log('[ListenView] 🔍 Is session active:', isSessionActive);
 
-    // ⏳ CRITICAL FIX: Wait for transcripts to be saved to backend database
-    // WebSocket saves transcripts asynchronously, and fetchInsightsNow is called immediately
-    // after recording_stopped event. Without this delay, backend query returns empty transcripts.
-    // Reduced from 2s to 1s based on user feedback (insights were "very slow")
-    console.log('[ListenView] ⏳ Waiting 1s for transcripts to save to database...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log('[ListenView] ✅ Wait complete, proceeding with fetch');
-
+    // 🚀 ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
+    // Users will see spinner instead of wrong "Vorbereitung" insights
+    setInsights(null);
+    
+    // 🚀 SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
+    // - Attempt 1: Immediate (0ms) - Fast path if transcripts already saved
+    // - Attempt 2: After 300ms - Quick retry for fast saves
+    // - Attempt 3: After 700ms (total 1000ms) - Final retry for slow saves
+    // This is FASTER than hardcoded 1s delay when transcripts save quickly!
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [0, 300, 700]; // Exponential: 0ms, 300ms, 700ms
+    
     setIsLoadingInsights(true);
     const ttftStart = Date.now();
+    
+    // 🔐 Get auth credentials once
+    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
+    const token = await eviaAuth?.getToken();
+
+    console.log('[ListenView] 🔍 Chat ID:', chatId);
+    console.log('[ListenView] 🔍 Token available:', !!token);
+
+    if (!chatId || !token) {
+      console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
+      setIsLoadingInsights(false);
+      return;
+    }
+
+    // 🔥 Derive session state from UI state
+    const derivedSessionState = isSessionActive ? 'during' : sessionState;
+    const currentLang = i18n.getLanguage();
+    
+    console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
+    
+    // 🚀 SMART RETRY LOOP: Try immediately, then retry with delays if no transcripts
+    let fetchedInsights: any = null;
+    let attempt = 0;
+    
     try {
-        const chatId = Number(localStorage.getItem('current_chat_id') || '0');
-      // 🔐 FIX: Get token from keytar (secure storage), not localStorage
-      const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
-      const token = await eviaAuth?.getToken();
-
-      console.log('[ListenView] 🔍 Chat ID:', chatId);
-      console.log('[ListenView] 🔍 Token available:', !!token);
-
-      if (!chatId || !token) {
-        console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
-        return;
+      for (attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        // Wait before retry (0ms for first attempt, then 300ms, 700ms)
+        if (RETRY_DELAYS[attempt] > 0) {
+          console.log(`[ListenView] ⏳ Retry #${attempt + 1}: Waiting ${RETRY_DELAYS[attempt]}ms for transcripts to save...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        } else {
+          console.log(`[ListenView] 🚀 Attempt #${attempt + 1}: Trying immediately (fast path)...`);
+        }
+        
+        // Attempt to fetch insights
+        console.log('[ListenView] 📊 Fetching insights:', {
+          chatId,
+          language: currentLang,
+          sessionState: derivedSessionState,
+          coldCallingMode,
+          attempt: attempt + 1
+        });
+        
+        fetchedInsights = await fetchInsights({
+          chatId,
+          token,
+          language: currentLang,
+          sessionState: derivedSessionState,
+          coldCallingMode
+        });
+        
+        // 🔍 Check if we got actual insights (not stub "no transcripts" message)
+        const hasTranscripts = fetchedInsights?.summary?.[0] !== "Keine Transkripte vorhanden für Analyse" &&
+                              fetchedInsights?.summary?.[0] !== "No transcripts available for analysis";
+        
+        if (hasTranscripts) {
+          const ttftMs = Date.now() - ttftStart;
+          console.log(`[ListenView] ✅ Success on attempt #${attempt + 1}! Got insights with transcripts in ${ttftMs}ms`);
+          break; // Success - exit retry loop
+        } else {
+          console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: No transcripts yet (stub message received)`);
+          if (attempt < MAX_RETRIES - 1) {
+            console.log(`[ListenView] 🔄 Will retry in ${RETRY_DELAYS[attempt + 1]}ms...`);
+          } else {
+            console.log('[ListenView] ⏭️ Max retries reached, using stub insights');
+          }
+        }
       }
-
-      // 🔥 FIX: Derive session state from UI state, not stale state variable
-      // If session is active (recording/stop button visible), state is "during"
-      const derivedSessionState = isSessionActive ? 'during' : sessionState;
       
-      console.log('[ListenView] 📊 Fetching insights for chat:', chatId, 'session_state:', derivedSessionState, 'cold_calling_mode:', coldCallingMode);
-      console.log('[ListenView] 🔥 SESSION STATE FIX:', {
-        isSessionActive,
-        stateVariable: sessionState,
-        derivedState: derivedSessionState,
-        using: derivedSessionState
-      });
-      // 🔧 FIX: Use current language from i18n instead of hardcoded 'de'
-      const currentLang = i18n.getLanguage();
-      console.log('[ListenView] 🌐 Fetching insights in language:', currentLang);
-      console.log('[ListenView] 🔥 REQUEST DETAILS:', {
-        chatId,
-        language: currentLang,
-        sessionState: derivedSessionState,
-        coldCallingMode,
-        transcriptCount: transcripts.length,
-        finalTranscriptCount: finalTranscriptCountRef.current
-      });
-      // 🔥 CRITICAL FIX: Pass session state to backend for context-aware insights
-      // 🔥 COLD CALLING FIX: Pass cold calling mode to force "What should I say next?" as Action #1
-      const fetchedInsights = await fetchInsights({
-        chatId,
-        token,
-        language: currentLang,
-        sessionState: derivedSessionState, // 🔥 FIX: Use derived state from UI, not stale variable
-        coldCallingMode // 🔥 NEW: Enable forced action slot for cold calling
-      });
       const ttftMs = Date.now() - ttftStart;
-      console.log('[ListenView] 🔍 DIAGNOSTIC: Insights response received');
-      console.log('[ListenView] 🔍 Response is null/undefined?', !fetchedInsights);
+      console.log('[ListenView] 🔍 DIAGNOSTIC: Insights fetch complete');
+      console.log('[ListenView] 🔍 Total time (including retries):', ttftMs, 'ms');
+      console.log('[ListenView] 🔍 Attempts used:', attempt + 1);
       
       if (fetchedInsights) {
-        console.log('[ListenView] ✅ Glass insights fetched successfully!');
+        console.log('[ListenView] ✅ Glass insights received!');
         console.log('[ListenView] 🔍 Insights structure:', {
           hasSummary: !!fetchedInsights.summary,
           summaryLength: fetchedInsights.summary?.length,

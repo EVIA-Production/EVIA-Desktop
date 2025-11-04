@@ -40,6 +40,27 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
 
+  // 🎯 UX IMPROVEMENT: Helper function to focus input with retry
+  const focusInputWithRetry = useCallback(() => {
+    if (!inputRef.current) return;
+    
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        inputRef.current?.focus();
+        console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
+        
+        // Verify focus worked - if not, retry once
+        setTimeout(() => {
+          if (document.activeElement !== inputRef.current && inputRef.current) {
+            console.warn('[AskView] ⚠️ Focus failed, retrying...');
+            inputRef.current.focus();
+            console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
+          }
+        }, 100);
+      }, 200);  // Delay for reliability
+    });
+  }, []);
+
   // 🔧 SESSION STATE: Track current session state for context-aware responses
   // Values: 'before' (pre-call), 'during' (active call), 'after' (post-call)
   // Synced from EviaBar via IPC, with localStorage as backup for initial state
@@ -140,8 +161,21 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       return;
     }
 
-    const handleSendAndSubmit = (incomingPrompt: string) => {
+    const handleSendAndSubmit = (payload: string | { text: string, sessionState?: string }) => {
+      // 🔧 FIX: Handle both old format (string) and new format (object with sessionState)
+      const incomingPrompt = typeof payload === 'string' ? payload : payload.text;
+      const explicitSessionState = typeof payload === 'object' ? payload.sessionState : undefined;
+      
       console.log('[AskView] 📥 Received send-and-submit via IPC:', incomingPrompt.substring(0, 50));
+      
+      // 🔧 FIX: If session state explicitly provided, update it BEFORE starting stream
+      // This ensures backend receives correct session_state (especially 'after' from Insights clicks)
+      if (explicitSessionState) {
+        console.log('[AskView] 🎯 Updating session state from Insights:', explicitSessionState);
+        localStorage.setItem('evia_session_state', explicitSessionState);
+        setSessionState(explicitSessionState as 'before' | 'during' | 'after');
+      }
+      
       setPrompt(incomingPrompt);
       setShowTextInput(true);
       // Auto-submit after state updates (next tick)
@@ -253,32 +287,40 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   // 🐛 CRITICAL FIX: Window persists between opens (not unmounted), so useEffect with []
   // only runs once. Must listen to window focus AND visibility changes.
   useEffect(() => {
-    // Helper function to focus with retry (fixes Test 4 failure)
-    const focusInputWithRetry = () => {
-      if (!inputRef.current) return;
-      
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          inputRef.current?.focus();
-          console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
-          
-          // Verify focus worked - if not, retry once
-          setTimeout(() => {
-            if (document.activeElement !== inputRef.current && inputRef.current) {
-              console.warn('[AskView] ⚠️ Focus failed, retrying...');
-              inputRef.current.focus();
-              console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
-            }
-          }, 100);
-        }, 200);  // Increased delay from 100ms to 200ms for reliability
-      });
-    };
-    
     // 🔥 CRITICAL: Listen to visibility change (when window shows/hides)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log('[AskView] 👁️ Window became visible, focusing input');
-        focusInputWithRetry();
+        console.log('[AskView] 👁️ Window became visible, waiting for animation...');
+        
+        // 🔧 ASYNC FIX: Use transitionend event instead of setTimeout
+        // Wait for actual window animation to complete, not arbitrary delay
+        const waitForAnimation = () => {
+          const askContainer = document.querySelector('.ask-view-container');
+          if (askContainer) {
+            // Listen for CSS transition end
+            const handleTransitionEnd = (e: TransitionEvent) => {
+              if (e.propertyName === 'height' || e.propertyName === 'transform') {
+                console.log('[AskView] ⌨️ Animation complete, focusing input now');
+                askContainer.removeEventListener('transitionend', handleTransitionEnd as EventListener);
+                focusInputWithRetry();
+              }
+            };
+            
+            askContainer.addEventListener('transitionend', handleTransitionEnd as EventListener);
+            
+            // Fallback: If no transition detected in 200ms, focus anyway
+            setTimeout(() => {
+              askContainer.removeEventListener('transitionend', handleTransitionEnd as EventListener);
+              focusInputWithRetry();
+            }, 200);
+          } else {
+            // No container, focus immediately
+            focusInputWithRetry();
+          }
+        };
+        
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(waitForAnimation);
       }
     };
     
@@ -302,7 +344,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, []);
+  }, [focusInputWithRetry]);
 
   // 🔧 FIX #7: Blink header frame red twice to indicate error
   const blinkHeaderRed = () => {
@@ -616,6 +658,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
             }
           }
+          
+          // 🎯 UX IMPROVEMENT: Auto-focus input after response completes
+          // Allows users to ask follow-up questions without clicking back into field
+          console.log('[AskView] 🎯 Auto-focusing input after response completion');
+          setTimeout(() => focusInputWithRetry(), 300); // Delay to ensure window resize completes first
         });
       });
     });
