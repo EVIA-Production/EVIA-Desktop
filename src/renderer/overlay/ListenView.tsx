@@ -598,8 +598,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: No transcripts yet (stub message received)`);
           if (attempt < MAX_RETRIES - 1) {
             console.log(`[ListenView] 🔄 Will retry in ${RETRY_DELAYS[attempt + 1]}ms...`);
+            // 🔥 CRITICAL: DON'T set stub insights - keep showing loading spinner
+            fetchedInsights = null;
           } else {
-            console.log('[ListenView] ⏭️ Max retries reached, using stub insights');
+            // 🔥 CRITICAL: Even on max retries, DON'T show stub - keep null/loading
+            console.log('[ListenView] ⏭️ Max retries reached, NO transcripts yet - keeping loading state');
+            fetchedInsights = null;
           }
         }
       }
