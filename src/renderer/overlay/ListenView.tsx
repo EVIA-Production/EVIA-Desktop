@@ -55,8 +55,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
-  // 🔥 COLD CALLING FIX: Enable cold calling mode (default true for now, can be auto-detected later)
-  const [coldCallingMode, setColdCallingMode] = useState(true); // Force "What should I say next?" as Action #1
   const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -578,7 +576,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           chatId,
           language: currentLang,
           sessionState: derivedSessionState,
-          coldCallingMode,
           attempt: attempt + 1
         });
         
@@ -586,8 +583,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           chatId,
           token,
           language: currentLang,
-          sessionState: derivedSessionState,
-          coldCallingMode
+          sessionState: derivedSessionState
         });
         
         // 🔍 Check if we got actual insights (not stub "no transcripts" message)
@@ -663,7 +659,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // 🔥 COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
     // This ensures insights reflect the latest transcript context, critical for real-time coaching
     if (newMode === 'insights') {
-      console.log(`[ListenView] 🔥 COLD CALLING FIX ACTIVE - Fetching fresh insights (coldCallingMode=${coldCallingMode})`);
+      console.log(`[ListenView] Switched to insights view - Fetching fresh insights`);
       await fetchInsightsNow();
     } else {
       console.log(`[ListenView] Switched to transcript view, no fetch needed`);
