@@ -507,6 +507,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
 
+    // 🔍 DIAGNOSTIC: Log start of fetch
+    console.log('[ListenView] 🔍 DIAGNOSTIC: Starting fetchInsightsNow');
+    console.log('[ListenView] 🔍 Transcript count (local UI):', transcripts.length);
+    console.log('[ListenView] 🔍 Final transcript count (ref):', finalTranscriptCountRef.current);
+    console.log('[ListenView] 🔍 Session state:', sessionState);
+    console.log('[ListenView] 🔍 Is session active:', isSessionActive);
+
+    // ⏳ CRITICAL FIX: Wait 2 seconds for transcripts to be saved to backend database
+    // WebSocket saves transcripts asynchronously, and fetchInsightsNow is called immediately
+    // after recording_stopped event. Without this delay, backend query returns empty transcripts.
+    console.log('[ListenView] ⏳ Waiting 2s for transcripts to save to database...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('[ListenView] ✅ Wait complete, proceeding with fetch');
+
     setIsLoadingInsights(true);
     const ttftStart = Date.now();
     try {
@@ -515,8 +529,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
       const token = await eviaAuth?.getToken();
 
+      console.log('[ListenView] 🔍 Chat ID:', chatId);
+      console.log('[ListenView] 🔍 Token available:', !!token);
+
       if (!chatId || !token) {
-        console.error('[ListenView] Missing chat_id or auth token for insights fetch');
+        console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
         return;
       }
 
@@ -539,7 +556,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         language: currentLang,
         sessionState: derivedSessionState,
         coldCallingMode,
-        transcriptCount: transcripts.length
+        transcriptCount: transcripts.length,
+        finalTranscriptCount: finalTranscriptCountRef.current
       });
       // 🔥 CRITICAL FIX: Pass session state to backend for context-aware insights
       // 🔥 COLD CALLING FIX: Pass cold calling mode to force "What should I say next?" as Action #1
@@ -551,16 +569,31 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         coldCallingMode // 🔥 NEW: Enable forced action slot for cold calling
       });
       const ttftMs = Date.now() - ttftStart;
+      console.log('[ListenView] 🔍 DIAGNOSTIC: Insights response received');
+      console.log('[ListenView] 🔍 Response is null/undefined?', !fetchedInsights);
+      
       if (fetchedInsights) {
-        console.log('[ListenView] ✅ Glass insights fetched:', {
-          summaryPoints: fetchedInsights.summary.length,
-          topicHeader: fetchedInsights.topic.header,
-          actionItems: fetchedInsights.actions.length,
+        console.log('[ListenView] ✅ Glass insights fetched successfully!');
+        console.log('[ListenView] 🔍 Insights structure:', {
+          hasSummary: !!fetchedInsights.summary,
+          summaryLength: fetchedInsights.summary?.length,
+          hasTopic: !!fetchedInsights.topic,
+          topicHeader: fetchedInsights.topic?.header,
+          topicBulletsCount: fetchedInsights.topic?.bullets?.length,
+          hasActions: !!fetchedInsights.actions,
+          actionsCount: fetchedInsights.actions?.length,
           ttftMs
         });
+        console.log('[ListenView] 🔍 Summary content:', fetchedInsights.summary);
+        console.log('[ListenView] 🔍 Topic bullets:', fetchedInsights.topic?.bullets);
+        console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
         setInsights(fetchedInsights);
       } else {
-        console.log('[ListenView] ⚠️ No insights returned');
+        console.warn('[ListenView] ⚠️ No insights returned from backend');
+        console.warn('[ListenView] ⚠️ This could mean:');
+        console.warn('[ListenView] ⚠️   - No transcripts in database for this chat');
+        console.warn('[ListenView] ⚠️   - Backend error during generation');
+        console.warn('[ListenView] ⚠️   - API key issue (check backend logs)');
       }
     } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);

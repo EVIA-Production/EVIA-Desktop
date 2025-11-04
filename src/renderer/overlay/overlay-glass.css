@@ -1272,6 +1272,21 @@
   font-weight: 500;
 }
 
+.preset-item.active {
+  background: rgba(0, 122, 255, 0.25);
+  border-color: rgba(0, 122, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
+}
+
+.preset-item.active .preset-name {
+  font-weight: 500;
+  color: rgba(0, 122, 255, 1);
+}
+
+.preset-item.selected:not(.active) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .preset-status {
   font-size: 9px;
   color: rgba(0, 122, 255, 0.8);

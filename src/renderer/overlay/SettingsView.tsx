@@ -61,6 +61,48 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     loadAutoUpdateSetting();
   }, []);
 
+  // 🔧 FIX ISSUE #2.1: Fetch presets from backend on mount
+  useEffect(() => {
+    const fetchPresets = async () => {
+      try {
+        const eviaAuth = (window as any).evia?.auth;
+        const token = await eviaAuth?.getToken?.();
+        if (!token) {
+          console.warn('[SettingsView] No token available, skipping preset fetch');
+          return;
+        }
+
+        const { BACKEND_URL } = await import('../config/config');
+        const response = await fetch(`${BACKEND_URL}/prompts`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const fetchedPresets = await response.json();
+          setPresets(fetchedPresets);
+          console.log('[SettingsView] ✅ Loaded presets:', fetchedPresets.length);
+          
+          // Set the active preset as selected
+          const activePreset = fetchedPresets.find((p: any) => p.is_active);
+          if (activePreset) {
+            setSelectedPreset(activePreset);
+            console.log('[SettingsView] ✅ Active preset:', activePreset.name);
+          }
+        } else {
+          console.error('[SettingsView] ❌ Failed to fetch presets:', response.status);
+        }
+      } catch (error) {
+        console.error('[SettingsView] ❌ Error fetching presets:', error);
+      }
+    };
+
+    fetchPresets();
+  }, []); // Run once on mount
+
   // Handlers
   const handleLogout = async () => {
     console.log('[SettingsView] 🚪 Logout clicked');
@@ -168,6 +210,50 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       }
     } catch (error) {
       console.error('[SettingsView] ❌ Failed to toggle invisibility:', error);
+    }
+  };
+
+  const handlePresetSelect = async (preset: any) => {
+    console.log('[SettingsView] 🎨 Activating preset:', preset.name);
+    
+    try {
+      const eviaAuth = (window as any).evia?.auth;
+      const token = await eviaAuth?.getToken?.();
+      if (!token) {
+        console.error('[SettingsView] ❌ No token available');
+        return;
+      }
+
+      const { BACKEND_URL } = await import('../config/config');
+      const response = await fetch(`${BACKEND_URL}/prompts/${preset.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          is_active: true
+        })
+      });
+
+      if (response.ok) {
+        const updatedPreset = await response.json();
+        console.log('[SettingsView] ✅ Preset activated:', updatedPreset.name);
+        
+        // Update local state: mark all as inactive, then this one as active
+        const updatedPresets = presets.map(p => ({
+          ...p,
+          is_active: p.id === preset.id
+        }));
+        setPresets(updatedPresets);
+        setSelectedPreset(updatedPreset);
+        
+        console.log('[SettingsView] 🎉 Active preset is now:', updatedPreset.name);
+      } else {
+        console.error('[SettingsView] ❌ Failed to activate preset:', response.status);
+      }
+    } catch (error) {
+      console.error('[SettingsView] ❌ Error activating preset:', error);
     }
   };
 
@@ -298,11 +384,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             presets.filter(p => !p.is_default).map(preset => (
               <div
                 key={preset.id}
-                className={`preset-item ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
-                onClick={() => setSelectedPreset(preset)}
+                className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
+                onClick={() => handlePresetSelect(preset)}
               >
-                <span className="preset-name">{preset.title}</span>
-                {selectedPreset?.id === preset.id && <span className="preset-status">Selected</span>}
+                <span className="preset-name">{preset.name || preset.title}</span>
+                {preset.is_active && <span className="preset-status">Active</span>}
               </div>
             ))
           )}
