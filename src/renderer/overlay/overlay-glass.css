@@ -1293,10 +1293,15 @@
   pointer-events: none;
 }
 
-.preset-locked {
-  font-size: 9px;
-  margin-left: 4px;
-  opacity: 0.7;
+.preset-header-lock {
+  margin-left: 6px;
+  vertical-align: middle;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.preset-header:hover .preset-header-lock {
+  opacity: 0.8;
 }
 
 .preset-status {

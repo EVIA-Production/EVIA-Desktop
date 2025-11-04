@@ -404,6 +404,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           <div>
             <span className="preset-title">{t('myPresets')}</span>
             <span className="preset-count">({presets.filter(p => !p.is_default).length})</span>
+            {isSessionActive && (
+              <svg className="preset-header-lock" width="10" height="12" viewBox="0 0 10 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 5.5V3.5C8 1.84315 6.65685 0.5 5 0.5C3.34315 0.5 2 1.84315 2 3.5V5.5M2.5 5.5H7.5C8.05228 5.5 8.5 5.94772 8.5 6.5V10.5C8.5 11.0523 8.05228 11.5 7.5 11.5H2.5C1.94772 11.5 1.5 11.0523 1.5 10.5V6.5C1.5 5.94772 1.94772 5.5 2.5 5.5Z" stroke="rgba(255,255,255,0.6)" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            )}
           </div>
           <span className="preset-toggle" onClick={() => setShowPresets(!showPresets)}>
             {showPresets ? '▼' : '▶'}
@@ -427,7 +432,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
               >
                 <span className="preset-name">{preset.name || preset.title}</span>
                 {preset.is_active && <span className="preset-status">Active</span>}
-                {isSessionActive && <span className="preset-locked">🔒</span>}
               </div>
             ))
           )}
