@@ -1385,8 +1385,16 @@ ipcMain.handle('shortcuts:reset', () => {
 })
 
 // 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
-ipcMain.on('ask:send-and-submit', (_event, prompt: string) => {
-  console.log('[Main] 📨 ask:send-and-submit received:', prompt.substring(0, 50));
+ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string }) => {
+  // 🔧 FIX: Handle both old format (string) and new format (object with sessionState)
+  const promptText = typeof payload === 'string' ? payload : payload.text;
+  console.log('[Main] 📨 ask:send-and-submit received:', promptText.substring(0, 50));
+  if (typeof payload === 'object' && payload.sessionState) {
+    console.log('[Main] 🎯 Session state from Insights:', payload.sessionState);
+  }
+  
+  // Use original payload for relay (preserves sessionState if present)
+  const prompt = payload;
   
   // 🎯 CRITICAL FIX: Ensure Ask window exists and is visible BEFORE sending prompt
   let askWin = childWindows.get('ask');

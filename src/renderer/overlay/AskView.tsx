@@ -40,24 +40,23 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
 
-  // 🎯 UX IMPROVEMENT: Helper function to focus input with retry
+  // 🎯 UX IMPROVEMENT: Helper function to focus input with retry (NO DELAYS - instant focus)
   const focusInputWithRetry = useCallback(() => {
     if (!inputRef.current) return;
     
+    // ✅ INSTANT focus (no setTimeout delays)
     requestAnimationFrame(() => {
-      setTimeout(() => {
-        inputRef.current?.focus();
-        console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
-        
-        // Verify focus worked - if not, retry once
-        setTimeout(() => {
-          if (document.activeElement !== inputRef.current && inputRef.current) {
-            console.warn('[AskView] ⚠️ Focus failed, retrying...');
-            inputRef.current.focus();
-            console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
-          }
-        }, 100);
-      }, 200);  // Delay for reliability
+      inputRef.current?.focus();
+      console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
+      
+      // Verify focus worked after next frame - if not, retry once
+      requestAnimationFrame(() => {
+        if (document.activeElement !== inputRef.current && inputRef.current) {
+          console.warn('[AskView] ⚠️ Focus failed, retrying...');
+          inputRef.current.focus();
+          console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
+        }
+      });
     });
   }, []);
 
