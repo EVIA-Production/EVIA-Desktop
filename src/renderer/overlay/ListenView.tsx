@@ -492,10 +492,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const handleInsightClick = (insightText: string) => {
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
     
-    // 🔧 FIX: Determine current session state based on recording status
-    // After recording stops (Done pressed), isSessionActive becomes false → session is 'after'
-    const currentSessionState = isSessionActive ? 'during' : 'after';
-    console.log('[ListenView] 🎯 Insight click session state:', currentSessionState, '(isSessionActive:', isSessionActive, ')');
+    // 🔥 CRITICAL FIX: ALWAYS read session_state from localStorage (truth source)
+    // Don't derive from isSessionActive - it can be stale!
+    // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
+    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+    console.log('[ListenView] 🎯 Insight click session state: localStorage =', currentSessionState, ', component isSessionActive =', isSessionActive);
     
     // Send to AskView via IPC for auto-submit WITH explicit session state
     const eviaIpc = (window as any).evia?.ipc;
