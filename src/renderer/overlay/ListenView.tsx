@@ -177,10 +177,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // 🔧 FIX: Remove undo button as per user request
         setShowUndoButton(false);
 
-        // 🔥 CRITICAL FIX: DON'T fetch insights here!
-        // The EviaBar will update localStorage.evia_session_state to 'after' AFTER this WebSocket message
-        // Instead, wait for session-state-changed IPC event which guarantees localStorage is updated
-        console.log('[ListenView] ⏳ Waiting for session-state-changed IPC event before fetching insights...');
+        // 🔥 ATOMIC REVERT: Restore insights fetching with delay for localStorage sync
+        // 300ms allows EviaBar to update localStorage.evia_session_state to 'after'
+        console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms (for localStorage sync)...');
+        setTimeout(() => {
+          console.log('[ListenView] 🚀 Fetching post-call insights NOW (localStorage should be "after")');
+          fetchInsightsNow();
+        }, 300);
 
         return;
       }
@@ -472,15 +475,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setIsSessionActive(true);
         } else if (newState === 'after') {
           setIsSessionActive(false);
-          
-          // 🔥 ULTRA-CRITICAL FIX: Fetch insights NOW that localStorage is updated!
-          // This guarantees insights are generated with correct session_state='after'
-          console.log('[ListenView] 🎯 State changed to "after" - fetching insights with correct state...');
-          // Small delay to ensure localStorage write is complete
-          setTimeout(() => {
-            console.log('[ListenView] 🚀 Calling fetchInsightsNow() after state change to "after"');
-            fetchInsightsNow();
-          }, 100);
+          // Note: insights already fetched by recording_stopped handler with 300ms delay
+          console.log('[ListenView] 📋 State synced to "after" (insights fetch already scheduled)');
         }
       });
       console.log('[ListenView] ✅ session-state-changed listener registered');
