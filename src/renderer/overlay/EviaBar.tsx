@@ -346,6 +346,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
       // Listen → Stop: Show window
       console.log('[EviaBar] Listen → Stop: Showing listen window');
       await (window as any).evia?.windows?.ensureShown?.('listen');
+      
+      // 🔥 CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
+      // This prevents race condition where ListenView fetches insights with stale 'before' state
+      localStorage.setItem('evia_session_state', 'during');
+      console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "during" (BEFORE React state)');
+      
       setListenStatus('in');
       setIsListenActive(true);
       onToggleListening();
@@ -415,6 +421,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
       } catch (error) {
         console.error('[EviaBar] ❌ Error calling /session/pause:', error);
       }
+      
+      // 🔥 CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
+      localStorage.setItem('evia_session_state', 'after');
+      console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "after" (BEFORE React state)');
       
       setListenStatus('after');
       setIsListenActive(false);

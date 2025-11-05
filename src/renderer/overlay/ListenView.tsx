@@ -644,7 +644,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
     } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);
-      // Keep insights empty on error - UI will show placeholder
+      
+      // 🔥 CRITICAL FIX: Show user-friendly error message instead of infinite loading
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[ListenView] 🔍 Error details:', errorMessage);
+      
+      // Set stub insights with error message so UI shows something meaningful
+      const lang = i18n.getLanguage();
+      setInsights({
+        summary: [
+          lang === 'de' 
+            ? '⚠️ Insights konnten nicht geladen werden'
+            : '⚠️ Failed to load insights',
+          lang === 'de'
+            ? 'Versuche es erneut oder überprüfe deine Verbindung'
+            : 'Try again or check your connection'
+        ],
+        topic: {
+          header: lang === 'de' ? 'Fehlerdetails' : 'Error Details',
+          bullets: [errorMessage.substring(0, 100)]
+        },
+        actions: [
+          lang === 'de' 
+            ? '🔄 Transkript ↔ Erkenntnisse (um erneut zu versuchen)'
+            : '🔄 Toggle view to retry'
+        ],
+        followUps: []
+      });
     } finally {
       setIsLoadingInsights(false);
     }
