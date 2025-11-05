@@ -46,16 +46,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     
     // ✅ INSTANT focus (no setTimeout delays)
     requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
-      
+        inputRef.current?.focus();
+        console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
+        
       // Verify focus worked after next frame - if not, retry once
       requestAnimationFrame(() => {
-        if (document.activeElement !== inputRef.current && inputRef.current) {
-          console.warn('[AskView] ⚠️ Focus failed, retrying...');
-          inputRef.current.focus();
-          console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
-        }
+          if (document.activeElement !== inputRef.current && inputRef.current) {
+            console.warn('[AskView] ⚠️ Focus failed, retrying...');
+            inputRef.current.focus();
+            console.log('[AskView] ⌨️ Auto-focused input (attempt 2)');
+          }
       });
     });
   }, []);
@@ -306,7 +306,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               if (e.propertyName === 'height' || e.propertyName === 'transform') {
                 console.log('[AskView] ⌨️ Animation complete, focusing input now');
                 askContainer.removeEventListener('transitionend', handleTransitionEnd as EventListener);
-                focusInputWithRetry();
+        focusInputWithRetry();
               }
             };
             

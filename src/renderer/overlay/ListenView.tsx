@@ -171,14 +171,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         stopTimer();
         setIsSessionActive(false);
 
-        // 🎯 TASK 1: Auto-switch to Insights view and fetch
+        // 🎯 TASK 1: Auto-switch to Insights view
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
         // 🔧 FIX: Remove undo button as per user request
         setShowUndoButton(false);
 
-        // Fetch insights asynchronously
-        fetchInsightsNow();
+        // 🔥 CRITICAL FIX: DON'T fetch insights here!
+        // The EviaBar will update localStorage.evia_session_state to 'after' AFTER this WebSocket message
+        // Instead, wait for session-state-changed IPC event which guarantees localStorage is updated
+        console.log('[ListenView] ⏳ Waiting for session-state-changed IPC event before fetching insights...');
 
         return;
       }
@@ -470,6 +472,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setIsSessionActive(true);
         } else if (newState === 'after') {
           setIsSessionActive(false);
+          
+          // 🔥 ULTRA-CRITICAL FIX: Fetch insights NOW that localStorage is updated!
+          // This guarantees insights are generated with correct session_state='after'
+          console.log('[ListenView] 🎯 State changed to "after" - fetching insights with correct state...');
+          // Small delay to ensure localStorage write is complete
+          setTimeout(() => {
+            console.log('[ListenView] 🚀 Calling fetchInsightsNow() after state change to "after"');
+            fetchInsightsNow();
+          }, 100);
         }
       });
       console.log('[ListenView] ✅ session-state-changed listener registered');
