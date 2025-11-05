@@ -492,21 +492,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const handleInsightClick = (insightText: string) => {
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
     
-    // 🔥 CRITICAL FIX: ALWAYS read session_state from localStorage (truth source)
-    // Don't derive from isSessionActive - it can be stale!
-    // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
-    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
-    console.log('[ListenView] 🎯 Insight click session state: localStorage =', currentSessionState, ', component isSessionActive =', isSessionActive);
+    // 🔥 ULTRA-CRITICAL FIX: Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
+    // Insights are generated WITH a specific session_state and MUST use that state when clicked
+    // Otherwise: Insights generated "during" call are clicked "after" call → wrong prompt!
+    const insightSessionState = insights?.session_state || 'during';
+    const localStorageState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     
-    // Send to AskView via IPC for auto-submit WITH explicit session state
+    console.log('[ListenView] 🎯 Insight click session state:');
+    console.log('[ListenView]   - Insight metadata session_state:', insightSessionState, '(USING THIS ONE!)');
+    console.log('[ListenView]   - localStorage current state:', localStorageState, '(ignoring - might be stale)');
+    console.log('[ListenView]   - Component isSessionActive:', isSessionActive);
+    
+    // 🔥 CRITICAL: If states don't match, log WARNING (insights are stale!)
+    if (insightSessionState !== localStorageState) {
+      console.warn('[ListenView] ⚠️ STALE INSIGHTS DETECTED!');
+      console.warn('[ListenView]   - Insights were generated for:', insightSessionState);
+      console.warn('[ListenView]   - Current session state is:', localStorageState);
+      console.warn('[ListenView]   - User should refresh insights by toggling view!');
+    }
+    
+    // Send to AskView via IPC for auto-submit WITH insight's original session state
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
-      // Send as object with text and sessionState (new format)
+      // Send as object with text and sessionState (using insight's metadata)
       eviaIpc.send('ask:send-and-submit', { 
         text: insightText,
-        sessionState: currentSessionState
+        sessionState: insightSessionState
       });
-      console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', currentSessionState);
+      console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
       console.error('[ListenView] ❌ IPC bridge not available for ask:send-and-submit');
     }
@@ -556,6 +569,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Don't derive from isSessionActive - it can be stale!
     // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
     const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+    const localStorageState = latestSessionState; // For logging purposes
     const derivedSessionState = latestSessionState;
     const currentLang = i18n.getLanguage();
     
@@ -621,6 +635,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
+        
+        // 🔥 ULTRA-VERBOSE: Log session_state metadata from insights
+        console.log('[ListenView] 🎯 INSIGHT METADATA:');
+        console.log('[ListenView]   - session_state from backend:', fetchedInsights.session_state);
+        console.log('[ListenView]   - This state will be used when insights are clicked!');
+        console.log('[ListenView]   - Current localStorage state:', localStorageState);
+        
         console.log('[ListenView] 🔍 Insights structure:', {
           hasSummary: !!fetchedInsights.summary,
           summaryLength: fetchedInsights.summary?.length,
@@ -629,6 +650,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           topicBulletsCount: fetchedInsights.topic?.bullets?.length,
           hasActions: !!fetchedInsights.actions,
           actionsCount: fetchedInsights.actions?.length,
+          sessionState: fetchedInsights.session_state,
           ttftMs
         });
         console.log('[ListenView] 🔍 Summary content:', fetchedInsights.summary);

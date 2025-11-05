@@ -10,6 +10,7 @@ export interface Insight {
   };
   actions: string[];
   followUps?: string[]; // 🔧 FIX #3: Follow-up actions shown after recording completes
+  session_state?: 'before' | 'during' | 'after'; // 🔥 CRITICAL: Session state when insights were generated
 }
 
 interface FetchInsightsParams {
