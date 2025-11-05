@@ -347,8 +347,14 @@ async function setupMicProcessing(stream: MediaStream) {
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
   
   // 🔧 Silence gate - RMS threshold to prevent sending ambient noise
-  const SILENCE_RMS_THRESHOLD = 0.01; // Adjust this value based on testing
-  let silenceFrameCount = 0;
+  let SILENCE_RMS_THRESHOLD = 0.01; // default
+  try {
+    const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+    if (isWindows) {
+      SILENCE_RMS_THRESHOLD = 0.002; // be more permissive on Windows
+    }
+  } catch {}
+    let silenceFrameCount = 0;
 
   let frameCounter = 0;
   let totalAudioLevel = 0;
@@ -806,16 +812,18 @@ export async function startCapture(includeSystemAudio = false) {
     }
   }
   
-  // Step 5: Setup system audio if requested (Glass binary approach)
+  // Step 5: Setup system audio if requested (platform-specific helper)
   if (includeSystemAudio) {
     console.log('[AudioCapture] 🔊 Starting system audio capture via SystemAudioDump binary (Glass approach)...');
     
     try {
-      // Glass parity: Use SystemAudioDump binary for macOS system audio
+      // Glass parity: Use SystemAudioDump on macOS, WASAPI loopback helper on Windows
       // This bypasses the Electron permission issues in dev mode
       const eviaApi = (window as any).evia;
+      const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+      const isMac = Boolean((window as any)?.platformInfo?.isMac);
       
-      if (!eviaApi?.systemAudio) {
+      if (!isWindows && !eviaApi?.systemAudio) {
         console.error('[AudioCapture] window.evia.systemAudio API not available');
         console.warn('[AudioCapture] Continuing with mic-only capture');
       } else {
@@ -858,17 +866,30 @@ export async function startCapture(includeSystemAudio = false) {
           }
         }
         
-        // Start SystemAudioDump binary
-        const result = await eviaApi.systemAudio.start();
+        // Start platform helper
+        let result: { success: boolean; error?: string } = { success: false };
+        if (isWindows) {
+          if (!eviaApi.systemAudioWindows) throw new Error('systemAudioWindows API not available');
+          result = await eviaApi.systemAudioWindows.start();
+        } else if (isMac) {
+          result = await eviaApi.systemAudio.start();
+        } else {
+          console.warn('[AudioCapture] System audio helper not available on this platform');
+          result = { success: false, error: 'unsupported_platform' };
+        }
         if (!result.success) {
-          console.error('[AudioCapture] Failed to start SystemAudioDump:', result.error);
+          console.error('[AudioCapture] Failed to start system audio helper:', result.error);
           
           // Retry if already running
           if (result.error === 'already_running') {
-            console.log('[AudioCapture] SystemAudioDump already running, stopping and retrying...');
-            await eviaApi.systemAudio.stop();
+            console.log('[AudioCapture] System audio helper already running, stopping and retrying...');
+            if (isWindows) {
+              await eviaApi.systemAudioWindows.stop();
+            } else if (isMac) {
+              await eviaApi.systemAudio.stop();
+            }
             await new Promise(resolve => setTimeout(resolve, 500));
-            const retryResult = await eviaApi.systemAudio.start();
+            const retryResult = isWindows ? await eviaApi.systemAudioWindows.start() : await eviaApi.systemAudio.start();
             if (!retryResult.success) {
               throw new Error(`Retry failed: ${retryResult.error}`);
             }
@@ -877,11 +898,12 @@ export async function startCapture(includeSystemAudio = false) {
           }
         }
         
-        console.log('[AudioCapture] ✅ SystemAudioDump binary started successfully');
+        console.log('[AudioCapture] ✅ System audio helper started successfully');
         
         // Listen for system audio data from binary (via IPC)
         // Glass parity: Binary outputs stereo PCM, main process converts to mono base64
-        const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
+        const onDataSource = isWindows ? eviaApi.systemAudioWindows : eviaApi.systemAudio;
+        const systemAudioHandler = onDataSource.onData((audioData: { data: string }) => {
           try {
             // Convert base64 to binary
             const binaryString = atob(audioData.data);
@@ -921,7 +943,8 @@ export async function startCapture(includeSystemAudio = false) {
         });
         
         // Store handler for cleanup
-        (window as any)._systemAudioHandler = systemAudioHandler;
+  (window as any)._systemAudioHandler = systemAudioHandler;
+  (window as any)._systemAudioIsWindows = isWindows;
         
         console.log('[AudioCapture] ✅ System audio capture started successfully (Glass binary)');
       }
@@ -933,7 +956,9 @@ export async function startCapture(includeSystemAudio = false) {
       });
       
       console.warn('[AudioCapture] ⚠️  Continuing with mic-only capture');
-      console.warn('[AudioCapture] Please ensure Screen Recording permission is granted in System Settings');
+      if ((window as any)?.platformInfo?.isMac) {
+        console.warn('[AudioCapture] Please ensure Screen Recording permission is granted in System Settings');
+      }
     }
   }
   
@@ -1021,26 +1046,32 @@ export async function stopCapture(captureHandle?: any) {
     systemAudioBuffer = [];
     console.log('[AudioCapture] ✅ AEC disposed and system audio buffer cleared');
     
-    // Stop SystemAudioDump binary (Glass approach)
+    // Stop system audio helper (mac or windows)
     const eviaApi = (window as any).evia;
-    if (eviaApi?.systemAudio) {
+    if (eviaApi?.systemAudio || eviaApi?.systemAudioWindows) {
       try {
-        const result = await eviaApi.systemAudio.stop();
+        const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+        const result = isWindows ? await eviaApi.systemAudioWindows.stop() : await eviaApi.systemAudio.stop();
         if (result.success) {
-          console.log('[AudioCapture] SystemAudioDump binary stopped');
+          console.log('[AudioCapture] System audio helper stopped');
         } else {
-          console.warn('[AudioCapture] Failed to stop SystemAudioDump:', result.error);
+          console.warn('[AudioCapture] Failed to stop system audio helper:', result.error);
         }
         
         // Remove system audio data handler
         const handler = (window as any)._systemAudioHandler;
         if (handler) {
-          eviaApi.systemAudio.removeOnData(handler);
+          if (isWindows && eviaApi.systemAudioWindows) {
+            eviaApi.systemAudioWindows.removeOnData(handler);
+          } else if (eviaApi.systemAudio) {
+            eviaApi.systemAudio.removeOnData(handler);
+          }
           (window as any)._systemAudioHandler = null;
+          (window as any)._systemAudioIsWindows = undefined;
           console.log('[AudioCapture] System audio handler removed');
         }
       } catch (error) {
-        console.warn('[AudioCapture] Error stopping SystemAudioDump:', error);
+        console.warn('[AudioCapture] Error stopping system audio helper:', error);
       }
     }
     
@@ -1048,4 +1079,150 @@ export async function stopCapture(captureHandle?: any) {
   } catch (error) {
     console.error('[AudioCapture] Error stopping capture:', error);
   }
+}
+
+// Start capture from provided MediaStreams (Windows/Chromium flow via ScreenPicker)
+// This avoids any native/binary system audio path and keeps mic/system fully separate.
+export async function startCaptureWithStreams(
+  providedSystemStream?: MediaStream,
+  providedMicStream?: MediaStream
+) {
+  console.log('[AudioCapture] startCaptureWithStreams called', {
+    hasSystem: !!providedSystemStream,
+    hasMic: !!providedMicStream,
+  });
+
+  // Reset state flags
+  micWsDisconnectedLogged = false;
+
+  // Validate mic stream
+  if (!providedMicStream || providedMicStream.getAudioTracks().length === 0) {
+    throw new Error('[AudioCapture] No microphone stream provided');
+  }
+
+  // Bind globals so cleanup works
+  micStream = providedMicStream;
+  systemStream = providedSystemStream || null;
+
+  // Setup mic processing first
+  const micSetup = await setupMicProcessing(micStream);
+  micAudioContext = micSetup.context;
+  micAudioProcessor = micSetup.processor;
+  if (micAudioContext.state === 'suspended') {
+    await micAudioContext.resume();
+  }
+
+  // Ensure Mic WS and connect (with chat auto-create fallback similar to startCapture)
+  let micWs = ensureMicWs();
+  if (!micWs) {
+    throw new Error('[AudioCapture] No valid chat_id - cannot start mic capture');
+  }
+  try {
+    await micWs.connect();
+  } catch (error) {
+    const currentChatId = localStorage.getItem('current_chat_id');
+    if (!currentChatId) {
+      // chat cleared due to 403/404 -> create a new one and reconnect
+      const backendUrl = BACKEND_URL;
+      const token = localStorage.getItem('auth_token') || '';
+      const newChatId = await getOrCreateChatId(backendUrl, token, true);
+      console.log('[AudioCapture] Recreated chat for mic:', newChatId);
+      closeWebSocketInstance(micWsInstance?.chatId || '', 'mic');
+      micWsInstance = null;
+      micWs = ensureMicWs();
+      if (!micWs) throw error;
+      await micWs.connect();
+    } else {
+      throw error;
+    }
+  }
+
+  const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+
+  // Windows: use WASAPI helper instead of WebAudio processing
+  if (isWindows) {
+    try {
+      const eviaApi = (window as any).evia;
+      // Ensure system websocket
+      let sysWs = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+      if (!sysWs) {
+        const backendUrl = BACKEND_URL;
+        const token = localStorage.getItem('auth_token') || '';
+        const newChatId = await getOrCreateChatId(backendUrl, token, true);
+        closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
+        systemWsInstance = null;
+        sysWs = ensureSystemWs(newChatId?.toString());
+      }
+      if (sysWs) {
+        try { await sysWs.connect(); } catch (err) { console.warn('[AudioCapture] System WS connect failed:', err); }
+      }
+
+      // Start helper
+      if (!eviaApi?.systemAudioWindows) throw new Error('systemAudioWindows API missing');
+      let result = await eviaApi.systemAudioWindows.start();
+      if (!result.success && result.error === 'already_running') {
+        await eviaApi.systemAudioWindows.stop();
+        await new Promise(r => setTimeout(r, 300));
+        result = await eviaApi.systemAudioWindows.start();
+      }
+      if (!result.success) throw new Error(result.error || 'failed_to_start_windows_helper');
+
+      // Subscribe
+      const handler = eviaApi.systemAudioWindows.onData((audioData: { data: string }) => {
+        try {
+          const binaryString = atob(audioData.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+
+          // AEC reference buffer
+          systemAudioBuffer.push({ data: audioData.data, timestamp: Date.now() });
+          if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) systemAudioBuffer.shift();
+
+          const ws = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+          if (ws && ws.sendBinaryData) ws.sendBinaryData(bytes.buffer);
+        } catch (e) {
+          console.error('[AudioCapture] Windows system audio onData error:', e);
+        }
+      });
+      (window as any)._systemAudioHandler = handler;
+      (window as any)._systemAudioIsWindows = true;
+    } catch (e) {
+      console.warn('[AudioCapture] Failed to start Windows system audio helper:', e);
+    }
+  } else if (systemStream && systemStream.getAudioTracks().length > 0) {
+    // Non-Windows: If system stream was provided, setup its processing and WS too
+    const sysSetup = setupSystemAudioProcessing(systemStream);
+    systemAudioContext = sysSetup.context;
+    systemAudioProcessor = sysSetup.processor;
+
+    let sysWs = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+    if (!sysWs) {
+      console.warn('[AudioCapture] No valid chat_id for system audio; attempting reconnect after chat create');
+      const backendUrl = BACKEND_URL;
+      const token = localStorage.getItem('auth_token') || '';
+      const newChatId = await getOrCreateChatId(backendUrl, token, true);
+      closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
+      systemWsInstance = null;
+      sysWs = ensureSystemWs(newChatId?.toString());
+    }
+    if (sysWs) {
+      try {
+        await sysWs.connect();
+      } catch (err) {
+        console.warn('[AudioCapture] System WS connect failed:', err);
+      }
+    }
+  } else {
+    console.log('[AudioCapture] No system stream provided; starting mic-only');
+  }
+
+  console.log('[AudioCapture] startCaptureWithStreams initialized');
+  return {
+    micAudioContext,
+    micAudioProcessor,
+    micStream,
+    systemAudioContext,
+    systemAudioProcessor,
+    systemStream,
+  };
 }

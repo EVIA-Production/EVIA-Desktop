@@ -57,6 +57,21 @@ contextBridge.exposeInMainWorld('evia', {
     onStatus: (cb: (line: string) => void) => 
       ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
   },
+  // 🪟 Windows system audio (WASAPI loopback) — mirrors mac API shape
+  systemAudioWindows: {
+    start: () => ipcRenderer.invoke('system-audio-windows:start'),
+    stop: () => ipcRenderer.invoke('system-audio-windows:stop'),
+    isRunning: () => ipcRenderer.invoke('system-audio-windows:is-running'),
+    onData: (cb: (data: { data: string }) => void) => {
+      const wrappedCb = (_e: any, data: { data: string }) => cb(data);
+      ipcRenderer.on('system-audio-windows-data', wrappedCb);
+      return wrappedCb; // Return for cleanup
+    },
+    removeOnData: (wrappedCb: any) =>
+      ipcRenderer.removeListener('system-audio-windows-data', wrappedCb),
+    onStatus: (cb: (line: string) => void) =>
+      ipcRenderer.on('system-audio-windows:status', (_e, line) => cb(line)),
+  },
   overlay: {
     setClickThrough: (enabled: boolean) => ipcRenderer.send('overlay:setClickThrough', enabled),
   },

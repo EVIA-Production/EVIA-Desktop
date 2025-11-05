@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-tokens.css';
 import { i18n } from '../i18n/i18n';
+import { pickScreenAndMic } from './ScreenPicker';
+import { startCaptureWithStreams } from '../audio-processor-glass-parity';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
 const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
@@ -33,6 +35,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
   const [isSettingsActive, setIsSettingsActive] = useState(currentView === 'settings');
+  const startInProgressRef = useRef(false); // Prevent duplicate ScreenPicker opens on rapid clicks
+  const lastLocalStartMsRef = useRef(0); // Grace period after local start to ignore 'before' resets
 
   // 🔧 SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
   // This allows AskView to send the correct session_state to backend
@@ -50,6 +54,33 @@ const EviaBar: React.FC<EviaBarProps> = ({
       console.log('[EviaBar] 📡 Broadcast session state:', sessionState, '(from listenStatus:', listenStatus, ')');
     }
   }, [listenStatus]);
+
+  // NEW: Listen to session-state-changed so EviaBar in other windows stays in sync (active/done colors)
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc;
+    const onSessionState = (_evt: any, sessionState: 'before' | 'during' | 'after') => {
+      const now = Date.now();
+      const withinGrace = now - lastLocalStartMsRef.current < 2000; // 2s grace
+      if (sessionState === 'during') {
+        setListenStatus('in');
+        setIsListenActive(true);
+      } else if (sessionState === 'after') {
+        setListenStatus('after');
+        setIsListenActive(false);
+      } else {
+        if (withinGrace && listenStatus === 'in') {
+          // Ignore immediate 'before' reset just after local start
+          return;
+        }
+        setListenStatus('before');
+        setIsListenActive(false);
+      }
+    };
+    eviaIpc?.on?.('session-state-changed', onSessionState);
+    return () => {
+      eviaIpc?.off?.('session-state-changed', onSessionState);
+    };
+  }, []);
 
   // REMOVED: useEffect that resets listenStatus based on isListening
   // This was breaking the 'after' (Done) state by resetting to 'before' when audio stops
@@ -124,12 +155,16 @@ const EviaBar: React.FC<EviaBarProps> = ({
           console.log('[EviaBar] ✅ Backend session status:', data.status);
           
           // Map backend states to Desktop states
+          const now = Date.now();
+          const withinGrace = now - lastLocalStartMsRef.current < 2000;
           if (data.status === 'during') {
             setListenStatus('in');
           } else if (data.status === 'after') {
             setListenStatus('after');
           } else {
-            setListenStatus('before');
+            if (!(withinGrace && listenStatus === 'in')) {
+              setListenStatus('before');
+            }
           }
         } else {
           console.error('[EviaBar] ❌ Failed to get session status:', response.status, await response.text());
@@ -343,26 +378,90 @@ const EviaBar: React.FC<EviaBarProps> = ({
     console.log(`[EviaBar] handleListenClick - current status: ${listenStatus}`);
     
     if (listenStatus === 'before') {
-      // Listen → Stop: Show window
+      // Windows: Use ScreenPicker + WASAPI path; Non-Windows: show window then start
+      const isWindows = Boolean((window as any)?.api?.platform?.isWindows) || /windows/i.test(navigator.userAgent);
+      if (isWindows) {
+        if (startInProgressRef.current) {
+          console.log('[EviaBar] ⏳ Start already in progress; ignoring duplicate click');
+          return;
+        }
+        startInProgressRef.current = true;
+        try {
+          console.log('[EviaBar] Windows detected → opening ScreenPicker');
+          const { systemStream, micStream } = await pickScreenAndMic();
+          console.log('[EviaBar] ScreenPicker returned:', {
+            hasSystem: !!systemStream,
+            hasMic: !!micStream,
+            systemTracks: systemStream?.getAudioTracks().map(t => t.label),
+            micTracks: micStream?.getAudioTracks().map(t => t.label),
+          });
+          if (!micStream) {
+            console.error('[EviaBar] ❌ No microphone stream selected/available');
+            (window as any).evia?.ipc?.send?.('trigger-error-blink');
+            return;
+          }
+          // Start capture first; only open ListenView and set state if it succeeds
+          await startCaptureWithStreams(systemStream, micStream);
+          // Sync session state BEFORE React state updates to avoid race in ListenView
+          localStorage.setItem('evia_session_state', 'during');
+          console.log('[EviaBar] 🔥 SYNC UPDATE (Windows): localStorage.evia_session_state = "during"');
+          lastLocalStartMsRef.current = Date.now();
+          await (window as any).evia?.windows?.ensureShown?.('listen');
+          onViewChange?.('listen');
+          setListenStatus('in');
+          setIsListenActive(true);
+          // Windows: do not call onToggleListening() here to avoid double start
+          // Explicitly start backend session once
+          try {
+            const eviaAuth = (window as any).evia?.auth;
+            const token = await eviaAuth?.getToken?.();
+            const chatId = localStorage.getItem('current_chat_id');
+            const { BACKEND_URL: baseUrl } = await import('../config/config');
+            if (token && chatId) {
+              const response = await fetch(`${baseUrl}/session/start`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ chat_id: Number(chatId) })
+              });
+              if (!response.ok) {
+                console.error('[EviaBar] ❌ (Windows) /session/start failed:', response.status, await response.text());
+              }
+            } else {
+              console.warn('[EviaBar] ⚠️ (Windows) Missing token or chat_id; skipping /session/start');
+            }
+          } catch (e) {
+            console.error('[EviaBar] ❌ (Windows) Error calling /session/start:', e);
+          }
+        } catch (err) {
+          console.error('[EviaBar] ScreenPicker/startCaptureWithStreams failed:', err);
+          (window as any).evia?.ipc?.send?.('trigger-error-blink');
+          return; // Do not transition to listening state on failure
+        } finally {
+          startInProgressRef.current = false;
+        }
+        return; // Windows path handled fully
+      }
+
+      // Non-Windows: show Listen window, sync localStorage, then start capture via onToggleListening
       console.log('[EviaBar] Listen → Stop: Showing listen window');
       await (window as any).evia?.windows?.ensureShown?.('listen');
-      
-      // 🔥 CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
-      // This prevents race condition where ListenView fetches insights with stale 'before' state
+      onViewChange?.('listen');
+      // Sync session state BEFORE React state updates (prevents race in ListenView)
       localStorage.setItem('evia_session_state', 'during');
       console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "during" (BEFORE React state)');
-      
       setListenStatus('in');
       setIsListenActive(true);
       onToggleListening();
-      
-      // 🆕 BACKEND INTEGRATION: Call /session/start
+
+      // Backend: /session/start
       try {
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
         const { BACKEND_URL: baseUrl } = await import('../config/config');
-        
         if (token && chatId) {
           console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
           const response = await fetch(`${baseUrl}/session/start`, {
@@ -373,7 +472,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
             },
             body: JSON.stringify({ chat_id: Number(chatId) })
           });
-          
           if (response.ok) {
             const data = await response.json();
             console.log('[EviaBar] ✅ Session started:', data);
@@ -386,7 +484,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       } catch (error) {
         console.error('[EviaBar] ❌ Error calling /session/start:', error);
       }
-      
+
     } else if (listenStatus === 'in') {
       // Stop → Done: Window STAYS visible
       console.log('[EviaBar] Stop → Done: Window stays visible');

@@ -10,6 +10,7 @@ files:
   - src/main/assets/**
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
+  - "src/main/assets/WASAPILoopback.exe"
 # 🔧 Run afterPack script to sign SystemAudioDump with entitlements
 afterPack: scripts/afterPack.js
 mac:

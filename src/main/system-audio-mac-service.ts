@@ -21,13 +21,13 @@ const BYTES_PER_SAMPLE = 2; // int16
 const CHANNELS = 2; // stereo
 const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION; // 4800 bytes
 
-export class SystemAudioService {
+export class SystemAudioMacService {
   private systemAudioProc: ChildProcess | null = null;
   private audioBuffer: Buffer = Buffer.alloc(0);
   private isRunning: boolean = false;
 
   constructor() {
-    console.log('[SystemAudioService] Initialized');
+    console.log('[SystemAudioMacService] Initialized');
   }
 
   /**
@@ -35,7 +35,7 @@ export class SystemAudioService {
    */
   private async killExistingSystemAudioDump(): Promise<void> {
     return new Promise((resolve) => {
-      console.log('[SystemAudioService] Checking for existing SystemAudioDump processes...');
+      console.log('[SystemAudioMacService] Checking for existing SystemAudioDump processes...');
 
       const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
         stdio: 'ignore',
@@ -43,15 +43,15 @@ export class SystemAudioService {
 
       killProc.on('close', (code) => {
         if (code === 0) {
-          console.log('[SystemAudioService] Killed existing SystemAudioDump processes');
+          console.log('[SystemAudioMacService] Killed existing SystemAudioDump processes');
         } else {
-          console.log('[SystemAudioService] No existing SystemAudioDump processes found');
+          console.log('[SystemAudioMacService] No existing SystemAudioDump processes found');
         }
         resolve();
       });
 
       killProc.on('error', (err) => {
-        console.log('[SystemAudioService] Error checking for existing processes (normal):', err.message);
+        console.log('[SystemAudioMacService] Error checking for existing processes (normal):', err.message);
         resolve();
       });
 
@@ -99,31 +99,31 @@ export class SystemAudioService {
   private async checkAndRequestPermission(): Promise<void> {
     try {
       const screenStatus = systemPreferences.getMediaAccessStatus('screen');
-      console.log('[SystemAudioService] Screen recording permission status:', screenStatus);
+      console.log('[SystemAudioMacService] Screen recording permission status:', screenStatus);
 
       if (screenStatus !== 'granted') {
-        console.log('[SystemAudioService] Requesting screen recording permission...');
+        console.log('[SystemAudioMacService] Requesting screen recording permission...');
         try {
           // Note: askForMediaAccess('screen') is not available in Electron 38+
           // Permission must be granted manually via System Settings
           // We try to call it anyway in case it works on some versions
           await (systemPreferences as any).askForMediaAccess('screen');
         } catch (requestError: any) {
-          console.warn('[SystemAudioService] askForMediaAccess not available or failed:', requestError.message);
+          console.warn('[SystemAudioMacService] askForMediaAccess not available or failed:', requestError.message);
         }
 
         const refreshedStatus = systemPreferences.getMediaAccessStatus('screen');
-        console.log('[SystemAudioService] Permission status after request:', refreshedStatus);
+        console.log('[SystemAudioMacService] Permission status after request:', refreshedStatus);
 
         if (refreshedStatus !== 'granted') {
-          console.warn('[SystemAudioService] ⚠️  Screen recording permission still not granted.');
-          console.warn('[SystemAudioService] Please enable in System Settings → Privacy & Security → Screen Recording');
+          console.warn('[SystemAudioMacService] ⚠️  Screen recording permission still not granted.');
+          console.warn('[SystemAudioMacService] Please enable in System Settings → Privacy & Security → Screen Recording');
         }
       } else {
-        console.log('[SystemAudioService] ✅ Screen recording permission already granted');
+        console.log('[SystemAudioMacService] ✅ Screen recording permission already granted');
       }
     } catch (permissionError: any) {
-      console.warn('[SystemAudioService] Unable to verify/request screen permission:', permissionError.message);
+      console.warn('[SystemAudioMacService] Unable to verify/request screen permission:', permissionError.message);
     }
   }
 
@@ -135,19 +135,19 @@ export class SystemAudioService {
       ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'SystemAudioDump')
       : path.join(app.getAppPath(), 'src', 'main', 'assets', 'SystemAudioDump');
 
-    console.log('[SystemAudioService] 🔍 SystemAudioDump path:', systemAudioPath);
-    console.log('[SystemAudioService] 🔍 app.getAppPath():', app.getAppPath());
-    console.log('[SystemAudioService] 🔍 app.isPackaged:', app.isPackaged);
+    console.log('[SystemAudioMacService] 🔍 SystemAudioDump path:', systemAudioPath);
+    console.log('[SystemAudioMacService] 🔍 app.getAppPath():', app.getAppPath());
+    console.log('[SystemAudioMacService] 🔍 app.isPackaged:', app.isPackaged);
     
     // Verify binary exists
     const fs = require('fs');
     try {
       const stats = fs.statSync(systemAudioPath);
-      console.log('[SystemAudioService] ✅ Binary exists, size:', stats.size, 'bytes');
-      console.log('[SystemAudioService] ✅ Binary permissions:', stats.mode.toString(8));
-      console.log('[SystemAudioService] ✅ Binary executable:', !!(stats.mode & fs.constants.S_IXUSR));
+      console.log('[SystemAudioMacService] ✅ Binary exists, size:', stats.size, 'bytes');
+      console.log('[SystemAudioMacService] ✅ Binary permissions:', stats.mode.toString(8));
+      console.log('[SystemAudioMacService] ✅ Binary executable:', !!(stats.mode & fs.constants.S_IXUSR));
     } catch (err: any) {
-      console.error('[SystemAudioService] ❌ Binary NOT found or not accessible:', err.message);
+      console.error('[SystemAudioMacService] ❌ Binary NOT found or not accessible:', err.message);
     }
     
     return systemAudioPath;
@@ -176,20 +176,20 @@ export class SystemAudioService {
       // Step 3: Spawn SystemAudioDump binary
       const systemAudioPath = this.getSystemAudioPath();
       
-      console.log('[SystemAudioService] 🚀 Spawning SystemAudioDump binary...');
-      console.log('[SystemAudioService] 🚀 Command:', systemAudioPath);
-      console.log('[SystemAudioService] 🚀 Args:', []);
+      console.log('[SystemAudioMacService] 🚀 Spawning SystemAudioDump binary...');
+      console.log('[SystemAudioMacService] 🚀 Command:', systemAudioPath);
+      console.log('[SystemAudioMacService] 🚀 Args:', []);
       
       this.systemAudioProc = spawn(systemAudioPath, [], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       if (!this.systemAudioProc.pid) {
-        console.error('[SystemAudioService] ❌ Failed to start SystemAudioDump - no PID assigned');
+        console.error('[SystemAudioMacService] ❌ Failed to start SystemAudioDump - no PID assigned');
         return { success: false, error: 'Failed to spawn process - no PID' };
       }
 
-      console.log('[SystemAudioService] ✅ SystemAudioDump started with PID:', this.systemAudioProc.pid);
+      console.log('[SystemAudioMacService] ✅ SystemAudioDump started with PID:', this.systemAudioProc.pid);
       this.isRunning = true;
 
       // Step 4: Process audio data from stdout
@@ -209,48 +209,48 @@ export class SystemAudioService {
           this.sendToRenderer('system-audio-data', { data: base64Data });
 
           // Log chunk transmission (verbose, can be removed in production)
-          // console.log('[SystemAudioService] Sent SYSTEM chunk:', monoChunk.length * 2, 'bytes (original stereo:', chunk.length, 'bytes)');
+          // console.log('[SystemAudioMacService] Sent SYSTEM chunk:', monoChunk.length * 2, 'bytes (original stereo:', chunk.length, 'bytes)');
         }
       });
 
       // Step 5: Error handling
       this.systemAudioProc.stderr!.on('data', (data: Buffer) => {
         const errorMsg = data.toString().trim();
-        console.error('[SystemAudioService] 🔴 SystemAudioDump stderr:', errorMsg);
+        console.error('[SystemAudioMacService] 🔴 SystemAudioDump stderr:', errorMsg);
         
         // Check for specific permission error
         if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-          console.error('[SystemAudioService] ❌ PERMISSION ERROR DETECTED');
-          console.error('[SystemAudioService] 🔧 DEV MODE FIX: Grant Screen Recording permission to Terminal.app');
-          console.error('[SystemAudioService]     1. Open System Settings');
-          console.error('[SystemAudioService]     2. Go to Privacy & Security → Screen & System Audio Recording');
-          console.error('[SystemAudioService]     3. Add Terminal.app (or iTerm2.app if you use that)');
-          console.error('[SystemAudioService]     4. Toggle it ON');
-          console.error('[SystemAudioService]     5. Quit and restart EVIA from Terminal');
+          console.error('[SystemAudioMacService] ❌ PERMISSION ERROR DETECTED');
+          console.error('[SystemAudioMacService] 🔧 DEV MODE FIX: Grant Screen Recording permission to Terminal.app');
+          console.error('[SystemAudioMacService]     1. Open System Settings');
+          console.error('[SystemAudioMacService]     2. Go to Privacy & Security → Screen & System Audio Recording');
+          console.error('[SystemAudioMacService]     3. Add Terminal.app (or iTerm2.app if you use that)');
+          console.error('[SystemAudioMacService]     4. Toggle it ON');
+          console.error('[SystemAudioMacService]     5. Quit and restart EVIA from Terminal');
         }
       });
 
       this.systemAudioProc.on('close', (code) => {
-        console.log('[SystemAudioService] 🔴 SystemAudioDump process closed with code:', code);
+        console.log('[SystemAudioMacService] 🔴 SystemAudioDump process closed with code:', code);
         this.systemAudioProc = null;
         this.isRunning = false;
         this.audioBuffer = Buffer.alloc(0);
 
         if (code === 1) {
-          console.error('[SystemAudioService] ❌ Binary exited with code 1 - PERMISSION DENIED');
-          console.error('[SystemAudioService] 🔧 FIX: Grant Screen Recording permission to Terminal.app');
-          console.error('[SystemAudioService]     System Settings → Privacy & Security → Screen & System Audio Recording → Add Terminal');
-          console.error('[SystemAudioService]     Then relaunch EVIA from Terminal (not Cursor)');
+          console.error('[SystemAudioMacService] ❌ Binary exited with code 1 - PERMISSION DENIED');
+          console.error('[SystemAudioMacService] 🔧 FIX: Grant Screen Recording permission to Terminal.app');
+          console.error('[SystemAudioMacService]     System Settings → Privacy & Security → Screen & System Audio Recording → Add Terminal');
+          console.error('[SystemAudioMacService]     Then relaunch EVIA from Terminal (not Cursor)');
         } else if (code !== 0 && code !== null) {
-          console.error('[SystemAudioService] ❌ Binary exited with code:', code);
+          console.error('[SystemAudioMacService] ❌ Binary exited with code:', code);
         }
       });
 
       this.systemAudioProc.on('error', (err: any) => {
-        console.error('[SystemAudioService] ❌ SystemAudioDump process error:', err);
-        console.error('[SystemAudioService] ❌ Error name:', err.name);
-        console.error('[SystemAudioService] ❌ Error message:', err.message);
-        console.error('[SystemAudioService] ❌ Error stack:', err.stack);
+        console.error('[SystemAudioMacService] ❌ SystemAudioDump process error:', err);
+        console.error('[SystemAudioMacService] ❌ Error name:', err.name);
+        console.error('[SystemAudioMacService] ❌ Error message:', err.message);
+        console.error('[SystemAudioMacService] ❌ Error stack:', err.stack);
         this.systemAudioProc = null;
         this.isRunning = false;
         this.audioBuffer = Buffer.alloc(0);
@@ -258,7 +258,7 @@ export class SystemAudioService {
 
       return { success: true };
     } catch (error: any) {
-      console.error('[SystemAudioService] Failed to start system audio capture:', error);
+      console.error('[SystemAudioMacService] Failed to start system audio capture:', error);
       this.isRunning = false;
       return { success: false, error: error.message };
     }
@@ -270,7 +270,7 @@ export class SystemAudioService {
   public async stop(): Promise<{ success: boolean; error?: string }> {
     try {
       if (this.systemAudioProc) {
-        console.log('[SystemAudioService] Stopping SystemAudioDump process...');
+        console.log('[SystemAudioMacService] Stopping SystemAudioDump process...');
         this.systemAudioProc.kill();
         this.systemAudioProc = null;
       }
@@ -281,10 +281,10 @@ export class SystemAudioService {
       // Also kill any orphaned processes
       await this.killExistingSystemAudioDump();
 
-      console.log('[SystemAudioService] ✅ System audio capture stopped');
+      console.log('[SystemAudioMacService] ✅ System audio capture stopped');
       return { success: true };
     } catch (error: any) {
-      console.error('[SystemAudioService] Failed to stop system audio capture:', error);
+      console.error('[SystemAudioMacService] Failed to stop system audio capture:', error);
       return { success: false, error: error.message };
     }
   }
@@ -305,5 +305,5 @@ export class SystemAudioService {
 }
 
 // Singleton instance
-export const systemAudioService = new SystemAudioService();
+export const systemAudioMacService = new SystemAudioMacService();
 

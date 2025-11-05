@@ -4,7 +4,8 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
-import { systemAudioService } from './system-audio-service';
+import { systemAudioMacService } from './system-audio-mac-service';
+import { systemAudioWindowsService } from './system-audio-windows-service';
 import { headerController } from './header-controller';
 
 let pendingDeepLink: string | null = null;
@@ -182,7 +183,8 @@ app.on("activate", () => {
 
 app.on('quit', async () => {
   console.log('[Main] App quitting, cleaning up system audio...')
-  await systemAudioService.stop()
+  await systemAudioMacService.stop()
+  await systemAudioWindowsService.stop()
   processManager.cleanupAllProcesses()
 })
 
@@ -197,18 +199,35 @@ async function killExisting(name: string): Promise<boolean> {
 // System Audio IPC Handlers - Using SystemAudioService (Glass binary approach)
 ipcMain.handle('system-audio:start', async () => {
   console.log('[Main] IPC: system-audio:start called')
-  const result = await systemAudioService.start()
+  const result = await systemAudioMacService.start()
   return result
 })
 
 ipcMain.handle('system-audio:stop', async () => {
   console.log('[Main] IPC: system-audio:stop called')
-  const result = await systemAudioService.stop()
+  const result = await systemAudioMacService.stop()
   return result
 })
 
 ipcMain.handle('system-audio:is-running', async () => {
-  return systemAudioService.isSystemAudioRunning()
+  return systemAudioMacService.isSystemAudioRunning()
+})
+
+// 🪟 Windows system audio (WASAPI) IPC Handlers
+ipcMain.handle('system-audio-windows:start', async () => {
+  console.log('[Main] IPC: system-audio-windows:start called')
+  const result = await systemAudioWindowsService.start()
+  return result
+})
+
+ipcMain.handle('system-audio-windows:stop', async () => {
+  console.log('[Main] IPC: system-audio-windows:stop called')
+  const result = await systemAudioWindowsService.stop()
+  return result
+})
+
+ipcMain.handle('system-audio-windows:is-running', async () => {
+  return systemAudioWindowsService.isRunning()
 })
 
 ipcMain.handle('auth:login', async (_event, {username, password}) => {
