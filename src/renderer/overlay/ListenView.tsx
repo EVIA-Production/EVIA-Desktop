@@ -525,7 +525,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // 🚀 ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
     // Users will see spinner instead of wrong "Vorbereitung" insights
     setInsights(null);
-    
+
     // 🚀 SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
     // - Attempt 1: Immediate (0ms) - Fast path if transcripts already saved
     // - Attempt 2: After 300ms - Quick retry for fast saves
@@ -551,9 +551,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       return;
     }
 
-    // 🔥 Derive session state from UI state
-    const derivedSessionState = isSessionActive ? 'during' : sessionState;
+    // 🔥 CRITICAL FIX: ALWAYS use latest session state from localStorage (truth source)
+    // Don't derive from isSessionActive - it can be stale!
+    // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
+    const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+    const derivedSessionState = latestSessionState;
     const currentLang = i18n.getLanguage();
+    
+    console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', sessionState, ', isSessionActive =', isSessionActive);
     
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
     
