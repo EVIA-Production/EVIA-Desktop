@@ -27,13 +27,18 @@ export class SystemAudioMacService {
   private isRunning: boolean = false;
 
   constructor() {
-    console.log('[SystemAudioMacService] Initialized');
+    // Only log/init details on macOS to avoid noise on Windows/Linux
+    if (process.platform === 'darwin') {
+      console.log('[SystemAudioMacService] Initialized');
+    }
   }
 
   /**
    * Kill any existing SystemAudioDump processes before starting a new one
    */
   private async killExistingSystemAudioDump(): Promise<void> {
+    // No-op on non-macOS
+    if (process.platform !== 'darwin') return Promise.resolve();
     return new Promise((resolve) => {
       console.log('[SystemAudioMacService] Checking for existing SystemAudioDump processes...');
 
@@ -97,6 +102,7 @@ export class SystemAudioMacService {
    * Note: On macOS Sonoma+, askForMediaAccess may not work, manual grant required
    */
   private async checkAndRequestPermission(): Promise<void> {
+    if (process.platform !== 'darwin') return; // macOS only
     try {
       const screenStatus = systemPreferences.getMediaAccessStatus('screen');
       console.log('[SystemAudioMacService] Screen recording permission status:', screenStatus);
@@ -268,6 +274,10 @@ export class SystemAudioMacService {
    * Stop capturing system audio
    */
   public async stop(): Promise<{ success: boolean; error?: string }> {
+    // No-op on non-macOS; treat as success to simplify callers during app quit
+    if (process.platform !== 'darwin') {
+      return { success: true };
+    }
     try {
       if (this.systemAudioProc) {
         console.log('[SystemAudioMacService] Stopping SystemAudioDump process...');
