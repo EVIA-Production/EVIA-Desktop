@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import './overlay-tokens.css';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import './overlay-tokens.css';
+import './overlay-glass.css';
 
 interface ShortCutSettingsViewProps {
   onClose?: () => void;

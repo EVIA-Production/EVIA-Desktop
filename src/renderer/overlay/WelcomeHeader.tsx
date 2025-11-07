@@ -1,5 +1,4 @@
 import React from 'react';
-import './overlay-tokens.css';
 import './overlay-glass.css';
 import { FRONTEND_URL } from '../config/config';
 

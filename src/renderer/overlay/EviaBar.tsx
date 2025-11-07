@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import './overlay-tokens.css';
+import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { pickScreenAndMic } from './ScreenPicker';
 import { startCaptureWithStreams } from '../audio-processor-glass-parity';

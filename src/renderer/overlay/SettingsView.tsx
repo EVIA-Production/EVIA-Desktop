@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import './overlay-tokens.css';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { FRONTEND_URL } from '../config/config';
