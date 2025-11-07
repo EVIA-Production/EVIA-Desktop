@@ -52,6 +52,22 @@
   --radius-small: 3px;
   --radius-medium: 6px;
   --radius-pill: 9000px;
+  /* Additional UI tokens */
+  --panel-radius-large: 16px;
+  --font-ui: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --text-subtle: #dcdcdc;
+  --surface-12: rgba(255,255,255,0.12);
+  --surface-14: rgba(255,255,255,0.14);
+  --shadow-strong: 0 8px 32px rgba(0, 0, 0, 0.3);
+  /* Neutral palette for repeated blacks/grays */
+  --black-10: rgba(0,0,0,0.10);
+  --black-15: rgba(0,0,0,0.15);
+  --black-30: rgba(0,0,0,0.30);
+  --black-35: rgba(0,0,0,0.35);
+  --black-60: rgba(0,0,0,0.60);
+  --black-64: rgba(0,0,0,0.64);
+  --neutral-300: #dcdcdc; /* subtle text */
+  --neutral-350: #bebebe; /* dividers */
 }
 
 /* ===== Merged from overlay-tokens.css =====
@@ -144,14 +160,14 @@
   margin: 1px 0; /* GLASS BORDER FIX */
   background: transparent;
   overflow: visible;
-  border-radius: 9000px;
+  border-radius: var(--pill-radius);
   justify-content: space-between;
   align-items: center;
   display: flex;
   box-sizing: border-box;
   position: relative;
   user-select: none;
-  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
 }
 .evia-main-header::before {
   content: '';
@@ -159,8 +175,8 @@
   top: 0; left: 0; right: 0; bottom: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.6);
-  border-radius: 9000px;
+  background: var(--glass-bg-soft);
+  border-radius: var(--pill-radius);
   z-index: -1;
 }
 
@@ -201,7 +217,7 @@
   height: 26px;
   min-width: 78px;
   padding: 0 13px;
-  border-radius: 9000px;
+  border-radius: var(--pill-radius);
   border: none;
   background: transparent;
   display: flex;
@@ -215,7 +231,7 @@
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  border-radius: 9000px;
+  border-radius: var(--pill-radius);
   background: rgba(255,255,255,0.14);
   transition: background 0.15s ease;
   z-index: -1;
@@ -269,9 +285,9 @@
   color: #ffffff;
   box-sizing: border-box;
   position: relative;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--black-30);
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--panel-radius-small);
   width: 100%;
   height: 100%;
 }
@@ -303,9 +319,9 @@
   bottom: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: var(--black-15);
+  box-shadow: var(--shadow-strong);
+  border-radius: var(--panel-radius-small);
   z-index: -1;
 }
 
@@ -450,24 +466,24 @@
 }
 
 .assistant-container .glass-scroll::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-border-light);
   border-radius: 3px;
   margin: 4px 0;
 }
 
 .assistant-container .glass-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
   transition: background 0.2s ease;
 }
 
 .assistant-container .glass-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .assistant-container .glass-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.05);
+  scrollbar-color: var(--scrollbar-thumb) var(--glass-border-light);
 }
 
 /* Bubble styling specific to ListenView */
@@ -497,7 +513,7 @@
 .assistant-container .insight-item {
   padding: 12px 16px;
   margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-12);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -505,7 +521,7 @@
 }
 
 .assistant-container .insight-item:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--surface-hover);
   border-color: rgba(255, 255, 255, 0.2);
   transform: translateY(-1px);
 }
@@ -538,7 +554,7 @@
   min-width: 285px;
   min-height: 220px;
   padding: 18px 20px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--black-30);
   border-radius: 16px;
   overflow: visible;
   position: relative;
@@ -546,7 +562,7 @@
   flex-direction: column;
   align-items: center;
   box-sizing: border-box;
-  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
   user-select: none;
 }
 
@@ -575,7 +591,7 @@
 }
 
 .permission-title {
-  color: white;
+  color: var(--text-color);
   font-size: 16px;
   font-weight: 500;
   margin: 0;
@@ -599,7 +615,7 @@
 }
 
 .permission-subtitle {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted-text);
   font-size: 11px;
   font-weight: 400;
   text-align: center;
@@ -713,7 +729,7 @@
   z-index: 99999;
   backdrop-filter: blur(8px) saturate(120%);
   -webkit-backdrop-filter: blur(8px) saturate(120%);
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--black-35);
   -webkit-app-region: no-drag;
 }
 
@@ -774,7 +790,7 @@
   box-sizing: border-box;
   height: auto;
   padding: 24px 16px;
-  background: rgba(0, 0, 0, 0.64);
+  background: var(--black-64);
   box-shadow: 0px 0px 0px 1.5px rgba(255, 255, 255, 0.64) inset;
   border-radius: 16px;
   flex-direction: column;
@@ -848,7 +864,7 @@
   width: 1px;
   align-self: stretch;
   position: relative;
-  background: #bebebe;
+  background: var(--neutral-350);
   border-radius: 2px;
 }
 
@@ -869,7 +885,7 @@
 }
 
 .welcome-container .option-description {
-  color: #dcdcdc;
+  color: var(--neutral-300);
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -934,7 +950,7 @@
 .welcome-container .footer {
   align-self: stretch;
   text-align: center;
-  color: #dcdcdc;
+  color: var(--neutral-300);
   font-size: 12px;
   font-weight: 500;
   line-height: 19.2px;
@@ -1121,7 +1137,7 @@
   font-size: 16px;
   font-weight: 500;
   text-align: center;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--black-30);
   border-radius: 8px;
   margin: 16px;
 }
@@ -1146,7 +1162,7 @@
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
-  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .ask-container::before {
@@ -1158,8 +1174,8 @@
   bottom: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  background: var(--black-15);
+  box-shadow: var(--shadow-strong);
   border-radius: var(--panel-radius-small);
   filter: blur(10px);
   z-index: -1;
@@ -1470,7 +1486,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted-text-2);
   font-size: 14px;
 }
 
@@ -1998,8 +2014,8 @@
   bottom: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  background: var(--black-15);
+  box-shadow: var(--shadow-strong);
   border-radius: var(--panel-radius-small);
   filter: blur(10px);
   z-index: -1;
@@ -2097,8 +2113,8 @@
 }
 
 .language-button.active {
-  background: rgba(0, 122, 255, 0.25);
-  border-color: rgba(0, 122, 255, 0.6);
+  background: var(--accent-weak);
+  border-color: var(--accent-strong);
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
@@ -2232,8 +2248,8 @@
 }
 
 .preset-item.selected {
-  background: rgba(0, 122, 255, 0.25);
-  border-color: rgba(0, 122, 255, 0.6);
+  background: var(--accent-weak);
+  border-color: var(--accent-strong);
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
@@ -2251,14 +2267,14 @@
 }
 
 .preset-item.active {
-  background: rgba(0, 122, 255, 0.25);
-  border-color: rgba(0, 122, 255, 0.6);
+  background: var(--accent-weak);
+  border-color: var(--accent-strong);
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
 .preset-item.active .preset-name {
   font-weight: 500;
-  color: rgba(0, 122, 255, 1);
+  color: var(--accent);
 }
 
 .preset-item.selected:not(.active) {
