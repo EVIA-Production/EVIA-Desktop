@@ -43,6 +43,15 @@
   /* UI specifics */
   --scrollbar-thumb: rgba(255,255,255,0.2);
   --scrollbar-thumb-hover: rgba(255,255,255,0.3);
+  /* Surface tokens for repeated white-overlay colors */
+  --surface-weak: rgba(255,255,255,0.10);
+  --surface-mid: rgba(255,255,255,0.15);
+  --surface-bright: rgba(255,255,255,0.20);
+  --surface-hover: rgba(255,255,255,0.18);
+  /* Radii tokens */
+  --radius-small: 3px;
+  --radius-medium: 6px;
+  --radius-pill: 9000px;
 }
 
 /* ===== Merged from overlay-tokens.css =====
@@ -124,72 +133,848 @@
   pointer-events: none;
 }
 
-.listen-button {
-  -webkit-app-region: no-drag;
-  height: 26px;
-  padding: 0 13px;
+/* ============================================
+  EVIA BAR (Glass Parity)
+  ============================================ */
+.evia-main-header {
+  -webkit-app-region: drag;
+  width: max-content;
+  height: 47px;
+  padding: 2px 10px 2px 13px;
+  margin: 1px 0; /* GLASS BORDER FIX */
   background: transparent;
+  overflow: visible;
   border-radius: 9000px;
-  justify-content: center;
-  width: 78px;
+  justify-content: space-between;
   align-items: center;
-  gap: 6px;
   display: flex;
-  border: none;
-  cursor: pointer;
+  box-sizing: border-box;
   position: relative;
-  color: #fff;
+  user-select: none;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
-.listen-button::before {
+.evia-main-header::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(255,255,255,0.14);
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.6);
   border-radius: 9000px;
   z-index: -1;
-  transition: background 0.15s ease;
 }
-.listen-button:hover::before { background: rgba(255,255,255,0.18); }
-.listen-button.active::before { background: rgba(215,0,0,0.5); }
-.listen-button.active:hover::before { background: rgba(255,20,20,0.6); }
 
-.listen-button.done { background-color: rgba(255, 255, 255, 0.6); transition: background-color 0.15s ease; }
-.listen-button.done .action-text-content { color: black; }
-.listen-button.done .listen-icon svg rect, .listen-button.done .listen-icon svg path { fill: black; }
-.listen-button.done:hover { background-color: #f0f0f0; }
-.listen-button.done::after { display: none; }
-
-.header-actions {
+.evia-main-header button,
+.evia-main-header .action {
   -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 1;
+}
+
+/* Shared gradient border overlay for components using ::after */
+.evia-main-header::after,
+.evia-listen-button::after,
+.assistant-container::after,
+.glass-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: var(--glass-gradient);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+@keyframes error-blink {
+  0%, 100% { border-color: rgba(255, 255, 255, 0.6); }
+  50% { border-color: rgba(255, 59, 48, 0.9); }
+}
+.evia-main-header.error-blink {
+  animation: error-blink 0.5s ease-in-out 2;
+}
+
+.evia-listen-button {
   height: 26px;
-  box-sizing: border-box;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 9px;
-  display: flex;
-  padding: 0 8px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
-}
-.header-actions:hover { background: rgba(255,255,255,0.10); }
-.ask-action { margin-left: 4px; }
-.action-text-content { color: #fff; font-size: 12px; font-weight: 500; }
-.icon-box { color: #fff; font-size: 12px; background: rgba(255,255,255,0.10); border-radius: 13%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
-
-.settings-button {
-  -webkit-app-region: no-drag;
-  padding: 5px;
-  border-radius: 50%;
-  background: transparent;
-  transition: background 0.15s ease;
-  color: white;
+  min-width: 78px;
+  padding: 0 13px;
+  border-radius: 9000px;
   border: none;
-  cursor: pointer;
+  background: transparent;
   display: flex;
   align-items: center;
   gap: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 0.12s ease;
 }
-.settings-button:hover { background: rgba(255,255,255,0.10); }
+.evia-listen-button::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 9000px;
+  background: rgba(255,255,255,0.14);
+  transition: background 0.15s ease;
+  z-index: -1;
+}
+
+.evia-listen-button:hover::before { background: rgba(255,255,255,0.18); }
+.evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.5); }
+.evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.6); }
+.evia-listen-button.listen-done { background-color: rgba(255,255,255,0.6); transition: background-color 0.15s ease; }
+.evia-listen-button.listen-done::before { display: none; }
+.evia-listen-button.listen-done::after { display: none; }
+.evia-listen-button.listen-done .evia-listen-label { color: black; }
+.evia-listen-button.listen-done .evia-listen-icon svg rect,
+.evia-listen-button.listen-done .evia-listen-icon svg path { fill: black; }
+.evia-listen-button .evia-listen-label { font-size: 12px; font-weight: 600; }
+.evia-listen-icon { width: 12px; height: 11px; display: inline-flex; align-items: center; justify-content: center; }
+
+.evia-header-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0 8px;
+  height: 26px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  color: #ffffff;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+.evia-header-actions:hover { background: rgba(255,255,255,0.1); }
+.evia-action-text { font-size: 12px; font-weight: 500; }
+.evia-icon-box { width: 18px; height: 18px; border-radius: 13%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; }
+.evia-settings-button { height: 26px; width: 26px; border-radius: 50%; border: none; background: transparent; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; cursor: pointer; transition: background 0.15s ease; }
+.evia-settings-button:hover { background: rgba(255,255,255,0.1); }
+.evia-settings-button.active { background: rgba(255,255,255,0.14); }
+
+/* ========== End EVIA BAR ========== */
+
+/* ============================================
+   LISTEN VIEW (Glass Parity)
+   - Styles extracted from ListenView.tsx inline <style>
+   - Scoped under .assistant-container to avoid affecting other views
+   ============================================ */
+
+.assistant-container {
+  display: flex;
+  flex-direction: column;
+  color: #ffffff;
+  box-sizing: border-box;
+  position: relative;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+}
+
+.assistant-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(169deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.17) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.assistant-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  z-index: -1;
+}
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 16px;
+  min-height: 32px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bar-left-text {
+  color: white;
+  font-size: 13px;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 500;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  max-width: 200px;
+}
+
+.bar-left-text-content {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.bar-left-text-content.slide-in {
+  animation: slideIn 0.3s ease forwards;
+}
+
+.bar-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 4px;
+}
+
+.toggle-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  border: none;
+  outline: none;
+  box-shadow: none;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  height: 24px;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  justify-content: center;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.toggle-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.toggle-button svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+/* Make copy button match ListenView design (overrides generic .copy-button) */
+.assistant-container .copy-button {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  border: none;
+  outline: none;
+  box-shadow: none;
+  padding: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.assistant-container .copy-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.assistant-container .copy-button svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.assistant-container .insights-placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  padding: 16px;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* ListenView scroll area tweaks + scrollbar styling */
+.assistant-container .glass-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assistant-container .glass-scroll::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.assistant-container .glass-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  margin: 4px 0;
+}
+
+.assistant-container .glass-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.assistant-container .glass-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.assistant-container .glass-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.05);
+}
+
+/* Bubble styling specific to ListenView */
+.assistant-container .bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 80%;
+  word-wrap: break-word;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: opacity 0.2s ease;
+}
+
+.assistant-container .bubble.me {
+  align-self: flex-end;
+}
+
+.assistant-container .bubble.them {
+  align-self: flex-start;
+}
+
+.assistant-container .bubble-text {
+  display: block;
+}
+
+/* Insights list styling */
+.assistant-container .insight-item {
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.assistant-container .insight-item:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.assistant-container .insight-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  margin-bottom: 4px;
+}
+
+.assistant-container .insight-prompt {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
+}
+
+/* ========== End LISTEN VIEW ========== */
+
+/* ============================================
+   PERMISSION HEADER (Glass Parity)
+   - Styles extracted from PermissionHeader.tsx inline styles
+   - Uses class-based modifiers for state (e.g., .success, .granted, .disabled)
+   ============================================ */
+
+.permission-container {
+  -webkit-app-region: drag;
+  width: 100%;
+  height: 100%;
+  min-width: 285px;
+  min-height: 220px;
+  padding: 18px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  overflow: visible;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+}
+
+.permission-container.success {
+  background: rgba(52, 199, 89, 0.15);
+  border: 2px solid rgba(52, 199, 89, 0.4);
+}
+
+.permission-container .border-overlay {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(169deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.5) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Show close button for permission header */
+.permission-container .close-button {
+  display: flex; /* override default hidden */
+}
+
+.permission-title {
+  color: white;
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.permission-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-top: auto;
+}
+
+.permission-form.all-granted {
+  flex-grow: 1;
+  justify-content: center;
+  align-items: center;
+  margin-top: 0;
+}
+
+.permission-subtitle {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: center;
+  margin-bottom: 12px;
+  line-height: 1.3;
+}
+
+.permission-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 20px;
+}
+
+.permission-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.permission-item.granted {
+  color: rgba(34, 197, 94, 0.9);
+}
+
+.permission-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.8;
+}
+
+.check-icon {
+  width: 12px;
+  height: 12px;
+  color: rgba(34, 197, 94, 0.9);
+}
+
+.permission-action-button {
+  -webkit-app-region: no-drag;
+  width: 100%;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 6px;
+  outline: none;
+}
+
+.permission-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.permission-action-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.permission-action-button.requesting {
+  cursor: wait;
+}
+
+.permission-action-button > span {
+  position: relative;
+  z-index: 1;
+}
+
+.button-border-overlay {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  padding: 1px;
+  background: linear-gradient(169deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.5) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.success-check {
+  margin-top: 20px;
+}
+
+/* ========== End PERMISSION HEADER ========== */
+
+/* ============================================
+   SCREEN PICKER (Glass Parity)
+   - Styles extracted from ScreenPicker.tsx modal
+   ============================================ */
+
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-app-region: no-drag;
+}
+
+.picker-modal {
+  width: 420px;
+  padding: 18px;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  font-family: 'Helvetica Neue', -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.picker-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.picker-desc {
+  font-size: 13px;
+  opacity: 0.95;
+  margin-bottom: 16px;
+}
+
+.picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.picker-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  color: white;
+  cursor: pointer;
+  background: transparent;
+}
+
+.picker-btn.start {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
+}
+
+/* ========== End SCREEN PICKER ========== */
+
+
+/* ============================================
+   WELCOME HEADER (Glass Parity)
+   - Styles extracted from WelcomeHeader.tsx inline <style>
+   - Scoped under .welcome-container to avoid collisions
+   ============================================ */
+
+.welcome-container {
+  -webkit-app-region: drag;
+  width: 100%;
+  box-sizing: border-box;
+  height: auto;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.64);
+  box-shadow: 0px 0px 0px 1.5px rgba(255, 255, 255, 0.64) inset;
+  border-radius: 16px;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 32px;
+  display: inline-flex;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: default;
+  user-select: none;
+  position: relative;
+}
+
+/* Show and size the close button specifically for Welcome */
+.welcome-container .close-button {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 10;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.welcome-container .close-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.welcome-container .header-section {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 4px;
+  display: flex;
+}
+
+.welcome-container .title {
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.welcome-container .subtitle {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.welcome-container .option-card {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  display: inline-flex;
+}
+
+.welcome-container .divider {
+  width: 1px;
+  align-self: stretch;
+  position: relative;
+  background: #bebebe;
+  border-radius: 2px;
+}
+
+.welcome-container .option-content {
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.welcome-container .option-title {
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.welcome-container .option-description {
+  color: #dcdcdc;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0.12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-container .action-button {
+  -webkit-app-region: no-drag;
+  padding: 8px 10px;
+  background: rgba(132.6, 132.6, 132.6, 0.8);
+  box-shadow: 0px 2px 2px rgba(0, 0, 0, 0.16);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  display: flex;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+/* Position per FIX #13 */
+.welcome-container .action-button-absolute {
+  position: absolute;
+  top: 80px;
+  right: 24px;
+  z-index: 10;
+}
+
+.welcome-container .action-button:hover {
+  background: rgba(150, 150, 150, 0.9);
+}
+
+.welcome-container .button-text {
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.welcome-container .button-icon {
+  width: 12px;
+  height: 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-container .arrow-icon {
+  border: solid white;
+  border-width: 0 1.2px 1.2px 0;
+  display: inline-block;
+  padding: 3px;
+  transform: rotate(-45deg);
+  -webkit-transform: rotate(-45deg);
+}
+
+.welcome-container .footer {
+  align-self: stretch;
+  text-align: center;
+  color: #dcdcdc;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 19.2px;
+}
+
+.welcome-container .footer-link {
+  text-decoration: underline;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+/* ========== End WELCOME HEADER ========== */
+
+/* Pruned unused legacy classes: .listen-button, .header-actions, .icon-box, .ask-action, .action-text-content */
+
+
+/* Base overlay button styles - applied to existing button classes (no renames)
+   Use grouping so existing classnames keep working; more specific rules
+   later in the file will override where needed. */
+.submit-btn,
+.copy-button,
+.settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-medium);
+  background: var(--surface-weak);
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  transition: background 0.15s ease, filter 120ms ease, box-shadow 120ms ease;
+  -webkit-app-region: no-drag;
+}
+.submit-btn:hover,
+.copy-button:hover,
+.settings-button:hover {
+  background: var(--surface-mid);
+}
 
 .icon-container { display: flex; flex-direction: row; gap: 2px; }
 
@@ -1159,15 +1944,7 @@
   background: rgba(0, 122, 255, 0.35);
 }
 
-.settings-button.danger {
-  background: var(--danger-weak);
-  border-color: rgba(255, 59, 48, 0.3);
-  color: rgba(255, 59, 48, 0.9);
-}
-
-.settings-button.danger:hover {
-  background: rgba(255, 59, 48, 0.15);
-}
+/* Dedup: settings-button.danger unified later in Settings View section */
 
 .settings-button:disabled {
   opacity: 0.5;

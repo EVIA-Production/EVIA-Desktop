@@ -7,10 +7,10 @@ interface ShortCutSettingsViewProps {
 
 const ShortCutSettingsView: React.FC<ShortCutSettingsViewProps> = ({ onClose }) => {
   return (
-    <div className="evia-glass" style={{ width: 420, height: 360, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}>
+    <div className="shortcuts-container">
       {/* Close button - Glass parity */}
-      <button 
-        className="close-button" 
+      <button
+        className="close-button"
         onClick={() => (window as any).evia?.closeWindow?.('shortcuts')}
         title="Close"
       >
@@ -18,13 +18,21 @@ const ShortCutSettingsView: React.FC<ShortCutSettingsViewProps> = ({ onClose }) 
           <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </svg>
       </button>
-      <div className="drag-zone" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ color: 'var(--text-color)', fontSize: 'var(--font-size-title)' }}>Shortcuts</div>
+
+      <div className="shortcuts-header drag-zone">
+        <h2>Shortcuts</h2>
       </div>
-      <div className="no-drag" style={{ color: 'var(--text-color)' }}>
-        <div>• Toggle overlay: Cmd/Ctrl + \</div>
-        <div>• Open Ask: Cmd/Ctrl + Enter</div>
-        <div>• Move overlay: Cmd/Ctrl + Arrow Keys</div>
+
+      <div className="shortcuts-list no-drag">
+        <div className="shortcut-row">
+          <div className="shortcut-name">• Toggle overlay: Cmd/Ctrl + \</div>
+        </div>
+        <div className="shortcut-row">
+          <div className="shortcut-name">• Open Ask: Cmd/Ctrl + Enter</div>
+        </div>
+        <div className="shortcut-row">
+          <div className="shortcut-name">• Move overlay: Cmd/Ctrl + Arrow Keys</div>
+        </div>
       </div>
     </div>
   );

@@ -1,30 +1,20 @@
 // Small helper to request system (display) audio and microphone streams
 // Exported as a JS/TS helper (placed in .tsx so it can include optional UI later)
 import React from 'react';
+import './overlay-glass.css';
 import { createRoot, Root } from 'react-dom/client';
 
 type ModalChoice = 'start' | 'cancel';
 
 const ScreenPickerModal: React.FC<{ onConfirm: () => void; onCancel: () => void }> = ({ onConfirm, onCancel }) => {
-  const overlayStyle: any = {
-    position: 'fixed',
-    inset: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 99999,
-    backdropFilter: 'blur(8px) saturate(120%)',
-    background: 'rgba(0,0,0,0.35)',
-    WebkitAppRegion: 'no-drag', // Prevent Electron drag region from swallowing clicks
-  };
   return (
-    <div style={overlayStyle}>
-      <div style={{ width: 420, padding: 18, borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.6)', background: 'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))', border: '1px solid rgba(255,255,255,0.08)', color: 'white', fontFamily: "Helvetica Neue, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Share system audio and microphone</div>
-        <div style={{ fontSize: 13, opacity: 0.95, marginBottom: 16 }}>Evia needs permission to capture your system audio (for desktop sounds) and your microphone. The next dialogs will ask for these permissions.</div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={onCancel} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'transparent', color: 'white', cursor: 'pointer' }}>Cancel</button>
-          <button onClick={onConfirm} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06))', color: 'white', cursor: 'pointer' }}>Start</button>
+    <div className="picker-overlay">
+      <div className="picker-modal">
+        <div className="picker-title">Share system audio and microphone</div>
+        <div className="picker-desc">Evia needs permission to capture your system audio (for desktop sounds) and your microphone. The next dialogs will ask for these permissions.</div>
+        <div className="picker-actions">
+          <button onClick={onCancel} className="picker-btn">Cancel</button>
+          <button onClick={onConfirm} className="picker-btn start">Start</button>
         </div>
       </div>
     </div>
