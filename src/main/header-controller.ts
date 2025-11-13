@@ -187,8 +187,10 @@ export class HeaderController {
   private async transitionTo(newState: AppState) {
     console.log(`[HeaderController] State transition: ${this.currentState} → ${newState}`);
     
-    // Close all windows first
-    closeWelcomeWindow();
+    // Close all windows first (not all in Windows)
+    if (process.platform == "darwin"){
+      closeWelcomeWindow();
+    }
     closePermissionWindow();
     
     // CRITICAL: Close header window if transitioning to welcome or permissions
@@ -270,8 +272,10 @@ export class HeaderController {
       await keytar.setPassword('evia', 'token', token);
       console.log('[HeaderController] ✅ Token stored in keytar');
       
-      // Close welcome window if open
-      closeWelcomeWindow();
+      // Close welcome window if open (only on Mac)
+      if (process.platform == "darwin"){
+        closeWelcomeWindow();
+      }
       
       // Re-evaluate state (should transition to permissions or ready)
       const data = await this.getStateData();

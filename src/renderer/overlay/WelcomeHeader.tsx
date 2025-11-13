@@ -76,7 +76,11 @@ const WelcomeHeader: React.FC = () => {
     
     try {
       if ((window as any).evia?.app?.quit) {
-        await (window as any).evia.app.quit();
+        if (isMac){
+          await (window as any).evia.app.quit();
+        } else {
+          window.close();
+        }
       } else {
         console.error('[WelcomeHeader] ❌ App quit API not available');
       }
