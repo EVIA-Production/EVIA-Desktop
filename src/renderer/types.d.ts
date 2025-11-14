@@ -1,4 +1,5 @@
 // Type definitions for EVIA Desktop
+export {};
 
 interface WebSocketWrapper {
   sendBinary: (data: ArrayBufferLike) => void;
@@ -95,5 +96,3 @@ declare global {
     }
   }
 }
-
-export {};

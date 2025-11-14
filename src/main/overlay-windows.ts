@@ -145,6 +145,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     },
   })
 
+  headerWindow.webContents.openDevTools({ mode: 'detach' });
+
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
   if (process.platform === 'darwin') {
     headerWindow.setWindowButtonVisibility(false)
@@ -1145,8 +1147,7 @@ ipcMain.handle('win:show', (_event, name: FeatureName) => {
 ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
   console.log(`[overlay-windows] 🚨 win:ensureShown called for ${name}`)
   
-  // 🔧 GLASS PARITY: Check ACTUAL window visibility, not saved state
-  // Glass windowManager.js:353-368 checks isOtherWinVisible by calling win.isVisible()
+  // checks isOtherWinVisible by calling win.isVisible()
   const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
   
   // Build visibility based on ACTUAL state, not saved state
@@ -1191,7 +1192,6 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
     }
   }
   
-  // 🔧 CRITICAL FIX: Ensure proper z-order (header above child)
   // Due to parent-child relationship, must call moveTop() in correct order:
   // 1. Child window first (so it's on top of other windows)
   // 2. Header second (so it's above its children)

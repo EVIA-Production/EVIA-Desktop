@@ -37,6 +37,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const [isSettingsActive, setIsSettingsActive] = useState(currentView === 'settings');
   const startInProgressRef = useRef(false); // Prevent duplicate ScreenPicker opens on rapid clicks
   const lastLocalStartMsRef = useRef(0); // Grace period after local start to ignore 'before' resets
+  const listenStatusRef = useRef<'before' | 'in' | 'after'>('before'); // Para WINDOWS
+
+  // For windows grace capturing correctly
+  useEffect(() => {
+    listenStatusRef.current = listenStatus;
+  }, [listenStatus]);
 
   // 🔧 SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
   // This allows AskView to send the correct session_state to backend
@@ -60,22 +66,33 @@ const EviaBar: React.FC<EviaBarProps> = ({
     const eviaIpc = (window as any).evia?.ipc;
     const onSessionState = (_evt: any, sessionState: 'before' | 'during' | 'after') => {
       const now = Date.now();
-      const withinGrace = now - lastLocalStartMsRef.current < 2000; // 2s grace
+      const withinGrace = now - lastLocalStartMsRef.current < 2000;
+
+      // DURING → botón en Stop
       if (sessionState === 'during') {
         setListenStatus('in');
         setIsListenActive(true);
-      } else if (sessionState === 'after') {
+        return;
+      }
+
+      // AFTER → botón en Done
+      if (sessionState === 'after') {
         setListenStatus('after');
         setIsListenActive(false);
-      } else {
-        if (withinGrace && listenStatus === 'in') {
-          // Ignore immediate 'before' reset just after local start
-          return;
-        }
-        setListenStatus('before');
-        setIsListenActive(false);
+        return;
       }
+
+      // BEFORE → pero con protección contra resets prematuros
+      if (withinGrace && listenStatusRef.current === 'in') {
+        console.log('[EviaBar] ⏳ Ignorando reset "before" durante grace period');
+        return;
+      }
+
+      // Reset normal
+      setListenStatus('before');
+      setIsListenActive(false);
     };
+
     eviaIpc?.on?.('session-state-changed', onSessionState);
     return () => {
       eviaIpc?.off?.('session-state-changed', onSessionState);
@@ -378,80 +395,15 @@ const EviaBar: React.FC<EviaBarProps> = ({
     console.log(`[EviaBar] handleListenClick - current status: ${listenStatus}`);
     
     if (listenStatus === 'before') {
-      // Windows: Use ScreenPicker + WASAPI path; Non-Windows: show window then start
-      const isWindows = Boolean((window as any)?.api?.platform?.isWindows) || /windows/i.test(navigator.userAgent);
-      if (isWindows) {
-        if (startInProgressRef.current) {
-          console.log('[EviaBar] ⏳ Start already in progress; ignoring duplicate click');
-          return;
-        }
-        startInProgressRef.current = true;
-        try {
-          console.log('[EviaBar] Windows detected → opening ScreenPicker');
-          const { systemStream, micStream } = await pickScreenAndMic();
-          console.log('[EviaBar] ScreenPicker returned:', {
-            hasSystem: !!systemStream,
-            hasMic: !!micStream,
-            systemTracks: systemStream?.getAudioTracks().map(t => t.label),
-            micTracks: micStream?.getAudioTracks().map(t => t.label),
-          });
-          if (!micStream) {
-            console.error('[EviaBar] ❌ No microphone stream selected/available');
-            (window as any).evia?.ipc?.send?.('trigger-error-blink');
-            return;
-          }
-          // Start capture first; only open ListenView and set state if it succeeds
-          await startCaptureWithStreams(systemStream, micStream);
-          // Sync session state BEFORE React state updates to avoid race in ListenView
-          localStorage.setItem('evia_session_state', 'during');
-          console.log('[EviaBar] 🔥 SYNC UPDATE (Windows): localStorage.evia_session_state = "during"');
-          lastLocalStartMsRef.current = Date.now();
-          await (window as any).evia?.windows?.ensureShown?.('listen');
-          onViewChange?.('listen');
-          setListenStatus('in');
-          setIsListenActive(true);
-          // Windows: do not call onToggleListening() here to avoid double start
-          // Explicitly start backend session once
-          try {
-            const eviaAuth = (window as any).evia?.auth;
-            const token = await eviaAuth?.getToken?.();
-            const chatId = localStorage.getItem('current_chat_id');
-            const { BACKEND_URL: baseUrl } = await import('../config/config');
-            if (token && chatId) {
-              const response = await fetch(`${baseUrl}/session/start`, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ chat_id: Number(chatId) })
-              });
-              if (!response.ok) {
-                console.error('[EviaBar] ❌ (Windows) /session/start failed:', response.status, await response.text());
-              }
-            } else {
-              console.warn('[EviaBar] ⚠️ (Windows) Missing token or chat_id; skipping /session/start');
-            }
-          } catch (e) {
-            console.error('[EviaBar] ❌ (Windows) Error calling /session/start:', e);
-          }
-        } catch (err) {
-          console.error('[EviaBar] ScreenPicker/startCaptureWithStreams failed:', err);
-          (window as any).evia?.ipc?.send?.('trigger-error-blink');
-          return; // Do not transition to listening state on failure
-        } finally {
-          startInProgressRef.current = false;
-        }
-        return; // Windows path handled fully
-      }
-
-      // Non-Windows: show Listen window, sync localStorage, then start capture via onToggleListening
       console.log('[EviaBar] Listen → Stop: Showing listen window');
+
       await (window as any).evia?.windows?.ensureShown?.('listen');
       onViewChange?.('listen');
+      
       // Sync session state BEFORE React state updates (prevents race in ListenView)
       localStorage.setItem('evia_session_state', 'during');
       console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "during" (BEFORE React state)');
+
       setListenStatus('in');
       setIsListenActive(true);
       onToggleListening();
@@ -477,7 +429,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
             console.log('[EviaBar] ✅ Session started:', data);
           } else {
             console.error('[EviaBar] ❌ Failed to start session:', response.status, await response.text());
-          }
+        }
         } else {
           console.warn('[EviaBar] ⚠️ Cannot call /session/start: missing token or chat_id');
         }
@@ -486,7 +438,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       }
 
     } else if (listenStatus === 'in') {
-      // Stop → Done: Window STAYS visible
+
       console.log('[EviaBar] Stop → Done: Window stays visible');
       
       // 🔥 FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
@@ -538,7 +490,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
         const { BACKEND_URL: baseUrl } = await import('../config/config');
-        
+
         if (token && chatId) {
           console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
           const response = await fetch(`${baseUrl}/session/complete`, {
@@ -547,7 +499,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               chat_id: Number(chatId),
               summary: null  // Optional - can add user input later
             })
@@ -571,7 +523,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       await (window as any).evia?.windows?.hide?.('ask');
       // Broadcast session-closed event so Ask can clear its state
       (window as any).evia?.ipc?.send?.('session:closed');
-      
+
       // 🔧 FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
       // This ensures each "Listen → Done" cycle creates a separate session
       localStorage.removeItem('current_chat_id');

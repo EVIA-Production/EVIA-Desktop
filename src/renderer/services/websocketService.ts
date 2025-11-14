@@ -22,7 +22,14 @@ function getBackendHttpBase(): string {
 
 export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
   let chatId = localStorage.getItem('current_chat_id');
-  if (chatId && !forceCreate) {
+
+  // somehow i had an invalid chatid (over int32 large)
+  const int32Max = 2147483647;
+  if (chatId && (!Number.isInteger(Number(chatId)) || Number(chatId) > int32Max)){
+    console.log("[Chat] Removing excesively large chatID")
+    localStorage.removeItem('current_chad_id');
+    chatId = null;
+  } else if (chatId && !forceCreate) {
     console.log('[Chat] Reusing existing chat id', chatId);
     return chatId;
   }
