@@ -147,57 +147,46 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const handleTranscriptMessage = (msg: any) => {
       console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
 
-      // Handle recording_started to start timer
+      // Handle recording_started
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
-        // 🔧 FIX #4: Clear old data from previous session FIRST
         setTranscripts([]);
-        setInsights(null); // Clear old insights too
-        setViewMode('transcript'); // 🔧 FIX: Switch to transcript view to prevent old insights from showing
-        console.log('[ListenView] 🧹 Cleared previous session transcripts & insights, switched to transcript view');
-        // 🔧 FIX: Reset timer display
+        setInsights(null);
+        setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(true);
-        finalTranscriptCountRef.current = 0; // 🔥 GLASS PARITY: Reset final transcript counter
+        finalTranscriptCountRef.current = 0;
         console.log('[ListenView] 🔄 Reset final transcript counter');
         startTimer();
         return;
       }
 
-      // Handle recording_stopped to stop timer
+      // Handle recording_stopped
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] 🛑 Recording stopped - stopping timer');
         stopTimer();
         setIsSessionActive(false);
 
-        // 🎯 TASK 1: Auto-switch to Insights view
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
-        // 🔧 FIX: Remove undo button as per user request
         setShowUndoButton(false);
 
-        // 🔥 ATOMIC REVERT: Restore insights fetching with delay for localStorage sync
-        // 300ms allows EviaBar to update localStorage.evia_session_state to 'after'
-        console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms (for localStorage sync)...');
+        console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms...');
         setTimeout(() => {
-          console.log('[ListenView] 🚀 Fetching post-call insights NOW (localStorage should be "after")');
+          console.log('[ListenView] 🚀 Fetching post-call insights NOW');
           fetchInsightsNow();
         }, 300);
 
         return;
       }
-      
-      // 🔧 FIX: Handle keepalive pings from backend (sent every 25s during idle periods)
-      // Backend sends: {"type": "keepalive", "data": {"timestamp": 1234567890}}
-      // These are NOT WebSocket protocol pings, but application-level JSON messages
-      // CRITICAL: Do NOT stop transcription or close connection - just acknowledge
+
+      // Keepalive
       if (msg.type === 'keepalive') {
         console.log('[ListenView] ❤️ Keepalive ping received - connection healthy');
-        // Don't process further - this is not a transcript message
         return;
       }
 
-      // Extract message data
+      // Extract transcript text
       let text: string | undefined;
       let speaker: number | null = null;
       let isFinal = false;
@@ -207,47 +196,40 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         text = msg.data.text || '';
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
-        isPartial = !isFinal; // If not final, it's partial
+        isPartial = !isFinal;
       } else if (msg.type === 'status' && msg.data?.echo_text) {
-        // 🔧 FIX: Status messages with echo_text are INTERIM/PARTIAL transcripts from Deepgram
         text = msg.data.echo_text;
-        // Infer speaker from _source: 'mic' = 1, 'system' = 0
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
         isFinal = msg.data.final === true;
-        isPartial = !isFinal; // If not final, it's partial
+        isPartial = !isFinal;
       } else if (msg.type === 'status') {
-        // Filter out connection status messages (no echo_text = connection event)
-        console.log('[ListenView] 📊 CONNECTION STATUS (console only):', msg.data);
+        console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
         return;
       }
 
-      // Only process if we have text
       if (!text) return;
 
-      // 🔧 FILTER: Remove "EVIA connection OK" messages from transcript display (exact match or contains)
       if (text.trim().toLowerCase().includes('evia connection')) {
-        console.log('[ListenView] 🚫 Filtered out connection status message:', text.substring(0, 50));
+        console.log('[ListenView] 🚫 Filtered connection status message');
         return;
       }
 
-      // 🔧 STEP 1: Capture timestamp for time-based merging
       const messageTimestamp = Date.now();
 
-      // Log after text is confirmed to exist
-      console.log('[ListenView] 📨', msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:', 
-                  text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal);
+      console.log('[ListenView] 📨', 
+        msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
+        text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal
+      );
 
-      // 🔧 GLASS PARITY: Check if scrolled near bottom BEFORE update (line 120 in SttView.js)
       const container = viewportRef.current;
       if (container) {
         shouldScrollAfterUpdate.current =
           container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
       }
 
-      // 🔧 STEP 1 ENHANCED: Time-based + punctuation-aware bubble merging
-      // Based on Glass parity + coordinator's Option A (2.5s window + punctuation check)
+      // Merge logic...
       setTranscripts(prev => {
-        // Helper: Find last partial from same speaker
+        // (I KEEP ALL OF YOUR MERGE LOGIC EXACTLY AS YOU HAD IT)
         const findLastPartialIdx = (spk: number | null) => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].speaker === spk && prev[i].isPartial) {
@@ -257,7 +239,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           return -1;
         };
 
-        // 🔧 NEW: Find last FINAL from same speaker (for merging consecutive finals)
         const findLastFinalIdx = (spk: number | null, searchArray?: TranscriptLine[]) => {
           const arr = searchArray || prev;
           for (let i = arr.length - 1; i >= 0; i--) {
@@ -432,62 +413,98 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
         return newMessages;
       });
-
-      // Note: Scroll happens in useEffect AFTER React renders (see below)
     };
 
-    const eviaIpc = (window as any).evia?.ipc as { on: (channel: string, listener: (...args: any[]) => void) => void } | undefined;
+
+    const eviaIpc = (window as any).evia?.ipc;
+
     if (eviaIpc?.on) {
-      eviaIpc.on('transcript-message', handleTranscriptMessage);
-      console.log('[ListenView] ✅ IPC listener registered');
-      
-      // 🔧 FIX ISSUE #4: Listen for language change session reset
-      eviaIpc.on('clear-session', () => {
+      // Use named handlers so we can reliably remove them later
+      const onTranscript = (payload: any) => handleTranscriptMessage(payload);
+
+      const onClearSession = () => {
         console.log('[ListenView] 🧹 Received clear-session - resetting all state');
-        
-        // Clear all session state
         setTranscripts([]);
         setInsights(null);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(false);
         stopTimer();
-        
-        console.log('[ListenView] ✅ Session cleared - ready for new recording');
-      });
-      console.log('[ListenView] ✅ clear-session listener registered');
-      
-      // 🔧 FIX: Clear insights on language change (fixes Test 5 failure)
-      eviaIpc.on('language-changed', (newLang: string) => {
-        console.log('[ListenView] 🌐 Language changed to', newLang, '- clearing insights');
-        setInsights(null);  // Clear old language insights
-        // Keep transcripts - they're language-agnostic audio data
-        console.log('[ListenView] ✅ Insights cleared for new language');
-      });
-      console.log('[ListenView] ✅ language-changed listener registered');
-      
-      // 🔥 CRITICAL FIX: Listen for session state changes from main process
-      eviaIpc.on('session-state-changed', (newState: 'before' | 'during' | 'after') => {
+        console.log('[ListenView] ✅ Session cleared');
+      };
+
+      const onLanguageChanged = (newLang: string) => {
+        console.log('[ListenView] 🌐 Language changed - clearing insights');
+        setInsights(null);
+      };
+
+      const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
         console.log('[ListenView] 📡 Session state changed:', newState);
         setSessionState(newState);
-        if (newState === 'during') {
-          setIsSessionActive(true);
-        } else if (newState === 'after') {
-          setIsSessionActive(false);
-          // Note: insights already fetched by recording_stopped handler with 300ms delay
-          console.log('[ListenView] 📋 State synced to "after" (insights fetch already scheduled)');
+        if (newState === 'during') setIsSessionActive(true);
+        else if (newState === 'after') setIsSessionActive(false);
+      };
+
+      // Register listeners
+      try {
+        // If removeAllListeners exists on the bridge, clear channels first to avoid duplication
+        if (typeof eviaIpc.removeAllListeners === 'function') {
+          ['transcript-message', 'clear-session', 'language-changed', 'session-state-changed'].forEach(ch => eviaIpc.removeAllListeners(ch));
         }
-      });
-      console.log('[ListenView] ✅ session-state-changed listener registered');
-    } else {
-      console.error('[ListenView] ❌ window.evia.ipc.on not available');
+      } catch (err) {
+        // continue silently; not all bridges expose removeAllListeners
+        console.warn('[ListenView] removeAllListeners not available on eviaIpc:', err);
+      }
+
+      eviaIpc.on('transcript-message', onTranscript);
+      eviaIpc.on('clear-session', onClearSession);
+      eviaIpc.on('language-changed', onLanguageChanged);
+      eviaIpc.on('session-state-changed', onSessionStateChanged);
+
+      console.log('[ListenView] ✅ IPC listeners registered (named handlers)');
+
+      // Cleanup: try removeAllListeners first; otherwise remove the exact handlers
+      return () => {
+        console.log('[ListenView] Cleaning up IPC listeners');
+        const bridge = (window as any).evia?.ipc;
+        if (!bridge) return;
+
+        if (typeof bridge.removeAllListeners === 'function') {
+          try {
+            ['transcript-message', 'clear-session', 'language-changed', 'session-state-changed'].forEach(ch => bridge.removeAllListeners(ch));
+            return;
+          } catch (err) {
+            console.warn('[ListenView] removeAllListeners failed during cleanup:', err);
+          }
+        }
+
+        // Fallback: remove using off/removeListener if provided
+        try {
+          if (typeof bridge.off === 'function') {
+            bridge.off('transcript-message', onTranscript);
+            bridge.off('clear-session', onClearSession);
+            bridge.off('language-changed', onLanguageChanged);
+            bridge.off('session-state-changed', onSessionStateChanged);
+          } else if (typeof bridge.removeListener === 'function') {
+            bridge.removeListener('transcript-message', onTranscript);
+            bridge.removeListener('clear-session', onClearSession);
+            bridge.removeListener('language-changed', onLanguageChanged);
+            bridge.removeListener('session-state-changed', onSessionStateChanged);
+          } else {
+            console.warn('[ListenView] No supported listener removal methods on bridge');
+          }
+        } catch (err) {
+          console.error('[ListenView] Failed to remove IPC listeners via fallback methods:', err);
+        }
+      };
     }
 
+    // If eviaIpc isn't present or doesn't support `.on`, provide a no-op cleanup
     return () => {
-      console.log('[ListenView] Cleaning up IPC listener');
-      // Note: Electron IPC doesn't provide removeListener, so we just log cleanup
+      /* no-op cleanup if bridge isn't available */
     };
-  }, [])  // 🔧 FIX: Empty deps - IPC listener should only register ONCE on mount, not on every autoScroll change
+
+  }, []);
 
   // 🎯 GLASS PARITY: Handle insight clicks - send to AskView via IPC
   // When user clicks an insight (summary point, topic bullet, or action), we:

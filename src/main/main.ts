@@ -471,6 +471,30 @@ ipcMain.handle('permissions:mark-complete', async () => {
   }
 });
 
+// CLEAR SESSION: Resetea UI en todas las windows
+ipcMain.on('clear-session', () => {
+  console.log('[Main] 🧹 clear-session received — broadcasting to child windows');
+
+  const { BrowserWindow } = require('electron');
+  BrowserWindow.getAllWindows().forEach((win: BrowserWindow) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('clear-session');
+    }
+  });
+});
+
+ipcMain.on('abort-ask-stream', () => {
+  console.log('[Main] 🛑 abort-ask-stream received — broadcasting to AskView');
+
+  const { BrowserWindow } = require('electron');
+  BrowserWindow.getAllWindows().forEach((win: BrowserWindow) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('abort-ask-stream');
+    }
+  });
+});
+
+
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 

@@ -194,4 +194,20 @@ contextBridge.exposeInMainWorld('platformInfo', {
   isLinux: process.platform === 'linux'
 });
 
+contextBridge.exposeInMainWorld('evia', {
+  ipc: {
+    on: (channel: string, listener: (...args: any[]) => void) =>
+      ipcRenderer.on(channel, listener),
+
+    send: (channel: string, ...args: any[]) =>
+      ipcRenderer.send(channel, ...args),
+
+    removeListener: (channel: string, listener: (...args: any[]) => void) =>
+      ipcRenderer.removeListener(channel, listener),
+
+    removeAllListeners: (channel: string) =>
+      ipcRenderer.removeAllListeners(channel)
+  },
+});
+
 export {}

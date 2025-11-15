@@ -61,47 +61,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
     }
   }, [listenStatus]);
 
-  // NEW: Listen to session-state-changed so EviaBar in other windows stays in sync (active/done colors)
-  useEffect(() => {
-    const eviaIpc = (window as any).evia?.ipc;
-    const onSessionState = (_evt: any, sessionState: 'before' | 'during' | 'after') => {
-      const now = Date.now();
-      const withinGrace = now - lastLocalStartMsRef.current < 2000;
-
-      // DURING → botón en Stop
-      if (sessionState === 'during') {
-        setListenStatus('in');
-        setIsListenActive(true);
-        return;
-      }
-
-      // AFTER → botón en Done
-      if (sessionState === 'after') {
-        setListenStatus('after');
-        setIsListenActive(false);
-        return;
-      }
-
-      // BEFORE → pero con protección contra resets prematuros
-      if (withinGrace && listenStatusRef.current === 'in') {
-        console.log('[EviaBar] ⏳ Ignorando reset "before" durante grace period');
-        return;
-      }
-
-      // Reset normal
-      setListenStatus('before');
-      setIsListenActive(false);
-    };
-
-    eviaIpc?.on?.('session-state-changed', onSessionState);
-    return () => {
-      eviaIpc?.off?.('session-state-changed', onSessionState);
-    };
-  }, []);
-
-  // REMOVED: useEffect that resets listenStatus based on isListening
-  // This was breaking the 'after' (Done) state by resetting to 'before' when audio stops
-
   useEffect(() => {
     setIsListenActive(currentView === 'listen');
     setIsAskActive(currentView === 'ask');
@@ -145,6 +104,28 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
   // 🆕 BACKEND INTEGRATION: Sync session state on app load
   useEffect(() => {
+    // Mount-only: read cached session state from localStorage first to set UI immediately
+    try {
+      const cached = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' | null;
+      if (cached) {
+        console.log('[EviaBar] ⚡ Initial session state from localStorage:', cached);
+        if (cached === 'during') {
+          setListenStatus('in');
+          setIsListenActive(true);
+          // mark local start to avoid immediate resets
+          lastLocalStartMsRef.current = Date.now();
+        } else if (cached === 'after') {
+          setListenStatus('after');
+          setIsListenActive(false);
+        } else {
+          setListenStatus('before');
+          setIsListenActive(false);
+        }
+      }
+    } catch (err) {
+      console.warn('[EviaBar] Could not read initial session state from localStorage:', err);
+    }
+
     const syncSessionState = async () => {
       try {
         const eviaAuth = (window as any).evia?.auth;
@@ -399,7 +380,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
       await (window as any).evia?.windows?.ensureShown?.('listen');
       onViewChange?.('listen');
-      
+
       // Sync session state BEFORE React state updates (prevents race in ListenView)
       localStorage.setItem('evia_session_state', 'during');
       console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "during" (BEFORE React state)');

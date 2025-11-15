@@ -269,7 +269,6 @@ function App() {
   const handleToggleListening = async () => {
     try {
       if (!isCapturing) {
-        // 🔧 UI IMPROVEMENT: Validate auth before starting session
         console.log('[OverlayEntry] 🔐 Validating auth before starting session...');
         const eviaAuth = (window as any).evia?.auth;
         if (eviaAuth?.validate) {
