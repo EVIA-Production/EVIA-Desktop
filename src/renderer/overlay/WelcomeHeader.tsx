@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import './overlay-glass.css';
 import { FRONTEND_URL } from '../config/config';
 
@@ -20,6 +20,47 @@ import { FRONTEND_URL } from '../config/config';
 
 const WelcomeHeader: React.FC = () => {
   const isMac = (window as any).platformInfo?.isMac || false;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const measureAndResize = async () => {
+      const el = rootRef.current || document.querySelector('.welcome-container');
+      if (!el) return;
+
+      // Give layout a moment to settle
+      await new Promise((r) => setTimeout(r, 100));
+
+      const rect = el.getBoundingClientRect();
+      const contentWidth = Math.ceil(rect.width);
+      const contentHeight = Math.ceil(rect.height) + 2; // account for glass border
+
+      console.log('[WelcomeHeader] Content measured:', contentWidth, 'x', contentHeight);
+
+      try {
+        if ((window as any).evia?.windows?.resizeHeader) {
+          await (window as any).evia.windows.resizeHeader(contentWidth, contentHeight);
+          console.log('[WelcomeHeader] Requested resize via evia.windows.resizeHeader');
+        } else {
+          const ipc = (window as any).electron?.ipcRenderer;
+          if (ipc && typeof ipc.invoke === 'function') {
+            await ipc.invoke('win:resizeHeader', contentWidth, contentHeight);
+            console.log('[WelcomeHeader] Requested resize via ipc fallback');
+          } else {
+            console.warn('[WelcomeHeader] No IPC method available to request resize');
+          }
+        }
+      } catch (err) {
+        console.warn('[WelcomeHeader] resize request failed:', err);
+      }
+    };
+
+    measureAndResize();
+    // Optionally re-measure on window resize
+    // window.addEventListener('resize', measureAndResize);
+    return () => {
+      // window.removeEventListener('resize', measureAndResize);
+    };
+  }, []);
   /**
    * Opens default browser to Frontend login page
    * Adds ?source=desktop param so Frontend knows to redirect back via evia://

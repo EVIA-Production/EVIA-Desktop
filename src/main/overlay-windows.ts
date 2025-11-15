@@ -1277,14 +1277,40 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   return { ok: true }
 })
 
-ipcMain.handle('win:resizeHeader', (_event, width: number, height: number) => {
-  const header = getOrCreateHeaderWindow()
-  const bounds = header.getBounds()
-  const newBounds = clampBounds({ ...bounds, width, height })
-  header.setBounds(newBounds)
-  saveState({ headerBounds: newBounds })
+ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
+  try {
+    // Prefer to resize the BrowserWindow that sent this IPC (works for Welcome window and header)
+    const senderWebContents = event?.sender
+    let targetWin: BrowserWindow | null = null
+
+    if (senderWebContents) {
+      targetWin = BrowserWindow.fromWebContents(senderWebContents) as BrowserWindow | null
+    }
+
+    // If we couldn't find sender's window, fallback to the header window
+    if (!targetWin) {
+      targetWin = getOrCreateHeaderWindow()
+    }
+
+    const bounds = targetWin.getBounds()
+    const requested = { ...bounds, width: Math.round(width), height: Math.round(height) }
+    const newBounds = clampBounds(requested)
+
+    targetWin.setBounds(newBounds)
+
+    // Persist header bounds only when the target is the header window
+    const header = getHeaderWindow()
+    if (header && targetWin === header) {
+      saveState({ headerBounds: newBounds })
+    }
+
+    console.log(`[overlay-windows] win:resizeHeader applied to ${targetWin.getTitle() || 'window'}:`, newBounds)
     return { ok: true }
-  })
+  } catch (err) {
+    console.warn('[overlay-windows] win:resizeHeader failed:', err)
+    return { ok: false, error: String(err) }
+  }
+})
 
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
   // 🔧 FIX #42: Ensure window exists and bounds are updated correctly
