@@ -250,7 +250,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       return;
     }
     
-    console.log('[SettingsView] 🎨 Activating preset:', preset.name);
+    const isDeactivating = preset.is_active;
+    console.log(`[SettingsView] ${isDeactivating ? '🔴 Deactivating' : '🎨 Activating'} preset:`, preset.name);
     
     try {
       const eviaAuth = (window as any).evia?.auth;
@@ -261,6 +262,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       }
 
       const { BACKEND_URL } = await import('../config/config');
+      
+      // 🆕 CRITICAL: Always clear cache when changing/deactivating presets
+      try {
+        console.log('[SettingsView] 🧹 Clearing preset cache...');
+        const clearResponse = await fetch(`${BACKEND_URL}/prompts/clear-cache`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (clearResponse.ok) {
+          console.log('[SettingsView] ✅ Cache cleared successfully');
+        } else {
+          console.warn('[SettingsView] ⚠️ Cache clear failed (non-fatal):', clearResponse.status);
+        }
+      } catch (clearError) {
+        console.warn('[SettingsView] ⚠️ Cache clear error (non-fatal):', clearError);
+      }
+      
+      // If deactivating, set is_active to false; otherwise activate
       const response = await fetch(`${BACKEND_URL}/prompts/${preset.id}`, {
         method: 'PUT',
         headers: {
@@ -268,28 +291,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          is_active: true
+          is_active: !isDeactivating
         })
       });
 
       if (response.ok) {
         const updatedPreset = await response.json();
-        console.log('[SettingsView] ✅ Preset activated:', updatedPreset.name);
+        console.log(`[SettingsView] ✅ Preset ${isDeactivating ? 'deactivated' : 'activated'}:`, updatedPreset.name);
         
-        // Update local state: mark all as inactive, then this one as active
+        // Update local state
         const updatedPresets = presets.map(p => ({
           ...p,
-          is_active: p.id === preset.id
+          is_active: isDeactivating ? false : (p.id === preset.id)
         }));
         setPresets(updatedPresets);
-        setSelectedPreset(updatedPreset);
+        setSelectedPreset(isDeactivating ? null : updatedPreset);
         
-        console.log('[SettingsView] 🎉 Active preset is now:', updatedPreset.name);
+        console.log(`[SettingsView] 🎉 ${isDeactivating ? 'Using default prompt' : `Active preset is now: ${updatedPreset.name}`}`);
       } else {
-        console.error('[SettingsView] ❌ Failed to activate preset:', response.status);
+        console.error('[SettingsView] ❌ Failed to update preset:', response.status);
       }
     } catch (error) {
-      console.error('[SettingsView] ❌ Error activating preset:', error);
+      console.error('[SettingsView] ❌ Error updating preset:', error);
     }
   };
 
