@@ -242,7 +242,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
-      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
+      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state and updating UI');
+      
+      // 🆕 CRITICAL: Update i18n language for UI refresh
+      i18n.changeLanguage(newLang);
+      
       // Abort any active stream first
       if (streamRef.current?.abort) {
         streamRef.current.abort();
@@ -256,7 +260,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';
       storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
-      console.log('[AskView] ✅ State cleared due to language change');
+      console.log('[AskView] ✅ State cleared and UI language updated to', newLang);
     };
 
     eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);

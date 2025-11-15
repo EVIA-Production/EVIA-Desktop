@@ -71,11 +71,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Sync autoScroll state with ref
   useEffect(() => {
     // Watchdog: if session is active but no transcript messages arrive for WATCHDOG_MS, warn the user
+    // 🔥 FIX: Only run watchdog when in transcript view (not insights view)
     const WATCHDOG_MS = 8000; // consider stall if >8s without transcript while session active
     const CHECK_INTERVAL = 3000;
 
     const checkFn = () => {
-      if (!isSessionActive) return;
+      // 🆕 CRITICAL: Don't show warnings when viewing insights (no transcription happening)
+      if (!isSessionActive || viewMode !== 'transcript') return;
+      
       const last = lastMessageAtRef.current;
       if (!last) {
         console.warn('[ListenView] 🚨 No transcript messages received yet while session active');
@@ -94,7 +97,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (watchdogIntervalRef.current) clearInterval(watchdogIntervalRef.current);
       watchdogIntervalRef.current = null;
     };
-  }, [isSessionActive]);
+  }, [isSessionActive, viewMode]);
 
   // Keep autoScrollRef in sync with state without causing re-renders
   useEffect(() => {
