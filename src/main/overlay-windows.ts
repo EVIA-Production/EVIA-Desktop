@@ -1688,9 +1688,27 @@ ipcMain.on('blink-header-error', () => {
 // This is REQUIRED because Header captures audio and receives transcripts,
 // while Listen window displays them. They are separate BrowserWindows.
 ipcMain.on('transcript-message', (_event, message: any) => {
-  const listenWin = childWindows.get('listen')
-  if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
-    listenWin.webContents.send('transcript-message', message)
+  try {
+    const listenWin = childWindows.get('listen')
+    const msgType = (message && message.type) ? message.type : typeof message
+    console.log('[Main] 📨 transcript-message RECEIVED from renderer:', msgType)
+    console.log('[Main] 🧐 listenWin status -> exists:', !!listenWin,
+      'destroyed:', listenWin ? listenWin.isDestroyed() : 'n/a',
+      'visible:', listenWin ? listenWin.isVisible() : 'n/a')
+
+    if (listenWin && !listenWin.isDestroyed()) {
+      try {
+        // Forward to listen window regardless of its visibility state — log outcome
+        listenWin.webContents.send('transcript-message', message)
+        console.log('[Main] ✅ forwarded transcript-message to Listen window (visible:', listenWin.isVisible(), ')')
+      } catch (err) {
+        console.error('[Main] ❌ Failed to forward transcript-message to Listen window:', err)
+      }
+    } else {
+      console.warn('[Main] ⚠️ Listen window not available to receive transcript-message')
+    }
+  } catch (err) {
+    console.error('[Main] ❌ Error in transcript-message relay handler:', err)
   }
 })
 

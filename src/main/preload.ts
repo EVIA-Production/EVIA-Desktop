@@ -163,6 +163,36 @@ contextBridge.exposeInMainWorld('evia', {
         }
       }
     },
+    // Provide compatibility removal helpers expected by some renderers
+    removeListener: (channel: string, listener: (...args: any[]) => void) => {
+      console.log('[Preload] IPC removeListener called for:', channel);
+      // If listener was wrapped via listenerMap, remove the wrapped version
+      const channelListeners = listenerMap.get(channel);
+      if (channelListeners) {
+        const wrapped = channelListeners.get(listener);
+        if (wrapped) {
+          ipcRenderer.removeListener(channel, wrapped);
+          channelListeners.delete(listener);
+          if (channelListeners.size === 0) listenerMap.delete(channel);
+          return;
+        }
+      }
+      // Fallback: remove provided listener directly
+      try { ipcRenderer.removeListener(channel, listener as any); } catch (err) { console.warn('[Preload] removeListener fallback failed', err); }
+    },
+    removeAllListeners: (channel: string) => {
+      console.log('[Preload] IPC removeAllListeners called for:', channel);
+      // Clear any wrapped listeners we tracked for the channel
+      const channelListeners = listenerMap.get(channel);
+      if (channelListeners) {
+        for (const wrapped of channelListeners.values()) {
+          try { ipcRenderer.removeListener(channel, wrapped); } catch (err) { /* ignore */ }
+        }
+        listenerMap.delete(channel);
+      }
+      // Finally, call underlying removeAllListeners
+      try { ipcRenderer.removeAllListeners(channel); } catch (err) { console.warn('[Preload] ipcRenderer.removeAllListeners failed', err); }
+    },
     // 🔥 CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
     invoke: (channel: string, ...args: any[]) => {
       console.log('[Preload] IPC invoke:', channel, args);
@@ -194,20 +224,5 @@ contextBridge.exposeInMainWorld('platformInfo', {
   isLinux: process.platform === 'linux'
 });
 
-contextBridge.exposeInMainWorld('evia', {
-  ipc: {
-    on: (channel: string, listener: (...args: any[]) => void) =>
-      ipcRenderer.on(channel, listener),
-
-    send: (channel: string, ...args: any[]) =>
-      ipcRenderer.send(channel, ...args),
-
-    removeListener: (channel: string, listener: (...args: any[]) => void) =>
-      ipcRenderer.removeListener(channel, listener),
-
-    removeAllListeners: (channel: string) =>
-      ipcRenderer.removeAllListeners(channel)
-  },
-});
 
 export {}

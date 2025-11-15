@@ -58,10 +58,45 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
+  // Diagnostics: track message counts and last received time
+  const messageCountRef = useRef(0);
+  const lastMessageAtRef = useRef<number | null>(null);
+  const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
   const finalTranscriptCountRef = useRef(0); // 🔥 GLASS PARITY: Counter for triggering auto-insights every 5 final transcripts
+  // UI diagnostics state to show counts and last message age
+  const [diagMessageCount, setDiagMessageCount] = useState(0);
+  const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
 
   // Sync autoScroll state with ref
+  useEffect(() => {
+    // Watchdog: if session is active but no transcript messages arrive for WATCHDOG_MS, warn the user
+    const WATCHDOG_MS = 8000; // consider stall if >8s without transcript while session active
+    const CHECK_INTERVAL = 3000;
+
+    const checkFn = () => {
+      if (!isSessionActive) return;
+      const last = lastMessageAtRef.current;
+      if (!last) {
+        console.warn('[ListenView] 🚨 No transcript messages received yet while session active');
+        showToast(i18n.t('overlay.listen.noTranscriptsYet'), 'warning');
+        return;
+      }
+      const since = Date.now() - last;
+      if (since > WATCHDOG_MS) {
+        console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
+        showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
+      }
+    };
+
+    watchdogIntervalRef.current = setInterval(checkFn, CHECK_INTERVAL);
+    return () => {
+      if (watchdogIntervalRef.current) clearInterval(watchdogIntervalRef.current);
+      watchdogIntervalRef.current = null;
+    };
+  }, [isSessionActive]);
+
+  // Keep autoScrollRef in sync with state without causing re-renders
   useEffect(() => {
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
@@ -147,6 +182,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const handleTranscriptMessage = (msg: any) => {
       console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
 
+      // Diagnostics: update last received timestamp and count
+      messageCountRef.current += 1;
+      lastMessageAtRef.current = Date.now();
+      if (messageCountRef.current % 10 === 0) {
+        console.log(`[ListenView] 📈 Received ${messageCountRef.current} transcript messages so far. Last at ${new Date(lastMessageAtRef.current).toISOString()}`);
+      }
+
       // Handle recording_started
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
@@ -229,6 +271,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       // Merge logic...
       setTranscripts(prev => {
+        // Diagnostics: log sizes to detect when UI updates
+        try {
+          const prevLen = prev.length;
+          // update diag counters optimistically; will be rendered in top-bar
+          setDiagMessageCount(messageCountRef.current);
+          setDiagLastMessageAgeMs(0);
+          console.log('[ListenView] DIAG setTranscripts invoked - prevLen =', prevLen);
+        } catch (err) {
+          console.warn('[ListenView] DIAG logging failed', err);
+        }
         // (I KEEP ALL OF YOUR MERGE LOGIC EXACTLY AS YOU HAD IT)
         const findLastPartialIdx = (spk: number | null) => {
           for (let i = prev.length - 1; i >= 0; i--) {
@@ -413,6 +465,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
         return newMessages;
       });
+      // After transcripts state scheduled update, schedule an update of last-message age (ms) DEV-ONLY metric
+      setTimeout(() => {
+        const lastAt = lastMessageAtRef.current;
+        if (lastAt) {
+          setDiagLastMessageAgeMs(Date.now() - lastAt);
+        }
+      }, 60);
     };
 
 
@@ -821,6 +880,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             <span className={`bar-left-text-content ${isHovering ? 'slide-in' : ''}`}>
               {displayText}
             </span>
+            {/* Diagnostics badge (dev-only)
+            <div style={{ display: 'inline-block', marginLeft: 8 }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginRight: 6 }}>msgs: {diagMessageCount}</span>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{diagLastMessageAgeMs !== null ? `${Math.round(diagLastMessageAgeMs)}ms` : '—'}</span>
+            </div> */}
           </div>
           <div className="bar-controls">
             {/* 🎙️ DEBUG: WAV recorder button */}
