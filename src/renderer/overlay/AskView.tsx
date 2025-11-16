@@ -242,10 +242,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
-      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state and updating UI');
+      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
       
-      // 🆕 CRITICAL: Update i18n language for UI refresh
-      i18n.changeLanguage(newLang);
+      // NOTE: i18n.changeLanguage() call removed due to Vite bundler minification issue
+      // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
+      // UI language will update automatically when window reopens or on next backend request
       
       // Abort any active stream first
       if (streamRef.current?.abort) {
@@ -260,7 +261,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';
       storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
-      console.log('[AskView] ✅ State cleared and UI language updated to', newLang);
+      console.log('[AskView] ✅ State cleared due to language change');
     };
 
     eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);
