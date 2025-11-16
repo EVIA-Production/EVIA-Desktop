@@ -4,6 +4,8 @@ import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 declare global {
   interface Window {
@@ -67,6 +69,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
+
+  // Render markdown inline (for bold, italics, etc. in Insights)
+  const renderMarkdownInline = (text: string): string => {
+    if (!text) return '';
+    
+    try {
+      // Parse markdown to HTML
+      const html = marked.parseInline(text) as string;
+      // Sanitize to prevent XSS
+      const sanitized = DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: ['strong', 'b', 'em', 'i', 'code', 'a', 'br'],
+        ALLOWED_ATTR: ['href', 'target', 'rel'],
+      });
+      return sanitized;
+    } catch (error) {
+      console.error('[ListenView] Markdown parsing error:', error);
+      return text; // Fallback to raw text
+    }
+  };
 
   // Sync autoScroll state with ref
   useEffect(() => {
@@ -1034,7 +1055,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     }}
                   >
                     <span style={{ position: 'absolute', left: '12px' }}>•</span>
-                    <span style={{ marginLeft: '12px', display: 'block' }}>{point}</span>
+                    <span 
+                      style={{ marginLeft: '12px', display: 'block' }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(point) }}
+                    />
                   </p>
                 ))}
               </div>
@@ -1073,7 +1097,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     }}
                   >
                     <span style={{ position: 'absolute', left: '12px' }}>•</span>
-                    <span style={{ marginLeft: '12px', display: 'block' }}>{bullet}</span>
+                    <span 
+                      style={{ marginLeft: '12px', display: 'block' }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(bullet) }}
+                    />
                   </p>
                 ))}
               </div>
@@ -1118,9 +1145,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                         e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                         e.currentTarget.style.transform = 'translateX(0)';
                       }}
-                    >
-                      {displayText}
-                    </p>
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(displayText) }}
+                    />
                   );
                 })}
               </div>
@@ -1157,9 +1183,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                         e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                         e.currentTarget.style.transform = 'translateX(0)';
                       }}
-                    >
-                      {followUp}
-                    </p>
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(followUp) }}
+                    />
                   ))}
                 </div>
               )}
