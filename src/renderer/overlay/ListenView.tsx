@@ -310,10 +310,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         } catch (err) {
           console.warn('[ListenView] DIAG logging failed', err);
         }
-        // (I KEEP ALL OF YOUR MERGE LOGIC EXACTLY AS YOU HAD IT)
+        // Find last partial for THIS speaker (like Glass SttView.js:122-128)s
         const findLastPartialIdx = (spk: number | null) => {
           for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].speaker === spk && prev[i].isPartial) {
+            if (prev[i].speaker === spk && prev[i].isPartial && !prev[i].isFinal) {
               return i;
             }
           }
@@ -322,8 +322,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
         const newMessages = [...prev];
         const targetIdx = findLastPartialIdx(speaker);
+        
+        // When a FINAL arrives, finalize all other speakers' partials
+        // This prevents abandoned partials from being reused after interruptions
+        if (isFinal) {
+          for (let i = 0; i < newMessages.length; i++) {
+            if (newMessages[i].speaker !== speaker && newMessages[i].isPartial) {
+              console.log('[ListenView] 🧹 Finalizing abandoned partial from speaker', newMessages[i].speaker);
+              newMessages[i] = {
+                ...newMessages[i],
+                isPartial: false,
+                isFinal: true,
+              };
+            }
+          }
+        }
 
-        // 🔥 GLASS-STYLE SIMPLE MERGE: Backend now handles text accumulation
+        // Backend now handles text accumulation
         // Frontend just displays: update existing partial OR add new bubble
         // No complex continuity detection needed - backend sends clean, accumulated text
         if (isPartial) {
@@ -503,7 +518,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   }, []);
 
-  // 🎯 GLASS PARITY: Handle insight clicks - send to AskView via IPC
+  // Handle insight clicks - send to AskView via IPC
   // When user clicks an insight (summary point, topic bullet, or action), we:
   // 1. Log the click for debugging
   // 2. Determine current session state (after recording stops, isSessionActive = false)
@@ -512,7 +527,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const handleInsightClick = (insightText: string) => {
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
     
-    // 🔥 ULTRA-CRITICAL FIX: Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
+    // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
     // Otherwise: Insights generated "during" call are clicked "after" call → wrong prompt!
     const insightSessionState = insights?.session_state || 'during';
@@ -523,7 +538,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView]   - localStorage current state:', localStorageState, '(ignoring - might be stale)');
     console.log('[ListenView]   - Component isSessionActive:', isSessionActive);
     
-    // 🔥 CRITICAL: If states don't match, log WARNING (insights are stale!)
+    // If states don't match, log WARNING (insights are stale!)
     if (insightSessionState !== localStorageState) {
       console.warn('[ListenView] ⚠️ STALE INSIGHTS DETECTED!');
       console.warn('[ListenView]   - Insights were generated for:', insightSessionState);
@@ -545,22 +560,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // 🎯 TASK 1: Extract insights fetching to reusable function
+  // Extract insights fetching to reusable function
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
 
-    // 🔍 DIAGNOSTIC: Log start of fetch
+    // DIAGNOSTIC: Log start of fetch
     console.log('[ListenView] 🔍 DIAGNOSTIC: Starting fetchInsightsNow');
     console.log('[ListenView] 🔍 Transcript count (local UI):', transcripts.length);
     console.log('[ListenView] 🔍 Final transcript count (ref):', finalTranscriptCountRef.current);
     console.log('[ListenView] 🔍 Session state:', sessionState);
     console.log('[ListenView] 🔍 Is session active:', isSessionActive);
 
-    // 🚀 ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
+    // ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
     // Users will see spinner instead of wrong "Vorbereitung" insights
     setInsights(null);
 
-    // 🚀 SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
+    // SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
     // - Attempt 1: Immediate (0ms) - Fast path if transcripts already saved
     // - Attempt 2: After 300ms - Quick retry for fast saves
     // - Attempt 3: After 700ms (total 1000ms) - Final retry for slow saves
@@ -571,7 +586,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     setIsLoadingInsights(true);
     const ttftStart = Date.now();
     
-    // 🔐 Get auth credentials once
+    // Get auth credentials once
     const chatId = Number(localStorage.getItem('current_chat_id') || '0');
     const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
     const token = await eviaAuth?.getToken();
@@ -585,7 +600,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       return;
     }
 
-    // 🔥 CRITICAL FIX: ALWAYS use latest session state from localStorage (truth source)
+    // ALWAYS use latest session state from localStorage (truth source)
     // Don't derive from isSessionActive - it can be stale!
     // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
     const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
@@ -597,7 +612,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
     
-    // 🚀 SMART RETRY LOOP: Try immediately, then retry with delays if no transcripts
+    // Try immediately, then retry with delays if no transcripts
     let fetchedInsights: any = null;
     let attempt = 0;
     
@@ -656,7 +671,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
         
-        // 🔥 ULTRA-VERBOSE: Log session_state metadata from insights
+        // Log session_state metadata from insights
         console.log('[ListenView] 🎯 INSIGHT METADATA:');
         console.log('[ListenView]   - session_state from backend:', fetchedInsights.session_state);
         console.log('[ListenView]   - This state will be used when insights are clicked!');
@@ -687,7 +702,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);
       
-      // 🔥 CRITICAL FIX: Show user-friendly error message instead of infinite loading
+      // Show user-friendly error message instead of infinite loading
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
       
@@ -751,11 +766,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const handleCopy = async () => {
     if (copyState === 'copied') return;
 
+    // Copy with speaker labels (like EVIA-Frontend chat detail)
+    const currentLang = i18n.getLanguage();
+    const meLabel = currentLang === 'de' ? 'Ich' : 'Me';
+    const themLabel = currentLang === 'de' ? 'Sie' : 'Them';
+
     let textToCopy = viewMode === 'transcript' 
-      ? transcripts.map(line => line.text).join('\n')
+      ? transcripts.map(line => {
+          const speakerLabel = line.speaker === 1 ? meLabel : themLabel;
+          return `${speakerLabel}:\n${line.text}`;
+        }).join('\n\n')
         : insights
         ? (() => {
-            // 🔥 FIX: Use translated headers instead of hardcoded "Summary"
+            // Use translated headers instead of hardcoded "Summary"
             const currentLang = i18n.getLanguage();
             const summaryHeader = currentLang === 'de' ? 'Zusammenfassung' : 'Summary';
             const actionsHeader = currentLang === 'de' ? 'Actions' : 'Actions';
@@ -793,7 +816,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // 🎯 GLASS PARITY: Insights ARE clickable - clicking sends to AskView for elaboration
+  // Insights ARE clickable - clicking sends to AskView for elaboration
   // handleInsightClick is implemented above (line 427) and used in all insight items
 
   // Glass parity: Only show "Copied X" if current view matches what was copied
