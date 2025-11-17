@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
-import { deleteTranscript as deleteTranscriptApi } from '../services/transcriptService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
@@ -24,9 +23,7 @@ interface TranscriptLine {
   text: string;
   isFinal?: boolean;
   isPartial?: boolean;
-  timestamp?: number; // 🔧 STEP 1: Timestamp for time-based bubble merging
-  transcriptId?: number;
-  transcriptIds?: number[];
+  timestamp?: number;
 }
 
 interface ListenViewProps {
@@ -73,26 +70,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
   const stallToastShownRef = useRef(false);
-
-  const getLineTranscriptIds = (line?: TranscriptLine): number[] => {
-    if (!line) return [];
-    if (line.transcriptIds && line.transcriptIds.length > 0) {
-      return line.transcriptIds;
-    }
-    return typeof line.transcriptId === 'number' ? [line.transcriptId] : [];
-  };
-
-  const mergeTranscriptIdSets = (...groups: (number[] | undefined)[]) => {
-    const merged = new Set<number>();
-    groups.forEach(group => {
-      group?.forEach(id => {
-        if (typeof id === 'number' && !Number.isNaN(id)) {
-          merged.add(id);
-        }
-      });
-    });
-    return Array.from(merged);
-  };
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -285,16 +262,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let speaker: number | null = null;
       let isFinal = false;
       let isPartial = false;
-      let transcriptId: number | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
         text = msg.data.text || '';
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal;
-        if (typeof msg.data.transcript_id === 'number') {
-          transcriptId = msg.data.transcript_id;
-        }
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         text = msg.data.echo_text;
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
@@ -350,21 +323,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         const newMessages = [...prev];
         const targetIdx = findLastPartialIdx(speaker);
 
+        // 🔥 GLASS-STYLE SIMPLE MERGE: Backend now handles text accumulation
+        // Frontend just displays: update existing partial OR add new bubble
+        // No complex continuity detection needed - backend sends clean, accumulated text
         if (isPartial) {
-          // Partial/interim: Update existing partial or add new
           if (targetIdx !== -1) {
+            // Update existing partial with new text (backend already accumulated)
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'text:', text.substring(0, 30));
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text,
+              text,  // Backend sends accumulated text, just display it
               speaker,
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
-              transcriptId,
-              transcriptIds: getLineTranscriptIds(newMessages[targetIdx]),
             };
           } else {
+            // No partial found, add new one
             console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
             newMessages.push({
               text,
@@ -372,8 +347,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
-              transcriptId,
-              transcriptIds: transcriptId ? [transcriptId] : [],
             });
           }
         } else if (isFinal) {
@@ -387,8 +360,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
-                transcriptId,
-                transcriptIds: mergeTranscriptIdSets(getLineTranscriptIds(newMessages[targetIdx]), transcriptId ? [transcriptId] : []),
               };
 
               finalTranscriptCountRef.current += 1;
@@ -405,8 +376,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
-                transcriptId,
-                transcriptIds: transcriptId ? [transcriptId] : [],
               });
               finalTranscriptCountRef.current += 1;
               if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
@@ -808,34 +777,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  const handleDeleteLine = async (index: number, line: TranscriptLine) => {
-    setTranscripts(prev => prev.filter((_, i) => i !== index));
-
-    const transcriptIds = getLineTranscriptIds(line);
-    if (!transcriptIds.length) {
-      showToast(i18n.t('overlay.listen.deleteLocalOnly') || 'Removed locally', 'info');
-      return;
-    }
-
-    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
-    const token = await (window as any).evia?.auth?.getToken?.();
-
-    if (!chatId || !token) {
-      showToast(i18n.t('overlay.listen.deleteAuthError') || 'Unable to authenticate delete request', 'error');
-      return;
-    }
-
-    try {
-      for (const id of transcriptIds) {
-        await deleteTranscriptApi({ chatId, transcriptId: id, token });
-      }
-      showToast(i18n.t('overlay.listen.deleteSuccess') || 'Transcript removed', 'success');
-    } catch (error) {
-      console.error('[ListenView] ❌ Failed to delete transcript(s):', error);
-      showToast(i18n.t('overlay.listen.deleteFailed') || 'Failed to delete transcript. Please retry.', 'error');
-    }
-  };
-
   // 🎯 GLASS PARITY: Insights ARE clickable - clicking sends to AskView for elaboration
   // handleInsightClick is implemented above (line 427) and used in all insight items
 
@@ -933,9 +874,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 const isMe = line.speaker === 1;
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
 
-                const hasBackendIds = getLineTranscriptIds(line).length > 0;
                 return (
-                  <div key={`${line.timestamp || i}-${i}`} className="bubble-wrapper">
+                  <div key={`${line.timestamp || i}-${i}`}>
                     <div
                       className={`bubble ${isMe ? 'me' : 'them'}`}
                       style={{
@@ -946,10 +886,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                           ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
                           : 'rgba(255, 255, 255, 0.1)', // Glass .them color
                         color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
-                        // 🎨 GLASS PARITY: Alignment
-                        alignSelf: isMe ? 'flex-end' : 'flex-start',
-                        marginLeft: isMe ? 'auto' : '0',
-                        marginRight: isThem ? 'auto' : '0',
+                        // 🎨 REMOVED inline alignment - let CSS handle it for proper specificity
                         // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
                         borderRadius: '12px',
                         borderBottomLeftRadius: isThem ? '4px' : '12px',
@@ -957,6 +894,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                         padding: '8px 12px',
                         marginBottom: '8px',
                         maxWidth: '80%',
+                        // 🎨 GLASS PARITY: iMessage-style width shrinks to content, not full-width
+                        width: 'fit-content',
                         wordWrap: 'break-word',
                         fontSize: '13px',
                         lineHeight: '1.5',
@@ -965,20 +904,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                       {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
                       <span className="bubble-text">{line.text}</span>
                     </div>
-                    {line.isFinal && hasBackendIds && (
-                      <button
-                        className="bubble-delete-button"
-                        onClick={() => handleDeleteLine(i, line)}
-                        title={i18n.t('overlay.listen.deleteTranscript') || 'Delete transcript'}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          <line x1="10" y1="11" x2="10" y2="17" />
-                          <line x1="14" y1="11" x2="14" y2="17" />
-                        </svg>
-                      </button>
-                    )}
                   </div>
                 );
               })
