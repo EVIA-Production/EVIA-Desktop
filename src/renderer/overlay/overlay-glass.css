@@ -1376,6 +1376,34 @@
   transform: translate(-50%, -50%) scale(1);
 }
 
+.bubble-wrapper {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+
+.bubble-delete-button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.bubble-delete-button:hover {
+  background: rgba(255, 75, 75, 0.9);
+  transform: scale(1.05);
+}
+
 /* Close Button (in header) */
 .response-header .close-button {
   background: rgba(255, 255, 255, 0.07);

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
+import { deleteTranscript as deleteTranscriptApi } from '../services/transcriptService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
@@ -24,6 +25,8 @@ interface TranscriptLine {
   isFinal?: boolean;
   isPartial?: boolean;
   timestamp?: number; // 🔧 STEP 1: Timestamp for time-based bubble merging
+  transcriptId?: number;
+  transcriptIds?: number[];
 }
 
 interface ListenViewProps {
@@ -69,6 +72,27 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
+  const stallToastShownRef = useRef(false);
+
+  const getLineTranscriptIds = (line?: TranscriptLine): number[] => {
+    if (!line) return [];
+    if (line.transcriptIds && line.transcriptIds.length > 0) {
+      return line.transcriptIds;
+    }
+    return typeof line.transcriptId === 'number' ? [line.transcriptId] : [];
+  };
+
+  const mergeTranscriptIdSets = (...groups: (number[] | undefined)[]) => {
+    const merged = new Set<number>();
+    groups.forEach(group => {
+      group?.forEach(id => {
+        if (typeof id === 'number' && !Number.isNaN(id)) {
+          merged.add(id);
+        }
+      });
+    });
+    return Array.from(merged);
+  };
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -106,10 +130,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         showToast(i18n.t('overlay.listen.noTranscriptsYet'), 'warning');
         return;
       }
-      const since = Date.now() - last;
-      if (since > WATCHDOG_MS) {
-        console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
-        showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
+        const since = Date.now() - last;
+        if (since > WATCHDOG_MS) {
+          console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
+          if (!stallToastShownRef.current) {
+            showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
+            stallToastShownRef.current = true;
+          }
       }
     };
 
@@ -209,6 +236,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Diagnostics: update last received timestamp and count
       messageCountRef.current += 1;
       lastMessageAtRef.current = Date.now();
+      stallToastShownRef.current = false;
       if (messageCountRef.current % 10 === 0) {
         console.log(`[ListenView] 📈 Received ${messageCountRef.current} transcript messages so far. Last at ${new Date(lastMessageAtRef.current).toISOString()}`);
       }
@@ -257,12 +285,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let speaker: number | null = null;
       let isFinal = false;
       let isPartial = false;
+      let transcriptId: number | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
         text = msg.data.text || '';
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal;
+        if (typeof msg.data.transcript_id === 'number') {
+          transcriptId = msg.data.transcript_id;
+        }
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         text = msg.data.echo_text;
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
@@ -315,16 +347,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           return -1;
         };
 
-        const findLastFinalIdx = (spk: number | null, searchArray?: TranscriptLine[]) => {
-          const arr = searchArray || prev;
-          for (let i = arr.length - 1; i >= 0; i--) {
-            if (arr[i].speaker === spk && arr[i].isFinal) {
-              return i;
-            }
-          }
-          return -1;
-        };
-
         const newMessages = [...prev];
         const targetIdx = findLastPartialIdx(speaker);
 
@@ -333,11 +355,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (targetIdx !== -1) {
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'text:', text.substring(0, 30));
             newMessages[targetIdx] = {
+              ...newMessages[targetIdx],
               text,
               speaker,
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              transcriptId,
+              transcriptIds: getLineTranscriptIds(newMessages[targetIdx]),
             };
           } else {
             console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
@@ -347,6 +372,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              transcriptId,
+              transcriptIds: transcriptId ? [transcriptId] : [],
             });
           }
         } else if (isFinal) {
@@ -354,136 +381,38 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (targetIdx !== -1) {
             // Convert existing partial to final
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'text:', text.substring(0, 30));
-            newMessages[targetIdx] = {
-              text,
-              speaker,
-              isFinal: true,
-              isPartial: false,
-              timestamp: messageTimestamp,
-            };
+              newMessages[targetIdx] = {
+                text,
+                speaker,
+                isFinal: true,
+                isPartial: false,
+                timestamp: messageTimestamp,
+                transcriptId,
+                transcriptIds: mergeTranscriptIdSets(getLineTranscriptIds(newMessages[targetIdx]), transcriptId ? [transcriptId] : []),
+              };
 
-            // 🔧 CRITICAL FIX: After converting, check if we should MERGE with PREVIOUS final
-            const previousFinalIdx = findLastFinalIdx(speaker, newMessages.slice(0, targetIdx));
-
-            if (previousFinalIdx !== -1) {
-              const prevMessage = newMessages[previousFinalIdx];
-              const prevText = prevMessage.text;
-              const prevTimestamp = prevMessage.timestamp || 0;
-              const timeSinceLastMs = messageTimestamp - prevTimestamp;
-
-              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(prevText.trim());
-              const startsWithCapital = /^[A-Z]/.test(text.trim());
-              // 🔧 PARAGRAPH GROUPING: 10-second window (Deepgram finalizes every 4-8s)
-              // Only split on: speaker change OR significant pause (>10s) OR clear paragraph boundary
-               const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
-
-               console.log('[ListenView] 🔍 MERGE DECISION (post-convert):', {
-                previousFinalIdx,
-                currentIdx: targetIdx,
-                timeSinceLastMs: `${timeSinceLastMs}ms`,
-                endsWithSentence,
-                startsWithCapital,
-                shouldMerge,
-                prevText: prevText.substring(Math.max(0, prevText.length - 30)),
-                newText: text.substring(0, 30)
-              });
-
-              if (shouldMerge) {
-                console.log('[ListenView] 🔗 MERGING current final into previous at index', previousFinalIdx);
-                // Merge current into previous
-                newMessages[previousFinalIdx] = {
-                  ...prevMessage,
-                  text: prevText + ' ' + text,
-                  timestamp: messageTimestamp,
-                };
-                // Remove current (now merged) message
-                newMessages.splice(targetIdx, 1);
-              } else {
-                const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
-                console.log('[ListenView] ➕ KEEPING as separate FINAL (reason:', reason + ')');
-                // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
-                finalTranscriptCountRef.current += 1;
-                if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
-                  console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
-                  setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
-                }
+              finalTranscriptCountRef.current += 1;
+              if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
+                console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
+                setTimeout(() => fetchInsightsNow(), 100);
               }
-            }
           } else {
-            // 🔧 STEP 1: Enhanced merge logic with time + punctuation checks
-            const lastFinalIdx = findLastFinalIdx(speaker);
-
-            if (lastFinalIdx !== -1) {
-              const lastMessage = newMessages[lastFinalIdx];
-              const lastText = lastMessage.text;
-              const lastTimestamp = lastMessage.timestamp || 0;
-              const timeSinceLastMs = messageTimestamp - lastTimestamp;
-
-              // Helper: Check if text ends with sentence-ending punctuation
-              const endsWithSentence = /[.!?][\s]*$|\.{3}[\s]*$/.test(lastText.trim());
-
-              // Helper: Check if new text starts with capital letter (potential new sentence)
-              const startsWithCapital = /^[A-Z]/.test(text.trim());
-
-              // MERGE CONDITIONS (paragraph-level grouping):
-              // 1. Within 10-second window (matches Deepgram's 4-8s finalization + buffer)
-              // 2. Last message doesn't end with sentence punctuation OR new text doesn't start with capital
-              //    This creates paragraph-like grouping: only split on speaker change, long pause (>10s), or clear paragraph boundary
-                const shouldMerge = timeSinceLastMs <= 10000 && (!endsWithSentence || !startsWithCapital);
-
-              console.log('[ListenView] 🔍 MERGE DECISION:', {
-                lastFinalIdx,
-                timeSinceLastMs: `${timeSinceLastMs}ms`,
-                endsWithSentence,
-                startsWithCapital,
-                shouldMerge,
-                lastText: lastText.substring(Math.max(0, lastText.length - 30)),
-                newText: text.substring(0, 30)
-              });
-
-              if (shouldMerge) {
-                // APPEND to existing final bubble
-                console.log('[ListenView] 🔗 MERGING with final at index', lastFinalIdx);
-                newMessages[lastFinalIdx] = {
-                  ...lastMessage,
-                  text: lastText + ' ' + text,
-                  timestamp: messageTimestamp, // Update to latest timestamp
-                };
-              } else {
-                // Create new final bubble (significant pause or paragraph boundary detected)
-                  const reason = timeSinceLastMs > 10000 ? 'TIME_EXCEEDED (>10s pause)' : 'SENTENCE_BOUNDARY (paragraph break)';
-                  console.log('[ListenView] ➕ ADDING new FINAL (no merge -', reason + ')');
-                newMessages.push({
-                  text,
-                  speaker,
-                  isFinal: true,
-                  isPartial: false,
-                  timestamp: messageTimestamp,
-                });
-                // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
-                finalTranscriptCountRef.current += 1;
-                if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
-                  console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
-                  setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
-                }
-              }
-            } else {
-              // No previous final - create new bubble
-              console.log('[ListenView] ➕ ADDING new FINAL (first from speaker)');
+              // No previous partial - create new bubble
+              console.log('[ListenView] ➕ ADDING new FINAL (no partial found)');
               newMessages.push({
                 text,
                 speaker,
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
+                transcriptId,
+                transcriptIds: transcriptId ? [transcriptId] : [],
               });
-              // 🔥 GLASS PARITY: Increment final transcript counter for auto-insights
               finalTranscriptCountRef.current += 1;
               if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
                 console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
-                setTimeout(() => fetchInsightsNow(), 100); // Small delay to ensure state is updated
+                setTimeout(() => fetchInsightsNow(), 100);
               }
-            }
           }
         }
 
@@ -879,6 +808,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
+  const handleDeleteLine = async (index: number, line: TranscriptLine) => {
+    setTranscripts(prev => prev.filter((_, i) => i !== index));
+
+    const transcriptIds = getLineTranscriptIds(line);
+    if (!transcriptIds.length) {
+      showToast(i18n.t('overlay.listen.deleteLocalOnly') || 'Removed locally', 'info');
+      return;
+    }
+
+    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const token = await (window as any).evia?.auth?.getToken?.();
+
+    if (!chatId || !token) {
+      showToast(i18n.t('overlay.listen.deleteAuthError') || 'Unable to authenticate delete request', 'error');
+      return;
+    }
+
+    try {
+      for (const id of transcriptIds) {
+        await deleteTranscriptApi({ chatId, transcriptId: id, token });
+      }
+      showToast(i18n.t('overlay.listen.deleteSuccess') || 'Transcript removed', 'success');
+    } catch (error) {
+      console.error('[ListenView] ❌ Failed to delete transcript(s):', error);
+      showToast(i18n.t('overlay.listen.deleteFailed') || 'Failed to delete transcript. Please retry.', 'error');
+    }
+  };
+
   // 🎯 GLASS PARITY: Insights ARE clickable - clicking sends to AskView for elaboration
   // handleInsightClick is implemented above (line 427) and used in all insight items
 
@@ -976,36 +933,52 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 const isMe = line.speaker === 1;
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
 
+                const hasBackendIds = getLineTranscriptIds(line).length > 0;
                 return (
-                  <div
-                    key={i}
-                    className={`bubble ${isMe ? 'me' : 'them'}`}
-                    style={{
-                      // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
-                      opacity: 1.0,
-                      // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
-                      background: isMe
-                        ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
-                        : 'rgba(255, 255, 255, 0.1)', // Glass .them color
-                      color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
-                      // 🎨 GLASS PARITY: Alignment
-                      alignSelf: isMe ? 'flex-end' : 'flex-start',
-                      marginLeft: isMe ? 'auto' : '0',
-                      marginRight: isThem ? 'auto' : '0',
-                      // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
-                      borderRadius: '12px',
-                      borderBottomLeftRadius: isThem ? '4px' : '12px',
-                      borderBottomRightRadius: isMe ? '4px' : '12px',
-                      padding: '8px 12px',
-                      marginBottom: '8px',
-                      maxWidth: '80%',
-                      wordWrap: 'break-word',
-                      fontSize: '13px',
-                      lineHeight: '1.5',
-                    }}
-                  >
-                    {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
-                    <span className="bubble-text">{line.text}</span>
+                  <div key={`${line.timestamp || i}-${i}`} className="bubble-wrapper">
+                    <div
+                      className={`bubble ${isMe ? 'me' : 'them'}`}
+                      style={{
+                        // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
+                        opacity: 1.0,
+                        // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
+                        background: isMe
+                          ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
+                          : 'rgba(255, 255, 255, 0.1)', // Glass .them color
+                        color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
+                        // 🎨 GLASS PARITY: Alignment
+                        alignSelf: isMe ? 'flex-end' : 'flex-start',
+                        marginLeft: isMe ? 'auto' : '0',
+                        marginRight: isThem ? 'auto' : '0',
+                        // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
+                        borderRadius: '12px',
+                        borderBottomLeftRadius: isThem ? '4px' : '12px',
+                        borderBottomRightRadius: isMe ? '4px' : '12px',
+                        padding: '8px 12px',
+                        marginBottom: '8px',
+                        maxWidth: '80%',
+                        wordWrap: 'break-word',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                      }}
+                    >
+                      {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
+                      <span className="bubble-text">{line.text}</span>
+                    </div>
+                    {line.isFinal && hasBackendIds && (
+                      <button
+                        className="bubble-delete-button"
+                        onClick={() => handleDeleteLine(i, line)}
+                        title={i18n.t('overlay.listen.deleteTranscript') || 'Delete transcript'}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 );
               })

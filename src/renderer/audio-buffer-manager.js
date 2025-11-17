@@ -17,6 +17,7 @@ class AudioBufferManager {
     this.targetChunkDuration = targetChunkDuration;
     this.targetChunkSize = Math.floor(targetSampleRate * targetChunkDuration);
     this.buffer = [];
+    this.maxBufferSamples = this.targetSampleRate * 12; // cap at ~12 seconds to avoid stalls
     this.debugMode = true; // Enable debug mode by default
     
     // Store the last few seconds of audio for diagnostic purposes
@@ -55,6 +56,14 @@ class AudioBufferManager {
     
     if (this.debugMode) {
       console.log(`[BufferManager] Added ${samples.length} samples, buffer now has ${this.buffer.length}/${samplesNeeded} samples`);
+    }
+
+    if (this.buffer.length > this.maxBufferSamples) {
+      const excess = this.buffer.length - this.maxBufferSamples;
+      this.buffer.splice(0, excess);
+      if (this.debugMode) {
+        console.warn(`[BufferManager] Buffer exceeded max size, trimmed ${excess} samples to prevent stalls`);
+      }
     }
     
     return this.buffer.length >= samplesNeeded;

@@ -283,7 +283,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   const parent = getOrCreateHeaderWindow()
   
   // Glass parity: Ask/Settings/Shortcuts need to be focusable for input
-  const needsFocus = name === 'ask' || name === 'settings' || name === 'shortcuts'
+  const needsFocus = name === 'ask' || name === 'settings' || name === 'shortcuts' || name === 'listen'
   
   // Glass parity: Shortcuts window is independent (no parent) and movable (windowManager.js:560-568)
   const isShortcuts = name === 'shortcuts'
