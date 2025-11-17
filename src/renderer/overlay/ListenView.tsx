@@ -769,7 +769,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Copy with speaker labels (like EVIA-Frontend chat detail)
     const currentLang = i18n.getLanguage();
     const meLabel = currentLang === 'de' ? 'Ich' : 'Me';
-    const themLabel = currentLang === 'de' ? 'Sie' : 'Them';
+    const themLabel = currentLang === 'de' ? 'Gegenüber' : 'Them';
 
     let textToCopy = viewMode === 'transcript' 
       ? transcripts.map(line => {
