@@ -329,7 +329,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         if (isPartial) {
           if (targetIdx !== -1) {
             // Update existing partial with new text (backend already accumulated)
-            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'text:', text.substring(0, 30));
+            const oldText = prev[targetIdx].text;
+            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx);
+            console.log('  ├─ OLD:', oldText.substring(0, 50));
+            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
+            console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
               text,  // Backend sends accumulated text, just display it
@@ -340,7 +345,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             };
           } else {
             // No partial found, add new one
-            console.log('[ListenView] ➕ ADDING new partial, text:', text.substring(0, 30));
+            console.log('[ListenView] ➕ ADDING new partial');
+            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  ✅ REASON: No existing partial found for speaker', speaker);
+            console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages.push({
               text,
               speaker,
@@ -353,7 +361,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           // Final: Convert existing partial to final, OR merge with last final, OR add new
           if (targetIdx !== -1) {
             // Convert existing partial to final
-            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'text:', text.substring(0, 30));
+            const oldText = prev[targetIdx].text;
+            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx);
+            console.log('  ├─ OLD:', oldText.substring(0, 50));
+            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
+            console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
               newMessages[targetIdx] = {
                 text,
                 speaker,
@@ -370,6 +383,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           } else {
               // No previous partial - create new bubble
               console.log('[ListenView] ➕ ADDING new FINAL (no partial found)');
+              console.log('  └─ NEW:', text.substring(0, 50));
+              console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- creating new final bubble');
+              console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
               newMessages.push({
                 text,
                 speaker,
