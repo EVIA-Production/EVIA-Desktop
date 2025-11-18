@@ -338,21 +338,38 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         }
 
-        // Backend now handles text accumulation
-        // Frontend just displays: update existing partial OR add new bubble
-        // No complex continuity detection needed - backend sends clean, accumulated text
+        // Deepgram sends ACCUMULATED text in partials (e.g., "Hello", "Hello there", "Hello there friend")
+        // We need to display ONLY the NEW text to avoid showing everything multiple times
+        // Extract new words by comparing with previous partial text
         if (isPartial) {
           if (targetIdx !== -1) {
-            // Update existing partial with new text (backend already accumulated)
+            // Update existing partial - show only NEW words that Deepgram added
             const oldText = prev[targetIdx].text;
+            
+            // If new text starts with old text, extract only the new part
+            let displayText = text;
+            if (text.startsWith(oldText)) {
+              // New text extends old text - show only the NEW part
+              displayText = text.substring(oldText.length).trim();
+              if (displayText) {
+                // Append new words to bubble
+                displayText = oldText + (oldText.endsWith(' ') ? '' : ' ') + displayText;
+              } else {
+                // No new text, keep old text
+                displayText = oldText;
+              }
+            }
+            // If they're completely different, Deepgram rewrote - use new text
+            
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx);
             console.log('  ├─ OLD:', oldText.substring(0, 50));
-            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  ├─ RAW NEW:', text.substring(0, 50));
+            console.log('  └─ DISPLAY:', displayText.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text,  // Backend sends accumulated text, just display it
+              text: displayText,
               speaker,
               isFinal: false,
               isPartial: true,
