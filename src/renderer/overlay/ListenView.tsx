@@ -338,44 +338,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         }
 
-        // Deepgram sends ACCUMULATED text in partials (e.g., "Hello", "Hello there", "Hello there friend")
-        // We need to display ONLY the NEW text to avoid showing everything multiple times
-        // Extract new words by comparing with previous partial text
+        // Just display what Deepgram sends (already accumulated)
+        // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
+        // We display it as-is - no extraction needed!
         if (isPartial) {
           if (targetIdx !== -1) {
-            // Update existing partial - show only NEW words that Deepgram added
-            const oldText = prev[targetIdx].text;
-            
-            // If new text starts with old text, extract only the new part
-            let displayText = text;
-            if (text.startsWith(oldText)) {
-              // New text extends old text - show only the NEW part
-              displayText = text.substring(oldText.length).trim();
-              if (displayText) {
-                // Append new words to bubble
-                displayText = oldText + (oldText.endsWith(' ') ? '' : ' ') + displayText;
-              } else {
-                // No new text, keep old text
-                displayText = oldText;
-              }
-            }
-            // If they're completely different, Deepgram rewrote - use new text
-            
+            // Update existing partial with new accumulated text
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx);
-            console.log('  ├─ OLD:', oldText.substring(0, 50));
-            console.log('  ├─ RAW NEW:', text.substring(0, 50));
-            console.log('  └─ DISPLAY:', displayText.substring(0, 50));
+            console.log('  ├─ OLD:', prev[targetIdx].text.substring(0, 50));
+            console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text: displayText,
+              text: text,  // ← Just use Deepgram's text as-is!
               speaker,
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
             };
-          } else {
+          } else{
             // No partial found, add new one
             console.log('[ListenView] ➕ ADDING new partial');
             console.log('  └─ NEW:', text.substring(0, 50));
