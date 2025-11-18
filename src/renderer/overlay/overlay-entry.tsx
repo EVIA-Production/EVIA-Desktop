@@ -93,6 +93,14 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     console.log('[OverlayEntry] ✅ Sent abort-ask-stream message to AskView')
   }
   
+  // 🔧 CRITICAL: Clear current_chat_id to force new chat creation with new language
+  // When user presses "Listen" or "Ask" next, a new chat will be created with the new language
+  const oldChatId = localStorage.getItem('current_chat_id');
+  if (oldChatId) {
+    localStorage.removeItem('current_chat_id');
+    console.log(`[OverlayEntry] 🧹 Cleared chat_id ${oldChatId} to force new chat with new language: ${newLang}`);
+  }
+  
   // 🔧 FIX: Close all child windows except Settings
   const eviaWindows = (window as any).evia?.windows
   if (eviaWindows) {
