@@ -71,6 +71,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
   const stallToastShownRef = useRef(false);
+  const hasActivePartialRef = useRef(false);
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -108,13 +109,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         showToast(i18n.t('overlay.listen.noTranscriptsYet'), 'warning');
         return;
       }
-        const since = Date.now() - last;
-        if (since > WATCHDOG_MS) {
-          console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
-          if (!stallToastShownRef.current) {
-            showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
-            stallToastShownRef.current = true;
-          }
+      if (!hasActivePartialRef.current) {
+        return;
+      }
+      const since = Date.now() - last;
+      if (since > WATCHDOG_MS) {
+        console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
+        if (!stallToastShownRef.current) {
+          showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
+          stallToastShownRef.current = true;
+        }
       }
     };
 
@@ -129,6 +133,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
+
+  useEffect(() => {
+    const hasPartial = transcripts.some(t => t.isPartial);
+    hasActivePartialRef.current = hasPartial;
+    if (!hasPartial) {
+      stallToastShownRef.current = false;
+    }
+  }, [transcripts]);
 
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
@@ -351,29 +363,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           targetIdx = findLastPartialIdx(speaker);
         }
         
-        // When a FINAL arrives, finalize all other speakers' partials
-        // This prevents abandoned partials from being reused after interruptions
-        if (isFinal) {
-          for (let i = 0; i < newMessages.length; i++) {
-            if (newMessages[i].speaker !== speaker && newMessages[i].isPartial) {
-              console.log('[ListenView] 🧹 Finalizing abandoned partial from speaker', newMessages[i].speaker);
-              newMessages[i] = {
-                ...newMessages[i],
-                isPartial: false,
-                isFinal: true,
-              };
-            }
-          }
-        }
-
         // Just display what Deepgram sends (already accumulated)
         // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
         // We display it as-is - no extraction needed!
         if (isPartial) {
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
+            const existing = prev[targetIdx];
+            if (existing.text === text) {
+              console.log('[ListenView] ⏭️ Skipping identical partial update for speaker', speaker, 'utt:', normalizedUtteranceId ?? '∅');
+              return prev;
+            }
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
-            console.log('  ├─ OLD:', prev[targetIdx].text.substring(0, 50));
+            console.log('  ├─ OLD:', existing.text.substring(0, 50));
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
