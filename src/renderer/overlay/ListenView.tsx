@@ -112,13 +112,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (!hasActivePartialRef.current) {
         return;
       }
-      const since = Date.now() - last;
-      if (since > WATCHDOG_MS) {
-        console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
-        if (!stallToastShownRef.current) {
-          showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
-          stallToastShownRef.current = true;
-        }
+        const since = Date.now() - last;
+        if (since > WATCHDOG_MS) {
+          console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
+          if (!stallToastShownRef.current) {
+            showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
+            stallToastShownRef.current = true;
+          }
       }
     };
 
@@ -343,8 +343,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               // Only consider entries with matching utteranceId when candidate has one
               if (!item.utteranceId) continue;
               if (item.utteranceId === candidateUtteranceId) {
-                return i;
-              }
+              return i;
+            }
               continue;
             }
 
@@ -362,7 +362,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           // Fallback: match any partial for this speaker when no IDs are present at all
           targetIdx = findLastPartialIdx(speaker);
         }
-        
+
         // Just display what Deepgram sends (already accumulated)
         // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
         // We display it as-is - no extraction needed!
