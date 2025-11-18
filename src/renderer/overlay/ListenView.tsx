@@ -24,6 +24,7 @@ interface TranscriptLine {
   isFinal?: boolean;
   isPartial?: boolean;
   timestamp?: number;
+  utteranceId?: string;
 }
 
 interface ListenViewProps {
@@ -40,7 +41,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   console.log('[ListenView] 🔍 Window location:', window.location.href)
   console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
   
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number}[]>([]);
+  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number, utteranceId?: string}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
@@ -262,17 +263,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let speaker: number | null = null;
       let isFinal = false;
       let isPartial = false;
+      let utteranceId: string | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
         text = msg.data.text || '';
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
         isPartial = !isFinal;
+        const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
+        if (rawUtterance !== undefined && rawUtterance !== null) {
+          utteranceId = String(rawUtterance);
+        }
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         text = msg.data.echo_text;
         speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
         isFinal = msg.data.final === true;
         isPartial = !isFinal;
+        const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
+        if (rawUtterance !== undefined && rawUtterance !== null) {
+          utteranceId = String(rawUtterance);
+        }
       } else if (msg.type === 'status') {
         console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
         return;
@@ -289,7 +299,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       console.log('[ListenView] 📨', 
         msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
-        text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal
+        text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal, 'utt:', utteranceId ?? '—'
       );
 
       const container = viewportRef.current;
@@ -311,17 +321,35 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.warn('[ListenView] DIAG logging failed', err);
         }
         // Find last partial for THIS speaker (like Glass SttView.js:122-128)s
-        const findLastPartialIdx = (spk: number | null) => {
+        const findLastPartialIdx = (spk: number | null, candidateUtteranceId?: string) => {
           for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].speaker === spk && prev[i].isPartial && !prev[i].isFinal) {
-              return i;
+            const item = prev[i];
+            if (item.speaker !== spk) continue;
+            if (!item.isPartial || item.isFinal) continue;
+
+            if (candidateUtteranceId) {
+              // Only consider entries with matching utteranceId when candidate has one
+              if (!item.utteranceId) continue;
+              if (item.utteranceId === candidateUtteranceId) {
+                return i;
+              }
+              continue;
             }
+
+            // If incoming message lacks an utteranceId, prefer entries that also lack it
+            if (item.utteranceId) continue;
+            return i;
           }
           return -1;
         };
 
         const newMessages = [...prev];
-        const targetIdx = findLastPartialIdx(speaker);
+        const normalizedUtteranceId = utteranceId ?? undefined;
+        let targetIdx = findLastPartialIdx(speaker, normalizedUtteranceId);
+        if (targetIdx === -1 && !normalizedUtteranceId) {
+          // Fallback: match any partial for this speaker when no IDs are present at all
+          targetIdx = findLastPartialIdx(speaker);
+        }
         
         // When a FINAL arrives, finalize all other speakers' partials
         // This prevents abandoned partials from being reused after interruptions
@@ -344,7 +372,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         if (isPartial) {
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
-            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx);
+            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
             console.log('  ├─ OLD:', prev[targetIdx].text.substring(0, 50));
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
@@ -356,10 +384,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
           } else{
             // No partial found, add new one
-            console.log('[ListenView] ➕ ADDING new partial');
+            console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  ✅ REASON: No existing partial found for speaker', speaker);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
@@ -369,6 +398,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              utteranceId: normalizedUtteranceId,
             });
           }
         } else if (isFinal) {
@@ -376,7 +406,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (targetIdx !== -1) {
             // Convert existing partial to final
             const oldText = prev[targetIdx].text;
-            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx);
+            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
             console.log('  ├─ OLD:', oldText.substring(0, 50));
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
@@ -387,6 +417,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
+                utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
               };
 
               finalTranscriptCountRef.current += 1;
@@ -396,7 +427,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               }
           } else {
               // No previous partial - create new bubble
-              console.log('[ListenView] ➕ ADDING new FINAL (no partial found)');
+              console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
               console.log('  └─ NEW:', text.substring(0, 50));
               console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- creating new final bubble');
               console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
@@ -406,6 +437,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
+                utteranceId: normalizedUtteranceId,
               });
               finalTranscriptCountRef.current += 1;
               if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
@@ -912,13 +944,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 const isMe = line.speaker === 1;
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
 
+                const bubbleKey = `${line.utteranceId ?? line.timestamp ?? i}-${i}`;
                 return (
-                  <div key={`${line.timestamp || i}-${i}`}>
+                  <div key={bubbleKey}>
                     <div
-                      className={`bubble ${isMe ? 'me' : 'them'}`}
+                      className={`bubble ${isMe ? 'me' : 'them'} ${line.isPartial ? 'partial' : 'final'}`}
                       style={{
-                        // 🎨 GLASS PARITY: Full opacity always (no fade for partial vs final)
-                        opacity: 1.0,
+                        // 🎨 GLASS PARITY: Highlight partial vs final directly in opacity
+                        opacity: line.isPartial ? 0.78 : 1,
                         // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                         background: isMe
                           ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color

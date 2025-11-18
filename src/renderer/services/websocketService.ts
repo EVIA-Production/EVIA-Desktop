@@ -415,7 +415,7 @@ export async function getChatTranscripts(chatId: number, token: string, limit: n
     const backendUrl = getBackendHttpBase();
     console.log('[Transcripts] 📄 Fetching last', limit, 'transcripts for chat:', chatId);
     
-    const res = await fetch(`${backendUrl}/chats/${chatId}/transcripts?limit=${limit}`, {
+    const res = await fetch(`${backendUrl}/chat/${chatId}/transcripts/?limit=${limit}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
