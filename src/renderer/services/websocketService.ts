@@ -43,12 +43,19 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       console.log(`[Chat] Attempt ${attempt + 1} to create chat`);
+      
+      // 🔥 CRITICAL FIX: Get language from i18n and send to backend
+      const { i18n } = await import('../i18n/i18n');
+      const currentLang = i18n.getLanguage();
+      console.log(`[Chat] Creating chat with language: ${currentLang}`);
+      
       const res = await fetch(`${backendUrl}/chat/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ language: currentLang }),
       });
       console.log('[Chat] Response status', res.status, res.type);
       if (!res.ok) {
