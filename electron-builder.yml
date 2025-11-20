@@ -27,8 +27,8 @@ mac:
     NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
     - dir
-# DMG disabled due to asar packaging bug (file size limit error)
-# dmg:
-#   format: UDZO
-#   writeUpdateInfo: false
+    - dmg
+dmg:
+  format: UDZO
+  writeUpdateInfo: false
 publish: null

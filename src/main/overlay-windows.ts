@@ -1128,7 +1128,7 @@ app.on('browser-window-focus', () => {
 })
 
 app.on('ready', () => {
-  app.dock?.hide?.()
+  // app.dock?.hide?.() // Keep dock icon visible
   registerShortcuts()
   // DON'T create header automatically - let header-controller manage the flow
   // header-controller.initialize() will show Welcome → Permissions → Header
