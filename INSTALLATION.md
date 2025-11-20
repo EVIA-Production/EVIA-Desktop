@@ -4,45 +4,45 @@
 
 EVIA is currently distributed **without Apple notarization** (which requires a $99/year Apple Developer Program membership). 
 
-**This means you will see a security warning.** This is normal and expected for open-source/independent apps. EVIA is safe to use.
+**This means you WILL see a security warning.** This is normal and expected for open-source/independent apps. EVIA is safe to use.
 
 ---
 
-## 📥 Installation Steps (ZIP Method - Recommended)
+## 📥 Installation Steps (ZIP Method)
 
 ### 1. Download the Correct Version
 
 - **Apple Silicon (M1/M2/M3)**: `EVIA-1.0.2-arm64-mac.zip`
-- **Intel Macs**: `EVIA-1.0.2-x64-mac.zip`
+- **Intel Macs**: `EVIA-1.0.2-x64-mac.zip` (Most older Macs)
 
-> **Not sure?** Click Apple Menu  > About This Mac. If it says "Chip: Apple...", use Apple Silicon. If it says "Processor: Intel...", use Intel.
+> **Note:** If you see "Software needs to be updated", you downloaded the wrong version. Try the other one.
 
-### 2. Install
+### 2. Install & Bypass Security Warning
 
-1. **Double-click** the downloaded ZIP to extract it
-2. **Drag** `EVIA.app` to your **Applications** folder
-3. **Right-click** (or Control-click) on `EVIA.app` and select **Open**
-4. Click **"Open"** in the dialog box
+1. **Double-click** the ZIP to extract `EVIA.app`
+2. **Drag** `EVIA.app` to **Applications**
+3. **Right-click** (Control-click) on `EVIA` and select **Open**
+4. You will see a popup: *"Apple cannot check it for malicious software"*
+5. Click **"Open"** (or "Open Anyway")
 
-> **Note:** You only need to do the Right-click → Open step **once**. After that, it opens normally.
+**If you don't see "Open" option:**
+1. Go to **System Settings** > **Privacy & Security**
+2. Scroll down to "Security" section
+3. You will see "EVIA was blocked..."
+4. Click **"Open Anyway"**
+5. Enter your Mac password if asked
+
+> **Success:** You only need to do this **once**. EVIA is now whitelisted and will open normally next time.
 
 ---
 
 ## ❓ Troubleshooting
 
-### "EVIA is damaged and can't be opened"
-This should be fixed in v1.0.2. If you still see it:
-1. Open Terminal
-2. Run: `xattr -cr /Applications/EVIA.app`
-3. Try opening again
-
-### "App not supported on this Mac"
-This means you downloaded the wrong version (e.g., arm64 on an Intel Mac). Please check "About This Mac" and download the correct version.
+### "EVIA is damaged"
+Run this command in Terminal: `xattr -cr /Applications/EVIA.app`
 
 ### Permissions
-EVIA needs these permissions to work:
-- **Microphone**: To hear you
-- **Screen Recording**: To capture system audio (meeting audio)
+Grant **Microphone** and **Screen Recording** permissions when prompted to enable AI features.
 
 ---
 
