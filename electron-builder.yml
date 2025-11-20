@@ -29,6 +29,7 @@ mac:
   target:
     - dir
     - dmg
+    - zip
 dmg:
   format: UDZO
   writeUpdateInfo: false
