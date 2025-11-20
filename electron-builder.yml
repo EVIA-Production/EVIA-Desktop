@@ -27,9 +27,15 @@ mac:
     NSScreenCaptureUsageDescription: "EVIA needs access to screen recording to capture system audio from meetings and calls."
     NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
-    - dir
-    - dmg
-    - zip
+    - target: dir
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
 dmg:
   format: UDZO
   writeUpdateInfo: false

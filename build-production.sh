@@ -26,17 +26,16 @@ npm run build
 # Step 4: Verify
 echo ""
 echo "4️⃣  Verifying build..."
-if [ -d "dist/mac-arm64/EVIA.app" ]; then
+if [ -d "dist/mac-arm64/EVIA.app" ] || [ -d "dist/mac-x64/EVIA.app" ]; then
     echo "   ✅ EVIA.app created successfully!"
     echo ""
-    echo "📦 App Location:"
-    echo "   $(pwd)/dist/mac-arm64/EVIA.app"
+    echo "📦 App Locations:"
+    ls -lh dist/*.zip dist/*.dmg 2>/dev/null
     echo ""
     echo "🚀 To test the app, run:"
-    echo "   open dist/mac-arm64/EVIA.app"
-    echo ""
-    echo "📝 Follow the testing guide in:"
-    echo "   /Users/benekroetz/EVIA/🧪-PRODUCTION-TESTING-GUIDE.md"
+    echo "   open dist/mac-arm64/EVIA.app (Apple Silicon)"
+    echo "   or"
+    echo "   open dist/mac-x64/EVIA.app (Intel)"
     echo ""
 else
     echo "   ❌ Build failed - EVIA.app not found"
