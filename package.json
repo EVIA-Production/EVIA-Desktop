@@ -13,7 +13,9 @@
     "dev:renderer": "vite",
     "dev:main": "npm run build:main && cross-env NODE_ENV=development electron .",
     "build:main": "tsc -p tsconfig.json",
-    "build": "tsc -p tsconfig.json && vite build && electron-builder",
+    "build:renderer": "vite build",
+    "build": "tsc -p tsconfig.json && npm run build:renderer && electron-builder",
+    "start:prod": "npm run build:main && npm run build:renderer && cross-env NODE_ENV=production electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "postinstall": "electron-builder install-app-deps",
     "start": "npm run dev",
@@ -29,7 +31,6 @@
     "marked": "^16.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "wrtc": "^0.4.7",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -1,5 +1,7 @@
 appId: com.evia.app
 productName: EVIA
+
+afterPack: ./scripts/afterPack.js
 # 🔐 Custom URL scheme for deep linking (auth callback from web)
 protocols:
   - name: EVIA
@@ -12,7 +14,6 @@ asarUnpack:
   - "src/main/assets/SystemAudioDump"
   - "src/main/assets/WASAPILoopback.exe"
 # 🔧 Run afterPack script to sign SystemAudioDump with entitlements
-afterPack: scripts/afterPack.js
 mac:
   icon: src/main/assets/icon.png
   category: public.app-category.productivity
@@ -36,6 +37,20 @@ mac:
       arch:
         - x64
         - arm64
+
+win:
+  target:
+    - nsis
+  icon: src/main/assets/icon.ico
+  artifactName: "EVIA-Setup-${version}.exe"
+  forceCodeSigning: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
 dmg:
   format: UDZO
   writeUpdateInfo: false
