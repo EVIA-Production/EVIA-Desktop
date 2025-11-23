@@ -21,14 +21,22 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
   extendInfo:
+    LSUIElement: false # Ensure app shows in Dock
     ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
     NSMicrophoneUsageDescription: "EVIA needs access to your microphone to transcribe your voice in meetings."
     NSScreenCaptureUsageDescription: "EVIA needs access to screen recording to capture system audio from meetings and calls."
     NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
   target:
-    - dir
-# DMG disabled due to asar packaging bug (file size limit error)
-# dmg:
-#   format: UDZO
-#   writeUpdateInfo: false
+    - target: dir
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+dmg:
+  format: UDZO
+  writeUpdateInfo: false
 publish: null

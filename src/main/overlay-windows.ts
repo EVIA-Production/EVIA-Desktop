@@ -1128,7 +1128,25 @@ app.on('browser-window-focus', () => {
 })
 
 app.on('ready', () => {
-  app.dock?.hide?.()
+  // Explicitly show and set Dock icon
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.show()
+    const { nativeImage } = require('electron')
+    const path = require('path')
+    const iconPath = path.join(__dirname, '../..', 'src/main/assets/icon.png')
+    try {
+      const icon = nativeImage.createFromPath(iconPath)
+      if (!icon.isEmpty()) {
+        app.dock.setIcon(icon)
+        console.log('[DOCK] ✅ Dock icon set successfully')
+      } else {
+        console.warn('[DOCK] ⚠️ Icon file is empty or invalid')
+      }
+    } catch (err) {
+      console.error('[DOCK] ❌ Failed to set Dock icon:', err)
+    }
+  }
+  
   registerShortcuts()
   // DON'T create header automatically - let header-controller manage the flow
   // header-controller.initialize() will show Welcome → Permissions → Header

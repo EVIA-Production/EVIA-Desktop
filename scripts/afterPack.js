@@ -96,6 +96,26 @@ exports.default = async function(context) {
     console.warn('⚠️  Could not verify signature, but this may be OK');
   }
   
+  // Step 6: Ad-hoc sign the ENTIRE App Bundle
+  // This is critical for "EVIA is damaged" error prevention
+  // without this, electron-builder doesn't sign the main bundle in ad-hoc mode
+  // leading to missing _CodeSignature/CodeResources
+  try {
+    console.log('🔐 Ad-hoc signing the entire app bundle...');
+    // --deep is recursive
+    // --force replaces any existing partial signatures
+    // - means ad-hoc signing
+    const bundleSignCommand = `codesign --force --deep --sign - "${appPath}"`;
+    
+    console.log('   Command:', bundleSignCommand);
+    execSync(bundleSignCommand, { stdio: 'pipe' });
+    
+    console.log('✅ App bundle signed successfully');
+  } catch (error) {
+    console.error('❌ Failed to sign app bundle:', error.message);
+    throw error;
+  }
+
   console.log('\n═══════════════════════════════════════════════════════════');
   console.log('✅ afterPack: SystemAudioDump ready for permissions!');
   console.log('═══════════════════════════════════════════════════════════\n');

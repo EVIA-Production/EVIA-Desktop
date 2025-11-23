@@ -1,6 +1,9 @@
 {
   "name": "evia",
-  "version": "1.0.0",
+  "productName": "EVIA",
+  "version": "1.0.2",
+  "description": "Real-time AI Sales Assistant for Deal Closing",
+  "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
   "main": "dist/main/main.js",
   "scripts": {
