@@ -1,4 +1,4 @@
-# EVIA Desktop (macOS first)
+# EVIA Desktop 
 
 - Transparent overlay window (frameless, always-on-top)
 - Dual WebSocket connections to backend `/ws/transcribe?source=mic|system`
