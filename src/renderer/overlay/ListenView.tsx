@@ -66,6 +66,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const lastMessageAtRef = useRef<number | null>(null);
   const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
+  // UI-only state for mic toggle (no capture logic yet)
+  const [micOn, setMicOn] = useState(false);
+  const [micDisabled, setMicDisabled] = useState(false);
   const finalTranscriptCountRef = useRef(0); // 🔥 GLASS PARITY: Counter for triggering auto-insights every 5 final transcripts
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
@@ -921,6 +924,43 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 </>
               )}
             </button>
+            {/* Minimalistic iOS-style mic switch (UI only) */}
+            <div className="mic-switch-wrapper">
+              <button
+                className="mic-switch"
+                role="switch"
+                aria-checked={micOn}
+                aria-label={i18n.t('overlay.listen.toggleMic') || 'Toggle microphone'}
+                title={i18n.t('overlay.listen.toggleMic') || 'Toggle microphone'}
+                onClick={() => {
+                  if (micDisabled) return;
+                  setMicOn(prev => !prev);
+                  setMicDisabled(true);
+                  setTimeout(() => setMicDisabled(false), 1500);
+                }}
+                onKeyDown={(e) => {
+                  if (micDisabled) return;
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setMicOn(prev => !prev);
+                    setMicDisabled(true);
+                    setTimeout(() => setMicDisabled(false), 1500);
+                  }
+                }}
+                aria-disabled={micDisabled}
+                disabled={micDisabled}
+              >
+                <span className="mic-switch-track" />
+                <span className="mic-switch-thumb">
+                  {/* Mic icon sits inside the thumb (white dot) */}
+                  <svg className="mic-thumb-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 1v11" />
+                    <path d="M19 11a7 7 0 01-14 0" />
+                    <path d="M12 21v-4" />
+                  </svg>
+                </span>
+              </button>
+            </div>
             <button
               className={`copy-button ${copyState === 'copied' ? 'copied' : ''}`}
               onClick={handleCopy}
