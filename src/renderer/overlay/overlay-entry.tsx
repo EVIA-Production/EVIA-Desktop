@@ -12,7 +12,6 @@ import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
 import { BACKEND_URL } from '../config/config'
-import { startDesktopHeartbeat } from '../utils/heartbeat'
 
 const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
@@ -188,12 +187,6 @@ function App() {
   const [language, setLanguage] = useState<'de' | 'en'>(savedLanguage as 'de' | 'en')
   const [isCapturing, setIsCapturing] = useState(false)
   const captureHandleRef = useRef<any>(null)
-
-  // 💓 Start Desktop heartbeat to notify web frontend that Desktop is running
-  useEffect(() => {
-    const cleanup = startDesktopHeartbeat();
-    return cleanup; // Stop heartbeat on unmount
-  }, []);
 
   // 🔧 REACTIVE I18N: Listen for language changes (local window event)
   useEffect(() => {

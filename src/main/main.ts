@@ -72,7 +72,7 @@ async function boot() {
   // 🪟 Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
     if (pendingDeepLink.startsWith('evia://auth-callback')) {
-      handleAuthCallback(pendingDeepLink);
+    handleAuthCallback(pendingDeepLink);
     } else if (pendingDeepLink.startsWith('evia://launch')) {
       handleLaunchRequest(pendingDeepLink);
     }
@@ -567,13 +567,38 @@ async function handleLaunchRequest(url: string) {
     const urlObj = new URL(url);
     const token = urlObj.searchParams.get('token');
     
-    // If token provided, auto-authenticate
+    // Check if Desktop is already authenticated
+    const existingToken = await keytar.getPassword('evia', 'auth_token');
+    const isAlreadyAuthenticated = !!existingToken;
+    
     if (token) {
-      console.log('[Launch] 🔑 Token provided, auto-authenticating...');
-      await headerController.handleAuthCallback(token);
+      if (isAlreadyAuthenticated) {
+        console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
+        // Update token in keytar without triggering full auth flow
+        try {
+          await keytar.setPassword('evia', 'auth_token', token);
+          console.log('[Launch] 🔑 Token updated in keytar');
+        } catch (err) {
+          console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);
+        }
+        
+        // Bring app to front
+        const headerWindow = getHeaderWindow();
+        if (headerWindow && !headerWindow.isDestroyed()) {
+          headerWindow.show();
+          if (headerWindow.isMinimized()) headerWindow.restore();
+          headerWindow.focus();
+          app.focus();
+          console.log('[Launch] ✅ Brought authenticated app to front');
+        } else {
+          console.log('[Launch] ⚠️ Header window not found, app may need restart');
+        }
+      } else {
+        console.log('[Launch] 🔑 Not authenticated yet, triggering full auth flow');
+        await headerController.handleAuthCallback(token);
+      }
     } else {
-      console.log('[Launch] 📱 Bringing app to front (no token)');
-      // Just bring the app to front if already running
+      console.log('[Launch] 📱 No token, bringing app to front if running');
       const mainWindow = BrowserWindow.getAllWindows()[0];
       if (mainWindow) {
         mainWindow.show();

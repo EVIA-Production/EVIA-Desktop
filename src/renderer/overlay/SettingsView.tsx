@@ -155,16 +155,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handlePersonalize = async () => {
     console.log('[SettingsView] 📝 Personalize / Meeting Notes clicked - opening /activity');
+    const eviaWindows = (window as any).evia?.windows;
     const eviaAuth = (window as any).evia?.auth;
+    if (!eviaWindows?.openExternal) return;
     
     try {
-      const { openInExistingOrNewTab } = await import('../utils/tabManager');
       const token = await eviaAuth?.getToken?.();
       const url = token 
         ? `${FRONTEND_URL}/activity?desktop_token=${encodeURIComponent(token)}`
         : `${FRONTEND_URL}/activity`;
       
-      await openInExistingOrNewTab(url);
+      eviaWindows.openExternal(url);
+      console.log('[SettingsView] ✅ Opened activity page');
     } catch (error) {
       console.error('[SettingsView] Error opening activity:', error);
     }
@@ -172,16 +174,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
+    const eviaWindows = (window as any).evia?.windows;
     const eviaAuth = (window as any).evia?.auth;
+    if (!eviaWindows?.openExternal) return;
     
     try {
-      const { openInExistingOrNewTab } = await import('../utils/tabManager');
       const token = await eviaAuth?.getToken?.();
       const url = token
         ? `${FRONTEND_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
         : `${FRONTEND_URL}/personalize`;
       
-      await openInExistingOrNewTab(url);
+      eviaWindows.openExternal(url);
+      console.log('[SettingsView] ✅ Opened personalize page');
     } catch (error) {
       console.error('[SettingsView] Error opening personalize:', error);
     }
