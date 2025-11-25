@@ -571,15 +571,32 @@ async function handleAuthCallback(url: string) {
 
 import { desktopBridge } from './desktop-bridge';
 
-// Force focus helper
+// Force focus helper - brings app to front even from fullscreen spaces
 function forceFocus(win: BrowserWindow) {
   if (win.isMinimized()) win.restore();
   win.show();
-  win.focus();
+  
   // macOS specific: force app to front even if another app is fullscreen
   if (process.platform === 'darwin') {
+    // Show app in dock first
     app.dock?.show();
-    app.focus({ steal: true }); // 'steal' forces focus from other apps
+    
+    // Make window visible on all workspaces temporarily to ensure it shows
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    
+    // Focus the window
+    win.focus();
+    
+    // Force activate the entire app
+    app.show(); // This is key for fullscreen spaces
+    app.focus({ steal: true });
+    
+    // Reset visible on all workspaces after a short delay
+    setTimeout(() => {
+      win.setVisibleOnAllWorkspaces(false);
+    }, 500);
+  } else {
+    win.focus();
   }
 }
 

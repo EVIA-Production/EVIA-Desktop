@@ -1,9 +1,29 @@
 import http from 'http';
 import { Server as WebSocketServer, WebSocket } from 'ws';
 import { app, shell, BrowserWindow } from 'electron';
+import { exec } from 'child_process';
 
 const PORT = 17394; // EVIA on phone pad
 const HOST = '127.0.0.1';
+
+/**
+ * Activate the default browser without opening a new tab
+ * Tries common browsers in order of popularity
+ */
+function activateBrowser(): void {
+  if (process.platform === 'darwin') {
+    // Try to activate common browsers - doesn't open new tab, just brings to front
+    exec('open -a Arc 2>/dev/null || open -a "Google Chrome" 2>/dev/null || open -a Safari 2>/dev/null || open -a Firefox 2>/dev/null || open -a "Microsoft Edge" 2>/dev/null || true', (err) => {
+      if (err) {
+        console.log('[Bridge] ⚠️ Could not activate browser (non-fatal)');
+      } else {
+        console.log('[Bridge] 🪟 Activated browser');
+      }
+    });
+  }
+  // On Windows/Linux, we can't easily activate without opening URL
+  // User will need to switch manually
+}
 
 class DesktopBridge {
   private httpServer: http.Server | null = null;
@@ -78,7 +98,7 @@ class DesktopBridge {
 
   /**
    * Navigates existing tab or opens new one
-   * ALWAYS brings browser to front by calling shell.openExternal
+   * Uses WS for tab reuse, activates browser without opening new tab
    */
   public async navigateTo(url: string): Promise<void> {
     console.log(`[Bridge] 🧭 Requesting navigation to: ${url}`);
@@ -90,22 +110,16 @@ class DesktopBridge {
         console.log('[Bridge] 📡 Sending navigation command to existing tab');
         client.send(JSON.stringify({ type: 'navigate', url }));
         
-        // IMPORTANT: Also bring browser to front by opening URL
-        // This switches spaces/focus even if browser is in background
-        // The frontend will handle the duplicate tab scenario
-        setTimeout(async () => {
-          try {
-            await shell.openExternal(url);
-            console.log('[Bridge] 🪟 Brought browser to front via openExternal');
-          } catch (err) {
-            console.error('[Bridge] ⚠️ Failed to bring browser to front:', err);
-          }
-        }, 100); // Small delay to let WS message arrive first
+        // Activate the browser WITHOUT opening a new tab
+        // Small delay to let WS message arrive first
+        setTimeout(() => {
+          activateBrowser();
+        }, 100);
         return;
       }
     }
 
-    // No active clients, open new tab
+    // No active clients, open new tab (this is the only case where we open a new tab)
     console.log('[Bridge] 📂 No active tabs, opening new window');
     await shell.openExternal(url);
   }
