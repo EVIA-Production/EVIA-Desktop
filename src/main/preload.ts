@@ -110,9 +110,10 @@ contextBridge.exposeInMainWorld('evia', {
     checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // 🔧 NEW: Check token expiry
     validate: () => ipcRenderer.invoke('auth:validate')  // 🔧 UI IMPROVEMENT: Proactive auth validation
   },
-  // 🌐 Shell API: Open external URLs
+  // 🌐 Shell API: Open external URLs and Navigate
   shell: {
-    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+    navigate: (url: string) => ipcRenderer.invoke('shell:navigate', url)
   },
   // 🚪 App control
   app: {

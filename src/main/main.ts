@@ -483,7 +483,7 @@ ipcMain.handle('permissions:mark-complete', async () => {
   }
 });
 
-// CLEAR SESSION: Resetea UI en todas las windows
+// CLEAR SESSION: Reset UI in all windows
 ipcMain.on('clear-session', () => {
   console.log('[Main] 🧹 clear-session received — broadcasting to child windows');
 
@@ -560,7 +560,21 @@ async function handleAuthCallback(url: string) {
   }
 }
 
-// 🚀 Handle launch request from Frontend (Task 3: SSO)
+import { desktopBridge } from './desktop-bridge';
+
+// Force focus helper
+function forceFocus(win: BrowserWindow) {
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  // macOS specific: force app to front even if another app is fullscreen
+  if (process.platform === 'darwin') {
+    app.dock?.show();
+    app.focus({ steal: true }); // 'steal' forces focus from other apps
+  }
+}
+
+// Handle launch request from Frontend (Task 3: SSO)
 async function handleLaunchRequest(url: string) {
   try {
     console.log('[Launch] 🚀 Launch request received:', url);
@@ -574,7 +588,6 @@ async function handleLaunchRequest(url: string) {
     if (token) {
       if (isAlreadyAuthenticated) {
         console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
-        // Update token in keytar without triggering full auth flow
         try {
           await keytar.setPassword('evia', 'auth_token', token);
           console.log('[Launch] 🔑 Token updated in keytar');
@@ -582,35 +595,47 @@ async function handleLaunchRequest(url: string) {
           console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);
         }
         
-        // Bring app to front
+        // Bring app to front with force
         const headerWindow = getHeaderWindow();
         if (headerWindow && !headerWindow.isDestroyed()) {
-          headerWindow.show();
-          if (headerWindow.isMinimized()) headerWindow.restore();
-          headerWindow.focus();
-          app.focus();
-          console.log('[Launch] ✅ Brought authenticated app to front');
+          forceFocus(headerWindow);
+          console.log('[Launch] ✅ Brought authenticated app to front (forced)');
         } else {
           console.log('[Launch] ⚠️ Header window not found, app may need restart');
         }
       } else {
         console.log('[Launch] 🔑 Not authenticated yet, triggering full auth flow');
         await headerController.handleAuthCallback(token);
+        // Ensure newly created windows are focused
+        setTimeout(() => {
+          const wins = BrowserWindow.getAllWindows();
+          if (wins.length > 0) forceFocus(wins[0]);
+        }, 500);
       }
     } else {
       console.log('[Launch] 📱 No token, bringing app to front if running');
       const mainWindow = BrowserWindow.getAllWindows()[0];
       if (mainWindow) {
-        mainWindow.show();
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-        app.focus();
+        forceFocus(mainWindow);
       }
     }
   } catch (err) {
     console.error('[Launch] ❌ Launch handling failed:', err);
   }
 }
+
+// IPC Handler for navigation (Tab Reuse)
+ipcMain.handle('shell:navigate', async (_event, url: string) => {
+  try {
+    await desktopBridge.navigateTo(url);
+    return { success: true };
+  } catch (err) {
+    console.error('[Bridge] Navigation failed:', err);
+    // Fallback to standard open
+    await shell.openExternal(url);
+    return { success: true };
+  }
+});
 
 // Kick off boot
 boot().catch((err) => {

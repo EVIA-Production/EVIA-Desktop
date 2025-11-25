@@ -155,9 +155,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handlePersonalize = async () => {
     console.log('[SettingsView] 📝 Personalize / Meeting Notes clicked - opening /activity');
-    const eviaWindows = (window as any).evia?.windows;
+    const eviaShell = (window as any).evia?.shell;
     const eviaAuth = (window as any).evia?.auth;
-    if (!eviaWindows?.openExternal) return;
+    
+    if (!eviaShell?.navigate) {
+      console.error('[SettingsView] Shell navigation API not available');
+      // Fallback
+      if ((window as any).evia?.windows?.openExternal) {
+        (window as any).evia.windows.openExternal(`${FRONTEND_URL}/activity`);
+      }
+      return;
+    }
     
     try {
       const token = await eviaAuth?.getToken?.();
@@ -165,18 +173,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         ? `${FRONTEND_URL}/activity?desktop_token=${encodeURIComponent(token)}`
         : `${FRONTEND_URL}/activity`;
       
-      eviaWindows.openExternal(url);
-      console.log('[SettingsView] ✅ Opened activity page');
+      console.log('[SettingsView] 🧭 Requesting navigation via bridge');
+      await eviaShell.navigate(url);
+      console.log('[SettingsView] ✅ Navigation request sent');
     } catch (error) {
-      console.error('[SettingsView] Error opening activity:', error);
+      console.error('[SettingsView] Error requesting navigation:', error);
     }
   };
   
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
-    const eviaWindows = (window as any).evia?.windows;
+    const eviaShell = (window as any).evia?.shell;
     const eviaAuth = (window as any).evia?.auth;
-    if (!eviaWindows?.openExternal) return;
+    
+    if (!eviaShell?.navigate) {
+      console.error('[SettingsView] Shell navigation API not available');
+      // Fallback
+      if ((window as any).evia?.windows?.openExternal) {
+        (window as any).evia.windows.openExternal(`${FRONTEND_URL}/personalize`);
+      }
+      return;
+    }
     
     try {
       const token = await eviaAuth?.getToken?.();
@@ -184,10 +201,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         ? `${FRONTEND_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
         : `${FRONTEND_URL}/personalize`;
       
-      eviaWindows.openExternal(url);
-      console.log('[SettingsView] ✅ Opened personalize page');
+      console.log('[SettingsView] 🧭 Requesting navigation via bridge');
+      await eviaShell.navigate(url);
+      console.log('[SettingsView] ✅ Navigation request sent');
     } catch (error) {
-      console.error('[SettingsView] Error opening personalize:', error);
+      console.error('[SettingsView] Error requesting navigation:', error);
     }
   };
 
@@ -263,7 +281,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
       const { BACKEND_URL } = await import('../config/config');
       
-      // 🆕 CRITICAL: Always clear cache when changing/deactivating presets
+      // Always clear cache when changing/deactivating presets
       try {
         console.log('[SettingsView] 🧹 Clearing preset cache...');
         const clearResponse = await fetch(`${BACKEND_URL}/prompts/clear-cache`, {
