@@ -36,7 +36,15 @@ if (process.platform === "win32") {
         console.log('[Protocol] second-instance found url:', url);
         // If app is ready, handle immediately, otherwise queue
         if (app.isReady()) {
-          try { handleAuthCallback(url); } catch (err) { console.error('[Protocol] handleAuthCallback failed:', err); }
+          try {
+            if (url.startsWith('evia://auth-callback')) {
+              handleAuthCallback(url);
+            } else if (url.startsWith('evia://launch')) {
+              handleLaunchRequest(url);
+            }
+          } catch (err) {
+            console.error('[Protocol] Handler failed:', err);
+          }
         } else {
           pendingDeepLink = url;
         }
@@ -63,7 +71,11 @@ async function boot() {
 
   // 🪟 Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
-    handleAuthCallback(pendingDeepLink);
+    if (pendingDeepLink.startsWith('evia://auth-callback')) {
+      handleAuthCallback(pendingDeepLink);
+    } else if (pendingDeepLink.startsWith('evia://launch')) {
+      handleLaunchRequest(pendingDeepLink);
+    }
   }
 
   // Show one-time informational message on Windows, then continue
@@ -519,6 +531,8 @@ app.on('open-url', (event, url) => {
   
   if (url.startsWith('evia://auth-callback')) {
     handleAuthCallback(url);
+  } else if (url.startsWith('evia://launch')) {
+    handleLaunchRequest(url);
   }
 });
 
@@ -543,6 +557,33 @@ async function handleAuthCallback(url: string) {
   } catch (err) {
     console.error('[Auth] ❌ Callback parsing failed:', err);
     dialog.showErrorBox('Auth Error', 'Failed to process login callback');
+  }
+}
+
+// 🚀 Handle launch request from Frontend (Task 3: SSO)
+async function handleLaunchRequest(url: string) {
+  try {
+    console.log('[Launch] 🚀 Launch request received:', url);
+    const urlObj = new URL(url);
+    const token = urlObj.searchParams.get('token');
+    
+    // If token provided, auto-authenticate
+    if (token) {
+      console.log('[Launch] 🔑 Token provided, auto-authenticating...');
+      await headerController.handleAuthCallback(token);
+    } else {
+      console.log('[Launch] 📱 Bringing app to front (no token)');
+      // Just bring the app to front if already running
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        mainWindow.show();
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+        app.focus();
+      }
+    }
+  } catch (err) {
+    console.error('[Launch] ❌ Launch handling failed:', err);
   }
 }
 
