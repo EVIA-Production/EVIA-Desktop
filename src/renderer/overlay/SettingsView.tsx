@@ -155,39 +155,35 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handlePersonalize = async () => {
     console.log('[SettingsView] 📝 Personalize / Meeting Notes clicked - opening /activity');
-    const eviaWindows = (window as any).evia?.windows;
     const eviaAuth = (window as any).evia?.auth;
-    if (!eviaWindows?.openExternal) return;
     
     try {
+      const { openInExistingOrNewTab } = await import('../utils/tabManager');
       const token = await eviaAuth?.getToken?.();
-      if (token) {
-        eviaWindows.openExternal(`${FRONTEND_URL}/activity?desktop_token=${encodeURIComponent(token)}`);
-      } else {
-        eviaWindows.openExternal(`${FRONTEND_URL}/activity`);
-      }
+      const url = token 
+        ? `${FRONTEND_URL}/activity?desktop_token=${encodeURIComponent(token)}`
+        : `${FRONTEND_URL}/activity`;
+      
+      await openInExistingOrNewTab(url);
     } catch (error) {
-      console.error('[SettingsView] Error getting token:', error);
-      eviaWindows.openExternal(`${FRONTEND_URL}/activity`);
+      console.error('[SettingsView] Error opening activity:', error);
     }
   };
   
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
-    const eviaWindows = (window as any).evia?.windows;
     const eviaAuth = (window as any).evia?.auth;
-    if (!eviaWindows?.openExternal) return;
     
     try {
+      const { openInExistingOrNewTab } = await import('../utils/tabManager');
       const token = await eviaAuth?.getToken?.();
-      if (token) {
-        eviaWindows.openExternal(`${FRONTEND_URL}/personalize?desktop_token=${encodeURIComponent(token)}`);
-      } else {
-        eviaWindows.openExternal(`${FRONTEND_URL}/personalize`);
-      }
+      const url = token
+        ? `${FRONTEND_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
+        : `${FRONTEND_URL}/personalize`;
+      
+      await openInExistingOrNewTab(url);
     } catch (error) {
-      console.error('[SettingsView] Error getting token:', error);
-      eviaWindows.openExternal(`${FRONTEND_URL}/personalize`);
+      console.error('[SettingsView] Error opening personalize:', error);
     }
   };
 
