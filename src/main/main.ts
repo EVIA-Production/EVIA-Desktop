@@ -575,20 +575,73 @@ import { desktopBridge } from './desktop-bridge';
 // The window's alwaysOnTop and visibleOnAllWorkspaces are set at creation
 // Don't mess with them here - just restore and focus
 function forceFocus(win: BrowserWindow) {
-  if (win.isMinimized()) win.restore();
+  console.log('[FOCUS-DEBUG] ========== forceFocus called ==========');
+  console.log('[FOCUS-DEBUG] Window exists:', !!win);
+  console.log('[FOCUS-DEBUG] Window destroyed:', win?.isDestroyed());
+  
+  if (!win || win.isDestroyed()) {
+    console.log('[FOCUS-DEBUG] ❌ Window invalid, aborting');
+    return;
+  }
+  
+  console.log('[FOCUS-DEBUG] BEFORE:');
+  console.log('[FOCUS-DEBUG]   isVisible:', win.isVisible());
+  console.log('[FOCUS-DEBUG]   isMinimized:', win.isMinimized());
+  console.log('[FOCUS-DEBUG]   isFocused:', win.isFocused());
+  console.log('[FOCUS-DEBUG]   isAlwaysOnTop:', win.isAlwaysOnTop());
+  console.log('[FOCUS-DEBUG]   bounds:', JSON.stringify(win.getBounds()));
+  
+  if (win.isMinimized()) {
+    console.log('[FOCUS-DEBUG] 🔧 Restoring minimized window');
+    win.restore();
+  }
+  
+  console.log('[FOCUS-DEBUG] 🔧 Calling show()');
+  win.show();
+  
+  console.log('[FOCUS-DEBUG] 🔧 Calling focus()');
   win.focus();
+  
+  // Try moveTop to ensure it's on top
+  console.log('[FOCUS-DEBUG] 🔧 Calling moveTop()');
+  win.moveTop();
+  
+  console.log('[FOCUS-DEBUG] AFTER:');
+  console.log('[FOCUS-DEBUG]   isVisible:', win.isVisible());
+  console.log('[FOCUS-DEBUG]   isMinimized:', win.isMinimized());
+  console.log('[FOCUS-DEBUG]   isFocused:', win.isFocused());
+  console.log('[FOCUS-DEBUG]   isAlwaysOnTop:', win.isAlwaysOnTop());
+  console.log('[FOCUS-DEBUG] ========== forceFocus done ==========');
 }
 
 // Handle launch request from Frontend (Task 3: SSO)
 async function handleLaunchRequest(url: string) {
   try {
-    console.log('[Launch] 🚀 Launch request received:', url);
+    console.log('[Launch] ========== LAUNCH REQUEST ==========');
+    console.log('[Launch] 🚀 URL:', url);
+    console.log('[Launch] 📍 Platform:', process.platform);
+    
     const urlObj = new URL(url);
     const token = urlObj.searchParams.get('token');
     
     // Check if Desktop is already authenticated
     const existingToken = await keytar.getPassword('evia', 'auth_token');
     const isAlreadyAuthenticated = !!existingToken;
+    console.log('[Launch] 🔐 Already authenticated:', isAlreadyAuthenticated);
+    
+    // Get ALL windows and log their state
+    const allWindows = BrowserWindow.getAllWindows();
+    console.log('[Launch] 🪟 Total windows:', allWindows.length);
+    allWindows.forEach((win, i) => {
+      console.log(`[Launch] Window[${i}]:`, {
+        title: win.getTitle(),
+        visible: win.isVisible(),
+        minimized: win.isMinimized(),
+        focused: win.isFocused(),
+        alwaysOnTop: win.isAlwaysOnTop(),
+        bounds: win.getBounds()
+      });
+    });
     
     if (token) {
       if (isAlreadyAuthenticated) {
@@ -602,8 +655,19 @@ async function handleLaunchRequest(url: string) {
         
         // Bring app to front with force
         const headerWindow = getHeaderWindow();
+        console.log('[Launch] 🎯 Header window found:', !!headerWindow);
+        
         if (headerWindow && !headerWindow.isDestroyed()) {
+          console.log('[Launch] 📊 Header window BEFORE focus:');
+          console.log('[Launch]   - isVisible:', headerWindow.isVisible());
+          console.log('[Launch]   - isAlwaysOnTop:', headerWindow.isAlwaysOnTop());
+          console.log('[Launch]   - visibleOnAllWorkspaces:', headerWindow.isVisibleOnAllWorkspaces());
+          
           forceFocus(headerWindow);
+          
+          console.log('[Launch] 📊 Header window AFTER focus:');
+          console.log('[Launch]   - isVisible:', headerWindow.isVisible());
+          console.log('[Launch]   - isAlwaysOnTop:', headerWindow.isAlwaysOnTop());
           console.log('[Launch] ✅ Brought authenticated app to front (forced)');
         } else {
           console.log('[Launch] ⚠️ Header window not found, app may need restart');
@@ -624,6 +688,7 @@ async function handleLaunchRequest(url: string) {
         forceFocus(mainWindow);
       }
     }
+    console.log('[Launch] ========== LAUNCH DONE ==========');
   } catch (err) {
     console.error('[Launch] ❌ Launch handling failed:', err);
   }

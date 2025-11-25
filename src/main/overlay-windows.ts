@@ -127,6 +127,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     transparent: true,
     resizable: false,
     movable: true,
+    type: 'panel', // KEY: 'panel' type floats above fullscreen apps on macOS
     alwaysOnTop: true,
     skipTaskbar: true,
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
@@ -164,8 +165,10 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   }
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  // Glass parity: Use default alwaysOnTop level (not 'screen-saver')
-  // 'screen-saver' can cause issues with fullscreen space switching
+  // Use 'screen-saver' level - highest priority, appears above fullscreen
+  if (process.platform === 'darwin') {
+    headerWindow.setAlwaysOnTop(true, 'screen-saver');
+  }
   headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
 
@@ -300,6 +303,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     minimizable: false,
     maximizable: false,
     focusable: needsFocus, // Ask/Settings/Shortcuts can receive focus
+    type: 'panel', // KEY: 'panel' type floats above fullscreen apps on macOS
     skipTaskbar: true,
     alwaysOnTop: true,
     modal: false,
