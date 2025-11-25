@@ -11,60 +11,69 @@ class DesktopBridge {
   private activeClients: Set<WebSocket> = new Set();
 
   constructor() {
+    // Lazy start
+  }
+
+  public start() {
+    if (this.httpServer) return; // Already running
     this.startServer();
   }
 
   private startServer() {
-    // HTTP Server for status checks (CORS enabled)
-    this.httpServer = http.createServer((req, res) => {
-      // Set CORS headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', '*');
+    try {
+      // HTTP Server for status checks (CORS enabled)
+      this.httpServer = http.createServer((req, res) => {
+        // Set CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', '*');
 
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
 
-      if (req.url === '/status' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          status: 'running',
-          version: app.getVersion(),
-          platform: process.platform
-        }));
-      } else {
-        res.writeHead(404);
-        res.end();
-      }
-    });
-
-    // WebSocket Server for tab communication
-    this.wss = new WebSocketServer({ server: this.httpServer });
-
-    this.wss.on('connection', (ws: WebSocket) => {
-      console.log('[Bridge] 🔗 Frontend tab connected');
-      this.activeClients.add(ws);
-
-      ws.on('close', () => {
-        console.log('[Bridge] ❌ Frontend tab disconnected');
-        this.activeClients.delete(ws);
+        if (req.url === '/status' && req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            status: 'running',
+            version: app.getVersion(),
+            platform: process.platform
+          }));
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
       });
 
-      ws.on('error', (err: Error) => {
-        console.error('[Bridge] ⚠️ WebSocket error:', err);
+      // WebSocket Server for tab communication
+      this.wss = new WebSocketServer({ server: this.httpServer });
+
+      this.wss.on('connection', (ws: WebSocket) => {
+        console.log('[Bridge] 🔗 Frontend tab connected');
+        this.activeClients.add(ws);
+
+        ws.on('close', () => {
+          console.log('[Bridge] ❌ Frontend tab disconnected');
+          this.activeClients.delete(ws);
+        });
+
+        ws.on('error', (err: Error) => {
+          console.error('[Bridge] ⚠️ WebSocket error:', err);
+        });
       });
-    });
 
-    this.httpServer.listen(PORT, HOST, () => {
-      console.log(`[Bridge] 🌉 Server running at http://${HOST}:${PORT}`);
-    });
+      this.httpServer.listen(PORT, HOST, () => {
+        console.log(`[Bridge] 🌉 Server running at http://${HOST}:${PORT}`);
+      });
 
-    this.httpServer.on('error', (err) => {
-      console.error('[Bridge] ❌ Server error:', err);
-    });
+      this.httpServer.on('error', (err) => {
+        console.error('[Bridge] ❌ Server error:', err);
+      });
+    } catch (err) {
+      console.error('[Bridge] ❌ Failed to start bridge:', err);
+    }
   }
 
   /**

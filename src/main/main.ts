@@ -117,6 +117,13 @@ async function boot() {
 
   // Initialize header flow
   await headerController.initialize();
+  
+  // Start Desktop Bridge (HTTP/WS Server)
+  try {
+    desktopBridge.start();
+  } catch (err) {
+    console.error('[Main] ❌ Failed to start desktop bridge:', err);
+  }
 
   // Note: Global shortcuts are registered in overlay-windows.ts
 }
