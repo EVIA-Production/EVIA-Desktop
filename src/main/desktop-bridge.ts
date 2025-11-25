@@ -78,6 +78,7 @@ class DesktopBridge {
 
   /**
    * Navigates existing tab or opens new one
+   * ALWAYS brings browser to front by calling shell.openExternal
    */
   public async navigateTo(url: string): Promise<void> {
     console.log(`[Bridge] 🧭 Requesting navigation to: ${url}`);
@@ -89,13 +90,17 @@ class DesktopBridge {
         console.log('[Bridge] 📡 Sending navigation command to existing tab');
         client.send(JSON.stringify({ type: 'navigate', url }));
         
-        // Also bring browser to front if possible (best effort)
-        // On macOS, we can try to open the browser app to focus it
-        if (process.platform === 'darwin') {
-          // Nothing needed, browser usually focuses when receiving WS message if it handles it well
-          // Or we can execute a shell command to focus Chrome/Arc/etc. if we knew which one.
-          // For now, sending the message is enough to update the content.
-        }
+        // IMPORTANT: Also bring browser to front by opening URL
+        // This switches spaces/focus even if browser is in background
+        // The frontend will handle the duplicate tab scenario
+        setTimeout(async () => {
+          try {
+            await shell.openExternal(url);
+            console.log('[Bridge] 🪟 Brought browser to front via openExternal');
+          } catch (err) {
+            console.error('[Bridge] ⚠️ Failed to bring browser to front:', err);
+          }
+        }, 100); // Small delay to let WS message arrive first
         return;
       }
     }

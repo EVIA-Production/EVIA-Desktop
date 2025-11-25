@@ -69,6 +69,15 @@ function getBackendHttpBase(): string {
 async function boot() {
   await app.whenReady();
 
+  // Start Desktop Bridge (HTTP/WS Server) EARLY
+  // This ensures status detection works even if other subsystems hang
+  try {
+    console.log('[Main] 🌉 Starting Desktop Bridge...');
+    desktopBridge.start();
+  } catch (err) {
+    console.error('[Main] ❌ Failed to start desktop bridge:', err);
+  }
+
   // 🪟 Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
     if (pendingDeepLink.startsWith('evia://auth-callback')) {
@@ -118,13 +127,6 @@ async function boot() {
   // Initialize header flow
   await headerController.initialize();
   
-  // Start Desktop Bridge (HTTP/WS Server)
-  try {
-    desktopBridge.start();
-  } catch (err) {
-    console.error('[Main] ❌ Failed to start desktop bridge:', err);
-  }
-
   // Note: Global shortcuts are registered in overlay-windows.ts
 }
 
