@@ -571,22 +571,12 @@ async function handleAuthCallback(url: string) {
 
 import { desktopBridge } from './desktop-bridge';
 
-// Force focus helper - ensures overlay window is visible without switching spaces
+// Force focus helper - Glass-style: simple restore and focus
+// The window's alwaysOnTop and visibleOnAllWorkspaces are set at creation
+// Don't mess with them here - just restore and focus
 function forceFocus(win: BrowserWindow) {
   if (win.isMinimized()) win.restore();
-  
-  // Ensure window is visible on all workspaces including fullscreen
-  // This is the KEY for overlays - they must stay visible on fullscreen spaces
-  if (process.platform === 'darwin') {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.setAlwaysOnTop(true, 'screen-saver'); // Highest level to appear over fullscreen
-  }
-  
-  win.show();
   win.focus();
-  
-  // DON'T call app.show() or app.focus({ steal: true }) - these switch spaces!
-  // DON'T reset setVisibleOnAllWorkspaces - the window should stay visible on all spaces
 }
 
 // Handle launch request from Frontend (Task 3: SSO)

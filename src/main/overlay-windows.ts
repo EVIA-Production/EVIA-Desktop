@@ -129,6 +129,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
+    hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000', // Fully transparent
@@ -163,7 +164,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   }
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  headerWindow.setAlwaysOnTop(true, 'screen-saver')
+  // Glass parity: Use default alwaysOnTop level (not 'screen-saver')
+  // 'screen-saver' can cause issues with fullscreen space switching
   headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
 
