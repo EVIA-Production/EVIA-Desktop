@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
+import DraggableHandle from './DraggableHandle';
 import { i18n } from '../i18n/i18n';
-import { pickScreenAndMic } from './ScreenPicker';
 import { startCaptureWithStreams } from '../audio-processor-glass-parity';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
@@ -81,9 +81,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     const handleErrorBlink = () => {
       console.log('[EviaBar] ⚠️ Triggering error blink animation');
       if (headerRef.current) {
-        // Add error-blink class
         headerRef.current.classList.add('error-blink');
-        // Remove after animation completes (0.5s * 2 = 1s)
         setTimeout(() => {
           headerRef.current?.classList.remove('error-blink');
         }, 1000);
@@ -91,78 +89,48 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
 
     const eviaIpc = (window as any).evia?.ipc;
-    if (eviaIpc) {
-      eviaIpc.on('trigger-error-blink', handleErrorBlink);
-    }
-
+    eviaIpc?.on?.('overlay:error-blink', handleErrorBlink);
     return () => {
-      if (eviaIpc) {
-        eviaIpc.off('trigger-error-blink', handleErrorBlink);
-      }
+      eviaIpc?.off?.('overlay:error-blink', handleErrorBlink);
     };
   }, []);
 
-  // 🆕 BACKEND INTEGRATION: Sync session state on app load
+  // 🔄 Sync session state with backend and listen for chat changes
   useEffect(() => {
-    // Mount-only: read cached session state from localStorage first to set UI immediately
-    try {
-      const cached = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' | null;
-      if (cached) {
-        console.log('[EviaBar] ⚡ Initial session state from localStorage:', cached);
-        if (cached === 'during') {
-          setListenStatus('in');
-          setIsListenActive(true);
-          // mark local start to avoid immediate resets
-          lastLocalStartMsRef.current = Date.now();
-        } else if (cached === 'after') {
-          setListenStatus('after');
-          setIsListenActive(false);
-        } else {
-          setListenStatus('before');
-          setIsListenActive(false);
-        }
-      }
-    } catch (err) {
-      console.warn('[EviaBar] Could not read initial session state from localStorage:', err);
-    }
-
     const syncSessionState = async () => {
       try {
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
         const { BACKEND_URL: baseUrl } = await import('../config/config');
-        
+
         if (!token || !chatId) {
           console.log('[EviaBar] ⏭️ Skipping session status sync: no token or chat_id');
           return;
         }
-        
+
         console.log('[EviaBar] 🔄 Syncing session state with backend...');
         const response = await fetch(`${baseUrl}/session/status`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ chat_id: Number(chatId) })
+          body: JSON.stringify({ chat_id: Number(chatId) }),
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           console.log('[EviaBar] ✅ Backend session status:', data.status);
-          
-          // Map backend states to Desktop states
+
           const now = Date.now();
           const withinGrace = now - lastLocalStartMsRef.current < 2000;
           if (data.status === 'during') {
             setListenStatus('in');
           } else if (data.status === 'after') {
             setListenStatus('after');
-          } else {
-            if (!(withinGrace && listenStatus === 'in')) {
-              setListenStatus('before');
-            }
+          } else if (!(withinGrace && listenStatusRef.current === 'in')) {
+            setListenStatus('before');
           }
         } else {
           console.error('[EviaBar] ❌ Failed to get session status:', response.status, await response.text());
@@ -171,25 +139,19 @@ const EviaBar: React.FC<EviaBarProps> = ({
         console.error('[EviaBar] ❌ Error syncing session state:', error);
       }
     };
-    
+
     // Sync on mount
     syncSessionState();
-    
-    // Re-sync when chat_id changes (user switches chats)
+
     const handleChatChanged = () => {
       console.log('[EviaBar] 💬 Chat changed - syncing session state');
       syncSessionState();
     };
-    
+
     const eviaIpc = (window as any).evia?.ipc;
-    if (eviaIpc) {
-      eviaIpc.on('chat-changed', handleChatChanged);
-    }
-    
+    eviaIpc?.on?.('chat-changed', handleChatChanged);
     return () => {
-      if (eviaIpc) {
-        eviaIpc.off('chat-changed', handleChatChanged);
-      }
+      eviaIpc?.off?.('chat-changed', handleChatChanged);
     };
   }, []);
 
@@ -294,69 +256,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
     measureAndResize();
   }, [language]); // Re-measure when language changes (German words are longer!)
 
-  useEffect(() => {
-    const node = headerRef.current;
-    if (!node) return;
-
-    const handleMouseDown = async (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      
-      // 🔧 FIX #3 + BUG-2: Check for buttons BEFORE preventDefault to allow button clicks!
-      // preventDefault() blocks click events, so we must check button status first
-      const target = event.target as HTMLElement;
-      if (target.closest('button, .action, .evia-header-actions')) {
-        console.log('[EviaBar] Click on button/action, skipping drag');
-        // Don't preventDefault - let button's onClick handler fire!
-        return;
-      }
-      
-      // NOW prevent default for drag (only on header background)
-      event.preventDefault();
-      const pos = await (window as any).evia?.windows?.getHeaderPosition?.();
-      if (!pos) return;
-      dragState.current = {
-        startX: event.screenX,
-        startY: event.screenY,
-        initialX: pos.x,
-        initialY: pos.y,
-      };
-      window.addEventListener('mousemove', handleMouseMove, { capture: true });
-      window.addEventListener('mouseup', handleMouseUp, { once: true, capture: true });
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!dragState.current) return;
-      event.preventDefault();
-      
-      // 🔴 CRITICAL FIX: Throttle to 60fps (16ms) to prevent IPC queue overload
-      const now = Date.now();
-      if (now - lastMoveTimeRef.current < 16) {
-        return;
-      }
-      lastMoveTimeRef.current = now;
-      
-      const dx = event.screenX - dragState.current.startX;
-      const dy = event.screenY - dragState.current.startY;
-      const newX = dragState.current.initialX + dx;
-      const newY = dragState.current.initialY + dy;
-      
-      console.log(`[EviaBar] 🖱️ Mouse move: requesting (${newX}, ${newY})`);
-      
-      (window as any).evia?.windows?.moveHeaderTo?.(newX, newY);
-    };
-
-    const handleMouseUp = () => {
-      dragState.current = null;
-      window.removeEventListener('mousemove', handleMouseMove, true);
-    };
-
-    node.addEventListener('mousedown', handleMouseDown);
-    return () => {
-      node.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mousemove', handleMouseMove, true);
-      window.removeEventListener('mouseup', handleMouseUp, true);
-    };
-  }, []);
+  // Remove global/header-level drag logic: dragging is now handled exclusively
+  // by the right-side semicircular <DraggableHandle /> using app-region: drag.
+  // No header-wide listeners are needed here.
 
   const toggleWindow = async (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => {
     const res = await (window as any).evia?.windows?.show?.(name);
@@ -579,7 +481,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
     : i18n.t('overlay.header.done');
 
   return (
-    <div ref={headerRef} className="evia-main-header">
+    <div ref={headerRef} className="evia-main-header no-drag">
+      {/* Listen button */}
       <button
         type="button"
         className={`evia-listen-button ${isListenActive ? 'listen-active' : ''} ${listenStatus === 'after' ? 'listen-done' : ''}`}
@@ -589,7 +492,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         <span className="evia-listen-icon">
           {(isListenActive || listenStatus === 'after') ? (
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect width="9" height="9" rx="1" fill="white"/>
+              <rect width="9" height="9" rx="1" fill="white" />
             </svg>
           ) : (
             <svg width="12" height="11" viewBox="0 0 12 11" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -601,7 +504,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
         </span>
       </button>
 
-        <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
+      {/* Ask action */}
+      <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">{i18n.t('overlay.header.ask')}</span>
         <div className="evia-icon-box">
           <img src={CommandIcon} alt="Cmd" width={11} height={12} />
@@ -609,6 +513,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         <div className="evia-icon-box">↵</div>
       </div>
 
+      {/* Show/Hide action */}
       <div className="evia-header-actions" onClick={handleToggleVisibility} role="button" tabIndex={0}>
         <span className="evia-action-text">{i18n.t('overlay.header.show')}/{i18n.t('overlay.header.hide')}</span>
         <div className="evia-icon-box">
@@ -617,6 +522,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         <div className="evia-icon-box">\</div>
       </div>
 
+      {/* Settings button */}
       <button
         type="button"
         className={`evia-settings-button ${isSettingsActive ? 'active' : ''}`}
@@ -630,6 +536,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
           <circle cx="8" cy="13.17" r="1" fill="white"/>
         </svg>
       </button>
+
+      {/* New right-end draggable handle (semicircular slice) */}
+      <DraggableHandle />
     </div>
   );
 };

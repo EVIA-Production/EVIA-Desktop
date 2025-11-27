@@ -153,7 +153,7 @@
   EVIA BAR (Glass Parity)
   ============================================ */
 .evia-main-header {
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag; /* Entire header is non-draggable by default */
   width: max-content;
   height: 47px;
   padding: 2px 10px 2px 13px;
@@ -278,29 +278,28 @@
 /* ============================================
   Right-side semicircular draggable handle
   ============================================ */
+/* Right-side semicircular draggable handle */
 .evia-drag-handle {
   -webkit-app-region: drag; /* Only handle is draggable */
-  width: 42px;
+  width: 40px;
   height: 30px;
   margin-left: 10px;
-  border-top-left-radius: 15px;
-  border-bottom-left-radius: 15px;
-  border-top-right-radius: 15px;
-  border-bottom-right-radius: 15px;
+  border-radius: 0 16px 16px 0; /* right-side semicircle */
   background: var(--surface-12);
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: grab;
-  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden; /* for cut-out */
 }
 .evia-drag-handle::before {
   /* subtle visual separation (cut-out border effect) */
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 15px;
+  border-radius: 0 16px 16px 0;
   padding: 1px;
   background: var(--glass-gradient);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -309,18 +308,10 @@
   mask-composite: exclude;
   pointer-events: none;
 }
-.evia-drag-handle:hover {
-  background: var(--surface-hover);
-}
-.evia-drag-handle:active {
-  cursor: grabbing;
-}
+.evia-drag-handle:hover { background: var(--surface-hover); }
+.evia-drag-handle:active { cursor: grabbing; }
 .evia-drag-handle svg { opacity: 0.95; }
-
-.evia-drag-handle--active {
-  transform: scale(1.05);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
-}
+.evia-drag-handle--active { transform: scale(1.07); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
 
 /* ============================================
    LISTEN VIEW (Glass Parity)
