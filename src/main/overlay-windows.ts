@@ -196,6 +196,28 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     }
   })
 
+  // 🔥 LIVE FOLLOW: Continuously re-layout overlays while dragging/resizing the header
+  // Throttle to ~60fps to avoid jank; do NOT persist to disk in this fast path.
+  let liveLayoutScheduled = false
+  const requestLiveLayout = () => {
+    if (liveLayoutScheduled) return
+    liveLayoutScheduled = true
+    setTimeout(() => {
+      liveLayoutScheduled = false
+      try {
+        const vis = getVisibility()
+        layoutChildWindows(vis)
+      } catch (e) {
+        console.warn('[overlay-windows] Live layout update failed:', e)
+      }
+    }, 16)
+  }
+
+  // Fires repeatedly during native drag/move on Windows/Linux and also on macOS
+  headerWindow.on('move', requestLiveLayout)
+  // Keep overlays aligned if header width changes mid-drag or due to content
+  headerWindow.on('resize', requestLiveLayout)
+
   headerWindow.on('closed', () => {
     headerWindow = null
   })

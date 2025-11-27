@@ -351,7 +351,7 @@ async function setupMicProcessing(stream: MediaStream) {
   try {
     const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
     if (isWindows) {
-      SILENCE_RMS_THRESHOLD = 0.016;
+      SILENCE_RMS_THRESHOLD = 0.013;
     }
   } catch {}
     let silenceFrameCount = 0;
