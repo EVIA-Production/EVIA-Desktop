@@ -265,6 +265,17 @@ int main() {
         // Convert to s16
         floatMonoToS16(mono24k, s16);
 
+        // RMS-based silence gate (fast): skip frames with very low energy
+        if (!s16.empty()) {
+            float rms = 0.f;
+            for (auto v : s16) rms += float(v) * float(v);
+            rms = std::sqrt(rms / float(s16.size()));
+            if (rms < 250.f) {
+                // ~ -52 dB threshold for s16 scale; adjust as needed
+                continue;
+            }
+        }
+
         // Emit in exact CHUNK_SAMPLES frames (keep tail in carry)
         emitChunks(s16, carry);
 
