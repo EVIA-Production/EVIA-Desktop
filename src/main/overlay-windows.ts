@@ -185,6 +185,15 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.on('moved', () => {
     const b = headerWindow?.getBounds()
     if (b) saveState({ headerBounds: b })
+    // Ensure child windows track header movement even if the move wasn't initiated
+    // via our custom drag IPC (win:moveHeaderTo). This keeps Ask/Listen aligned
+    // across platforms where native move events can differ.
+    try {
+      const vis = getVisibility()
+      layoutChildWindows(vis)
+    } catch (e) {
+      console.warn('[overlay-windows] Failed to re-layout after header moved:', e)
+    }
   })
 
   headerWindow.on('closed', () => {
@@ -269,7 +278,18 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       })
       
       // Update persisted bounds
-      saveState({ headerBounds: headerWindow.getBounds() })
+      const newBounds = headerWindow.getBounds()
+      saveState({ headerBounds: newBounds })
+
+      // NEW: Immediately re-layout child windows so Ask/Listen track the header
+      // after a width change (e.g., language toggle). Previously this could wait
+      // until the next toggle/move on some platforms.
+      try {
+        const vis = getVisibility()
+        layoutChildWindows(vis)
+      } catch (e) {
+        console.warn('[overlay-windows] Failed to re-layout after header resize:', e)
+      }
       return true
     } catch (error) {
       console.warn('[overlay-windows] Failed to resize window:', error)
