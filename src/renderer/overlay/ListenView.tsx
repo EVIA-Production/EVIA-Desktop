@@ -956,7 +956,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                         opacity: line.isPartial ? 0.78 : 1,
                         // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                         background: isMe
-                          ? 'rgba(0, 122, 255, 0.8)'  // Glass .me color
+                          ? 'rgba(0, 122, 255, 0.75)'  // Slightly more transparent mic blue
                           : 'rgba(255, 255, 255, 0.1)', // Glass .them color
                         color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
                         // 🎨 REMOVED inline alignment - let CSS handle it for proper specificity
