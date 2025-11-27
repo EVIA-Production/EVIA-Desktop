@@ -226,6 +226,8 @@
   color: #ffffff;
   cursor: pointer;
   transition: transform 0.12s ease;
+  /* Slightly increase spacing before Ask action */
+  margin-right: 8px;
 }
 .evia-listen-button::before {
   content: '';
@@ -272,6 +274,53 @@
 .evia-settings-button.active { background: rgba(255,255,255,0.14); }
 
 /* ========== End EVIA BAR ========== */
+
+/* ============================================
+  Right-side semicircular draggable handle
+  ============================================ */
+.evia-drag-handle {
+  -webkit-app-region: drag; /* Only handle is draggable */
+  width: 42px;
+  height: 30px;
+  margin-left: 10px;
+  border-top-left-radius: 15px;
+  border-bottom-left-radius: 15px;
+  border-top-right-radius: 15px;
+  border-bottom-right-radius: 15px;
+  background: var(--surface-12);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.evia-drag-handle::before {
+  /* subtle visual separation (cut-out border effect) */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 15px;
+  padding: 1px;
+  background: var(--glass-gradient);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.evia-drag-handle:hover {
+  background: var(--surface-hover);
+}
+.evia-drag-handle:active {
+  cursor: grabbing;
+}
+.evia-drag-handle svg { opacity: 0.95; }
+
+.evia-drag-handle--active {
+  transform: scale(1.05);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
 
 /* ============================================
    LISTEN VIEW (Glass Parity)
