@@ -711,3 +711,55 @@ ipcMain.handle('shell:navigate', async (_event, url: string) => {
 boot().catch((err) => {
   console.error('[Main] ❌ Boot failed:', err);
 });
+
+// A tiny invisible window kept open on Windows to avoid window-all-closed
+// quitting during state transitions (e.g., closing permissions before header
+// is created). Only created on Windows and cleaned up on app quit.
+let windowsAnchorWindow: BrowserWindow | null = null;
+
+function ensureWindowsAnchorWindow() {
+  if (process.platform !== 'win32') return;
+  if (windowsAnchorWindow && !windowsAnchorWindow.isDestroyed()) return;
+
+  windowsAnchorWindow = new BrowserWindow({
+    width: 1,
+    height: 1,
+    show: false, // keep hidden
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    title: 'EVIA Anchor',
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      devTools: false,
+    },
+  });
+  try {
+    // Load a blank page to initialize webContents; avoid external URLs.
+    windowsAnchorWindow.loadURL('about:blank');
+  } catch {}
+}
+
+// Create the anchor after app is ready
+app.whenReady().then(() => {
+  try {
+    ensureWindowsAnchorWindow();
+    console.log('[Main] 🪟 Windows anchor window initialized');
+  } catch (e) {
+    console.warn('[Main] ⚠️ Failed to initialize Windows anchor window:', e);
+  }
+});
+
+// Clean up anchor on quit
+app.on('quit', () => {
+  try {
+    if (windowsAnchorWindow && !windowsAnchorWindow.isDestroyed()) {
+      windowsAnchorWindow.destroy();
+      windowsAnchorWindow = null;
+    }
+  } catch {}
+});
