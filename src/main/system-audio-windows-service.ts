@@ -22,6 +22,13 @@ export class SystemAudioWindowsService {
   private proc: ChildProcess | null = null;
   private buffer: Buffer = Buffer.alloc(0);
   private running = false;
+  
+  // WINDOWS FIX (2025-12-05): Heartbeat monitoring to detect helper stalls
+  private lastChunkTime: number = 0;
+  private chunkCount: number = 0;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private readonly HEARTBEAT_CHECK_MS = 2000;
+  private readonly STALL_THRESHOLD_MS = 5000;
 
   private send(channel: string, data: any) {
     const wins = BrowserWindow.getAllWindows();
@@ -64,6 +71,26 @@ export class SystemAudioWindowsService {
       if (!this.proc.pid) return { success: false, error: 'spawn_failed' };
       this.running = true;
 
+      // WINDOWS FIX: Start heartbeat monitoring
+      this.lastChunkTime = Date.now();
+      this.chunkCount = 0;
+      this.heartbeatInterval = setInterval(() => {
+        const timeSinceChunk = Date.now() - this.lastChunkTime;
+        
+        if (this.running && timeSinceChunk > this.STALL_THRESHOLD_MS) {
+          console.warn(`[SystemAudioWindows] ⚠️ Helper stalled - no chunks for ${Math.round(timeSinceChunk/1000)}s`);
+          this.send('system-audio-windows:status', `WARNING: Helper stalled (${Math.round(timeSinceChunk/1000)}s)`);
+          
+          // Auto-restart if stalled for too long
+          if (timeSinceChunk > this.STALL_THRESHOLD_MS * 2) {
+            console.log('[SystemAudioWindows] 🔄 Auto-restarting stalled helper...');
+            this.stop().then(() => {
+              setTimeout(() => this.start(), 500);
+            });
+          }
+        }
+      }, this.HEARTBEAT_CHECK_MS);
+
       this.proc.stdout!.on('data', (data: Buffer) => {
         // Accumulate stdout. Helper emits RAW PCM; optional JSON lines are supported only if stream begins with '{'.
         this.buffer = Buffer.concat([this.buffer, data]);
@@ -102,6 +129,13 @@ export class SystemAudioWindowsService {
           this.buffer = this.buffer.slice(CHUNK_SIZE);
           const b64 = chunk.toString('base64');
           this.send('system-audio-windows-data', { data: b64 });
+          
+          // WINDOWS FIX: Track chunk time for heartbeat monitoring
+          this.lastChunkTime = Date.now();
+          this.chunkCount++;
+          if (this.chunkCount <= 5 || this.chunkCount % 100 === 0) {
+            console.log(`[SystemAudioWindows] Chunk #${this.chunkCount}: ${chunk.length} bytes`);
+          }
         }
       });
 
@@ -134,6 +168,13 @@ export class SystemAudioWindowsService {
 
   public async stop(): Promise<{ success: boolean; error?: string }> {
     try {
+      // WINDOWS FIX: Stop heartbeat monitoring
+      if (this.heartbeatInterval) {
+        clearInterval(this.heartbeatInterval);
+        this.heartbeatInterval = null;
+      }
+      this.chunkCount = 0;
+      
       if (this.proc) {
         this.proc.kill();
         this.proc = null;

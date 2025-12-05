@@ -100,25 +100,44 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const CHECK_INTERVAL = 3000;
 
     const checkFn = () => {
-      // 🆕 CRITICAL: Don't show warnings when viewing insights (no transcription happening)
+      // CRITICAL: Don't show warnings when viewing insights (no transcription happening)
       if (!isSessionActive || viewMode !== 'transcript') return;
       
       const last = lastMessageAtRef.current;
       if (!last) {
-        console.warn('[ListenView] 🚨 No transcript messages received yet while session active');
-        showToast(i18n.t('overlay.listen.noTranscriptsYet'), 'warning');
+        // No messages received yet - might still be initializing
+        console.log('[ListenView] ⏳ Waiting for first transcript message...');
         return;
       }
+      
+      // Only check if we have an active partial (someone was speaking)
       if (!hasActivePartialRef.current) {
         return;
       }
-        const since = Date.now() - last;
-        if (since > WATCHDOG_MS) {
-          console.warn(`[ListenView] 🚨 Transcript stall detected: last message ${since}ms ago`);
-          if (!stallToastShownRef.current) {
-            showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcript stalled', 'warning');
-            stallToastShownRef.current = true;
+      
+      const since = Date.now() - last;
+      
+      if (since > WATCHDOG_MS) {
+        console.warn(`[ListenView] 🚨 Transcript stall detected: ${Math.round(since/1000)}s since last message`);
+        
+        // First occurrence: show warning
+        if (!stallToastShownRef.current) {
+          showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcription stalled - reconnecting...', 'warning');
+          stallToastShownRef.current = true;
+        }
+        
+        // WINDOWS FIX: Trigger auto-recovery via IPC (Windows only to avoid affecting macOS)
+        const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+        if (isWindows) {
+          const eviaIpc = (window as any).evia?.ipc;
+          if (eviaIpc?.send) {
+            console.log('[ListenView] 🔄 Triggering audio recovery via IPC (Windows)...');
+            eviaIpc.send('audio:trigger-recovery');
           }
+        }
+        
+        // Reset the timestamp to avoid rapid-fire recovery attempts
+        lastMessageAtRef.current = Date.now();
       }
     };
 

@@ -224,6 +224,62 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, [listenStatus]);
 
+  // WINDOWS FIX: Handle audio recovery triggers from ListenView (Windows only)
+  useEffect(() => {
+    // Only register this handler on Windows to avoid any impact on macOS
+    const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+    if (!isWindows) return;
+    
+    const handleRecoveryTrigger = async () => {
+      console.log('[EviaBar] Audio recovery triggered (Windows)');
+      
+      // Only recover if we're actively listening
+      if (listenStatusRef.current !== 'in') {
+        console.log('[EviaBar] Ignoring recovery - not in listening state');
+        return;
+      }
+      
+      try {
+        // Import audio functions
+        const { stopCapture, startCapture } = await import('../audio-processor-glass-parity');
+        
+        // Stop current capture
+        console.log('[EviaBar] Stopping current capture for recovery...');
+        await stopCapture();
+        
+        // Brief pause
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Restart capture
+        console.log('[EviaBar] Restarting capture...');
+        await startCapture(true); // true = include system audio
+        
+        console.log('[EviaBar] Audio recovery completed');
+        
+        // Notify ListenView of recovery
+        const eviaIpc = (window as any).evia?.ipc;
+        if (eviaIpc?.send) {
+          eviaIpc.send('transcript-message', { 
+            type: 'status', 
+            data: { message: 'Audio reconnected', recovered: true }
+          });
+        }
+      } catch (err) {
+        console.error('[EviaBar] Audio recovery failed:', err);
+      }
+    };
+    
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.on) {
+      eviaIpc.on('audio:trigger-recovery', handleRecoveryTrigger);
+      return () => {
+        if (eviaIpc.off) {
+          eviaIpc.off('audio:trigger-recovery', handleRecoveryTrigger);
+        }
+      };
+    }
+  }, []);
+
   // Dynamic window sizing: measure content and resize window to fit
   useEffect(() => {
     const measureAndResize = async () => {

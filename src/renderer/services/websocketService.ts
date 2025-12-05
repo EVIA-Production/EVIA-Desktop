@@ -150,13 +150,28 @@ export class ChatWebSocket {
       }
       this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
+<<<<<<< Updated upstream
       // 🔧 FIX: Get current language from i18n for backend transcription
+=======
+// FIX: Get current language from i18n for backend transcription
+>>>>>>> Stashed changes
       const i18nModule = await import('../i18n/i18n');
       const currentLang = i18nModule.i18n.getLanguage() || 'de';
       const langParam = `&dg_lang=${currentLang}`;  // 🎯 FIXED: dg_lang (not lang) for Deepgram
       console.log('[WS] 🌐 Connecting with language:', currentLang);
+<<<<<<< Updated upstream
       // MUP FIX: Use WS_BASE_URL from config (already http/ws protocol handled)
       const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}&sample_rate=24000`;
+=======
+      
+      // WINDOWS FIX (2025-11-28): Add platform query param for backend detection
+      const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+      const platformParam = isWindows ? '&platform=windows' : '&platform=mac';
+      console.log('[WS] Platform:', isWindows ? 'Windows' : 'Mac');
+      
+// MUP FIX: Use WS_BASE_URL from config (already http/ws protocol handled)
+      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}${platformParam}&sample_rate=24000`;
+>>>>>>> Stashed changes
       return new Promise((resolve, reject) => {
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';

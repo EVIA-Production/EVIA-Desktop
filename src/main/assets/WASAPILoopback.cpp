@@ -1,6 +1,11 @@
 // WASAPILoopback.cpp
 // Build: cl /O2 /EHsc /Fe:WASAPILoopback.exe WASAPILoopback.cpp ole32.lib uuid.lib avrt.lib
 // Emits raw s16le PCM to stdout in fixed 100ms frames (2400 samples @ 24 kHz = 4800 bytes)
+//
+// WINDOWS TRANSCRIPTION FIX (2024-11-28):
+// - Reduced Sleep(3) to Sleep(1) to prevent buffer underruns
+// - Added silence frame emission when no audio for >100ms to prevent Deepgram timeout
+// - This fixes intermittent transcription stalling on Windows
 
 #define _CRT_SECURE_NO_WARNINGS
 // Avoid Windows.h min/max macros clobbering std::min/std::max
@@ -41,6 +46,10 @@ static const uint32_t TARGET_RATE   = 24000; // Hz
 static const uint32_t TARGET_CHANS  = 1;     // mono
 static const uint32_t CHUNK_SAMPLES = 2400;  // samples per 100 ms at 24 kHz
 static const size_t   CHUNK_BYTES   = CHUNK_SAMPLES * 2; // s16le
+
+// WINDOWS FIX: Silence emission threshold (100ms) to prevent Deepgram timeout
+// If no audio packets received for this duration, emit a silence frame
+static const DWORD SILENCE_EMIT_THRESHOLD_MS = 100;
 
 // ----- Simple helpers -----
 struct WavFmt {
@@ -215,6 +224,10 @@ int main() {
     std::vector<int16_t> s16;
     std::vector<int16_t> carry; // tail partials between callbacks
 
+    // WINDOWS FIX: Silence emission tracking
+    DWORD lastAudioTime = GetTickCount();
+    std::vector<int16_t> silenceChunk(CHUNK_SAMPLES, 0); // Pre-allocated silence buffer
+
     // Capture loop
     bool running = true;
     while (running) {
@@ -223,10 +236,24 @@ int main() {
         if (FAILED(hr)) fail("GetNextPacketSize failed", hr);
 
         if (packetFrames == 0) {
-            // Sleep a tiny bit to avoid busy spin
-            Sleep(3);
+            // WINDOWS FIX: Check if we need to emit silence to keep connection alive
+            DWORD now = GetTickCount();
+            DWORD elapsed = now - lastAudioTime;
+            
+            if (elapsed >= SILENCE_EMIT_THRESHOLD_MS) {
+                // Emit a silence frame to prevent Deepgram timeout
+                // This ensures continuous audio stream even during quiet periods
+                std::fwrite(silenceChunk.data(), 2, CHUNK_SAMPLES, stdout);
+                lastAudioTime = now; // Reset timer after emitting silence
+            }
+            
+            // WINDOWS FIX: Reduced from Sleep(3) to Sleep(1) to prevent buffer underruns
+            Sleep(1);
             continue;
         }
+        
+        // Audio received - reset silence timer
+        lastAudioTime = GetTickCount();
 
         BYTE* pData = nullptr;
         UINT32 numFrames = 0;
