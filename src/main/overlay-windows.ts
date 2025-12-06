@@ -22,9 +22,9 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Initial size: 900x49px (used for createHeaderWindow, then dynamically adjusted)
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
-// 🔧 SPACING FIX: Increased from 8px to 12px for better visual separation (prevent overlap)
-// Glass uses 8px, but users reported slight overlap between Ask and Listen windows
-const PAD = 12
+// WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 159)
+// This is the gap between header and child windows
+const PAD = 8
 const ANIM_DURATION = 0 // INSTANT show/hide 
 let settingsHideTimer: NodeJS.Timeout | null = null
 
@@ -119,6 +119,11 @@ function saveState(partial: Partial<PersistedState>) {
 function getOrCreateHeaderWindow(): BrowserWindow {
   if (headerWindow && !headerWindow.isDestroyed()) return headerWindow
 
+  // WINDOWS FIX (2025-12-05): Use different window type on Windows for better always-on-top behavior
+  // On Windows: 'toolbar' type provides more reliable always-on-top than 'panel'
+  // On macOS: Keep 'panel' type for proper fullscreen floating behavior
+  const isWindows = process.platform === 'win32'
+
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
     height: HEADER_SIZE.height,
@@ -127,7 +132,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     transparent: true,
     resizable: false,
     movable: true,
-    type: 'panel', // KEY: 'panel' type floats above fullscreen apps on macOS
+    type: isWindows ? 'toolbar' : 'panel', // WINDOWS FIX: Use 'toolbar' on Windows for reliable always-on-top
     alwaysOnTop: true,
     skipTaskbar: true,
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
@@ -165,9 +170,41 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   }
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  // Use 'screen-saver' level - highest priority, appears above fullscreen
+  // WINDOWS FIX (2025-12-05): Use appropriate always-on-top level per platform
+  // macOS: 'screen-saver' level for highest priority
+  // Windows: 'floating' level + focus listener to maintain always-on-top
   if (process.platform === 'darwin') {
     headerWindow.setAlwaysOnTop(true, 'screen-saver');
+  } else if (process.platform === 'win32') {
+    // On Windows, use 'floating' level which is reliable
+    headerWindow.setAlwaysOnTop(true, 'floating');
+    
+    // WINDOWS FIX: Re-apply always-on-top when window loses focus
+    // This prevents EVIA from disappearing when clicking other windows
+    headerWindow.on('blur', () => {
+      if (headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()) {
+        // Short delay to let the click complete, then restore on top
+        setTimeout(() => {
+          if (headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()) {
+            headerWindow.setAlwaysOnTop(false);
+            headerWindow.setAlwaysOnTop(true, 'floating');
+            headerWindow.moveTop();
+            
+            // Also ensure child windows stay on top
+            for (const [_, win] of childWindows) {
+              if (win && !win.isDestroyed() && win.isVisible()) {
+                win.setAlwaysOnTop(false);
+                win.setAlwaysOnTop(true, 'floating');
+                win.moveTop();
+              }
+            }
+            
+            // Move header above children
+            headerWindow?.moveTop();
+          }
+        }, 100);
+      }
+    });
   }
   headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
@@ -335,6 +372,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Glass parity: Shortcuts window is independent (no parent) and movable (windowManager.js:560-568)
   const isShortcuts = name === 'shortcuts'
   
+  // WINDOWS FIX (2025-12-05): Use different window type on Windows for better always-on-top behavior
+  const isWindows = process.platform === 'win32'
+  
   const win = new BrowserWindow({
     parent: isShortcuts ? undefined : parent, // Shortcuts has no parent so it can be moved
     show: false,
@@ -345,7 +385,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     minimizable: false,
     maximizable: false,
     focusable: needsFocus, // Ask/Settings/Shortcuts can receive focus
-    type: 'panel', // KEY: 'panel' type floats above fullscreen apps on macOS
+    type: isWindows ? 'toolbar' : 'panel', // WINDOWS FIX: Use 'toolbar' on Windows for reliable always-on-top
     skipTaskbar: true,
     alwaysOnTop: true,
     modal: false,
@@ -370,7 +410,12 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   }
 
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+  // WINDOWS FIX (2025-12-05): Use appropriate always-on-top level per platform
+  if (process.platform === 'win32') {
+    win.setAlwaysOnTop(true, 'floating')
+  } else {
   win.setAlwaysOnTop(true, 'screen-saver')
+  }
   win.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   
   // Glass parity: All windows are interactive by default (windowManager.js:287)
@@ -634,9 +679,8 @@ function layoutChildWindows(visible: WindowVisibility) {
         layout.ask = { x: Math.round(askXRel + screenBounds.x), y: Math.round(windowBottomAbs - askH), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + screenBounds.x), y: Math.round(windowBottomAbs - listenH), width: listenW, height: listenH }
       } else {
-        // MUP FIX: Ask window closer to header for Glass parity (4px gap instead of 8px)
-        const askGap = 4
-        const yAbs = hb.y + hb.height + askGap
+        // WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 200)
+        const yAbs = hb.y + hb.height + PAD_LOCAL
         layout.ask = { x: Math.round(askXRel + screenBounds.x), y: Math.round(yAbs), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + screenBounds.x), y: Math.round(yAbs), width: listenW, height: listenH }
         
@@ -660,9 +704,8 @@ function layoutChildWindows(visible: WindowVisibility) {
       if (isAbovePreferred) {
         yPos = hb.y - work.y - PAD_LOCAL - winH
       } else {
-        // MUP FIX: Ask window closer to header for Glass parity (4px gap)
-        const gap = (winName === 'ask') ? 4 : PAD_LOCAL
-        yPos = hb.y - work.y + hb.height + gap
+        // WINDOWS FIX (2025-12-05): Use PAD=8 for all windows like Glass (windowLayoutManager.js line 214)
+        yPos = hb.y - work.y + hb.height + PAD_LOCAL
       }
 
       layout[winName] = { x: Math.round(xRel + screenBounds.x), y: Math.round(yPos + work.y), width: winW, height: winH }
@@ -1138,16 +1181,82 @@ function registerShortcuts() {
   const nudgeLeft = () => nudgeHeader(-step, 0)
   const nudgeRight = () => nudgeHeader(step, 0)
   
+  // WINDOWS FIX (2025-12-05): Validate accelerator format before registering
+  // Electron requires valid accelerator strings like "Ctrl+S" or "Cmd+Shift+Enter"
+  // Invalid formats like "Ctrl+SS" will throw: "Error processing argument at index 0"
+  const isValidAccelerator = (accelerator: string): boolean => {
+    if (!accelerator) return false
+    
+    // Electron valid modifiers
+    const validModifiers = ['Cmd', 'Command', 'Ctrl', 'Control', 'Alt', 'Option', 'Shift', 'Meta', 'Super']
+    
+    // Electron valid keys (non-exhaustive but covers common cases)
+    const validKeys = [
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+      'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+      '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+      'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24',
+      'Space', 'Tab', 'Backspace', 'Delete', 'Insert', 'Return', 'Enter', 'Escape', 'Esc',
+      'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown',
+      'Plus', 'Minus', 'nummult', 'numdiv', 'numadd', 'numsub', 'numdec',
+      '[', ']', '\\', ';', "'", ',', '.', '/', '`', '-', '='
+    ]
+    
+    const parts = accelerator.split('+')
+    if (parts.length < 2) return false // Need at least modifier + key
+    
+    const lastKey = parts[parts.length - 1]
+    const modifiers = parts.slice(0, -1)
+    
+    // Validate all modifiers
+    for (const mod of modifiers) {
+      if (!validModifiers.includes(mod)) return false
+    }
+    
+    // Validate final key (single character or known special key)
+    if (lastKey.length === 1) return true // Single char keys are valid
+    if (validKeys.includes(lastKey)) return true
+    
+    return false
+  }
+  
+  // WINDOWS FIX (2025-12-05): Convert Cmd to Ctrl on Windows
+  // Shortcuts are stored with "Cmd" prefix for Mac compatibility
+  // On Windows, we need to convert to "Ctrl" for registration
+  const convertAcceleratorForPlatform = (accelerator: string): string => {
+    if (process.platform === 'win32') {
+      // Replace Cmd with Ctrl on Windows
+      return accelerator
+        .replace(/\bCmd\b/g, 'Ctrl')
+        .replace(/\bCommand\b/g, 'Ctrl')
+    }
+    return accelerator
+  }
+  
   // Register each shortcut with its handler
   const registerSafe = (accelerator: string | undefined, handler: () => void) => {
     if (!accelerator) return
+    
+    // Convert Cmd to Ctrl on Windows
+    const platformAccelerator = convertAcceleratorForPlatform(accelerator)
+    
+    // WINDOWS FIX: Validate before attempting registration
+    if (!isValidAccelerator(platformAccelerator)) {
+      console.warn(`[Shortcuts] Invalid accelerator format: "${platformAccelerator}" (from "${accelerator}") - skipping registration`)
+      console.warn('[Shortcuts] 💡 Valid format: "Ctrl+S", "Cmd+Shift+Enter", etc. (modifier+single_key)')
+      return
+    }
+    
     try {
-      const success = globalShortcut.register(accelerator, handler)
+      const success = globalShortcut.register(platformAccelerator, handler)
       if (!success) {
-        console.warn(`[Shortcuts] Failed to register: ${accelerator}`)
+        console.warn(`[Shortcuts] Failed to register: ${platformAccelerator}`)
+      } else {
+        console.log(`[Shortcuts] ✅ Registered: ${platformAccelerator}`)
       }
     } catch (error) {
-      console.error(`[Shortcuts] Error registering ${accelerator}:`, error)
+      console.error(`[Shortcuts] Error registering ${platformAccelerator}:`, error)
     }
   }
   
@@ -1175,6 +1284,52 @@ app.on('browser-window-focus', () => {
   }
 })
 
+// WINDOWS FIX (2025-12-05): Periodic always-on-top refresh to prevent EVIA from going behind other windows
+// Windows can sometimes lose the always-on-top state after long periods of non-interaction
+// This runs every 30 seconds to ensure EVIA stays on top
+let alwaysOnTopInterval: NodeJS.Timeout | null = null;
+
+function startAlwaysOnTopRefresh() {
+  if (process.platform !== 'win32') return;
+  if (alwaysOnTopInterval) return; // Already running
+  
+  alwaysOnTopInterval = setInterval(() => {
+    // Only refresh if header window exists and is visible
+    if (!headerWindow || headerWindow.isDestroyed() || !headerWindow.isVisible()) return;
+    
+    try {
+      // Re-apply always-on-top to header
+      headerWindow.setAlwaysOnTop(false);
+      headerWindow.setAlwaysOnTop(true, 'floating');
+      
+      // Re-apply to visible child windows
+      for (const [_, win] of childWindows) {
+        if (win && !win.isDestroyed() && win.isVisible()) {
+          win.setAlwaysOnTop(false);
+          win.setAlwaysOnTop(true, 'floating');
+        }
+      }
+      
+      // Move header to top last (ensures it's above children)
+      headerWindow.moveTop();
+      
+      console.log('[overlay-windows] 🔄 Windows always-on-top refreshed');
+    } catch (err) {
+      console.warn('[overlay-windows] ⚠️ Failed to refresh always-on-top:', err);
+    }
+  }, 30000); // Every 30 seconds
+  
+  console.log('[overlay-windows] ✅ Started Windows always-on-top refresh (30s interval)');
+}
+
+function stopAlwaysOnTopRefresh() {
+  if (alwaysOnTopInterval) {
+    clearInterval(alwaysOnTopInterval);
+    alwaysOnTopInterval = null;
+    console.log('[overlay-windows] 🛑 Stopped Windows always-on-top refresh');
+  }
+}
+
 app.on('ready', () => {
   // Explicitly show and set Dock icon
   if (process.platform === 'darwin' && app.dock) {
@@ -1196,6 +1351,10 @@ app.on('ready', () => {
   }
   
   registerShortcuts()
+  
+  // WINDOWS FIX (2025-12-05): Start the always-on-top refresh interval on Windows
+  startAlwaysOnTopRefresh();
+  
   // DON'T create header automatically - let header-controller manage the flow
   // header-controller.initialize() will show Welcome → Permissions → Header
   // Child windows appear on demand (Listen button, Ask command, etc.)
@@ -1203,6 +1362,7 @@ app.on('ready', () => {
 
 app.on('will-quit', () => {
   unregisterShortcuts()
+  stopAlwaysOnTopRefresh() // WINDOWS FIX: Stop the always-on-top refresh
 })
 
 ipcMain.handle('win:show', (_event, name: FeatureName) => {
@@ -1465,6 +1625,16 @@ ipcMain.handle('shortcuts:set', (_event, shortcuts: ShortcutConfig) => {
   saveState({ shortcuts });
   // Re-register shortcuts with new values (Glass does this)
   registerShortcuts();
+  
+  // WINDOWS FIX (2025-12-05): Broadcast to all windows so UI updates (like Glass MainHeader.js line 490-494)
+  const allWindows = [headerWindow, ...childWindows.values()];
+  for (const win of allWindows) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('shortcuts-updated', shortcuts);
+    }
+  }
+  console.log('[Shortcuts] 📡 Broadcast shortcuts-updated to all windows');
+  
   return { ok: true };
 })
 

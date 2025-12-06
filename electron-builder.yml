@@ -40,10 +40,12 @@ mac:
 
 win:
   target:
-    - nsis
-  icon: src/main/assets/icon.ico
-  artifactName: "EVIA-Setup-${version}.exe"
+    - target: dir
+    - target: portable
+  icon: src/main/assets/icon.png
+  artifactName: "EVIA-${version}.${ext}"
   forceCodeSigning: false
+  signAndEditExecutable: false
 
 nsis:
   oneClick: false

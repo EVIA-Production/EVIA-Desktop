@@ -879,6 +879,23 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   const hasResponse = isLoadingFirstToken || response || isStreaming;
 
+  // WINDOWS FIX (2025-12-05): Show minimal loading bar when waiting for first token
+  // This matches the user's expectation of a clean "Denkt nach..." state
+  if (isLoadingFirstToken && !response) {
+    return (
+      <div className="ask-container ask-loading-minimal">
+        <div className="ask-loading-bar">
+          <div className="loading-dots">
+            <div className="loading-dot"></div>
+            <div className="loading-dot"></div>
+            <div className="loading-dot"></div>
+          </div>
+          <span className="loading-text">{i18n.t('overlay.ask.thinking')}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="ask-container">
       {/* EVIA enhancement: Error Toast - Compact Version */}

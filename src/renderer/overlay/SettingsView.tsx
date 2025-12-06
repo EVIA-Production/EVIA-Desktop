@@ -404,39 +404,47 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </button>
       </div>
 
-      {/* Shortcuts Section */}
+      {/* Shortcuts Section - WINDOWS FIX (2025-12-05): Use Ctrl instead of ⌘ on Windows */}
+      {(() => {
+        const isWindowsPlatform = Boolean((window as any)?.platformInfo?.isWindows);
+        const modKey = isWindowsPlatform ? 'Ctrl' : '⌘';
+        const shiftKey = isWindowsPlatform ? 'Shift' : '⇧';
+        
+        return (
       <div className="shortcuts-section">
         <div className="shortcut-item">
           <span className="shortcut-name">{t('shortcutShowHide')}</span>
           <div className="shortcut-keys">
-            <span className="cmd-key">⌘</span>
+                <span className="cmd-key">{modKey}</span>
             <span className="shortcut-key">\</span>
           </div>
         </div>
         <div className="shortcut-item">
           <span className="shortcut-name">{t('shortcutAskAnything')}</span>
           <div className="shortcut-keys">
-            <span className="cmd-key">⌘</span>
+                <span className="cmd-key">{modKey}</span>
             <span className="shortcut-key">↵</span>
           </div>
         </div>
         <div className="shortcut-item">
           <span className="shortcut-name">{t('shortcutScrollUp')}</span>
           <div className="shortcut-keys">
-            <span className="cmd-key">⌘</span>
-            <span className="cmd-key">⇧</span>
+                <span className="cmd-key">{modKey}</span>
+                <span className="cmd-key">{shiftKey}</span>
             <span className="shortcut-key">↑</span>
           </div>
         </div>
         <div className="shortcut-item">
           <span className="shortcut-name">{t('shortcutScrollDown')}</span>
           <div className="shortcut-keys">
-            <span className="cmd-key">⌘</span>
-            <span className="cmd-key">⇧</span>
+                <span className="cmd-key">{modKey}</span>
+                <span className="cmd-key">{shiftKey}</span>
             <span className="shortcut-key">↓</span>
           </div>
         </div>
       </div>
+        );
+      })()}
 
       {/* My Presets Section */}
       <div className="preset-section">

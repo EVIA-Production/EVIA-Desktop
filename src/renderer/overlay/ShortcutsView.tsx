@@ -43,12 +43,24 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
   useEffect(() => {
     if (!editingShortcut) return;
 
+    // WINDOWS FIX (2025-12-05): Normalize shortcuts to use "Cmd" prefix for cross-platform consistency
+    // On Windows: Ctrl key is recorded as "Cmd" (converted back to Ctrl at registration)
+    // On Mac: Cmd key is recorded as "Cmd" (used as-is)
+    const isWindowsOS = Boolean((window as any)?.platformInfo?.isWindows);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       
       const keys: string[] = [];
-      if (e.metaKey) keys.push('Cmd');
-      if (e.ctrlKey) keys.push('Ctrl');
+      
+      // WINDOWS FIX: On Windows, record Ctrl as "Cmd" for consistent storage
+      // The main process converts "Cmd" back to "Ctrl" when registering shortcuts
+      if (isWindowsOS) {
+        if (e.ctrlKey) keys.push('Cmd');  // Windows: Ctrl → Cmd (stored)
+      } else {
+        if (e.metaKey) keys.push('Cmd');  // Mac: Cmd → Cmd
+        if (e.ctrlKey) keys.push('Ctrl'); // Mac: Ctrl stays as Ctrl
+      }
       if (e.shiftKey) keys.push('Shift');
       if (e.altKey) keys.push('Alt');
       
@@ -258,8 +270,30 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     return shortcut.name;
   };
 
+  // WINDOWS FIX (2025-12-05): Use platform-appropriate symbol mapping
+  const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+
   // Glass parity: Symbol mapping for keyboard shortcuts
-  const keyMap: { [key: string]: string } = {
+  // On Windows: Show "Ctrl" text instead of ⌃ symbol (which is confusing on Windows)
+  // On Mac: Use standard Mac symbols
+  const keyMap: { [key: string]: string } = isWindows ? {
+    'Cmd': 'Ctrl',      // Windows: Map Cmd to Ctrl
+    'Command': 'Ctrl',
+    'Ctrl': 'Ctrl',
+    'Control': 'Ctrl',
+    'Alt': 'Alt',
+    'Option': 'Alt',
+    'Shift': 'Shift',
+    'Enter': '↵',
+    'Backspace': '⌫',
+    'Delete': 'Del',
+    'Tab': 'Tab',
+    'Escape': 'Esc',
+    'Up': '↑',
+    'Down': '↓',
+    'Left': '←',
+    'Right': '→',
+  } : {
     'Cmd': '⌘',
     'Command': '⌘',
     'Ctrl': '⌃',

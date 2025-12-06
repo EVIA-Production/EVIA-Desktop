@@ -818,16 +818,37 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const handleCopy = async () => {
     if (copyState === 'copied') return;
 
-    // Copy with speaker labels (like EVIA-Frontend chat detail)
+    // WINDOWS FIX (2025-12-05): Merge consecutive same-speaker messages into paragraphs
+    // Previously each line had its own speaker label, now only add label when speaker changes
     const currentLang = i18n.getLanguage();
     const meLabel = currentLang === 'de' ? 'Ich' : 'Me';
     const themLabel = currentLang === 'de' ? 'Gegenüber' : 'Them';
 
     let textToCopy = viewMode === 'transcript' 
-      ? transcripts.map(line => {
-          const speakerLabel = line.speaker === 1 ? meLabel : themLabel;
-          return `${speakerLabel}:\n${line.text}`;
-        }).join('\n\n')
+      ? (() => {
+          // Group consecutive same-speaker messages
+          const groups: { speaker: number | null; texts: string[] }[] = [];
+          let currentGroup: { speaker: number | null; texts: string[] } | null = null;
+          
+          for (const line of transcripts) {
+            if (!currentGroup || currentGroup.speaker !== line.speaker) {
+              // New speaker - start new group
+              if (currentGroup) groups.push(currentGroup);
+              currentGroup = { speaker: line.speaker, texts: [line.text] };
+            } else {
+              // Same speaker - append to current group
+              currentGroup.texts.push(line.text);
+            }
+          }
+          if (currentGroup) groups.push(currentGroup);
+          
+          // Format: Speaker label once per group, texts as paragraphs
+          return groups.map(group => {
+            const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
+            const joinedText = group.texts.join(' ');  // Join with space (same utterance)
+            return `${speakerLabel}:\n\n${joinedText}`;
+          }).join('\n\n---\n\n');  // Separator between different speakers
+        })()
         : insights
         ? (() => {
             // Use translated headers instead of hardcoded "Summary"

@@ -80,11 +80,10 @@ const WelcomeHeader: React.FC = () => {
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log('[WelcomeHeader] ✅ Browser opened successfully');
         
-        // Close welcome window immediately to avoid blocking browser view (on macOS)
+        // WINDOWS FIX (2025-12-05): Close welcome window on ALL platforms after opening browser
+        // Previously only closed on Mac, but Windows users also expect the window to close
         console.log("[WelcomeHeader] 🔒 Closing welcome window");
-        if (isMac) {
         window.close();
-        }
       } else {
         console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
         // Fallback: Try window.open (may be blocked by browser)
@@ -97,12 +96,13 @@ const WelcomeHeader: React.FC = () => {
 
   /**
    * Opens privacy policy
+   * WINDOWS FIX (2025-12-05): Changed URL from evia.work/privacy to tryevia.ai/data-privacy
    */
   const handlePrivacyPolicy = async () => {
     console.log('[WelcomeHeader] Opening privacy policy...');
     try {
       if ((window as any).evia?.shell?.openExternal) {
-        await (window as any).evia.shell.openExternal('https://evia.work/privacy');
+        await (window as any).evia.shell.openExternal('https://tryevia.ai/data-privacy');
       }
     } catch (err) {
       console.error('[WelcomeHeader] ❌ Failed to open privacy policy:', err);

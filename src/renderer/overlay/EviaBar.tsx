@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import './overlay-glass.css';
 import DraggableHandle from './DraggableHandle';
 import { i18n } from '../i18n/i18n';
@@ -18,6 +18,22 @@ interface EviaBarProps {
   onToggleVisibility?: () => void;
 }
 
+// Shortcut configuration type
+interface ShortcutConfig {
+  toggleVisibility?: string;
+  nextStep?: string;
+  moveUp?: string;
+  moveDown?: string;
+  moveLeft?: string;
+  moveRight?: string;
+  scrollUp?: string;
+  scrollDown?: string;
+  toggleClickThrough?: string;
+  manualScreenshot?: string;
+  previousResponse?: string;
+  nextResponse?: string;
+}
+
 const EviaBar: React.FC<EviaBarProps> = ({
   currentView,
   onViewChange,
@@ -31,6 +47,105 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
   const lastMoveTimeRef = useRef<number>(0); // Throttle mouse move events
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
+
+  // WINDOWS FIX (2025-12-05): Get platform info inside component where it's guaranteed to be available
+  const isWindowsPlatform = useMemo(() => {
+    return typeof window !== 'undefined' && (window as any)?.platformInfo?.isWindows === true;
+  }, []);
+
+  // WINDOWS FIX (2025-12-06): Load shortcuts dynamically like Glass MainHeader.js
+  // Default shortcuts for initial render (before IPC loads)
+  const defaultShortcuts: ShortcutConfig = {
+    toggleVisibility: isWindowsPlatform ? 'Ctrl+Space' : 'Cmd+Space',
+    nextStep: 'Ctrl+Enter',
+  };
+  const [shortcuts, setShortcuts] = useState<ShortcutConfig>(defaultShortcuts);
+  
+  useEffect(() => {
+    // Load shortcuts on mount
+    const loadShortcuts = async () => {
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        console.log('[EviaBar] 🔍 Checking for evia.ipc:', !!eviaIpc, 'invoke:', !!eviaIpc?.invoke);
+        
+        if (eviaIpc?.invoke) {
+          const result = await eviaIpc.invoke('shortcuts:get');
+          console.log('[EviaBar] 📡 Raw IPC result:', result);
+          
+          if (result?.ok && result.shortcuts) {
+            console.log('[EviaBar] ✅ Loaded shortcuts:', result.shortcuts);
+            setShortcuts(result.shortcuts);
+          } else {
+            console.log('[EviaBar] ⚠️ Invalid result format, using defaults');
+          }
+        } else {
+          console.log('[EviaBar] ⚠️ IPC not available, using default shortcuts');
+        }
+      } catch (err) {
+        console.error('[EviaBar] ❌ Failed to load shortcuts:', err);
+      }
+    };
+    
+    // Small delay to ensure preload is ready
+    setTimeout(loadShortcuts, 100);
+
+    // Listen for shortcut updates (like Glass MainHeader.js line 490-494)
+    const handleShortcutsUpdated = (newShortcuts: ShortcutConfig) => {
+      console.log('[EviaBar] 🔄 Shortcuts updated via IPC:', newShortcuts);
+      setShortcuts(newShortcuts);
+    };
+
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.on) {
+      eviaIpc.on('shortcuts-updated', handleShortcutsUpdated);
+    }
+
+    return () => {
+      if (eviaIpc?.off) {
+        eviaIpc.off('shortcuts-updated', handleShortcutsUpdated);
+      }
+    };
+  }, [isWindowsPlatform]);
+
+  // Render shortcut key with proper symbols (like Glass MainHeader.js line 578-599)
+  const renderShortcutKey = (accelerator: string | undefined): React.ReactNode => {
+    if (!accelerator) return null;
+    
+    const keyMap: { [key: string]: React.ReactNode } = isWindowsPlatform ? {
+      'Cmd': 'Ctrl',
+      'Command': 'Ctrl', 
+      'Ctrl': 'Ctrl',
+      'Control': 'Ctrl',
+      'Alt': 'Alt',
+      'Option': 'Alt',
+      'Shift': 'Shift',
+      'Enter': '↵',
+      'Space': 'Space',
+      '\\': '\\',
+    } : {
+      'Cmd': '⌘',
+      'Command': '⌘',
+      'Ctrl': '⌃',
+      'Control': '⌃',
+      'Alt': '⌥',
+      'Option': '⌥',
+      'Shift': '⇧',
+      'Enter': '↵',
+      'Space': '␣',
+      '\\': (
+        <svg viewBox="0 0 6 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width: '6px', height: '12px'}}>
+          <path d="M1.5 1.3L5.1 10.6" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ),
+    };
+
+    const keys = accelerator.split('+');
+    return keys.map((key, idx) => (
+      <div key={idx} className="evia-icon-box">
+        {keyMap[key] || key}
+      </div>
+    ));
+  };
   const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before');
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
@@ -537,7 +652,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     : i18n.t('overlay.header.done');
 
   return (
-    <div ref={headerRef} className="evia-main-header no-drag">
+    <div ref={headerRef} className={`evia-main-header ${isWindowsPlatform ? 'windows-drag' : 'no-drag'}`}>
       {/* Listen button */}
       <button
         type="button"
@@ -560,22 +675,20 @@ const EviaBar: React.FC<EviaBarProps> = ({
         </span>
       </button>
 
-      {/* Ask action */}
+      {/* Ask action - WINDOWS FIX: Load shortcut dynamically like Glass MainHeader.js */}
       <div className="evia-header-actions" onClick={handleAskClick} role="button" tabIndex={0}>
         <span className="evia-action-text">{i18n.t('overlay.header.ask')}</span>
-        <div className="evia-icon-box">
-          <img src={CommandIcon} alt="Cmd" width={11} height={12} />
+        <div className="evia-shortcut-keys">
+          {renderShortcutKey(shortcuts.nextStep)}
         </div>
-        <div className="evia-icon-box">↵</div>
       </div>
 
-      {/* Show/Hide action */}
+      {/* Show/Hide action - WINDOWS FIX: Load shortcut dynamically like Glass MainHeader.js */}
       <div className="evia-header-actions" onClick={handleToggleVisibility} role="button" tabIndex={0}>
         <span className="evia-action-text">{i18n.t('overlay.header.show')}/{i18n.t('overlay.header.hide')}</span>
-        <div className="evia-icon-box">
-          <img src={CommandIcon} alt="Cmd" width={11} height={12} />
+        <div className="evia-shortcut-keys">
+          {renderShortcutKey(shortcuts.toggleVisibility)}
         </div>
-        <div className="evia-icon-box">\</div>
       </div>
 
       {/* Settings button */}
@@ -593,8 +706,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
         </svg>
       </button>
 
-      {/* New right-end draggable handle (semicircular slice) */}
-      <DraggableHandle />
+      {/* WINDOWS FIX: Only show semicircular handle on Mac, on Windows entire bar is draggable */}
+      {!isWindowsPlatform && <DraggableHandle />}
     </div>
   );
 };

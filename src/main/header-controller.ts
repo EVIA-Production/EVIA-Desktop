@@ -172,7 +172,15 @@ export class HeaderController {
     const micGranted = data.micPermission === 'granted';
     const screenGranted = data.screenPermission === 'granted';
     
-    // If permissions not completed or not granted, show permissions window
+    // WINDOWS FIX (2025-12-05): Skip permission window on Windows
+    // Windows doesn't use macOS-style system permissions for microphone/screen
+    // WASAPI and desktop capture work without prompting for permission
+    if (process.platform === 'win32') {
+      console.log('[HeaderController] 🪟 Windows detected - skipping permission checks');
+      return 'ready';
+    }
+    
+    // If permissions not completed or not granted, show permissions window (macOS only)
     if (!data.permissionsCompleted || !micGranted || !screenGranted) {
       return 'permissions';
     }

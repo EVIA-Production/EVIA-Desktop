@@ -87,19 +87,8 @@ async function boot() {
     }
   }
 
-  // Show one-time informational message on Windows, then continue
-  if (process.platform === 'win32') {
-    try {
-      await dialog.showMessageBox({
-        type: 'info',
-        title: 'Windows Warning',
-        message:
-          'EVIA Desktop for Windows is not fully supported. Some functions might not be working correctly.',
-        buttons: ['OK'],
-        noLink: true,
-      });
-    } catch {}
-  }
+  // WINDOWS FIX (2025-12-05): Removed Windows warning dialog per user request
+  // The dialog was disruptive and unnecessary as Windows support is now stable
 
   // Set up display media request handler (system audio loopback)
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
