@@ -102,7 +102,7 @@ const WelcomeHeader: React.FC = () => {
     console.log('[WelcomeHeader] Opening privacy policy...');
     try {
       if ((window as any).evia?.shell?.openExternal) {
-        await (window as any).evia.shell.openExternal('https://tryevia.ai/data-privacy');
+        await (window as any).evia.shell.openExternal('https://www.tryevia.ai/data-privacy');
       }
     } catch (err) {
       console.error('[WelcomeHeader] ❌ Failed to open privacy policy:', err);
