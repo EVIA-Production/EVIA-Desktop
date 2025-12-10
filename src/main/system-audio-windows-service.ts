@@ -28,7 +28,14 @@ export class SystemAudioWindowsService {
   private chunkCount: number = 0;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private readonly HEARTBEAT_CHECK_MS = 2000;
-  private readonly STALL_THRESHOLD_MS = 5000;
+  // WINDOWS FIX (2025-12-09): Increased threshold from 5s to 8s to reduce false positives
+  private readonly STALL_THRESHOLD_MS = 8000;
+  
+  // WINDOWS FIX (2025-12-09): Prevent infinite restart loops
+  private restartCount: number = 0;
+  private lastRestartTime: number = 0;
+  private readonly MAX_RESTARTS_PER_MINUTE = 5; // Increased from 3 to allow more recovery attempts
+  private readonly RESTART_COOLDOWN_MS = 15000; // Reduced cooldown from 20s to 15s for faster recovery
 
   private send(channel: string, data: any) {
     const wins = BrowserWindow.getAllWindows();
@@ -76,16 +83,46 @@ export class SystemAudioWindowsService {
       this.chunkCount = 0;
       this.heartbeatInterval = setInterval(() => {
         const timeSinceChunk = Date.now() - this.lastChunkTime;
+        const now = Date.now();
+        
+        // Reset restart count after 1 minute of successful operation (100+ chunks = ~10s of audio)
+        if (this.chunkCount > 100 && this.restartCount > 0) {
+          console.log(`[SystemAudioWindows] ✅ Helper stable (${this.chunkCount} chunks) - resetting restart counter`);
+          this.restartCount = 0;
+        }
         
         if (this.running && timeSinceChunk > this.STALL_THRESHOLD_MS) {
-          console.warn(`[SystemAudioWindows] ⚠️ Helper stalled - no chunks for ${Math.round(timeSinceChunk/1000)}s`);
+          console.warn(`[SystemAudioWindows] ⚠️ Helper stalled - no chunks for ${Math.round(timeSinceChunk/1000)}s (restarts: ${this.restartCount})`);
           this.send('system-audio-windows:status', `WARNING: Helper stalled (${Math.round(timeSinceChunk/1000)}s)`);
           
-          // Auto-restart if stalled for too long
+          // Auto-restart if stalled for too long, but respect limits
           if (timeSinceChunk > this.STALL_THRESHOLD_MS * 2) {
-            console.log('[SystemAudioWindows] 🔄 Auto-restarting stalled helper...');
+            const timeSinceLastRestart = now - this.lastRestartTime;
+            
+            // Check restart limits
+            if (this.restartCount >= this.MAX_RESTARTS_PER_MINUTE) {
+              console.error(`[SystemAudioWindows] 🚫 MAX RESTARTS REACHED (${this.MAX_RESTARTS_PER_MINUTE}). NOT restarting. Manual intervention required.`);
+              this.send('system-audio-windows:status', `ERROR: Max restarts reached - manual restart required`);
+              // Stop the heartbeat to prevent more restart attempts
+              if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = null;
+              }
+              return;
+            }
+            
+            // Enforce cooldown between restarts
+            if (timeSinceLastRestart < this.RESTART_COOLDOWN_MS) {
+              console.log(`[SystemAudioWindows] ⏳ Cooldown active - ${Math.round((this.RESTART_COOLDOWN_MS - timeSinceLastRestart)/1000)}s until next restart allowed`);
+              return;
+            }
+            
+            console.log(`[SystemAudioWindows] 🔄 Auto-restarting stalled helper (attempt ${this.restartCount + 1}/${this.MAX_RESTARTS_PER_MINUTE})...`);
+            this.restartCount++;
+            this.lastRestartTime = now;
+            
             this.stop().then(() => {
-              setTimeout(() => this.start(), 500);
+              setTimeout(() => this.start(), 1000); // Longer delay between restarts
             });
           }
         }
@@ -176,8 +213,43 @@ export class SystemAudioWindowsService {
       this.chunkCount = 0;
       
       if (this.proc) {
-        this.proc.kill();
+        const proc = this.proc;
         this.proc = null;
+        
+        // WINDOWS FIX (2025-12-09): Wait for process to actually exit before returning
+        return new Promise((resolve) => {
+          const cleanup = () => {
+            this.running = false;
+            this.buffer = Buffer.alloc(0);
+            resolve({ success: true });
+          };
+          
+          // Set a timeout in case process doesn't exit cleanly
+          const timeout = setTimeout(() => {
+            console.warn('[SystemAudioWindows] Force cleanup after timeout');
+            cleanup();
+          }, 3000);
+          
+          proc.once('close', () => {
+            clearTimeout(timeout);
+            console.log('[SystemAudioWindows] Process exited cleanly');
+            cleanup();
+          });
+          
+          // Try graceful termination first, then force kill
+          try {
+            proc.kill('SIGTERM');
+            setTimeout(() => {
+              if (proc.killed === false) {
+                console.log('[SystemAudioWindows] Force killing unresponsive process...');
+                proc.kill('SIGKILL');
+              }
+            }, 1000);
+          } catch (killErr) {
+            console.warn('[SystemAudioWindows] Error during kill:', killErr);
+            cleanup();
+          }
+        });
       }
       this.running = false;
       this.buffer = Buffer.alloc(0);

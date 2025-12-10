@@ -340,13 +340,15 @@ const EviaBar: React.FC<EviaBarProps> = ({
   }, [listenStatus]);
 
   // WINDOWS FIX: Handle audio recovery triggers from ListenView (Windows only)
+  // CRITICAL: We DON'T restart the full audio pipeline - that would reset transcripts!
+  // Instead, just restart the WASAPI helper via IPC to the main process
   useEffect(() => {
     // Only register this handler on Windows to avoid any impact on macOS
     const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
     if (!isWindows) return;
     
     const handleRecoveryTrigger = async () => {
-      console.log('[EviaBar] Audio recovery triggered (Windows)');
+      console.log('[EviaBar] 🔄 Audio recovery triggered (Windows) - WASAPI restart only, NOT full pipeline');
       
       // Only recover if we're actively listening
       if (listenStatusRef.current !== 'in') {
@@ -355,23 +357,17 @@ const EviaBar: React.FC<EviaBarProps> = ({
       }
       
       try {
-        // Import audio functions
-        const { stopCapture, startCapture } = await import('../audio-processor-glass-parity');
+        // CRITICAL FIX: Only restart WASAPI helper, NOT the full audio pipeline
+        // This preserves WebSocket connections and transcript state
+        console.log('[EviaBar] Requesting WASAPI restart via IPC (preserving transcripts)...');
         
-        // Stop current capture
-        console.log('[EviaBar] Stopping current capture for recovery...');
-        await stopCapture();
+        // Request WASAPI restart from main process - this will NOT affect mic capture or WebSocket
+        if (window.electron?.ipcRenderer) {
+          await window.electron.ipcRenderer.invoke('system-audio-windows:restart');
+          console.log('[EviaBar] ✅ WASAPI restart requested');
+        }
         
-        // Brief pause
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Restart capture
-        console.log('[EviaBar] Restarting capture...');
-        await startCapture(true); // true = include system audio
-        
-        console.log('[EviaBar] Audio recovery completed');
-        
-        // Notify ListenView of recovery
+        // Notify ListenView of recovery (but NOT recording_started which would reset transcripts)
         const eviaIpc = (window as any).evia?.ipc;
         if (eviaIpc?.send) {
           eviaIpc.send('transcript-message', { 
@@ -379,6 +375,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
             data: { message: 'Audio reconnected', recovered: true }
           });
         }
+        
+        console.log('[EviaBar] Audio recovery completed (WASAPI only)');
       } catch (err) {
         console.error('[EviaBar] Audio recovery failed:', err);
       }

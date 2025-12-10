@@ -102,18 +102,24 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           const contentChanged = isStreaming || response !== lastResponseRef.current;
           
           if (contentChanged && isStreaming) {
-            // CASE 1: During streaming - light measurement for overflow prevention only
-            // Don't try to be perfect here - final measurement happens in onDone()
-            const container = entry.target as HTMLElement;
-            const needed = Math.ceil(container.scrollHeight);
-            const delta = Math.abs(needed - current);
+            // CASE 1: During streaming - measure actual component heights
+            const headerEl = document.querySelector('.response-header') as HTMLElement;
+            const contentEl = document.querySelector('.markdown-content') as HTMLElement;
+            const inputEl = document.querySelector('.text-input-container') as HTMLElement;
             
-            // Only resize if grossly wrong (>50px off) - prevents jitter
-            if (delta > 50) {
-              const targetHeight = needed + 5;
+            const headerH = headerEl?.offsetHeight || 45;
+            const contentH = contentEl?.offsetHeight || 50;
+            const inputH = inputEl?.offsetHeight || 50;
+            const padding = 24; // Response container padding
+            
+            const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
+            const delta = Math.abs(targetHeight - current);
+            
+            // Only resize if notably wrong (>30px off) - prevents jitter
+            if (delta > 30) {
               requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 Live adjustment (streaming): %dpx → %dpx (large delta: %dpx)', 
-                current, targetHeight, delta);
+              console.log('[AskView] 📏 Live (streaming): header=%d + content=%d + input=%d + pad=%d = %dpx', 
+                headerH, contentH, inputH, padding, targetHeight);
             }
           } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
             // CASE 2: Content stable but height wrong (external resize like arrow keys)
@@ -371,6 +377,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   // 🔧 FIX #6: Map technical errors to user-friendly messages
   const showError = (message: string, canRetry: boolean = false) => {
     console.error('[AskView] 💥 Error:', message);
+    
+    // 🔧 DIAGNOSTIC: Relay error to main process for terminal visibility
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      eviaIpc?.send?.('ask:error-diagnostic', { error: message, canRetry });
+    } catch (e) {
+      // Ignore IPC errors
+    }
     
     // Map technical errors to user-friendly messages
     let friendlyMessage = message;
@@ -645,26 +659,31 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
       
-      // 🔥 CRITICAL FIX: Do FINAL measurement after stream completes
-      // Glass parity: Measure when done, not during streaming
-      // Wait for React to finish rendering + browser to complete layout
+      // 🔥 FIX (2025-12-10): Final measurement - calculate from components
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const container = document.querySelector('.ask-container') as HTMLElement;
-          if (container) {
-            const needed = Math.ceil(container.scrollHeight);
-            const current = window.innerHeight;
-            const delta = Math.abs(needed - current);
-            
-            if (delta > 3) {
-              const targetHeight = needed + 5;
-              storedContentHeightRef.current = targetHeight;
-              requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 FINAL measurement (stream done): %dpx → %dpx (delta: %dpx)', 
-                current, targetHeight, delta);
-            } else {
-              console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
-            }
+          const headerEl = document.querySelector('.response-header') as HTMLElement;
+          const contentEl = document.querySelector('.markdown-content') as HTMLElement;
+          const inputEl = document.querySelector('.text-input-container') as HTMLElement;
+          
+          if (!contentEl) return;
+          
+          const headerH = headerEl?.offsetHeight || 45;
+          const contentH = contentEl.offsetHeight;
+          const inputH = inputEl?.offsetHeight || 50;
+          const padding = 32; // Response container padding (8px top + 8px bottom + margins)
+          
+          const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
+          const current = window.innerHeight;
+          const delta = Math.abs(targetHeight - current);
+          
+          if (delta > 3) {
+            storedContentHeightRef.current = targetHeight;
+            requestWindowResize(targetHeight);
+            console.log('[AskView] 📏 FINAL: header=%d + content=%d + input=%d + pad=%d = %dpx (was %dpx)', 
+              headerH, contentH, inputH, padding, targetHeight, current);
+          } else {
+            console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
           }
           
           // 🎯 UX IMPROVEMENT: Auto-focus input after response completes
@@ -773,22 +792,23 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => window.removeEventListener('keydown', onKey);
   }, [prompt, isStreaming, language]);
 
-  // 🧹 REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
+  // REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
   // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
 
-  // 🔧 FIX #15/#17: Glass-parity window sizing (auto-expand AND auto-detract)
-  // Based on Glass AskView.js lines 1407-1428
+  // FIX (2025-12-10): Window sizing - ensures content is always visible
+  // Minimum height when content exists: header(45) + padding(32) + min-content(50) + input(50) = 177px
+  const MIN_CONTENT_HEIGHT = 180; // Minimum when showing response
+  
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      // Glass formula: Math.min(700, idealHeight) - NO minimum when content exists
-      const clampedHeight = Math.min(700, targetHeight);
+      // Clamp: min 58px (compact/empty), max 700px (Glass limit)
+      const clampedHeight = Math.max(58, Math.min(700, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };
 
-  // 🔧 FIX #41: Simplified manual resize (ResizeObserver is primary, this is fallback for edge cases)
-  // Handles initial empty state and visibility changes
+  // 🔧 FIX (2025-12-10): Resize to fit content - measure components
   const triggerManualResize = useCallback(() => {
     // Empty state: compact ask bar
     if (!response || response.trim() === '') {
@@ -797,17 +817,24 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       return;
     }
     
-    // With content: let ResizeObserver handle it, but trigger a recalc on visibility change
-    const container = document.querySelector('.ask-container') as HTMLElement;
-    if (container) {
-      // 🔧 Use scrollHeight for full content measurement (matches ResizeObserver fix)
-      const needed = Math.ceil(container.scrollHeight);
+    // With content: measure actual component heights
+    const headerEl = document.querySelector('.response-header') as HTMLElement;
+    const contentEl = document.querySelector('.markdown-content') as HTMLElement;
+    const inputEl = document.querySelector('.text-input-container') as HTMLElement;
+    
+    if (contentEl) {
+      const headerH = headerEl?.offsetHeight || 45;
+      const contentH = contentEl.offsetHeight;
+      const inputH = inputEl?.offsetHeight || 50;
+      const padding = 24; // Response container padding
+      
+      const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
       const current = window.innerHeight;
-      const delta = Math.abs(needed - current);
+      const delta = Math.abs(targetHeight - current);
       
       if (delta > 3) {
-        requestWindowResize(needed + 5);
-        console.log('[AskView] 📏 Manual resize (visibility change): %dpx → %dpx', current, needed + 5);
+        requestWindowResize(targetHeight);
+        console.log('[AskView] 📏 Manual: header=%d + content=%d + input=%d = %dpx', headerH, contentH, inputH, targetHeight);
       }
     }
   }, [response]);
@@ -878,23 +905,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   const hasResponse = isLoadingFirstToken || response || isStreaming;
-
-  // WINDOWS FIX (2025-12-05): Show minimal loading bar when waiting for first token
-  // This matches the user's expectation of a clean "Denkt nach..." state
-  if (isLoadingFirstToken && !response) {
-    return (
-      <div className="ask-container ask-loading-minimal">
-        <div className="ask-loading-bar">
-          <div className="loading-dots">
-            <div className="loading-dot"></div>
-            <div className="loading-dot"></div>
-            <div className="loading-dot"></div>
-          </div>
-          <span className="loading-text">{i18n.t('overlay.ask.thinking')}</span>
-        </div>
-      </div>
-    );
-  }
+  
+  // 🔧 GLASS PARITY (2025-12-10): Don't return early for loading state
+  // Glass shows full component with header ("Thinking...") + loading dots in response area + input field
+  // Removed the minimal loading bar that caused "cut off" appearance
 
   return (
     <div className="ask-container">
@@ -1011,7 +1025,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           disabled={isStreaming || !prompt.trim()}
         >
           <span className="btn-label">{i18n.t('overlay.ask.submit')}</span>
-          <span className="btn-icon">↵</span>
+          <span className="btn-icon">
+            {/* Framework 7 Return Icon */}
+            <svg width="14" height="14" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 14H20C21.1046 14 22 13.1046 22 12V8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M10 9L5 14L10 19" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
         </button>
       </div>
     </div>

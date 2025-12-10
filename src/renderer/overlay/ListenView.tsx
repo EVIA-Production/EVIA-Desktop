@@ -207,11 +207,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return () => viewport.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 195-204 in SttView.js)
-  // This runs AFTER transcripts state update and DOM render
+  // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 178-185 in SttView.js)
+  // Glass uses setTimeout(fn, 0) to ensure DOM is fully updated before scrolling
   useEffect(() => {
     if (shouldScrollAfterUpdate.current && viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+      // Use setTimeout(0) like Glass SttView.js line 179-184 scrollToBottom()
+      setTimeout(() => {
+        if (viewportRef.current) {
+          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        }
+      }, 0);
       shouldScrollAfterUpdate.current = false;
     }
   }, [transcripts]); // Run after transcripts update
@@ -259,7 +264,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setElapsedTime('00:00');
         setIsSessionActive(true);
         finalTranscriptCountRef.current = 0;
-        console.log('[ListenView] 🔄 Reset final transcript counter');
+        // 🔧 GLASS PARITY: Enable auto-scroll at session start
+        setAutoScroll(true);
+        autoScrollRef.current = true;
+        shouldScrollAfterUpdate.current = true;
+        console.log('[ListenView] 🔄 Reset final transcript counter, auto-scroll enabled');
+        // 🔧 GLASS PARITY: Force scroll to bottom after DOM updates (session fresh start)
+        setTimeout(() => {
+          if (viewportRef.current) {
+            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+            console.log('[ListenView] 📜 Scrolled to bottom on session start');
+          }
+        }, 50);
         startTimer();
         return;
       }
@@ -335,8 +351,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const container = viewportRef.current;
       if (container) {
-        shouldScrollAfterUpdate.current =
-          container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+        // 🔧 GLASS PARITY FIX: Only check isAtBottom, exactly like Glass SttView.js line 120
+        // This ensures auto-scroll works when user is at bottom, regardless of autoScrollRef state
+        const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+        shouldScrollAfterUpdate.current = isAtBottom;
+        // Also sync the autoScroll state for UI consistency
+        if (isAtBottom !== autoScrollRef.current) {
+          autoScrollRef.current = isAtBottom;
+        }
       }
 
       // Merge logic...

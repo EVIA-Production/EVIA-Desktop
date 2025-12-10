@@ -150,7 +150,7 @@
 }
 
 /* ============================================
-  EVIA BAR (Glass Parity)
+  EVIA BAR 
   ============================================ */
 .evia-main-header {
   -webkit-app-region: no-drag; /* Default: non-draggable (Mac uses handle) */
@@ -170,7 +170,7 @@
   font-family: var(--font-ui);
 }
 
-/* WINDOWS FIX (2025-12-05): Make entire header draggable on Windows */
+/*  Make entire header draggable on Windows */
 .evia-main-header.windows-drag {
   -webkit-app-region: drag;
   cursor: move;
@@ -330,7 +330,7 @@
 .evia-drag-handle--active { transform: scale(1.07); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
 
 /* ============================================
-   LISTEN VIEW (Glass Parity)
+   LISTEN VIEW 
    - Styles extracted from ListenView.tsx inline <style>
    - Scoped under .assistant-container to avoid affecting other views
    ============================================ */
@@ -521,6 +521,7 @@
   background: transparent;
 }
 
+
 .assistant-container .glass-scroll::-webkit-scrollbar-track {
   background: var(--glass-border-light);
   border-radius: 3px;
@@ -533,8 +534,9 @@
   transition: background 0.2s ease;
 }
 
+/* WINDOWS FIX (2025-12-09): Less bright hover state */
 .assistant-container .glass-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .assistant-container .glass-scroll {
@@ -610,7 +612,7 @@
 /* ========== End LISTEN VIEW ========== */
 
 /* ============================================
-   PERMISSION HEADER (Glass Parity)
+   PERMISSION HEADER 
    - Styles extracted from PermissionHeader.tsx inline styles
    - Uses class-based modifiers for state (e.g., .success, .granted, .disabled)
    ============================================ */
@@ -784,7 +786,7 @@
 /* ========== End PERMISSION HEADER ========== */
 
 /* ============================================
-   SCREEN PICKER (Glass Parity)
+   SCREEN PICKER 
    - Styles extracted from ScreenPicker.tsx modal
    ============================================ */
 
@@ -847,7 +849,7 @@
 
 
 /* ============================================
-   WELCOME HEADER (Glass Parity)
+   WELCOME HEADER 
    - Styles extracted from WelcomeHeader.tsx inline <style>
    - Scoped under .welcome-container to avoid collisions
    ============================================ */
@@ -1064,7 +1066,7 @@
 
 /* ===== end merged block ===== */
 
-/* 🔧 REACTIVE I18N: Language change animations */
+/* REACTIVE I18N: Language change animations */
 @keyframes languageTransition {
   0% {
     opacity: 0.7;
@@ -1085,7 +1087,7 @@
   transition: opacity 0.2s ease;
 }
 
-/* Close Button - Ported from Glass PermissionHeader.js:58-87 */
+/* Close Button 
 /* MUP FIX #5: Hidden per coordinator requirements - window closes via Esc or clicking outside */
 .close-button {
   -webkit-app-region: no-drag;
@@ -1202,16 +1204,15 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ASK VIEW - Glass Parity Styles
+   ASK VIEW 
    ═══════════════════════════════════════════════════════════════ */
 
 /* Container */
 .ask-container {
   display: flex;
   flex-direction: column;
-  /* 🔧 FIX #42: Remove fixed height to allow content-based sizing */
-  /* OLD: height: 100%; - prevented ResizeObserver from detecting content growth */
-  min-height: 100%;  /* Fill window at minimum */
+  /* FIX (2025-12-10): Use height:100% to fill window exactly */
+  height: 100%;
   width: 100%;
   background: var(--glass-bg-soft);
   border-radius: var(--panel-radius-small);
@@ -1220,7 +1221,7 @@
   backdrop-filter: blur(1px);
   box-sizing: border-box;
   position: relative;
-  overflow: hidden;
+  overflow: hidden; /* FIX: Hidden to prevent light corners from showing */
   font-family: var(--font-ui);
 }
 
@@ -1270,20 +1271,20 @@
   z-index: 1000;
   background: rgba(255, 59, 48, 0.95);
   color: white;
-  padding: 8px 14px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px 20px */
-  border-radius: 6px;  /* 🔧 UI IMPROVEMENT: Reduced from 8px */
+  padding: 8px 14px;  /* UI IMPROVEMENT: Reduced from 12px 20px */
+  border-radius: 6px;  /* UI IMPROVEMENT: Reduced from 8px */
   border: 1px solid rgba(255, 255, 255, 0.3);
   display: flex;
   align-items: center;
-  gap: 8px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px */
-  font-size: 11px;  /* 🔧 UI IMPROVEMENT: Reduced from 13px */
-  max-width: 320px;  /* 🔧 UI IMPROVEMENT: Limit width to fit in header area */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);  /* 🔧 UI IMPROVEMENT: Reduced shadow */
+  gap: 8px;  /* UI IMPROVEMENT: Reduced from 12px */
+  font-size: 11px;  /* UI IMPROVEMENT: Reduced from 13px */
+  max-width: 320px;  /* UI IMPROVEMENT: Limit width to fit in header area */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);  /* UI IMPROVEMENT: Reduced shadow */
   animation: slideDown 0.3s ease;
-  line-height: 1.3;  /* 🔧 UI IMPROVEMENT: Tighter line height */
+  line-height: 1.3;  /* UI IMPROVEMENT: Tighter line height */
 }
 
-/* 🔧 UI IMPROVEMENT: Truncate long error messages */
+/* UI IMPROVEMENT: Truncate long error messages */
 .error-toast span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1293,17 +1294,17 @@
 }
 
 .retry-button {
-  padding: 3px 8px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px 12px */
+  padding: 3px 8px;  /* UI IMPROVEMENT: Reduced from 4px 12px */
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 3px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px */
-  font-size: 10px;  /* 🔧 UI IMPROVEMENT: Reduced from 12px */
+  border-radius: 3px;  /* UI IMPROVEMENT: Reduced from 4px */
+  font-size: 10px;  /* UI IMPROVEMENT: Reduced from 12px */
   cursor: pointer;
   font-weight: 500;
   transition: background 0.15s;
-  white-space: nowrap;  /* 🔧 UI IMPROVEMENT: Prevent wrapping */
-  flex-shrink: 0;  /* 🔧 UI IMPROVEMENT: Don't shrink button */
+  white-space: nowrap;  /* UI IMPROVEMENT: Prevent wrapping */
+  flex-shrink: 0;  /* UI IMPROVEMENT: Don't shrink button */
 }
 
 .retry-button:hover {
@@ -1315,12 +1316,12 @@
   border: none;
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  padding: 2px;  /* 🔧 UI IMPROVEMENT: Reduced from 4px */
+  padding: 2px;  /* UI IMPROVEMENT: Reduced from 4px */
   display: flex;
   align-items: center;
-  font-size: 14px;  /* 🔧 UI IMPROVEMENT: Smaller close icon */
+  font-size: 14px;  /* UI IMPROVEMENT: Smaller close icon */
   line-height: 1;
-  flex-shrink: 0;  /* 🔧 UI IMPROVEMENT: Don't shrink button */
+  flex-shrink: 0;  /* UI IMPROVEMENT: Don't shrink button */
 }
 
 @keyframes slideDown {
@@ -1483,17 +1484,22 @@
 
 /* Response Container */
 .response-container {
+  /* FIX (2025-12-10): flex: 1 to fill space between header and input */
   flex: 1;
-  padding: 16px;
-  padding-left: 48px;
-  overflow-y: auto;
-  font-size: 14px;
+  /* 🔧 FIX (2025-12-10): Reduced vertical padding (8px instead of 16px) */
+  padding: 8px 24px;
+  /* FIX: No overflow scroll when content fits - window expands instead */
+  overflow-y: hidden;
+  /* FIX (2025-12-10): Larger font for better visibility */
+  font-size: 15px;
   line-height: 1.6;
   background: transparent;
   min-height: 0;
-  /* 🔧 FIX: Removed max-height: 400px to allow full content expansion */
-  /* Window can now expand up to 700px (JS limit in AskView.tsx:661) */
-  /* German outputs and long responses will no longer be cut off */
+  /* FIX (2025-12-10): Center text vertically using flexbox */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
   position: relative;
   color: rgba(255, 255, 255, 0.9);
 }
@@ -1579,6 +1585,8 @@
 .markdown-content {
   user-select: text;
   cursor: text;
+  width: 100%; /* 🔧 FIX: Full width for proper text display */
+  text-align: left;
 }
 
 .markdown-content h1,
@@ -2174,8 +2182,8 @@
 }
 
 .invisibility-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 /* Language Section (EVIA-specific) */
@@ -2277,14 +2285,14 @@
 
 .cmd-key, .shortcut-key {
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-  font-size: 10px; /* Smaller keys */
-  width: 16px;
-  height: 16px;
+  border-radius: 4px;
+  /* WINDOWS FIX (2025-12-09): Larger keys to match Mac */
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
 }
@@ -2315,20 +2323,27 @@
 }
 
 .preset-toggle {
-  /* GLASS PARITY (2025-12-06): Match Glass exactly */
-  font-size: 10px;
+  /* (2025-12-09): SF Symbol style chevrons */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 2px;
-  transition: background-color 0.15s ease;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .preset-toggle:hover {
   background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
 }
 
-/* GLASS PARITY: Icon box styling for shortcut keys - exactly like Glass MainHeader.js */
+.preset-toggle svg {
+  display: block;
+}
+
+/* Icon box styling for shortcut keys - exactly like Glass MainHeader.js */
 .evia-icon-box {
   width: 18px;
   height: 18px;

@@ -35,25 +35,25 @@ const WINDOW_DATA = {
     width: 400,
     height: 420,
     html: 'overlay.html?view=listen', // Documentation only - actual load uses query param
-    zIndex: 3,
+    zIndex: 1,
   },
   ask: {
     width: 640,  // Increased from 600 to fit form + padding
     height: 58,   // 🔧 FIX #23: Symmetric compact size (input container: 12+12+34=58px, no extra chrome)
     html: 'overlay.html?view=ask',
-    zIndex: 1,
+    zIndex: 2,
   },
   settings: {
     width: 240, // Glass parity: windowManager.js:527
     height: 400, // Glass uses maxHeight: 400, we use fixed height
     html: 'overlay.html?view=settings',
-    zIndex: 2,
+    zIndex: 10, // 🔧 FIX (2025-12-10): Settings ALWAYS on top of other windows
   },
   shortcuts: {
     width: 353, // Glass parity: windowManager.js:562
     height: 580, // Calculated: 12 shortcuts + header + buttons + padding (was 720, reduced to fit tighter)
     html: 'overlay.html?view=shortcuts',
-    zIndex: 0,
+    zIndex: 11, // 🔧 FIX: Shortcuts above settings when both open
   },
 } satisfies Record<FeatureName, { width: number; height: number; html: string; zIndex: number }>
 
@@ -170,36 +170,24 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   }
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  // WINDOWS FIX (2025-12-05): Use appropriate always-on-top level per platform
-  // macOS: 'screen-saver' level for highest priority
-  // Windows: 'floating' level + focus listener to maintain always-on-top
-  if (process.platform === 'darwin') {
-    headerWindow.setAlwaysOnTop(true, 'screen-saver');
-  } else if (process.platform === 'win32') {
-    // On Windows, use 'floating' level which is reliable
-    headerWindow.setAlwaysOnTop(true, 'floating');
-    
-    // WINDOWS FIX: Re-apply always-on-top when window loses focus
-    // This prevents EVIA from disappearing when clicking other windows
+  // WINDOWS FIX (2025-12-10): Use 'screen-saver' level on ALL platforms for highest priority
+  // This is the highest always-on-top level and prevents EVIA from going behind other windows
+  // Previous approach with 'floating' + blur listeners caused visual flicker
+  headerWindow.setAlwaysOnTop(true, 'screen-saver');
+  
+  if (process.platform === 'win32') {
+    // WINDOWS FIX (2025-12-10): On blur, just call moveTop() without toggling alwaysOnTop
+    // This prevents the visual flicker that occurred when toggling the state
     headerWindow.on('blur', () => {
       if (headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()) {
-        // Short delay to let the click complete, then restore on top
         setTimeout(() => {
           if (headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()) {
-            headerWindow.setAlwaysOnTop(false);
-            headerWindow.setAlwaysOnTop(true, 'floating');
-            headerWindow.moveTop();
-            
-            // Also ensure child windows stay on top
+            // Just move windows to top, don't toggle alwaysOnTop (causes flicker)
             for (const [_, win] of childWindows) {
               if (win && !win.isDestroyed() && win.isVisible()) {
-                win.setAlwaysOnTop(false);
-                win.setAlwaysOnTop(true, 'floating');
                 win.moveTop();
               }
             }
-            
-            // Move header above children
             headerWindow?.moveTop();
           }
         }, 100);
@@ -410,12 +398,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   }
 
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  // WINDOWS FIX (2025-12-05): Use appropriate always-on-top level per platform
-  if (process.platform === 'win32') {
-    win.setAlwaysOnTop(true, 'floating')
-  } else {
+  // WINDOWS FIX (2025-12-10): Use 'screen-saver' level on ALL platforms
+  // This is the highest always-on-top level - prevents windows from going behind others
   win.setAlwaysOnTop(true, 'screen-saver')
-  }
   win.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   
   // Glass parity: All windows are interactive by default (windowManager.js:287)
@@ -509,6 +494,8 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         if (isInside && !wasInsideSettings) {
           console.log('[overlay-windows] Cursor entered settings bounds')
           wasInsideSettings = true
+          // 🔧 FIX: Bring settings to front when hovered (above other windows)
+          try { win.moveTop() } catch {}
           // Cancel hide timer
           if (settingsHideTimer) {
             console.log('[overlay-windows] Canceling hide timer - cursor inside')
@@ -522,9 +509,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
           if (settingsHideTimer) clearTimeout(settingsHideTimer)
           settingsHideTimer = setTimeout(() => {
             console.log('[overlay-windows] Hiding settings after cursor left')
-            // CRITICAL FIX: Only hide settings window, DON'T call updateWindows (which would re-open listen/ask)
+            // CRITICAL FIX: Only hide settings window, DON'T call updateWindows
+            // 🔧 FIX (2025-12-10): Don't change alwaysOnTop before hiding - just hide
             if (win && !win.isDestroyed()) {
-              win.setAlwaysOnTop(false, 'screen-saver')
               win.hide()
             }
             const vis = getVisibility()
@@ -1284,29 +1271,29 @@ app.on('browser-window-focus', () => {
   }
 })
 
-// WINDOWS FIX (2025-12-05): Periodic always-on-top refresh to prevent EVIA from going behind other windows
-// Windows can sometimes lose the always-on-top state after long periods of non-interaction
-// This runs every 30 seconds to ensure EVIA stays on top
+// WINDOWS FIX (2025-12-10): Improved always-on-top without flicker
+// Previous approach toggled setAlwaysOnTop(false) then true, causing visual flicker
+// New approach: Just call moveTop() without touching the alwaysOnTop state
+// The windows are created with alwaysOnTop=true and 'screen-saver' level which is permanent
 let alwaysOnTopInterval: NodeJS.Timeout | null = null;
 
 function startAlwaysOnTopRefresh() {
   if (process.platform !== 'win32') return;
   if (alwaysOnTopInterval) return; // Already running
   
+  // 🔧 FIX: Use longer interval (60s) and only use moveTop() - no flicker
   alwaysOnTopInterval = setInterval(() => {
     // Only refresh if header window exists and is visible
     if (!headerWindow || headerWindow.isDestroyed() || !headerWindow.isVisible()) return;
     
     try {
-      // Re-apply always-on-top to header
-      headerWindow.setAlwaysOnTop(false);
-      headerWindow.setAlwaysOnTop(true, 'floating');
+      // 🔧 FIX: Don't toggle alwaysOnTop - just bring windows to front
+      // This prevents the visual flicker caused by toggling the state
       
-      // Re-apply to visible child windows
+      // Move visible child windows to front first
       for (const [_, win] of childWindows) {
         if (win && !win.isDestroyed() && win.isVisible()) {
-          win.setAlwaysOnTop(false);
-          win.setAlwaysOnTop(true, 'floating');
+          win.moveTop();
         }
       }
       
@@ -1317,9 +1304,9 @@ function startAlwaysOnTopRefresh() {
     } catch (err) {
       console.warn('[overlay-windows] ⚠️ Failed to refresh always-on-top:', err);
     }
-  }, 30000); // Every 30 seconds
+  }, 60000); // Every 60 seconds (increased from 30s since we're not toggling)
   
-  console.log('[overlay-windows] ✅ Started Windows always-on-top refresh (30s interval)');
+  console.log('[overlay-windows] ✅ Started Windows always-on-top refresh (60s interval)');
 }
 
 function stopAlwaysOnTopRefresh() {
@@ -1911,10 +1898,9 @@ ipcMain.on('hide-settings-window', () => {
   }
   settingsHideTimer = setTimeout(() => {
     console.log('[overlay-windows] 200ms timer expired - hiding settings')
-    // FIX: Only hide settings, don't affect other windows
+    // 🔧 FIX (2025-12-10): Only hide settings, don't change alwaysOnTop
     const settingsWin = childWindows.get('settings')
     if (settingsWin && !settingsWin.isDestroyed()) {
-      settingsWin.setAlwaysOnTop(false, 'screen-saver')
       settingsWin.hide()
     }
     const vis = getVisibility()
@@ -1940,6 +1926,11 @@ ipcMain.on('blink-header-error', () => {
     // Send message to header renderer to trigger CSS animation
     header.webContents.send('trigger-error-blink')
   }
+})
+
+// 🔧 DIAGNOSTIC: Log Ask errors to main process terminal for visibility
+ipcMain.on('ask:error-diagnostic', (_event, data: { error: string; canRetry: boolean }) => {
+  console.error('[Ask] ❌ ERROR:', data.error, '(canRetry:', data.canRetry, ')')
 })
 
 // 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)

@@ -244,7 +244,14 @@ export class ChatWebSocket {
 
   sendBinaryData(data: ArrayBuffer) {
     if (this.ws?.readyState !== WebSocket.OPEN) {
+      // WINDOWS FIX (2025-12-09): Don't just queue - try to reconnect!
+      console.warn('[WS] sendBinaryData: WebSocket not open, attempting reconnect...');
       this.queue.push(data);
+      
+      // Trigger reconnection if not already in progress
+      if (!this.isConnectedFlag && this.shouldReconnect) {
+        this.scheduleReconnect();
+      }
       return;
     }
     // Check audio levels in the buffer to detect audio

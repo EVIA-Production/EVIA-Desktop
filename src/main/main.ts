@@ -236,6 +236,23 @@ ipcMain.handle('system-audio-windows:stop', async () => {
   return result
 })
 
+// WINDOWS FIX: Restart WASAPI helper without affecting WebSocket connections
+// This is a lighter recovery than full stop/start which preserves transcript state
+ipcMain.handle('system-audio-windows:restart', async () => {
+  console.log('[Main] IPC: system-audio-windows:restart called (preserving state)')
+  try {
+    await systemAudioWindowsService.stop()
+    // Brief pause before restart
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const result = await systemAudioWindowsService.start()
+    console.log('[Main] WASAPI restart completed:', result)
+    return result
+  } catch (err) {
+    console.error('[Main] WASAPI restart failed:', err)
+    return { success: false, error: String(err) }
+  }
+})
+
 ipcMain.handle('system-audio-windows:is-running', async () => {
   return systemAudioWindowsService.isRunning()
 })
