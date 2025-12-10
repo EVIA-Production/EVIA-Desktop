@@ -8,8 +8,14 @@ protocols:
     schemes:
       - evia
 files:
-  - dist/**
+  - dist/main/**
+  - dist/renderer/**
   - src/main/assets/**
+  - "!dist/win-unpacked/**"
+  - "!dist/*.exe"
+  - "!dist/*.dmg"
+  - "!dist/*.zip"
+  - "!dist/mac*/**"
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
   - "src/main/assets/WASAPILoopback.exe"
