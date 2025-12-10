@@ -1933,6 +1933,12 @@ ipcMain.on('ask:error-diagnostic', (_event, data: { error: string; canRetry: boo
   console.error('[Ask] ❌ ERROR:', data.error, '(canRetry:', data.canRetry, ')')
 })
 
+// 🔧 DIAGNOSTIC: Forward debug logs from renderer to main process terminal
+// This allows us to see AudioCapture logs from the Header window
+ipcMain.on('debug-log', (_event, message: string) => {
+  console.log('[Renderer]', message)
+})
+
 // 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
 // Glass parity: Forward prompt from Listen/Insights to Ask window
 // 🧹 REMOVED: Old ask:set-prompt handler (replaced by single-step ask:send-and-submit at line ~901)

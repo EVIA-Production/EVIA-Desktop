@@ -538,6 +538,10 @@ function ensureMicWs() {
         console.log('[AudioCapture] 🔥 MIC MESSAGE RECEIVED:', msg.type, msg);
         if (eviaIpc?.send) {
           eviaIpc.send('debug-log', `[AudioCapture] 🔥 MIC MSG: ${msg.type}`);
+          // Log full error content for debugging
+          if (msg.type === 'error') {
+            eviaIpc.send('debug-log', `[AudioCapture] ❌ MIC ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
+          }
         }
         
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
@@ -599,6 +603,11 @@ function ensureSystemWs(chatId?: string) {
         updateWsActivity('system');
         
         console.log('[AudioCapture] 🟢 SYSTEM MESSAGE RECEIVED:', msg.type);
+        
+        // Log full error content for debugging
+        if (msg.type === 'error' && eviaIpc?.send) {
+          eviaIpc.send('debug-log', `[AudioCapture] ❌ SYSTEM ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
+        }
         
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           // WINDOWS FIX (2025-12-09): Track transcript reception for stall detection
