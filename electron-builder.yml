@@ -48,7 +48,7 @@ win:
   target:
     - target: dir
     - target: portable
-  icon: src/main/assets/icon.png
+  icon: src/main/assets/icon.ico
   artifactName: "EVIA-${version}.${ext}"
   forceCodeSigning: false
   signAndEditExecutable: false
