@@ -140,7 +140,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000', // Fully transparent
-    title: 'EVIA Overlay',
+    title: 'EVIA',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

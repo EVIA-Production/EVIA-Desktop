@@ -67,6 +67,11 @@ function getBackendHttpBase(): string {
 
 // Windows platform warning + normal boot
 async function boot() {
+  // Set AppUserModelId for Windows taskbar - must be before whenReady
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.evia.app');
+  }
+  
   await app.whenReady();
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
