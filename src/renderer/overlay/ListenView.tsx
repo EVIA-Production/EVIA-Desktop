@@ -526,6 +526,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
         console.log('[ListenView] 📡 Session state changed:', newState);
+        // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+        // Each Electron window has its own localStorage, so we must sync it here!
+        localStorage.setItem('evia_session_state', newState);
         setSessionState(newState);
         if (newState === 'during') setIsSessionActive(true);
         else if (newState === 'after') setIsSessionActive(false);

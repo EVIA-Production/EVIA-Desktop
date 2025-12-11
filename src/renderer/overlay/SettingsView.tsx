@@ -33,6 +33,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc) {
       eviaIpc.on('session-state-changed', (newState: string) => {
+        // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+        // Each Electron window has its own localStorage, so we must sync it here!
+        localStorage.setItem('evia_session_state', newState);
         setIsSessionActive(newState === 'during');
       });
     }

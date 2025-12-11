@@ -243,6 +243,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // 🔧 SESSION STATE: Listen for session state changes from EviaBar
     const handleSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
       console.log('[AskView] 🎯 Session state changed:', newState);
+      // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+      // Each Electron window has its own localStorage, so we must sync it here!
+      localStorage.setItem('evia_session_state', newState);
       setSessionState(newState);
     };
 
