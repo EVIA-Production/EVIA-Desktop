@@ -153,7 +153,7 @@
   EVIA BAR 
   ============================================ */
 .evia-main-header {
-  -webkit-app-region: no-drag; /* Default: non-draggable (Mac uses handle) */
+  -webkit-app-region: drag; /* Entire header is draggable */
   width: max-content;
   height: 47px;
   padding: 2px 10px 2px 13px;

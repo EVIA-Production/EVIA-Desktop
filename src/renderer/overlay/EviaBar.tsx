@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import './overlay-glass.css';
-import DraggableHandle from './DraggableHandle';
 import { i18n } from '../i18n/i18n';
 import { startCaptureWithStreams } from '../audio-processor-glass-parity';
 
@@ -650,7 +649,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     : i18n.t('overlay.header.done');
 
   return (
-    <div ref={headerRef} className={`evia-main-header ${isWindowsPlatform ? 'windows-drag' : 'no-drag'}`}>
+    <div ref={headerRef} className="evia-main-header">
       {/* Listen button */}
       <button
         type="button"
@@ -704,8 +703,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
         </svg>
       </button>
 
-      {/* WINDOWS FIX: Only show semicircular handle on Mac, on Windows entire bar is draggable */}
-      {!isWindowsPlatform && <DraggableHandle />}
     </div>
   );
 };
