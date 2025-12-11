@@ -132,12 +132,10 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     transparent: true,
     resizable: false,
     movable: true,
-    type: isWindows ? 'toolbar' : 'panel', // WINDOWS FIX: Use 'toolbar' on Windows for reliable always-on-top
+    type: process.platform === 'darwin' ? 'panel' : undefined, // macOS: panel, Windows: normal window for taskbar
     alwaysOnTop: true,
     skipTaskbar: false, // Show in taskbar so users can see EVIA is running
-    icon: app.isPackaged 
-      ? path.join(process.resourcesPath, 'app.asar', 'src', 'main', 'assets', 'icon.ico')
-      : path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.ico'),
+    icon: path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.ico'),
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
     focusable: true,
     hasShadow: false,
