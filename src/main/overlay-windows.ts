@@ -1324,14 +1324,33 @@ app.on('ready', () => {
     app.dock.show()
     const { nativeImage } = require('electron')
     const path = require('path')
-    const iconPath = path.join(__dirname, '../..', 'src/main/assets/icon.png')
+    // In production, icons are in resources folder; in dev, they're in src/main/assets
+    const isDev = !app.isPackaged
+    const iconPath = isDev
+      ? path.join(__dirname, 'assets', 'icon.png')
+      : path.join(process.resourcesPath, 'icon.png')
+    console.log('[DOCK] Icon path:', iconPath, '(isDev:', isDev, ')')
     try {
       const icon = nativeImage.createFromPath(iconPath)
       if (!icon.isEmpty()) {
         app.dock.setIcon(icon)
         console.log('[DOCK] ✅ Dock icon set successfully')
       } else {
-        console.warn('[DOCK] ⚠️ Icon file is empty or invalid')
+        console.warn('[DOCK] ⚠️ Icon file is empty or invalid at:', iconPath)
+        // Fallback: try alternative paths
+        const altPaths = [
+          path.join(__dirname, '..', 'assets', 'icon.png'),
+          path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.png'),
+          path.join(app.getAppPath(), 'src', 'main', 'assets', 'icon.png')
+        ]
+        for (const altPath of altPaths) {
+          const altIcon = nativeImage.createFromPath(altPath)
+          if (!altIcon.isEmpty()) {
+            app.dock.setIcon(altIcon)
+            console.log('[DOCK] ✅ Dock icon set from fallback:', altPath)
+            break
+          }
+        }
       }
     } catch (err) {
       console.error('[DOCK] ❌ Failed to set Dock icon:', err)
@@ -1823,6 +1842,9 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
   updateWindows(newVis)
   return { ok: true }
 })
+
+// NOTE: shell:openExternal and shell:navigate are already registered in main.ts
+// Do NOT add duplicate handlers here!
 
 // Settings hover handlers (Glass parity: show/hide with delay)
 ipcMain.on('show-settings-window', (_event, buttonX?: number) => {

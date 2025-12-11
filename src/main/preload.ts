@@ -129,11 +129,17 @@ contextBridge.exposeInMainWorld('evia', {
   // 🔧 FIX: IPC bridge for cross-window communication (Header → Listen)
   ipc: {
     send: (channel: string, ...args: any[]) => {
-      console.log('[Preload] IPC send:', channel, args);
+      // Reduce log spam - only log non-frequent channels
+      if (!channel.includes('debug-log') && !channel.includes('audio')) {
+        console.log('[Preload] IPC send:', channel);
+      }
       ipcRenderer.send(channel, ...args);
     },
     on: (channel: string, listener: (...args: any[]) => void) => {
-      console.log('[Preload] IPC listener registered for:', channel);
+      // Reduce log spam
+      if (!channel.includes('audio') && !channel.includes('transcript')) {
+        console.log('[Preload] IPC listener registered for:', channel);
+      }
       // Wrap the listener to remove the 'event' parameter
       const wrappedListener = (_event: any, ...args: any[]) => listener(...args);
       
@@ -147,7 +153,7 @@ contextBridge.exposeInMainWorld('evia', {
     },
     // 🔥 CRITICAL FIX: Add off method for cleanup (React useEffect cleanup)
     off: (channel: string, listener: (...args: any[]) => void) => {
-      console.log('[Preload] IPC listener removed for:', channel);
+      // Reduce log spam
       
       // Find the wrapped listener
       const channelListeners = listenerMap.get(channel);
@@ -166,7 +172,7 @@ contextBridge.exposeInMainWorld('evia', {
     },
     // Provide compatibility removal helpers expected by some renderers
     removeListener: (channel: string, listener: (...args: any[]) => void) => {
-      console.log('[Preload] IPC removeListener called for:', channel);
+      // Reduce log spam - silent cleanup
       // If listener was wrapped via listenerMap, remove the wrapped version
       const channelListeners = listenerMap.get(channel);
       if (channelListeners) {
@@ -182,7 +188,7 @@ contextBridge.exposeInMainWorld('evia', {
       try { ipcRenderer.removeListener(channel, listener as any); } catch (err) { console.warn('[Preload] removeListener fallback failed', err); }
     },
     removeAllListeners: (channel: string) => {
-      console.log('[Preload] IPC removeAllListeners called for:', channel);
+      // Reduce log spam - silent cleanup
       // Clear any wrapped listeners we tracked for the channel
       const channelListeners = listenerMap.get(channel);
       if (channelListeners) {
@@ -196,7 +202,10 @@ contextBridge.exposeInMainWorld('evia', {
     },
     // 🔥 CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
     invoke: (channel: string, ...args: any[]) => {
-      console.log('[Preload] IPC invoke:', channel, args);
+      // Reduce log spam - only log infrequent channels
+      if (!channel.includes('audio') && !channel.includes('transcript') && !channel.includes('debug')) {
+        console.log('[Preload] IPC invoke:', channel);
+      }
       return ipcRenderer.invoke(channel, ...args);
     }
   }

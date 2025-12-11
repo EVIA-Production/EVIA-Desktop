@@ -35,11 +35,7 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
-  // 🔍 DIAGNOSTIC: Component function execution (runs on EVERY render)
-  console.log('[ListenView] 🔍🔍🔍 COMPONENT FUNCTION EXECUTING - PROOF OF INSTANTIATION')
-  console.log('[ListenView] 🔍 Props:', { linesCount: lines.length, followLive })
-  console.log('[ListenView] 🔍 Window location:', window.location.href)
-  console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
+  // DEBUG LOGS REMOVED - were causing severe lag by running on every render
   
   const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number, utteranceId?: string}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);

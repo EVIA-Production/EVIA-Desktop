@@ -349,8 +349,18 @@ ipcMain.handle('auth:logout', async () => {
 // 🌐 Shell API: Open external URLs/apps
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   try {
-    await shell.openExternal(url);
-    console.log('[Shell] ✅ Opened external URL:', url);
+    // macOS behavior: if the browser is already open, some setups appear
+    // to open the URL in the background. Force activation when possible.
+    try {
+      // Electron supports an options object with `activate` on macOS.
+      // If this Electron version doesn't support it, we'll fall back below.
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+    }
+    console.log('[Shell] ✅ Opened external URL (activated):', url);
     return { success: true };
   } catch (err: unknown) {
     console.error('[Shell] ❌ Failed to open URL:', err);
@@ -708,12 +718,35 @@ async function handleLaunchRequest(url: string) {
 // IPC Handler for navigation (Tab Reuse)
 ipcMain.handle('shell:navigate', async (_event, url: string) => {
   try {
-    await desktopBridge.navigateTo(url);
+    // Best-effort tab reuse via DesktopBridge (WS to app.tryevia.ai tab).
+    // IMPORTANT: Do not rely solely on this, since the tab may be open but not connected
+    // (sleeping, different profile, different browser, WS blocked, etc.).
+    try {
+      await desktopBridge.navigateTo(url);
+    } catch (err) {
+      console.error('[Bridge] Navigation failed:', err);
+    }
+
+    // Always open+activate as a reliable fallback.
+    // This guarantees the user is taken to the requested page even if WS reuse fails.
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+    }
+
     return { success: true };
   } catch (err) {
-    console.error('[Bridge] Navigation failed:', err);
-    // Fallback to standard open
-    await shell.openExternal(url);
+    console.error('[Shell] Navigate handler failed unexpectedly:', err);
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+    }
     return { success: true };
   }
 });

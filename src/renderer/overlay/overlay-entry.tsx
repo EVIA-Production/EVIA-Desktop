@@ -17,12 +17,8 @@ const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
 const rootEl = document.getElementById('overlay-root')
 
-// 🔍 DIAGNOSTIC: Entry point execution
-console.log('[OverlayEntry] 🔍 ENTRY POINT EXECUTING')
-console.log('[OverlayEntry] 🔍 URL:', window.location.href)
-console.log('[OverlayEntry] 🔍 Search params:', window.location.search)
-console.log('[OverlayEntry] 🔍 View param:', view)
-console.log('[OverlayEntry] 🔍 rootEl exists:', !!rootEl)
+// DEBUG: Entry point diagnostics (reduced to single line)
+console.log('[OverlayEntry] Rendering view:', view)
 
 // Initialize language from localStorage or default to German
 const savedLanguage = i18n.getLanguage()
@@ -312,54 +308,13 @@ function App() {
         console.log('[OverlayEntry] Using chat_id:', chatId)
         
         // Start audio capture (mic + system audio for meeting transcription)
-        // 🔥🔥🔥 ULTRA-CRITICAL DIAGNOSTIC: Force visible output
-        console.error('[OverlayEntry] ═══════════════════════════════════');
-        console.error('[OverlayEntry] 🚀 ABOUT TO CALL startCapture()');
-        console.error('[OverlayEntry] ═══════════════════════════════════');
-        console.error('[OverlayEntry] startCapture type:', typeof startCapture);
-        console.error('[OverlayEntry] startCapture function:', startCapture);
-        
-        // Test IPC before calling startCapture
-        const eviaIpc = (window as any).evia?.ipc;
-        if (eviaIpc?.send) {
-          eviaIpc.send('debug-log', '🔥🔥🔥 HEADER: About to call startCapture()');
-          console.error('[OverlayEntry] ✅ IPC send successful');
-        } else {
-          console.error('[OverlayEntry] ❌ IPC NOT AVAILABLE!');
-        }
-        
-        // Call startCapture with try/catch to see any errors
-        try {
-          console.error('[OverlayEntry] Calling startCapture(true)...');
-          const handle = await startCapture(true)
-          console.error('[OverlayEntry] ✅ startCapture returned:', handle);
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', '✅ HEADER: startCapture completed successfully');
-          }
-        } catch (error) {
-          console.error('[OverlayEntry] ❌ startCapture FAILED:', error);
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', `❌ HEADER: startCapture FAILED: ${error}`);
-          }
-          throw error; // Re-throw so user sees error
-        }
-        
-        const handle = { success: true } // Placeholder since we already called startCapture above
+        console.log('[OverlayEntry] Starting audio capture...');
+        const handle = await startCapture(true)
         captureHandleRef.current = handle
         setIsCapturing(true)
-        console.log('[OverlayEntry] ✅ Audio capture started successfully (mic + system)')
+        console.log('[OverlayEntry] ✅ Audio capture started')
         
-        // 🔧 CRITICAL: Forward success to Ask console
-        try {
-          const eviaIpc = (window as any).evia?.ipc;
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', '[OverlayEntry] ✅ Audio capture started successfully');
-          }
-        } catch (e) {
-          console.error('[OverlayEntry] ❌ Failed to send success debug-log:', e);
-        }
-        
-        // 🔧 FIX: Notify Listen window to start timer
+        // Notify Listen window to start timer
         try {
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
@@ -399,7 +354,6 @@ function App() {
 
   switch (view) {
     case 'header':
-      console.log('[OverlayEntry] 🔍 Rendering HEADER view')
       return (
         <>
           <ToastContainer position="top-right" />
@@ -415,8 +369,6 @@ function App() {
         </>
       )
     case 'listen':
-      console.log('[OverlayEntry] 🔍 Rendering LISTEN view - about to create ListenView component')
-      console.log('[OverlayEntry] 🔍 ListenView imported:', typeof ListenView)
       return (
         <>
           <ToastContainer position="top-right" />
