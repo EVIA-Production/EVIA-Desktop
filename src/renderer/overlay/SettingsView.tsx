@@ -2,6 +2,15 @@ import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { FRONTEND_URL } from '../config/config';
+import {
+  trackSettingsOpened,
+  trackLanguageChanged,
+  trackAutoUpdateToggled,
+  trackInvisibilityToggled,
+  trackWindowMoved,
+  trackPresetActivated,
+  trackPresetDeactivated
+} from '../services/posthogService';
 
 interface SettingsViewProps {
   language: 'de' | 'en';
@@ -135,6 +144,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     fetchPresets();
   }, []); // Run once on mount
 
+  // 📊 POSTHOG: Track settings opened
+  useEffect(() => {
+    trackSettingsOpened({ from_view: 'header_bar' });
+  }, []); // Only on mount
+
   // Handlers
   const handleLogout = async () => {
     console.log('[SettingsView] 🚪 Logout clicked');
@@ -215,6 +229,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   // 🔧 FIX ISSUE #2: Persist auto-update toggle via IPC
   const handleToggleAutoUpdate = async () => {
     const newState = !autoUpdateEnabled;
+    
+    // 📊 POSTHOG: Track auto-update toggle
+    trackAutoUpdateToggled({ new_state: newState });
+    
     setAutoUpdateEnabled(newState);
     console.log('[SettingsView] 🔄 Auto-update:', newState);
     
@@ -231,6 +249,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   const handleMoveLeft = () => {
+    // 📊 POSTHOG: Track window moved
+    trackWindowMoved({ direction: 'left', distance_px: 50 });
+    
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
       // 🔧 FIX: Increased from -10 to -50 to match arrow key movement distance
@@ -239,6 +260,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   const handleMoveRight = () => {
+    // 📊 POSTHOG: Track window moved
+    trackWindowMoved({ direction: 'right', distance_px: 50 });
+    
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
       // 🔧 FIX: Increased from 10 to 50 to match arrow key movement distance
@@ -248,6 +272,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handleToggleInvisibility = async () => {
     const newState = !isInvisible;
+    
+    // 📊 POSTHOG: Track invisibility toggle
+    trackInvisibilityToggled({ new_state: newState });
+    
+    // Also store that user has tried invisibility (for user property)
+    localStorage.setItem('evia_invisibility_used', 'true');
+    
     setIsInvisible(newState);
     console.log('[SettingsView] 👻 Invisibility:', newState);
     
@@ -272,6 +303,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
     
     const isDeactivating = preset.is_active;
+    
+    // 📊 POSTHOG: Track preset activation/deactivation
+    if (isDeactivating) {
+      trackPresetDeactivated({ preset_id: preset.id });
+    } else {
+      trackPresetActivated({ 
+        preset_id: preset.id, 
+        preset_name: preset.name,
+        previous_preset_id: selectedPreset?.id 
+      });
+    }
+    
     console.log(`[SettingsView] ${isDeactivating ? '🔴 Deactivating' : '🎨 Activating'} preset:`, preset.name);
     
     try {
@@ -383,13 +426,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <div className="language-toggle">
           <button
             className={`language-button ${language === 'de' ? 'active' : ''}`}
-            onClick={() => language !== 'de' && onToggleLanguage()}
+            onClick={() => {
+              if (language !== 'de') {
+                trackLanguageChanged({ from_language: language, to_language: 'de' });
+                onToggleLanguage();
+              }
+            }}
           >
             {t('languageDeutsch')}
           </button>
           <button
             className={`language-button ${language === 'en' ? 'active' : ''}`}
-            onClick={() => language !== 'en' && onToggleLanguage()}
+            onClick={() => {
+              if (language !== 'en') {
+                trackLanguageChanged({ from_language: language, to_language: 'en' });
+                onToggleLanguage();
+              }
+            }}
           >
             {t('languageEnglish')}
           </button>

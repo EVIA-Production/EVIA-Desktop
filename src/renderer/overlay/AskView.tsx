@@ -6,6 +6,11 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
+import { 
+  trackAskSubmitted,
+  trackAskResponseReceived,
+  trackTimeToFirstSuggestion
+} from '../services/posthogService';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -249,19 +254,35 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setSessionState(newState);
     };
 
-    // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
+    // 🔧 FIX: Apply language change in THIS window + clear state
+    // Root cause of "first Ask reply in old language":
+    // - Each Electron window has its own localStorage
+    // - AskView previously did NOT update evia_language/i18n on language-changed
+    // - So the first request after a toggle could still send the previous language
     const handleLanguageChanged = (newLang: string) => {
-      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
-      
-      // NOTE: i18n.changeLanguage() call removed due to Vite bundler minification issue
-      // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
-      // UI language will update automatically when window reopens or on next backend request
-      
+      const lang = (newLang === 'de' || newLang === 'en') ? newLang : null;
+      console.log('[AskView] 🌐 Language changed to', newLang, '- applying in this window + clearing state');
+
+      if (lang) {
+        try {
+          i18n.setLanguage(lang);
+          // Explicitly set too (defensive; i18n.setLanguage already does this)
+          localStorage.setItem('evia_language', lang);
+          // Refresh header text if we were showing the default title
+          setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        } catch (e) {
+          console.warn('[AskView] Failed to apply language locally:', e);
+        }
+      } else {
+        console.warn('[AskView] Ignoring invalid language payload:', newLang);
+      }
+
       // Abort any active stream first
       if (streamRef.current?.abort) {
         streamRef.current.abort();
         streamRef.current = null;
       }
+
       // Clear all state (same as clear-session)
       setResponse('');
       setCurrentQuestion('');
@@ -599,6 +620,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
     console.log('[AskView] 🎯 Session state:', currentSessionState);
 
+    // 🔧 CRITICAL: Always use the CURRENT language in THIS window.
+    // (Do not trust props; language can be toggled cross-window.)
+    const effectiveLanguage = i18n.getLanguage();
+
+    // 📊 POSTHOG: Track ask submitted
+    trackAskSubmitted({
+      chat_id: chatId,
+      question_length: actualPrompt.length,
+      session_state: currentSessionState,
+      is_typed: !overridePrompt, // false if came from insight click
+      language: effectiveLanguage,
+    });
+
     // 🔧 GLASS PARITY: Pass transcript context to backend
     // Use currentSessionState (freshly read from localStorage) instead of stale sessionState
     const handle = streamAsk({ 
@@ -606,7 +640,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       chatId, 
       prompt: actualPrompt, 
       transcript: transcriptContext || undefined,  // Pass transcript for context
-      language, 
+      language: effectiveLanguage,
       sessionState: currentSessionState,  // 🔧 CRITICAL: Use freshly synced session state
       token, 
       screenshotRef 
@@ -656,6 +690,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
     
     handle.onDone(() => {
+      const totalLatency = streamStartTime.current ? performance.now() - streamStartTime.current : 0;
+      
+      // 📊 POSTHOG: Track ask response received
+      trackAskResponseReceived({
+        chat_id: chatId,
+        response_length: response.length,
+        latency_ms: totalLatency,
+        ttft_ms: ttftMs || undefined,
+        session_state: currentSessionState,
+      });
+      
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes

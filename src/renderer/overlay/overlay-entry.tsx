@@ -12,6 +12,41 @@ import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
 import { BACKEND_URL } from '../config/config'
+import { initPostHog, identifyUser } from '../services/posthogService'
+
+// Initialize PostHog analytics
+initPostHog()
+
+// Identify user from JWT token (if authenticated)
+async function identifyUserFromToken() {
+  try {
+    const eviaAuth = (window as any).evia?.auth;
+    const token = await eviaAuth?.getToken?.();
+    
+    if (token) {
+      // Decode JWT to extract user info
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        const username = payload.sub || payload.username || 'unknown';
+        const email = payload.email;
+        
+        console.log('[PostHog] 🔑 Identifying user from JWT:', username);
+        identifyUser(username, {
+          email,
+          username,
+        });
+      }
+    } else {
+      console.log('[PostHog] ⏭️ No token found, skipping user identification');
+    }
+  } catch (error) {
+    console.error('[PostHog] ❌ Failed to identify user:', error);
+  }
+}
+
+// Run identification after a short delay to ensure auth API is ready
+setTimeout(identifyUserFromToken, 500);
 
 const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()

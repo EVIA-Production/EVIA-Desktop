@@ -6,6 +6,15 @@ import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { 
+  trackInsightClicked,
+  trackInsightsViewed,
+  trackInsightsLoaded,
+  trackTranscriptViewToggled,
+  trackTranscriptCopied,
+  trackInsightsCopied,
+  checkForInsightImplementation
+} from '../services/posthogService';
 
 declare global {
   interface Window {
@@ -460,6 +469,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               };
 
               finalTranscriptCountRef.current += 1;
+              
+              // 📊 POSTHOG: Check if user implemented a clicked insight (speaker 1 = user)
+              if (speaker === 1) {
+                const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+                checkForInsightImplementation(chatId, text);
+              }
+              
               if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
                 console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
                 setTimeout(() => fetchInsightsNow(), 100);
@@ -479,6 +495,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 utteranceId: normalizedUtteranceId,
               });
               finalTranscriptCountRef.current += 1;
+              
+              // 📊 POSTHOG: Check if user implemented a clicked insight (speaker 1 = user)
+              if (speaker === 1) {
+                const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+                checkForInsightImplementation(chatId, text);
+              }
+              
               if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
                 console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
                 setTimeout(() => fetchInsightsNow(), 100);
@@ -597,13 +620,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 2. Determine current session state (after recording stops, isSessionActive = false)
   // 3. Send to AskView via IPC with 'ask:send-and-submit' channel INCLUDING session state
   // 4. AskView receives it, populates input, updates session state, and auto-submits
-  const handleInsightClick = (insightText: string) => {
+  const handleInsightClick = (insightText: string, insightType: 'summary' | 'topic' | 'action' | 'followup' = 'action', insightIndex: number = 0) => {
+    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const insightSessionState = insights?.session_state || sessionState;
+    
+    // 📊 POSTHOG: Track insight click
+    trackInsightClicked({
+      chat_id: chatId,
+      insight_type: insightType,
+      insight_text: insightText,
+      insight_index: insightIndex,
+      session_state: insightSessionState as 'before' | 'during' | 'after',
+    });
+    
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
     
     // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
     // Otherwise: Insights generated "during" call are clicked "after" call → wrong prompt!
-    const insightSessionState = insights?.session_state || 'during';
+    // (insightSessionState already defined above for PostHog tracking)
     const localStorageState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     
     console.log('[ListenView] 🎯 Insight click session state:');
@@ -764,6 +799,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🔍 Summary content:', fetchedInsights.summary);
         console.log('[ListenView] 🔍 Topic bullets:', fetchedInsights.topic?.bullets);
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
+        
+        // 📊 POSTHOG: Track insights loaded
+        trackInsightsLoaded({
+          chat_id: chatId,
+          load_time_ms: ttftMs,
+          summary_count: fetchedInsights.summary?.length || 0,
+          topic_count: fetchedInsights.topic?.bullets?.length || 0,
+          action_count: fetchedInsights.actions?.length || 0,
+          followup_count: fetchedInsights.followUps?.length || 0,
+        });
+        
         setInsights(fetchedInsights);
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
@@ -809,6 +855,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
+    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    
+    // 📊 POSTHOG: Track view toggle
+    trackTranscriptViewToggled({
+      chat_id: chatId,
+      from_mode: viewMode,
+      to_mode: newMode,
+      session_state: sessionState,
+    });
+    
     console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
     setViewMode(newMode);
 
@@ -896,6 +952,28 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
     try {
       await navigator.clipboard.writeText(textToCopy);
+      
+      // 📊 POSTHOG: Track copy event
+      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+      if (viewMode === 'transcript') {
+        trackTranscriptCopied({
+          chat_id: chatId,
+          line_count: transcripts.length,
+          speaker_count: new Set(transcripts.map(t => t.speaker)).size,
+        });
+      } else if (insights) {
+        trackInsightsCopied({
+          chat_id: chatId,
+          content_length: textToCopy.length,
+          sections_included: [
+            'summary',
+            'topics', 
+            'actions',
+            ...(insights.followUps && insights.followUps.length > 0 && !isSessionActive ? ['followups'] : [])
+          ],
+        });
+      }
+      
       setCopyState('copied');
       setCopiedView(viewMode); // Track which view was copied
       if (copyTimeout.current) {
@@ -1061,7 +1139,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {insights.summary.map((point, idx) => (
                   <p 
                     key={`summary-${idx}`}
-                    onClick={() => handleInsightClick(point)}
+                    onClick={() => handleInsightClick(point, 'summary', idx)}
                     style={{ 
                       fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
                       lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
@@ -1103,7 +1181,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {insights.topic.bullets.map((bullet, idx) => (
                   <p 
                     key={`bullet-${idx}`}
-                    onClick={() => handleInsightClick(bullet)}
+                    onClick={() => handleInsightClick(bullet, 'topic', idx)}
                     style={{ 
                       fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
                       lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
@@ -1154,7 +1232,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   return (
                     <p 
                       key={`action-${idx}`}
-                      onClick={() => handleInsightClick(questionText)}
+                      onClick={() => handleInsightClick(questionText, 'action', idx)}
                       style={{ 
                         fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
                         lineHeight: '1.4', 
@@ -1192,7 +1270,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   {insights.followUps.map((followUp, idx) => (
                     <p 
                       key={`followup-${idx}`}
-                      onClick={() => handleInsightClick(followUp)}
+                      onClick={() => handleInsightClick(followUp, 'followup', idx)}
                       style={{ 
                         fontSize: '12px',
                         lineHeight: '1.4',

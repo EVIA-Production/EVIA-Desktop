@@ -28,22 +28,33 @@ let initialized = false;
  * Initialize PostHog (call from overlay-entry.tsx or main.ts)
  */
 export function initPostHog() {
-  if (initialized || typeof window === 'undefined') return;
+  if (initialized || typeof window === 'undefined') {
+    console.log('[PostHog] Already initialized or no window, skipping');
+    return;
+  }
   
-  posthog.init(POSTHOG_KEY, {
-    api_host: POSTHOG_HOST,
-    person_profiles: 'identified_only',
-    capture_pageview: false, // Manual control for Electron
-    capture_pageleave: false,
-    autocapture: false, // Electron doesn't need autocapture
-    persistence: 'localStorage',
-    bootstrap: {
-      distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
-    },
-  });
-  
-  initialized = true;
-  console.log('[PostHog] Initialized for Desktop');
+  try {
+    posthog.init(POSTHOG_KEY, {
+      api_host: POSTHOG_HOST,
+      person_profiles: 'identified_only',
+      capture_pageview: false, // Manual control for Electron
+      capture_pageleave: false,
+      autocapture: false, // Electron doesn't need autocapture
+      persistence: 'localStorage',
+      bootstrap: {
+        distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
+      },
+    });
+    
+    initialized = true;
+    console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
+    
+    // Test capture to verify connection
+    posthog.capture('desktop_posthog_initialized', { test: true, timestamp: Date.now() });
+    console.log('[PostHog] ✅ Sent test event: desktop_posthog_initialized');
+  } catch (error) {
+    console.error('[PostHog] ❌ Failed to initialize:', error);
+  }
 }
 
 // ============================================================================
@@ -64,8 +75,16 @@ export function identifyUser(userId: string, properties?: {
   is_admin?: boolean;
 }) {
   if (!initialized) initPostHog();
+  console.log('[PostHog] 🔑 Identifying user:', userId, properties);
   posthog.identify(userId, { ...properties, source: 'desktop' });
   localStorage.setItem('posthog_distinct_id', userId);
+  
+  // Send a test event to confirm identification works
+  posthog.capture('desktop_user_identified', { 
+    user_id: userId,
+    timestamp: Date.now(),
+  });
+  console.log('[PostHog] ✅ User identified and test event sent');
 }
 
 export function resetUser() {
@@ -187,6 +206,7 @@ export function trackInsightClicked(properties: {
   insight_index: number;
   session_state: SessionState;
 }) {
+  console.log('[PostHog] 📊 Tracking insight_clicked:', properties.insight_type, properties.insight_index);
   posthog.capture('insight_clicked', {
     ...properties,
     source: 'desktop',
@@ -392,6 +412,7 @@ export function trackPresetDeactivated(properties: {
 export function trackSettingsOpened(properties: {
   from_view?: string;
 }) {
+  console.log('[PostHog] 📊 Tracking settings_opened:', properties);
   posthog.capture('settings_opened', { ...properties, source: 'desktop' });
 }
 
@@ -399,6 +420,7 @@ export function trackLanguageChanged(properties: {
   from_language: string;
   to_language: string;
 }) {
+  console.log('[PostHog] 📊 Tracking language_changed:', properties);
   posthog.capture('language_changed', {
     ...properties,
     source: 'desktop_settings',
