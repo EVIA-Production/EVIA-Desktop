@@ -9,7 +9,8 @@ import { BACKEND_URL } from '../config/config';
 import { 
   trackAskSubmitted,
   trackAskResponseReceived,
-  trackTimeToFirstSuggestion
+  trackTimeToFirstSuggestion,
+  trackError
 } from '../services/posthogService';
 
 interface AskViewProps {
@@ -752,7 +753,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       
       const errorMsg = e?.message || String(e);
       const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
-      const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network');
+      const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch');
+      
+      // 📊 POSTHOG: Track client-side errors
+      const errorType = is401 ? 'auth_error' : isNetwork ? 'network_error' : 'stream_error';
+      trackError({
+        error_type: errorType,
+        error_message: errorMsg.substring(0, 500),
+        chat_id: Number(localStorage.getItem('current_chat_id') || '0'),
+        context: 'ask_stream',
+      });
+      console.log('[PostHog] 📊 Tracking error_occurred:', errorType);
       
       if (is401) {
         showError('Authentication expired. Please reconnect.', true);

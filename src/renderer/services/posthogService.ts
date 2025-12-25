@@ -513,6 +513,7 @@ export function trackError(properties: {
   chat_id?: number;
   context?: string;
 }) {
+  console.log('[PostHog] 📊 Tracking error_occurred:', properties.error_type, properties.context);
   posthog.capture('error_occurred', {
     ...properties,
     source: 'desktop',

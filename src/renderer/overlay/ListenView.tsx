@@ -13,7 +13,8 @@ import {
   trackTranscriptViewToggled,
   trackTranscriptCopied,
   trackInsightsCopied,
-  checkForInsightImplementation
+  checkForInsightImplementation,
+  trackError
 } from '../services/posthogService';
 
 declare global {
@@ -824,6 +825,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Show user-friendly error message instead of infinite loading
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
+      
+      // 📊 POSTHOG: Track insights fetch error
+      const isNetwork = errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch');
+      trackError({
+        error_type: isNetwork ? 'network_error' : 'insights_fetch_error',
+        error_message: errorMessage.substring(0, 500),
+        chat_id: chatId,
+        context: 'insights_fetch',
+      });
+      console.log('[PostHog] 📊 Tracking error_occurred: insights_fetch');
       
       // Set stub insights with error message so UI shows something meaningful
       const lang = i18n.getLanguage();
