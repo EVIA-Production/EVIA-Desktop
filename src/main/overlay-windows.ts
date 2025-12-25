@@ -148,12 +148,27 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true, // 🔥 ENABLE in production for debugging session/complete
       backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
   })
 
-  headerWindow.webContents.openDevTools({ mode: 'detach' });
+  // Only open DevTools automatically in development
+  if (process.env.NODE_ENV === 'development') {
+    headerWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+  
+  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools (Cmd+Shift+I / Ctrl+Shift+I)
+  const headerWebContents = headerWindow.webContents;
+  headerWebContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.shift && (input.meta || input.control) && input.key.toLowerCase() === 'i') {
+      if (headerWebContents.isDevToolsOpened()) {
+        headerWebContents.closeDevTools()
+      } else {
+        headerWebContents.openDevTools({ mode: 'detach' })
+      }
+    }
+  });
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
   if (process.platform === 'darwin') {
