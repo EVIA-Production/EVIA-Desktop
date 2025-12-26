@@ -57,7 +57,7 @@ const SubscriptionRequired: React.FC = () => {
   }, []);
 
   /**
-   * Opens browser to checkout page
+   * Opens browser to checkout page and closes this window
    */
   const handleSubscribe = async () => {
     console.log('[SubscriptionRequired] 💳 Opening browser for checkout...');
@@ -71,6 +71,10 @@ const SubscriptionRequired: React.FC = () => {
       if ((window as any).evia?.shell?.openExternal) {
         await (window as any).evia.shell.openExternal(checkoutUrl);
         console.log('[SubscriptionRequired] ✅ Browser opened to checkout');
+        
+        // Close this window after opening browser
+        console.log('[SubscriptionRequired] 🔒 Closing subscription window');
+        window.close();
       } else {
         console.error('[SubscriptionRequired] ❌ Shell API not available');
         window.open(checkoutUrl, '_blank');

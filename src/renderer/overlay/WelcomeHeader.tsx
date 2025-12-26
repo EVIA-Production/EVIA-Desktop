@@ -62,13 +62,14 @@ const WelcomeHeader: React.FC = () => {
     };
   }, []);
   /**
-   * Opens default browser to Frontend login page
+   * Opens default browser to Frontend register page for first-time users
    * Adds ?source=desktop param so Frontend knows to redirect back via evia://
    */
   const handleLogin = async () => {
-    console.log('[WelcomeHeader] 🔐 Opening browser for login...');
+    console.log('[WelcomeHeader] 🔐 Opening browser for registration...');
     
-    const loginUrl = `${FRONTEND_URL}/login?source=desktop`;
+    // Open register page instead of login for first-time users
+    const loginUrl = `${FRONTEND_URL}/register?source=desktop`;
     
     console.log('[WelcomeHeader] 🌐 Login URL:', loginUrl);
     console.log('[WelcomeHeader] 🔍 Checking evia bridge:', (window as any).evia);
@@ -151,9 +152,9 @@ const WelcomeHeader: React.FC = () => {
       <button 
         className="action-button action-button-absolute" 
         onClick={handleLogin}
-        aria-label="Open browser to log in"
+        aria-label="Get Started"
       >
-        <div className="button-text">Open Browser to Log in</div>
+        <div className="button-text">Get Started</div>
         <div className="button-icon">
           <div className="arrow-icon"></div>
         </div>
