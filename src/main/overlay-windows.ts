@@ -2334,7 +2334,7 @@ export function createSubscriptionWindow(): BrowserWindow {
 
   subscriptionWindow = new BrowserWindow({
     width: 400,
-    height: 380, // Same size as welcome window
+    height: 300, // Compact size to fit content without dead space
     show: false,
     frame: false,
     transparent: true,
@@ -2365,8 +2365,8 @@ export function createSubscriptionWindow(): BrowserWindow {
   // Center on screen
   const { workArea } = screen.getPrimaryDisplay()
   const x = Math.round(workArea.x + (workArea.width - 400) / 2)
-  const y = Math.round(workArea.y + (workArea.height - 380) / 2)
-  subscriptionWindow.setBounds({ x, y, width: 400, height: 380 })
+  const y = Math.round(workArea.y + (workArea.height - 300) / 2)
+  subscriptionWindow.setBounds({ x, y, width: 400, height: 300 })
 
   subscriptionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   subscriptionWindow.setAlwaysOnTop(true, 'screen-saver')
