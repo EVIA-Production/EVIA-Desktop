@@ -151,17 +151,17 @@ const SubscriptionRequired: React.FC = () => {
 
       {/* Header Section */}
       <div className="header-section">
-        <div className="title">Subscription Required</div>
-        <div className="subtitle">Complete your subscription to use EVIA</div>
+        <div className="title">Welcome to EVIA</div>
+        <div className="subtitle">Your AI-powered sales coach</div>
       </div>
 
       {/* Main CTA Button */}
       <button 
         className="action-button action-button-primary action-button-absolute" 
         onClick={handleSubscribe}
-        aria-label="Subscribe to EVIA"
+        aria-label="Start Free Trial"
       >
-        <div className="button-text">Subscribe Now</div>
+        <div className="button-text">Start Free Trial</div>
         <div className="button-icon">
           <div className="arrow-icon"></div>
         </div>
@@ -171,11 +171,11 @@ const SubscriptionRequired: React.FC = () => {
       <div className="option-card">
         <div className="divider"></div>
         <div className="option-content">
-          <div className="option-title">Start Your Free Trial</div>
+          <div className="option-title">Get Started</div>
           <div className="option-description">
+            Know what the best would say, in real-time<br />
             7 days free, then $49/month<br />
-            Cancel anytime with one click<br />
-            Real-time AI coaching for sales calls
+            Cancel anytime
           </div>
         </div>
       </div>
@@ -186,7 +186,7 @@ const SubscriptionRequired: React.FC = () => {
           className="text-button"
           onClick={handleRefresh}
         >
-          Already subscribed? Click to refresh
+          Already subscribed? Refresh
         </button>
         <span className="separator">•</span>
         <button 

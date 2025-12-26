@@ -775,12 +775,12 @@ ipcMain.handle('shell:navigate', async (_event, url: string) => {
     // This prevents duplicate tabs when WS connection is active
     if (!tabReused) {
       console.log('[Shell] Opening new browser tab');
-      try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        await shell.openExternal(url, { activate: true });
-      } catch {
-        await shell.openExternal(url);
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
       }
     }
 
