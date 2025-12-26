@@ -168,8 +168,9 @@ class DesktopBridge {
   /**
    * Navigates existing tab or opens new one
    * Uses WS for tab reuse, activates browser without opening new tab
+   * Returns true if tab was reused, false if new tab was opened
    */
-  public async navigateTo(url: string): Promise<void> {
+  public async navigateTo(url: string): Promise<boolean> {
     console.log(`[Bridge] 🧭 Requesting navigation to: ${url}`);
     console.log(`[Bridge] 📊 Active clients: ${this.activeClients.size}`);
 
@@ -195,16 +196,16 @@ class DesktopBridge {
         setTimeout(() => {
           activateBrowser();
         }, 100);
-        return;
+        return true; // Tab reused successfully
       } else {
         console.log('[Bridge] ⚠️ No open clients found, cleaning up stale connections');
         this.activeClients.clear();
       }
     }
 
-    // No active clients, open new tab (this is the only case where we open a new tab)
-    console.log('[Bridge] 📂 No active tabs, opening new window');
-    await shell.openExternal(url);
+    // No active clients - caller should open new tab
+    console.log('[Bridge] 📂 No active tabs connected');
+    return false;
   }
 
   public stop() {

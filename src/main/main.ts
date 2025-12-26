@@ -686,7 +686,8 @@ async function handleLaunchRequest(url: string) {
     const token = urlObj.searchParams.get('token');
     
     // Check if Desktop is already authenticated
-    const existingToken = await keytar.getPassword('evia', 'auth_token');
+    // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
+    const existingToken = await keytar.getPassword('evia', 'token');
     const isAlreadyAuthenticated = !!existingToken;
     console.log('[Launch] 🔐 Already authenticated:', isAlreadyAuthenticated);
     
@@ -708,7 +709,8 @@ async function handleLaunchRequest(url: string) {
       if (isAlreadyAuthenticated) {
         console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
         try {
-          await keytar.setPassword('evia', 'auth_token', token);
+          // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
+          await keytar.setPassword('evia', 'token', token);
           console.log('[Launch] 🔑 Token updated in keytar');
         } catch (err) {
           console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);
@@ -758,23 +760,28 @@ async function handleLaunchRequest(url: string) {
 // IPC Handler for navigation (Tab Reuse)
 ipcMain.handle('shell:navigate', async (_event, url: string) => {
   try {
-    // Best-effort tab reuse via DesktopBridge (WS to app.tryevia.ai tab).
-    // IMPORTANT: Do not rely solely on this, since the tab may be open but not connected
-    // (sleeping, different profile, different browser, WS blocked, etc.).
+    // Try to reuse existing tab via DesktopBridge WebSocket
+    // Returns true if tab was reused, false if no connected tab found
+    let tabReused = false;
     try {
-      await desktopBridge.navigateTo(url);
+      tabReused = await desktopBridge.navigateTo(url);
+      console.log(`[Shell] Tab reuse result: ${tabReused ? 'SUCCESS' : 'NO_TAB'}`);
     } catch (err) {
       console.error('[Bridge] Navigation failed:', err);
+      tabReused = false;
     }
 
-    // Always open+activate as a reliable fallback.
-    // This guarantees the user is taken to the requested page even if WS reuse fails.
-    try {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      await shell.openExternal(url, { activate: true });
-    } catch {
-      await shell.openExternal(url);
+    // Only open new tab if no existing tab was found
+    // This prevents duplicate tabs when WS connection is active
+    if (!tabReused) {
+      console.log('[Shell] Opening new browser tab');
+      try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await shell.openExternal(url, { activate: true });
+      } catch {
+        await shell.openExternal(url);
+      }
     }
 
     return { success: true };
