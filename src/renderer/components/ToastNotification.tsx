@@ -5,7 +5,7 @@ export interface Toast {
   id: string;
   message: string;
   type: 'error' | 'success' | 'warning' | 'info';
-  duration?: number; // ms, default 5000
+  duration?: number; // ms, default 3000
 }
 
 interface ToastContainerProps {
@@ -20,7 +20,7 @@ export const showToast = (message: string, type: Toast['type'] = 'info', duratio
     id: `toast-${Date.now()}-${Math.random()}`,
     message,
     type,
-    duration: duration || 5000
+    duration: duration || 3000 // 3 seconds default
   };
   toastSubscribers.forEach(fn => fn(toast));
 };
@@ -32,10 +32,10 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ position = 'top-
     const handleNewToast = (toast: Toast) => {
       setToasts(prev => [...prev, toast]);
       
-      // Auto-remove after duration
+      // Auto-remove after duration (3 seconds default)
       setTimeout(() => {
         setToasts(prev => prev.filter(t => t.id !== toast.id));
-      }, toast.duration || 5000);
+      }, toast.duration || 3000);
     };
 
     toastSubscribers.push(handleNewToast);
