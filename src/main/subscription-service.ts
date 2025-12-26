@@ -55,9 +55,9 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus | null
       return null;
     }
     
-    console.log('[SubscriptionService] Fetching subscription status from:', `${BACKEND_URL}/api/stripe/subscription-status`);
+    console.log('[SubscriptionService] Fetching subscription status from:', `${BACKEND_URL}/stripe/subscription-status`);
     
-    const response = await fetch(`${BACKEND_URL}/api/stripe/subscription-status`, {
+    const response = await fetch(`${BACKEND_URL}/stripe/subscription-status`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
