@@ -19,16 +19,24 @@ import {
   closeWelcomeWindow,
   createPermissionWindow,
   closePermissionWindow,
+  createSubscriptionWindow,
+  closeSubscriptionWindow,
   createHeaderWindow,
   getHeaderWindow,
 } from './overlay-windows';
 import path from 'path';
 import fs from 'fs';
+import { 
+  hasActiveSubscription, 
+  clearSubscriptionCache,
+  getCachedSubscriptionStatus 
+} from './subscription-service';
 
-type AppState = 'welcome' | 'login' | 'permissions' | 'ready';
+type AppState = 'welcome' | 'login' | 'permissions' | 'subscription_required' | 'ready';
 
 interface StateData {
   hasToken: boolean;
+  hasSubscription: boolean;
   micPermission: string;
   screenPermission: string;
   permissionsCompleted: boolean;
@@ -77,6 +85,7 @@ export class HeaderController {
   /**
    * Get current state data for decision making
    * 🔐 CRITICAL: Validates token exists AND is valid (not expired)
+   * 💳 Also checks subscription status for feature gating
    */
   private async getStateData(): Promise<StateData> {
     const token = await keytar.getPassword('evia', 'token');
@@ -103,6 +112,19 @@ export class HeaderController {
         console.warn('[HeaderController] Failed to validate token, removing:', err);
         await keytar.deletePassword('evia', 'token');
         hasToken = false; // Treat invalid token as no token
+      }
+    }
+    
+    // 💳 Check subscription status (only if authenticated)
+    let hasSubscription = false;
+    if (hasToken) {
+      try {
+        hasSubscription = await hasActiveSubscription();
+        console.log('[HeaderController] 💳 Subscription check:', hasSubscription ? 'ACTIVE' : 'INACTIVE');
+      } catch (err) {
+        console.warn('[HeaderController] Failed to check subscription status:', err);
+        // On error, we'll treat as no subscription for safety
+        hasSubscription = false;
       }
     }
     
@@ -143,6 +165,7 @@ export class HeaderController {
     
     return {
       hasToken,
+      hasSubscription,
       micPermission,
       screenPermission,
       permissionsCompleted: this.permissionsCompleted,
@@ -151,6 +174,7 @@ export class HeaderController {
 
   /**
    * Determine next state based on current data
+   * Order: auth → subscription → permissions → ready
    */
   private determineNextState(data: StateData): AppState {
     // 🔧 UI IMPROVEMENT: ALWAYS check token, even in dev mode
@@ -160,15 +184,22 @@ export class HeaderController {
       return 'welcome';
     }
     
+    // 💳 SUBSCRIPTION CHECK: After auth, before permissions
+    // User must have active subscription to use EVIA
+    if (!data.hasSubscription) {
+      console.log('[HeaderController] 💳 No active subscription - showing subscription required screen');
+      return 'subscription_required';
+    }
+    
     // 🔧 DEV MODE: Skip ONLY permission checks in development
-    // Still validate token above to prevent header flicker
+    // Still validate token and subscription above
     const isDev = process.env.NODE_ENV === 'development';
     if (isDev) {
       console.log('[HeaderController] 🔧 DEV MODE: Skipping permission checks, going to ready');
       return 'ready';
     }
     
-    // Has token, check permissions (production only)
+    // Has token AND subscription, check permissions (production only)
     const micGranted = data.micPermission === 'granted';
     const screenGranted = data.screenPermission === 'granted';
     
@@ -200,9 +231,10 @@ export class HeaderController {
       closeWelcomeWindow();
     }
     closePermissionWindow();
+    closeSubscriptionWindow();
     
-    // CRITICAL: Close header window if transitioning to welcome or permissions
-    if (newState === 'welcome' || newState === 'permissions') {
+    // CRITICAL: Close header window if transitioning to welcome, permissions, or subscription_required
+    if (newState === 'welcome' || newState === 'permissions' || newState === 'subscription_required') {
       const header = getHeaderWindow();
       if (header) {
         console.log('[HeaderController] Closing main header for state:', newState);
@@ -216,6 +248,11 @@ export class HeaderController {
     switch (newState) {
       case 'welcome':
         createWelcomeWindow();
+        break;
+        
+      case 'subscription_required':
+        console.log('[HeaderController] 💳 Showing subscription required window');
+        createSubscriptionWindow();
         break;
         
       case 'permissions':
@@ -272,6 +309,7 @@ export class HeaderController {
   /**
    * Handle auth callback from web (evia://auth-callback?token=...)
    * Called from main.ts when deep link received
+   * Now also handles subscription state after authentication
    */
   public async handleAuthCallback(token: string) {
     console.log('[HeaderController] 🔑 Auth callback received, storing token');
@@ -280,15 +318,20 @@ export class HeaderController {
       await keytar.setPassword('evia', 'token', token);
       console.log('[HeaderController] ✅ Token stored in keytar');
       
+      // 💳 Clear subscription cache to force fresh check with new token
+      clearSubscriptionCache();
+      console.log('[HeaderController] 💳 Subscription cache cleared');
+      
       // Close welcome window if open (only on Mac)
       if (process.platform == "darwin"){
         closeWelcomeWindow();
       }
       
-      // Re-evaluate state (should transition to permissions or ready)
+      // Re-evaluate state (should transition to subscription_required, permissions, or ready)
       const data = await this.getStateData();
       const nextState = this.determineNextState(data);
       
+      console.log('[HeaderController] Next state after auth:', nextState);
       await this.transitionTo(nextState);
     } catch (err) {
       console.error('[HeaderController] ❌ Failed to store token:', err);
@@ -317,6 +360,10 @@ export class HeaderController {
       await keytar.deletePassword('evia', 'token');
       this.permissionsCompleted = false;
       this.savePersistedState();
+      
+      // 💳 Clear subscription cache on logout
+      clearSubscriptionCache();
+      console.log('[HeaderController] 💳 Subscription cache cleared');
       
       console.log('[HeaderController] ✅ Logged out, returning to welcome');
       
@@ -354,6 +401,30 @@ export class HeaderController {
     if (nextState !== this.currentState) {
       console.log('[HeaderController] Permission state changed, transitioning');
       await this.transitionTo(nextState);
+    }
+  }
+
+  /**
+   * 💳 Re-evaluates current state and transitions if needed
+   * Called after subscription refresh or other state changes
+   * Used by subscription:refresh IPC handler
+   */
+  public async reevaluateState(): Promise<void> {
+    console.log('[HeaderController] 🔄 Re-evaluating state...');
+    
+    // Clear subscription cache to force fresh check
+    clearSubscriptionCache();
+    
+    const data = await this.getStateData();
+    const nextState = this.determineNextState(data);
+    
+    console.log('[HeaderController] Current state:', this.currentState, 'Next state:', nextState);
+    
+    if (nextState !== this.currentState) {
+      console.log('[HeaderController] State changed, transitioning:', this.currentState, '→', nextState);
+      await this.transitionTo(nextState);
+    } else {
+      console.log('[HeaderController] State unchanged, staying in:', this.currentState);
     }
   }
 
@@ -569,6 +640,9 @@ export class HeaderController {
       await keytar.deletePassword('evia', 'token');
       this.permissionsCompleted = false;
       this.savePersistedState();
+      
+      // 💳 Clear subscription cache
+      clearSubscriptionCache();
       
       await this.initialize();
     } catch (err) {

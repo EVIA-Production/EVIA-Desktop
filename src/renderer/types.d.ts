@@ -14,6 +14,16 @@ interface SystemAudioBridge {
   onStatus: (callback: (data: string) => void) => void;
 }
 
+// Subscription status from backend (Stripe Integration)
+interface SubscriptionStatus {
+  status: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid';
+  is_active: boolean;
+  trial_ends_at: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  plan_type: 'monthly' | 'annual' | null;
+}
+
 interface PrefsBridge {
   get: () => Promise<any>;
   set: (prefs: any) => Promise<any>;
@@ -53,6 +63,13 @@ interface EviaBridge {
     login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => Promise<{ success: boolean; error?: string }>;
     getToken: () => Promise<string | null>;
+    checkTokenValidity: () => Promise<{ valid: boolean; reason: string; expiresIn?: number }>;
+    validate: () => Promise<{ ok: boolean; authenticated: boolean; user?: { username: string; email?: string } }>;
+  };
+  // 💳 Subscription API (Stripe Integration)
+  subscription: {
+    refresh: () => Promise<{ success: boolean; error?: string }>;
+    getStatus: () => Promise<{ success: boolean; status?: SubscriptionStatus; error?: string }>;
   };
   // 🌐 Shell API for opening external URLs
   shell: {

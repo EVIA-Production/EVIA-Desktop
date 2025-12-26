@@ -1034,6 +1034,219 @@
 
 /* ========== End WELCOME HEADER ========== */
 
+/* ============================================
+   SUBSCRIPTION REQUIRED SCREEN
+   - Styles for subscription gating UI
+   - Part of Stripe Integration (Agent 3)
+   ============================================ */
+
+.subscription-required-container {
+  -webkit-app-region: drag;
+  width: 100%;
+  box-sizing: border-box;
+  height: auto;
+  padding: 24px 16px;
+  background: var(--black-64);
+  box-shadow: 0px 0px 0px 1.5px rgba(255, 255, 255, 0.64) inset;
+  border-radius: 16px;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 32px;
+  display: inline-flex;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: default;
+  user-select: none;
+  position: relative;
+}
+
+/* Show and size the close button for Subscription */
+.subscription-required-container .close-button {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 10;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.subscription-required-container .close-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.subscription-required-container .header-section {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 4px;
+  display: flex;
+}
+
+.subscription-required-container .title {
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.subscription-required-container .subtitle {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.subscription-required-container .option-card {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  display: inline-flex;
+}
+
+.subscription-required-container .divider {
+  width: 1px;
+  align-self: stretch;
+  position: relative;
+  background: var(--neutral-350);
+  border-radius: 2px;
+}
+
+.subscription-required-container .option-content {
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.subscription-required-container .option-title {
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.subscription-required-container .option-description {
+  color: var(--neutral-300);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0.12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subscription-required-container .action-button {
+  -webkit-app-region: no-drag;
+  padding: 8px 10px;
+  background: rgba(132.6, 132.6, 132.6, 0.8);
+  box-shadow: 0px 2px 2px rgba(0, 0, 0, 0.16);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  display: flex;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+/* Primary action button with green gradient for subscription */
+.subscription-required-container .action-button-primary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.subscription-required-container .action-button-primary:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Position per FIX #13 */
+.subscription-required-container .action-button-absolute {
+  position: absolute;
+  top: 80px;
+  right: 24px;
+  z-index: 10;
+}
+
+.subscription-required-container .action-button:hover {
+  background: rgba(150, 150, 150, 0.9);
+}
+
+.subscription-required-container .button-text {
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.subscription-required-container .button-icon {
+  width: 12px;
+  height: 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.subscription-required-container .arrow-icon {
+  border: solid white;
+  border-width: 0 1.2px 1.2px 0;
+  display: inline-block;
+  padding: 3px;
+  transform: rotate(-45deg);
+  -webkit-transform: rotate(-45deg);
+}
+
+/* Secondary actions (refresh, logout) */
+.subscription-required-container .secondary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.subscription-required-container .text-button {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: color 0.2s ease;
+}
+
+.subscription-required-container .text-button:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.subscription-required-container .separator {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+}
+
+/* ========== End SUBSCRIPTION REQUIRED ========== */
+
 /* Pruned unused legacy classes: .listen-button, .header-actions, .icon-box, .ask-action, .action-text-content */
 
 

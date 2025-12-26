@@ -110,6 +110,22 @@ contextBridge.exposeInMainWorld('evia', {
     checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // 🔧 NEW: Check token expiry
     validate: () => ipcRenderer.invoke('auth:validate')  // 🔧 UI IMPROVEMENT: Proactive auth validation
   },
+  // 💳 Subscription APIs (Stripe Integration)
+  subscription: {
+    /**
+     * Force refresh subscription status from backend
+     * Triggers state re-evaluation in HeaderController
+     */
+    refresh: async (): Promise<any> => {
+      return ipcRenderer.invoke('subscription:refresh');
+    },
+    /**
+     * Get current subscription status (cached)
+     */
+    getStatus: async (): Promise<any> => {
+      return ipcRenderer.invoke('subscription:getStatus');
+    }
+  },
   // 🌐 Shell API: Open external URLs and Navigate
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),

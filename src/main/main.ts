@@ -7,6 +7,7 @@ import * as keytar from 'keytar'
 import { systemAudioMacService } from './system-audio-mac-service';
 import { systemAudioWindowsService } from './system-audio-windows-service';
 import { headerController } from './header-controller';
+import { startSubscriptionMonitor, stopSubscriptionMonitor } from './subscription-monitor';
 
 let pendingDeepLink: string | null = null;
 
@@ -121,6 +122,10 @@ async function boot() {
   // Initialize header flow
   await headerController.initialize();
   
+  // 💳 Start subscription monitor for periodic status checks
+  startSubscriptionMonitor(headerController);
+  console.log('[Main] 💳 Subscription monitor started');
+  
   // Note: Global shortcuts are registered in overlay-windows.ts
 }
 
@@ -197,7 +202,12 @@ app.on("activate", () => {
 });
 
 app.on('quit', async () => {
-  console.log('[Main] App quitting, cleaning up system audio...')
+  console.log('[Main] App quitting, cleaning up...')
+  
+  // 💳 Stop subscription monitor
+  stopSubscriptionMonitor();
+  
+  // Clean up audio services
   await systemAudioMacService.stop()
   await systemAudioWindowsService.stop()
   processManager.cleanupAllProcesses()
@@ -342,6 +352,36 @@ ipcMain.handle('auth:logout', async () => {
     return { success: true };
   } catch (err: unknown) {
     console.error('[Auth] ❌ Logout failed:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 💳 Subscription refresh handler (Stripe Integration)
+ipcMain.handle('subscription:refresh', async () => {
+  console.log('[IPC] 💳 subscription:refresh called');
+  
+  try {
+    // Trigger state re-evaluation in HeaderController
+    // This will clear cache and re-fetch subscription status
+    await headerController.reevaluateState();
+    
+    return { success: true };
+  } catch (err) {
+    console.error('[IPC] subscription:refresh error:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 💳 Get subscription status handler (Stripe Integration)
+ipcMain.handle('subscription:getStatus', async () => {
+  console.log('[IPC] 💳 subscription:getStatus called');
+  
+  try {
+    const { getCachedSubscriptionStatus } = await import('./subscription-service');
+    const status = await getCachedSubscriptionStatus();
+    return { success: true, status };
+  } catch (err) {
+    console.error('[IPC] subscription:getStatus error:', err);
     return { success: false, error: (err as Error).message };
   }
 });

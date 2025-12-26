@@ -14,6 +14,7 @@ export default defineConfig({
         overlay: 'src/renderer/overlay.html',
         welcome: 'src/renderer/welcome.html',
         permission: 'src/renderer/permission.html',
+        subscription: 'src/renderer/subscription.html',
       },
     },
   },

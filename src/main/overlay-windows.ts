@@ -2322,6 +2322,135 @@ export function getPermissionWindow(): BrowserWindow | null {
   return permissionWindow && !permissionWindow.isDestroyed() ? permissionWindow : null
 }
 
+// 💳 Subscription Window (Stripe Integration: Subscription Gating)
+// Shown after successful login but when user doesn't have an active subscription
+let subscriptionWindow: BrowserWindow | null = null
+
+export function createSubscriptionWindow(): BrowserWindow {
+  if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
+    subscriptionWindow.show()
+    return subscriptionWindow
+  }
+
+  subscriptionWindow = new BrowserWindow({
+    width: 400,
+    height: 380, // Same size as welcome window
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    title: 'EVIA - Subscription Required',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      enableWebSQL: false,
+      devTools: true, // Enable for debugging
+    },
+  })
+
+  // Hide window buttons on macOS
+  if (process.platform === 'darwin') {
+    subscriptionWindow.setWindowButtonVisibility(false)
+  }
+
+  // Center on screen
+  const { workArea } = screen.getPrimaryDisplay()
+  const x = Math.round(workArea.x + (workArea.width - 400) / 2)
+  const y = Math.round(workArea.y + (workArea.height - 380) / 2)
+  subscriptionWindow.setBounds({ x, y, width: 400, height: 380 })
+
+  subscriptionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+  subscriptionWindow.setAlwaysOnTop(true, 'screen-saver')
+
+  // Load subscription.html (separate entry point)
+  if (isDev) {
+    subscriptionWindow.loadURL(`${VITE_DEV_SERVER_URL}/subscription.html`)
+    console.log('[overlay-windows] 🔧 Subscription loading from Vite:', `${VITE_DEV_SERVER_URL}/subscription.html`)
+  } else {
+    subscriptionWindow.loadFile(path.join(__dirname, '../renderer/subscription.html'))
+  }
+
+  // Production DevTools shortcuts
+  subscriptionWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
+        event.preventDefault()
+        if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
+          if (subscriptionWindow.webContents.isDevToolsOpened()) {
+            subscriptionWindow.webContents.closeDevTools()
+          } else {
+            subscriptionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+      if (input.key === 'F12') {
+        event.preventDefault()
+        if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
+          if (subscriptionWindow.webContents.isDevToolsOpened()) {
+            subscriptionWindow.webContents.closeDevTools()
+          } else {
+            subscriptionWindow.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      }
+    }
+  })
+
+  // Prevent dragging window off-screen
+  subscriptionWindow.on('will-move', (event, newBounds) => {
+    const display = screen.getDisplayNearestPoint({ x: newBounds.x, y: newBounds.y })
+    const work = display.workArea
+    const minX = work.x
+    const maxX = work.x + work.width - newBounds.width
+    const minY = work.y
+    const maxY = work.y + work.height - newBounds.height
+    
+    const clamped = {
+      x: Math.max(minX, Math.min(newBounds.x, maxX)),
+      y: Math.max(minY, Math.min(newBounds.y, maxY)),
+      width: newBounds.width,
+      height: newBounds.height,
+    }
+    
+    if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
+      event.preventDefault()
+      subscriptionWindow?.setBounds(clamped)
+    }
+  })
+
+  subscriptionWindow.on('closed', () => {
+    subscriptionWindow = null
+  })
+
+  subscriptionWindow.once('ready-to-show', () => {
+    subscriptionWindow?.show()
+    console.log('[overlay-windows] ✅ Subscription window shown')
+  })
+
+  return subscriptionWindow
+}
+
+export function closeSubscriptionWindow() {
+  if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
+    subscriptionWindow.close()
+    subscriptionWindow = null
+    console.log('[overlay-windows] ✅ Subscription window closed')
+  }
+}
+
+export function getSubscriptionWindow(): BrowserWindow | null {
+  return subscriptionWindow && !subscriptionWindow.isDestroyed() ? subscriptionWindow : null
+}
+
 export {
   getOrCreateHeaderWindow as createHeaderWindow,
   getOrCreateHeaderWindow,
