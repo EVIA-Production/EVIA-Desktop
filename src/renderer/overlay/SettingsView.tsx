@@ -389,12 +389,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
-  const handleChangeSttModel = () => {
-    console.log('[SettingsView] 🎤 Change STT Model clicked');
-    // TODO: Open STT model selector modal
-    // For now, just log
-  };
-
   // Get translated strings
   const t = (key: string) => i18n.t(`overlay.settings.${key}`);
 
@@ -449,12 +443,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </div>
       </div>
 
-      {/* STT Model Section */}
+      {/* Shortcuts Section */}
       <div className="model-section">
-        <label className="model-label">{t('sttModel')}</label>
-        <button className="settings-button full-width" onClick={handleChangeSttModel}>
-          <span>{t('sttModelNova3')}</span>
-        </button>
         <button className="settings-button full-width" onClick={handleEditShortcuts}>
           <span>{t('editShortcuts')}</span>
         </button>

@@ -889,7 +889,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setCopyState('idle');
     }
 
-    // 🔥 COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
+    // ALWAYS fetch fresh insights when toggling to insights view
     // This ensures insights reflect the latest transcript context, critical for real-time coaching
     if (newMode === 'insights') {
       console.log(`[ListenView] Switched to insights view - Fetching fresh insights`);
