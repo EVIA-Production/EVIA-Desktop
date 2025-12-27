@@ -34,19 +34,19 @@ export function initPostHog() {
   }
   
   try {
-    posthog.init(POSTHOG_KEY, {
-      api_host: POSTHOG_HOST,
-      person_profiles: 'identified_only',
-      capture_pageview: false, // Manual control for Electron
-      capture_pageleave: false,
-      autocapture: false, // Electron doesn't need autocapture
-      persistence: 'localStorage',
-      bootstrap: {
-        distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
-      },
-    });
-    
-    initialized = true;
+  posthog.init(POSTHOG_KEY, {
+    api_host: POSTHOG_HOST,
+    person_profiles: 'identified_only',
+    capture_pageview: false, // Manual control for Electron
+    capture_pageleave: false,
+    autocapture: false, // Electron doesn't need autocapture
+    persistence: 'localStorage',
+    bootstrap: {
+      distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
+    },
+  });
+  
+  initialized = true;
     console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
     
     // Test capture to verify connection

@@ -13,12 +13,57 @@ const HOST = '127.0.0.1';
  */
 function activateBrowser(): void {
   if (process.platform === 'darwin') {
-    // Try to activate common browsers - doesn't open new tab, just brings to front
-    exec('open -a Arc 2>/dev/null || open -a "Google Chrome" 2>/dev/null || open -a Safari 2>/dev/null || open -a Firefox 2>/dev/null || open -a "Microsoft Edge" 2>/dev/null || true', (err) => {
+    // macOS: Try to activate common browsers - doesn't open new tab, just brings to front
+    // Use osascript for more reliable activation
+    const applescriptCommand = `
+      tell application "System Events"
+        set frontApp to name of first application process whose frontmost is true
+      end tell
+      
+      if frontApp is not in {"Arc", "Google Chrome", "Safari", "Firefox", "Microsoft Edge", "Brave Browser", "Opera"} then
+        try
+          tell application "Arc" to activate
+        on error
+          try
+            tell application "Google Chrome" to activate
+          on error
+            try
+              tell application "Safari" to activate
+            on error
+              try
+                tell application "Brave Browser" to activate
+            on error
+              try
+                tell application "Firefox" to activate
+                on error
+                  try
+                    tell application "Microsoft Edge" to activate
+                  on error
+                    try
+                      tell application "Opera" to activate
+                    end try
+                  end try
+                end try
+              end try
+            end try
+          end try
+        end try
+      end if
+    `;
+    
+    exec(`osascript -e '${applescriptCommand.replace(/'/g, "'\\''")}'`, (err) => {
       if (err) {
-        console.log('[Bridge] ⚠️ Could not activate browser (non-fatal)');
+        console.log('[Bridge] ⚠️ AppleScript activation failed, trying fallback...');
+        // Fallback to simple open command
+        exec('open -a Arc 2>/dev/null || open -a "Google Chrome" 2>/dev/null || open -a Safari 2>/dev/null || open -a "Brave Browser" 2>/dev/null || open -a Firefox 2>/dev/null || open -a "Microsoft Edge" 2>/dev/null || open -a Opera 2>/dev/null || true', (err2) => {
+          if (err2) {
+            console.log('[Bridge] ⚠️ Could not activate browser (non-fatal)');
+          } else {
+            console.log('[Bridge] 🪟 Activated browser via fallback (macOS)');
+          }
+        });
       } else {
-        console.log('[Bridge] 🪟 Activated browser (macOS)');
+        console.log('[Bridge] 🪟 Activated browser via AppleScript (macOS)');
       }
     });
   } else if (process.platform === 'win32') {
@@ -27,7 +72,7 @@ function activateBrowser(): void {
     // Try common browsers: Edge (default on Win11), Chrome, Firefox, Brave
     const command = `
       powershell -Command "
-        $browsers = @('msedge', 'chrome', 'firefox', 'brave');
+        $browsers = @('msedge', 'chrome', 'firefox', 'brave', 'opera');
         foreach ($browser in $browsers) {
           $proc = Get-Process -Name $browser -ErrorAction SilentlyContinue | Select-Object -First 1;
           if ($proc) {
@@ -192,10 +237,11 @@ class DesktopBridge {
         openClient.send(JSON.stringify({ type: 'navigate', url }));
         
         // Activate the browser WITHOUT opening a new tab
-        // Small delay to let WS message arrive first
+        // Longer delay to ensure WS message is processed + navigation completes
         setTimeout(() => {
+          console.log('[Bridge] 🪟 Attempting to activate browser window...');
           activateBrowser();
-        }, 100);
+        }, 300); // Increased from 100ms to 300ms for better reliability
         return true; // Tab reused successfully
       } else {
         console.log('[Bridge] ⚠️ No open clients found, cleaning up stale connections');
@@ -215,4 +261,3 @@ class DesktopBridge {
 }
 
 export const desktopBridge = new DesktopBridge();
-

@@ -621,6 +621,32 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
     console.log('[AskView] 🎯 Session state:', currentSessionState);
 
+    // 🔧 NEW: Always create a new chat when asking "before" a meeting
+    // This ensures each pre-meeting Q&A gets its own chat session
+    if (currentSessionState === 'before') {
+      console.log('[AskView] 🆕 Before-meeting question detected - creating new chat');
+      try {
+        const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          const newChatId = Number(data?.id);
+          if (newChatId && !Number.isNaN(newChatId)) {
+            chatId = newChatId;
+            localStorage.setItem('current_chat_id', String(chatId));
+            console.log('[AskView] ✅ Created new chat for before-meeting:', chatId);
+          }
+        } else {
+          console.warn('[AskView] ⚠️ Failed to create new chat, will use existing:', res.status);
+        }
+      } catch (err) {
+        console.warn('[AskView] ⚠️ Error creating new chat, will use existing:', err);
+      }
+    }
+
     // 🔧 CRITICAL: Always use the CURRENT language in THIS window.
     // (Do not trust props; language can be toggled cross-window.)
     const effectiveLanguage = i18n.getLanguage();
