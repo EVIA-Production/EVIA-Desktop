@@ -5,9 +5,7 @@ import { FRONTEND_URL } from '../config/config';
 import {
   trackSettingsOpened,
   trackLanguageChanged,
-  trackAutoUpdateToggled,
   trackInvisibilityToggled,
-  trackWindowMoved,
   trackPresetActivated,
   trackPresetDeactivated
 } from '../services/posthogService';
@@ -21,7 +19,6 @@ interface SettingsViewProps {
 const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
   const [accountInfo, setAccountInfo] = useState<string>('');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
@@ -85,24 +82,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     fetchAccountInfo();
   }, []);
 
-  // 🔧 FIX ISSUE #2: Load auto-update setting on mount
-  useEffect(() => {
-    const loadAutoUpdateSetting = async () => {
-      try {
-        const eviaIpc = (window as any).evia?.ipc;
-        const result = await eviaIpc?.invoke('settings:get-auto-update');
-        if (result?.enabled !== undefined) {
-          setAutoUpdateEnabled(result.enabled);
-          console.log('[SettingsView] ✅ Loaded auto-update setting:', result.enabled);
-        }
-      } catch (error) {
-        console.error('[SettingsView] ❌ Failed to load auto-update setting:', error);
-      }
-    };
-    loadAutoUpdateSetting();
-  }, []);
-
-  // 🔧 FIX ISSUE #2.1: Fetch presets from backend on mount
+  // Fetch presets from backend on mount
   useEffect(() => {
     const fetchPresets = async () => {
       try {
@@ -223,50 +203,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       console.log('[SettingsView] ✅ Navigation request sent');
     } catch (error) {
       console.error('[SettingsView] Error requesting navigation:', error);
-    }
-  };
-
-  // 🔧 FIX ISSUE #2: Persist auto-update toggle via IPC
-  const handleToggleAutoUpdate = async () => {
-    const newState = !autoUpdateEnabled;
-    
-    // 📊 POSTHOG: Track auto-update toggle
-    trackAutoUpdateToggled({ new_state: newState });
-    
-    setAutoUpdateEnabled(newState);
-    console.log('[SettingsView] 🔄 Auto-update:', newState);
-    
-    // Persist to main process
-    try {
-      const eviaIpc = (window as any).evia?.ipc;
-      await eviaIpc?.invoke('settings:set-auto-update', newState);
-      console.log('[SettingsView] ✅ Auto-update persisted:', newState);
-    } catch (error) {
-      console.error('[SettingsView] ❌ Failed to persist auto-update:', error);
-      // Revert UI state on failure
-      setAutoUpdateEnabled(!newState);
-    }
-  };
-
-  const handleMoveLeft = () => {
-    // 📊 POSTHOG: Track window moved
-    trackWindowMoved({ direction: 'left', distance_px: 50 });
-    
-    const eviaWindows = (window as any).evia?.windows;
-    if (eviaWindows?.nudgeHeader) {
-      // 🔧 FIX: Increased from -10 to -50 to match arrow key movement distance
-      eviaWindows.nudgeHeader(-50, 0);
-    }
-  };
-
-  const handleMoveRight = () => {
-    // 📊 POSTHOG: Track window moved
-    trackWindowMoved({ direction: 'right', distance_px: 50 });
-    
-    const eviaWindows = (window as any).evia?.windows;
-    if (eviaWindows?.nudgeHeader) {
-      // 🔧 FIX: Increased from 10 to 50 to match arrow key movement distance
-      eviaWindows.nudgeHeader(50, 0);
     }
   };
 
@@ -546,18 +482,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <button className="settings-button full-width" onClick={handlePersonalize}>
           <span>{t('personalizeButton')}</span>
         </button>
-        <button className="settings-button full-width" onClick={handleToggleAutoUpdate}>
-          <span>{autoUpdateEnabled ? t('automaticUpdatesOn') : t('automaticUpdatesOff')}</span>
-        </button>
-
-        <div className="move-buttons">
-          <button className="settings-button half-width" onClick={handleMoveLeft}>
-            <span>{t('moveLeft')}</span>
-          </button>
-          <button className="settings-button half-width" onClick={handleMoveRight}>
-            <span>{t('moveRight')}</span>
-          </button>
-        </div>
 
         <button className="settings-button full-width" onClick={handleToggleInvisibility}>
           <span>{isInvisible ? t('disableInvisibility') : t('enableInvisibility')}</span>
