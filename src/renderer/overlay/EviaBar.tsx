@@ -559,6 +559,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
             const data = await response.json();
             console.log('[EviaBar] ✅ Session completed:', data);
             console.log(`[EviaBar] 📦 Archived ${data.transcript_count} transcripts`);
+            // 📊 SUGGESTION REPORT: Log the implementation report for debugging/metrics
+            if (data.suggestion_report) {
+              console.log('[EviaBar] 📊 SUGGESTION IMPLEMENTATION REPORT:');
+              console.log(data.suggestion_report);
+            }
           } else {
             console.error('[EviaBar] ❌ Failed to complete session:', response.status, await response.text());
           }

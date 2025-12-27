@@ -895,7 +895,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log(`[ListenView] Switched to insights view - Fetching fresh insights`);
       await fetchInsightsNow();
     } else {
-      console.log(`[ListenView] Switched to transcript view, no fetch needed`);
+      console.log(`[ListenView] Switched to transcript view - scrolling to bottom`);
+      // 🔧 FIX: Scroll to bottom when switching TO transcript view (user wants to see latest)
+      setTimeout(() => {
+        if (viewportRef.current) {
+          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+          console.log('[ListenView] 📜 Scrolled to bottom after switching to transcript');
+        }
+      }, 50);
     }
   };
 
