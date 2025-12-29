@@ -15,40 +15,38 @@ function activateBrowser(): void {
   if (process.platform === 'darwin') {
     // macOS: Try to activate common browsers - doesn't open new tab, just brings to front
     // Use osascript for more reliable activation
+    // FIX: Always try to activate browsers, even if one is already frontmost
+    // This helps focus the EVIA tab when user clicks "Personalize / Meeting Notes"
+    // Previously, we skipped activation if a browser was already front, but that
+    // left the user on a different tab within the same browser window
     const applescriptCommand = `
-      tell application "System Events"
-        set frontApp to name of first application process whose frontmost is true
-      end tell
-      
-      if frontApp is not in {"Arc", "Google Chrome", "Safari", "Firefox", "Microsoft Edge", "Brave Browser", "Opera"} then
+      try
+        tell application "Arc" to activate
+      on error
         try
-          tell application "Arc" to activate
+          tell application "Google Chrome" to activate
         on error
           try
-            tell application "Google Chrome" to activate
+            tell application "Safari" to activate
           on error
             try
-              tell application "Safari" to activate
-            on error
-              try
-                tell application "Brave Browser" to activate
+              tell application "Brave Browser" to activate
             on error
               try
                 tell application "Firefox" to activate
+              on error
+                try
+                  tell application "Microsoft Edge" to activate
                 on error
                   try
-                    tell application "Microsoft Edge" to activate
-                  on error
-                    try
-                      tell application "Opera" to activate
-                    end try
+                    tell application "Opera" to activate
                   end try
                 end try
               end try
             end try
           end try
         end try
-      end if
+      end try
     `;
     
     exec(`osascript -e '${applescriptCommand.replace(/'/g, "'\\''")}'`, (err) => {
