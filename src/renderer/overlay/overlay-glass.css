@@ -2491,21 +2491,25 @@
 .shortcut-keys {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;  /* slightly more spacing between keys */
 }
 
 .cmd-key, .shortcut-key {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-  /* WINDOWS FIX (2025-12-09): Larger keys to match Mac */
-  width: 22px;
+  /* Auto-width with min-width for single chars, padding for multi-char */
+  min-width: 22px;
   height: 22px;
-  display: flex;
+  padding: 0 6px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 /* Preset Management Section */
@@ -2534,7 +2538,6 @@
 }
 
 .preset-toggle {
-  /* (2025-12-09): SF Symbol style chevrons */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2554,7 +2557,6 @@
   display: block;
 }
 
-/* Icon box styling for shortcut keys - exactly like Glass MainHeader.js */
 .evia-icon-box {
   width: 18px;
   height: 18px;
@@ -2568,7 +2570,6 @@
   color: white;
 }
 
-/* GLASS PARITY: Shortcut keys container */
 .evia-shortcut-keys {
   display: flex;
   align-items: center;
