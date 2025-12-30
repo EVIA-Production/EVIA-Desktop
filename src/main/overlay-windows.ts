@@ -124,6 +124,11 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   // On macOS: Keep 'panel' type for proper fullscreen floating behavior
   const isWindows = process.platform === 'win32'
 
+  // Icon path must differ for dev vs packaged
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'icon.ico')
+    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.ico');
+
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
     height: HEADER_SIZE.height,
@@ -135,7 +140,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     type: process.platform === 'darwin' ? 'panel' : undefined, // macOS: panel, Windows: normal window for taskbar
     alwaysOnTop: true,
     skipTaskbar: false, // Show in taskbar so users can see EVIA is running
-    icon: path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.ico'),
+    icon: iconPath,
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
     focusable: true,
     hasShadow: false,
@@ -148,27 +153,12 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: true, // 🔥 ENABLE in production for debugging session/complete
+      devTools: process.env.NODE_ENV === 'development',
       backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
   })
 
-  // Only open DevTools automatically in development
-  if (process.env.NODE_ENV === 'development') {
-    headerWindow.webContents.openDevTools({ mode: 'detach' });
-  }
-  
-  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools (Cmd+Shift+I / Ctrl+Shift+I)
-  const headerWebContents = headerWindow.webContents;
-  headerWebContents.on('before-input-event', (_event, input) => {
-    if (input.type === 'keyDown' && input.shift && (input.meta || input.control) && input.key.toLowerCase() === 'i') {
-      if (headerWebContents.isDevToolsOpened()) {
-        headerWebContents.closeDevTools()
-      } else {
-        headerWebContents.openDevTools({ mode: 'detach' })
-      }
-    }
-  });
+  // headerWindow.webContents.openDevTools({ mode: 'detach' }); // Disabled for production testing
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
   if (process.platform === 'darwin') {
@@ -1339,33 +1329,14 @@ app.on('ready', () => {
     app.dock.show()
     const { nativeImage } = require('electron')
     const path = require('path')
-    // In production, icons are in resources folder; in dev, they're in src/main/assets
-    const isDev = !app.isPackaged
-    const iconPath = isDev
-      ? path.join(__dirname, 'assets', 'icon.png')
-      : path.join(process.resourcesPath, 'icon.png')
-    console.log('[DOCK] Icon path:', iconPath, '(isDev:', isDev, ')')
+    const iconPath = path.join(__dirname, '../..', 'src/main/assets/icon.png')
     try {
       const icon = nativeImage.createFromPath(iconPath)
       if (!icon.isEmpty()) {
         app.dock.setIcon(icon)
         console.log('[DOCK] ✅ Dock icon set successfully')
       } else {
-        console.warn('[DOCK] ⚠️ Icon file is empty or invalid at:', iconPath)
-        // Fallback: try alternative paths
-        const altPaths = [
-          path.join(__dirname, '..', 'assets', 'icon.png'),
-          path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.png'),
-          path.join(app.getAppPath(), 'src', 'main', 'assets', 'icon.png')
-        ]
-        for (const altPath of altPaths) {
-          const altIcon = nativeImage.createFromPath(altPath)
-          if (!altIcon.isEmpty()) {
-            app.dock.setIcon(altIcon)
-            console.log('[DOCK] ✅ Dock icon set from fallback:', altPath)
-            break
-          }
-        }
+        console.warn('[DOCK] ⚠️ Icon file is empty or invalid')
       }
     } catch (err) {
       console.error('[DOCK] ❌ Failed to set Dock icon:', err)
@@ -1858,9 +1829,6 @@ ipcMain.handle('close-window', (_event, name: FeatureName) => {
   return { ok: true }
 })
 
-// NOTE: shell:openExternal and shell:navigate are already registered in main.ts
-// Do NOT add duplicate handlers here!
-
 // Settings hover handlers (Glass parity: show/hide with delay)
 ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
   console.log('[overlay-windows] show-settings-window: START')
@@ -2322,8 +2290,8 @@ export function getPermissionWindow(): BrowserWindow | null {
   return permissionWindow && !permissionWindow.isDestroyed() ? permissionWindow : null
 }
 
-// 💳 Subscription Window (Stripe Integration: Subscription Gating)
-// Shown after successful login but when user doesn't have an active subscription
+// Subscription Required Window (Phase 4: Subscription Check)
+// Shown when user doesn't have an active subscription
 let subscriptionWindow: BrowserWindow | null = null
 
 export function createSubscriptionWindow(): BrowserWindow {
@@ -2334,7 +2302,7 @@ export function createSubscriptionWindow(): BrowserWindow {
 
   subscriptionWindow = new BrowserWindow({
     width: 400,
-    height: 300, // Compact size to fit content without dead space
+    height: 340,
     show: false,
     frame: false,
     transparent: true,
@@ -2342,100 +2310,35 @@ export function createSubscriptionWindow(): BrowserWindow {
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
-    focusable: true,
-    hasShadow: false,
-    backgroundColor: '#00000000',
-    title: 'EVIA - Subscription Required',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      enableWebSQL: false,
-      devTools: true, // Enable for debugging
+      nodeIntegration: false,
     },
   })
 
-  // Hide window buttons on macOS
-  if (process.platform === 'darwin') {
-    subscriptionWindow.setWindowButtonVisibility(false)
-  }
+  // Center on primary display
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+  const x = Math.round((screenWidth - 400) / 2)
+  const y = Math.round((screenHeight - 340) / 2)
+  subscriptionWindow.setPosition(x, y)
 
-  // Center on screen
-  const { workArea } = screen.getPrimaryDisplay()
-  const x = Math.round(workArea.x + (workArea.width - 400) / 2)
-  const y = Math.round(workArea.y + (workArea.height - 300) / 2)
-  subscriptionWindow.setBounds({ x, y, width: 400, height: 300 })
-
-  subscriptionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-  subscriptionWindow.setAlwaysOnTop(true, 'screen-saver')
-
-  // Load subscription.html (separate entry point)
-  if (isDev) {
-    subscriptionWindow.loadURL(`${VITE_DEV_SERVER_URL}/subscription.html`)
-    console.log('[overlay-windows] 🔧 Subscription loading from Vite:', `${VITE_DEV_SERVER_URL}/subscription.html`)
-  } else {
-    subscriptionWindow.loadFile(path.join(__dirname, '../renderer/subscription.html'))
-  }
-
-  // Production DevTools shortcuts
-  subscriptionWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown') {
-      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
-        event.preventDefault()
-        if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
-          if (subscriptionWindow.webContents.isDevToolsOpened()) {
-            subscriptionWindow.webContents.closeDevTools()
-          } else {
-            subscriptionWindow.webContents.openDevTools({ mode: 'detach' })
-          }
-        }
-      }
-      if (input.key === 'F12') {
-        event.preventDefault()
-        if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
-          if (subscriptionWindow.webContents.isDevToolsOpened()) {
-            subscriptionWindow.webContents.closeDevTools()
-          } else {
-            subscriptionWindow.webContents.openDevTools({ mode: 'detach' })
-          }
-        }
-      }
-    }
-  })
-
-  // Prevent dragging window off-screen
-  subscriptionWindow.on('will-move', (event, newBounds) => {
-    const display = screen.getDisplayNearestPoint({ x: newBounds.x, y: newBounds.y })
-    const work = display.workArea
-    const minX = work.x
-    const maxX = work.x + work.width - newBounds.width
-    const minY = work.y
-    const maxY = work.y + work.height - newBounds.height
-    
-    const clamped = {
-      x: Math.max(minX, Math.min(newBounds.x, maxX)),
-      y: Math.max(minY, Math.min(newBounds.y, maxY)),
-      width: newBounds.width,
-      height: newBounds.height,
-    }
-    
-    if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
-      event.preventDefault()
-      subscriptionWindow?.setBounds(clamped)
-    }
+  // Load subscription required view
+  const htmlPath = isDev
+    ? `${VITE_DEV_SERVER_URL}/overlay.html?view=subscription`
+    : `file://${path.join(__dirname, '../renderer/overlay.html')}?view=subscription`
+  
+  subscriptionWindow.loadURL(htmlPath)
+  subscriptionWindow.once('ready-to-show', () => {
+    subscriptionWindow?.show()
   })
 
   subscriptionWindow.on('closed', () => {
     subscriptionWindow = null
   })
 
-  subscriptionWindow.once('ready-to-show', () => {
-    subscriptionWindow?.show()
-    console.log('[overlay-windows] ✅ Subscription window shown')
-  })
-
+  console.log('[overlay-windows] 💳 Subscription window created')
   return subscriptionWindow
 }
 

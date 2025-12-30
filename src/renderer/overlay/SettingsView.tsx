@@ -2,13 +2,6 @@ import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { FRONTEND_URL } from '../config/config';
-import {
-  trackSettingsOpened,
-  trackLanguageChanged,
-  trackInvisibilityToggled,
-  trackPresetActivated,
-  trackPresetDeactivated
-} from '../services/posthogService';
 
 interface SettingsViewProps {
   language: 'de' | 'en';
@@ -19,6 +12,7 @@ interface SettingsViewProps {
 const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
   const [accountInfo, setAccountInfo] = useState<string>('');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
@@ -82,7 +76,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     fetchAccountInfo();
   }, []);
 
-  // Fetch presets from backend on mount
+  // 🔧 FIX ISSUE #2: Load auto-update setting on mount
+  useEffect(() => {
+    const loadAutoUpdateSetting = async () => {
+      try {
+        const eviaIpc = (window as any).evia?.ipc;
+        const result = await eviaIpc?.invoke('settings:get-auto-update');
+        if (result?.enabled !== undefined) {
+          setAutoUpdateEnabled(result.enabled);
+          console.log('[SettingsView] ✅ Loaded auto-update setting:', result.enabled);
+        }
+      } catch (error) {
+        console.error('[SettingsView] ❌ Failed to load auto-update setting:', error);
+      }
+    };
+    loadAutoUpdateSetting();
+  }, []);
+
+  // 🔧 FIX ISSUE #2.1: Fetch presets from backend on mount
   useEffect(() => {
     const fetchPresets = async () => {
       try {
@@ -123,11 +134,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
     fetchPresets();
   }, []); // Run once on mount
-
-  // 📊 POSTHOG: Track settings opened
-  useEffect(() => {
-    trackSettingsOpened({ from_view: 'header_bar' });
-  }, []); // Only on mount
 
   // Handlers
   const handleLogout = async () => {
@@ -206,15 +212,42 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
+  // 🔧 FIX ISSUE #2: Persist auto-update toggle via IPC
+  const handleToggleAutoUpdate = async () => {
+    const newState = !autoUpdateEnabled;
+    setAutoUpdateEnabled(newState);
+    console.log('[SettingsView] 🔄 Auto-update:', newState);
+    
+    // Persist to main process
+    try {
+      const eviaIpc = (window as any).evia?.ipc;
+      await eviaIpc?.invoke('settings:set-auto-update', newState);
+      console.log('[SettingsView] ✅ Auto-update persisted:', newState);
+    } catch (error) {
+      console.error('[SettingsView] ❌ Failed to persist auto-update:', error);
+      // Revert UI state on failure
+      setAutoUpdateEnabled(!newState);
+    }
+  };
+
+  const handleMoveLeft = () => {
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.nudgeHeader) {
+      // 🔧 FIX: Increased from -10 to -50 to match arrow key movement distance
+      eviaWindows.nudgeHeader(-50, 0);
+    }
+  };
+
+  const handleMoveRight = () => {
+    const eviaWindows = (window as any).evia?.windows;
+    if (eviaWindows?.nudgeHeader) {
+      // 🔧 FIX: Increased from 10 to 50 to match arrow key movement distance
+      eviaWindows.nudgeHeader(50, 0);
+    }
+  };
+
   const handleToggleInvisibility = async () => {
     const newState = !isInvisible;
-    
-    // 📊 POSTHOG: Track invisibility toggle
-    trackInvisibilityToggled({ new_state: newState });
-    
-    // Also store that user has tried invisibility (for user property)
-    localStorage.setItem('evia_invisibility_used', 'true');
-    
     setIsInvisible(newState);
     console.log('[SettingsView] 👻 Invisibility:', newState);
     
@@ -239,18 +272,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
     
     const isDeactivating = preset.is_active;
-    
-    // 📊 POSTHOG: Track preset activation/deactivation
-    if (isDeactivating) {
-      trackPresetDeactivated({ preset_id: preset.id });
-    } else {
-      trackPresetActivated({ 
-        preset_id: preset.id, 
-        preset_name: preset.name,
-        previous_preset_id: selectedPreset?.id 
-      });
-    }
-    
     console.log(`[SettingsView] ${isDeactivating ? '🔴 Deactivating' : '🎨 Activating'} preset:`, preset.name);
     
     try {
@@ -325,6 +346,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
+  const handleChangeSttModel = () => {
+    console.log('[SettingsView] 🎤 Change STT Model clicked');
+    // TODO: Open STT model selector modal
+    // For now, just log
+  };
+
   // Get translated strings
   const t = (key: string) => i18n.t(`overlay.settings.${key}`);
 
@@ -356,30 +383,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         <div className="language-toggle">
           <button
             className={`language-button ${language === 'de' ? 'active' : ''}`}
-            onClick={() => {
-              if (language !== 'de') {
-                trackLanguageChanged({ from_language: language, to_language: 'de' });
-                onToggleLanguage();
-              }
-            }}
+            onClick={() => language !== 'de' && onToggleLanguage()}
           >
             {t('languageDeutsch')}
           </button>
           <button
             className={`language-button ${language === 'en' ? 'active' : ''}`}
-            onClick={() => {
-              if (language !== 'en') {
-                trackLanguageChanged({ from_language: language, to_language: 'en' });
-                onToggleLanguage();
-              }
-            }}
+            onClick={() => language !== 'en' && onToggleLanguage()}
           >
             {t('languageEnglish')}
           </button>
         </div>
       </div>
 
-      {/* Shortcuts Section */}
+      {/* Shortcuts Edit Button - STT Model section removed per Mac parity */}
       <div className="model-section">
         <button className="settings-button full-width" onClick={handleEditShortcuts}>
           <span>{t('editShortcuts')}</span>
@@ -477,7 +494,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Action Buttons - Move buttons and Auto Updates removed per Mac parity */}
       <div className="buttons-section">
         <button className="settings-button full-width" onClick={handlePersonalize}>
           <span>{t('personalizeButton')}</span>

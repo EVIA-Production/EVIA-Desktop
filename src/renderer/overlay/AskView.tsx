@@ -6,12 +6,6 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
-import { 
-  trackAskSubmitted,
-  trackAskResponseReceived,
-  trackTimeToFirstSuggestion,
-  trackError
-} from '../services/posthogService';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -255,35 +249,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setSessionState(newState);
     };
 
-    // 🔧 FIX: Apply language change in THIS window + clear state
-    // Root cause of "first Ask reply in old language":
-    // - Each Electron window has its own localStorage
-    // - AskView previously did NOT update evia_language/i18n on language-changed
-    // - So the first request after a toggle could still send the previous language
+    // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
-      const lang = (newLang === 'de' || newLang === 'en') ? newLang : null;
-      console.log('[AskView] 🌐 Language changed to', newLang, '- applying in this window + clearing state');
-
-      if (lang) {
-        try {
-          i18n.setLanguage(lang);
-          // Explicitly set too (defensive; i18n.setLanguage already does this)
-          localStorage.setItem('evia_language', lang);
-          // Refresh header text if we were showing the default title
-          setHeaderText(i18n.t('overlay.ask.aiResponse'));
-        } catch (e) {
-          console.warn('[AskView] Failed to apply language locally:', e);
-        }
-      } else {
-        console.warn('[AskView] Ignoring invalid language payload:', newLang);
-      }
-
+      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
+      
+      // NOTE: i18n.changeLanguage() call removed due to Vite bundler minification issue
+      // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
+      // UI language will update automatically when window reopens or on next backend request
+      
       // Abort any active stream first
       if (streamRef.current?.abort) {
         streamRef.current.abort();
         streamRef.current = null;
       }
-
       // Clear all state (same as clear-session)
       setResponse('');
       setCurrentQuestion('');
@@ -621,45 +599,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
     console.log('[AskView] 🎯 Session state:', currentSessionState);
 
-    // 🔧 NEW: Always create a new chat when asking "before" a meeting
-    // This ensures each pre-meeting Q&A gets its own chat session
-    if (currentSessionState === 'before') {
-      console.log('[AskView] 🆕 Before-meeting question detected - creating new chat');
-      try {
-        const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        });
-        
-        if (res.ok) {
-          const data = await res.json();
-          const newChatId = Number(data?.id);
-          if (newChatId && !Number.isNaN(newChatId)) {
-            chatId = newChatId;
-            localStorage.setItem('current_chat_id', String(chatId));
-            console.log('[AskView] ✅ Created new chat for before-meeting:', chatId);
-          }
-        } else {
-          console.warn('[AskView] ⚠️ Failed to create new chat, will use existing:', res.status);
-        }
-      } catch (err) {
-        console.warn('[AskView] ⚠️ Error creating new chat, will use existing:', err);
-      }
-    }
-
-    // 🔧 CRITICAL: Always use the CURRENT language in THIS window.
-    // (Do not trust props; language can be toggled cross-window.)
-    const effectiveLanguage = i18n.getLanguage();
-
-    // 📊 POSTHOG: Track ask submitted
-    trackAskSubmitted({
-      chat_id: chatId,
-      question_length: actualPrompt.length,
-      session_state: currentSessionState,
-      is_typed: !overridePrompt, // false if came from insight click
-      language: effectiveLanguage,
-    });
-
     // 🔧 GLASS PARITY: Pass transcript context to backend
     // Use currentSessionState (freshly read from localStorage) instead of stale sessionState
     const handle = streamAsk({ 
@@ -667,7 +606,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       chatId, 
       prompt: actualPrompt, 
       transcript: transcriptContext || undefined,  // Pass transcript for context
-      language: effectiveLanguage,
+      language, 
       sessionState: currentSessionState,  // 🔧 CRITICAL: Use freshly synced session state
       token, 
       screenshotRef 
@@ -717,17 +656,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
     
     handle.onDone(() => {
-      const totalLatency = streamStartTime.current ? performance.now() - streamStartTime.current : 0;
-      
-      // 📊 POSTHOG: Track ask response received
-      trackAskResponseReceived({
-        chat_id: chatId,
-        response_length: response.length,
-        latency_ms: totalLatency,
-        ttft_ms: ttftMs || undefined,
-        session_state: currentSessionState,
-      });
-      
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes
@@ -779,17 +707,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       
       const errorMsg = e?.message || String(e);
       const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
-      const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch');
-      
-      // 📊 POSTHOG: Track client-side errors
-      const errorType = is401 ? 'auth_error' : isNetwork ? 'network_error' : 'stream_error';
-      trackError({
-        error_type: errorType,
-        error_message: errorMsg.substring(0, 500),
-        chat_id: Number(localStorage.getItem('current_chat_id') || '0'),
-        context: 'ask_stream',
-      });
-      console.log('[PostHog] 📊 Tracking error_occurred:', errorType);
+      const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network');
       
       if (is401) {
         showError('Authentication expired. Please reconnect.', true);

@@ -51,7 +51,7 @@ win:
   icon: build/icon.ico
   artifactName: "EVIA-${version}.${ext}"
   forceCodeSigning: false
-  signAndEditExecutable: false
+  signAndEditExecutable: true  # CRITICAL: Must be true for Windows to show "EVIA" instead of "Electron"
 
 nsis:
   oneClick: false
