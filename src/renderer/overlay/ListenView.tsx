@@ -621,28 +621,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 2. Determine current session state (after recording stops, isSessionActive = false)
   // 3. Send to AskView via IPC with 'ask:send-and-submit' channel INCLUDING session state
   // 4. AskView receives it, populates input, updates session state, and auto-submits
-  const sanitizeInsightTextForAsk = (text: string): string => {
-    const t = (text || '').trim();
-    if (!t) return '';
-
-    // Only sanitize action-like strings (emoji prefix). We don't want to strip normal sentences like:
-    // "Time constraint: 30 minutes"
-    const actionEmojis = '💬❓✨✅📧🎯📞📘❗';
-    if (!actionEmojis.includes(t[0])) return t;
-
-    const idxAscii = t.indexOf(':');
-    const idxFull = t.indexOf('：');
-    const idx = idxAscii === -1 ? idxFull : idxFull === -1 ? idxAscii : Math.min(idxAscii, idxFull);
-
-    // Strip only if the suffix is clearly a "label: description" pattern
-    if (idx > 0 && idx < 80) return t.slice(0, idx).trim();
-    return t;
-  };
-
   const handleInsightClick = (insightText: string, insightType: 'summary' | 'topic' | 'action' | 'followup' = 'action', insightIndex: number = 0) => {
     const chatId = Number(localStorage.getItem('current_chat_id') || '0');
     const insightSessionState = insights?.session_state || sessionState;
-    const sanitizedInsightText = sanitizeInsightTextForAsk(insightText);
     
     // 📊 POSTHOG: Track insight click
     trackInsightClicked({
@@ -654,12 +635,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     });
     
     console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
-    if (sanitizedInsightText !== insightText) {
-      console.warn('[ListenView] 🧼 Sanitized insight before /ask:', {
-        original: insightText,
-        sanitized: sanitizedInsightText,
-      });
-    }
     
     // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
@@ -685,7 +660,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (eviaIpc?.send) {
       // Send as object with text and sessionState (using insight's metadata)
       eviaIpc.send('ask:send-and-submit', { 
-        text: sanitizedInsightText,
+        text: insightText,
         sessionState: insightSessionState
       });
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
@@ -963,11 +938,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (currentGroup) groups.push(currentGroup);
           
           // Format: Speaker label once per group, texts as paragraphs
+          // FIX: No extra blank line between speaker label and text
           return groups.map(group => {
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
             const joinedText = group.texts.join(' ');  // Join with space (same utterance)
-            return `${speakerLabel}:\n\n${joinedText}`;
-          }).join('\n\n---\n\n');  // Separator between different speakers
+            return `${speakerLabel}:\n${joinedText}`;  // Single newline after label
+          }).join('\n\n');  // Just blank line between speakers (no ---)
         })()
         : insights
         ? (() => {
