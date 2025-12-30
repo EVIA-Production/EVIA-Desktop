@@ -938,12 +938,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (currentGroup) groups.push(currentGroup);
           
           // Format: Speaker label once per group, texts as paragraphs
-          // FIX: No extra blank line between speaker label and text
+          // Compact format: just one newline after speaker, one blank line between messages
           return groups.map(group => {
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
             const joinedText = group.texts.join(' ');  // Join with space (same utterance)
-            return `${speakerLabel}:\n${joinedText}`;  // Single newline after label
-          }).join('\n\n');  // Just blank line between speakers (no ---)
+            return `${speakerLabel}:\n${joinedText}`;  // Single newline after speaker
+          }).join('\n\n');  // Just one blank line between messages (no --- separator)
         })()
         : insights
         ? (() => {
