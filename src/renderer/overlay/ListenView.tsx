@@ -926,24 +926,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           let currentGroup: { speaker: number | null; texts: string[] } | null = null;
           
           for (const line of transcripts) {
+            // Skip empty texts, "---" separators, and whitespace-only entries
+            const cleanText = (line.text || '').trim();
+            if (!cleanText || cleanText === '---' || cleanText.match(/^-+$/)) {
+              continue; // Skip empty and separator lines
+            }
+            
             if (!currentGroup || currentGroup.speaker !== line.speaker) {
               // New speaker - start new group
               if (currentGroup) groups.push(currentGroup);
-              currentGroup = { speaker: line.speaker, texts: [line.text] };
+              currentGroup = { speaker: line.speaker, texts: [cleanText] };
             } else {
               // Same speaker - append to current group
-              currentGroup.texts.push(line.text);
+              currentGroup.texts.push(cleanText);
             }
           }
           if (currentGroup) groups.push(currentGroup);
           
-          // Format: Speaker label once per group, texts as paragraphs
-          // Compact format: just one newline after speaker, one blank line between messages
+          // Format: Speaker label once per group, texts joined with space
+          // Clean format: no extra blank lines
           return groups.map(group => {
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
-            const joinedText = group.texts.join(' ');  // Join with space (same utterance)
-            return `${speakerLabel}:\n${joinedText}`;  // Single newline after speaker
-          }).join('\n\n');  // Just one blank line between messages (no --- separator)
+            const joinedText = group.texts.join(' ');
+            return `${speakerLabel}:\n${joinedText}`;
+          }).join('\n\n');
         })()
         : insights
         ? (() => {
