@@ -20,14 +20,14 @@ function activateBrowser(): void {
     // Previously, we skipped activation if a browser was already front, but that
     // left the user on a different tab within the same browser window
     const applescriptCommand = `
-      try
-        tell application "Arc" to activate
-      on error
         try
-          tell application "Google Chrome" to activate
+          tell application "Arc" to activate
         on error
           try
-            tell application "Safari" to activate
+            tell application "Google Chrome" to activate
+          on error
+            try
+              tell application "Safari" to activate
           on error
             try
               tell application "Brave Browser" to activate

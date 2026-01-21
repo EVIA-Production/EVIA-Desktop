@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
+import * as fs from 'fs'
 import { systemAudioMacService } from './system-audio-mac-service';
 import { systemAudioWindowsService } from './system-audio-windows-service';
 import { headerController } from './header-controller';
@@ -524,6 +525,33 @@ ipcMain.on('abort-ask-stream', () => {
       win.webContents.send('abort-ask-stream');
     }
   });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 🎙️ AUDIO DEBUG RECORDING IPC HANDLER
+// Saves raw PCM16 audio to WAV files for manual verification
+// ──────────────────────────────────────────────────────────────────────────────
+ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string, buffer: number[] }) => {
+  try {
+    // Create debug directory if it doesn't exist
+    const homeDir = os.homedir();
+    const debugDir = path.join(homeDir, 'Desktop', 'taylos-audio-debug');
+    
+    if (!fs.existsSync(debugDir)) {
+      fs.mkdirSync(debugDir, { recursive: true });
+      console.log('[AudioDebug] 📁 Created debug directory:', debugDir);
+    }
+    
+    // Write WAV file
+    const filepath = path.join(debugDir, filename);
+    const uint8Array = new Uint8Array(buffer);
+    fs.writeFileSync(filepath, uint8Array);
+    
+    const fileSizeMB = (buffer.length / 1024 / 1024).toFixed(2);
+    console.log(`[AudioDebug] ✅ Saved audio file: ${filename} (${fileSizeMB} MB)`);
+  } catch (error) {
+    console.error('[AudioDebug] ❌ Failed to save audio file:', error);
+  }
 });
 
 

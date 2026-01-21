@@ -7,6 +7,101 @@ const BUFFER_SIZE = 2048;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 
 // ──────────────────────────────────────────────────────────────────────────────
+// AUDIO DEBUG RECORDING (Development Only)
+// Saves raw PCM16 audio sent to Deepgram for manual verification
+// Enable via: VITE_DEBUG_SAVE_AUDIO=true in .env
+// ──────────────────────────────────────────────────────────────────────────────
+const DEBUG_SAVE_AUDIO = (import.meta as any).env?.VITE_DEBUG_SAVE_AUDIO === 'true';
+let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
+let debugSessionId: string = '';
+
+if (DEBUG_SAVE_AUDIO) {
+  console.log('[AudioDebug] 🎙️ Audio debug recording ENABLED');
+  console.log('[AudioDebug] Files will be saved to: ~/Desktop/taylos-audio-debug/');
+}
+
+/**
+ * Save debug audio as WAV file
+ * Converts accumulated PCM16 chunks to standard WAV format
+ */
+async function saveDebugAudio(source: 'mic' | 'system', chunks: Int16Array[], sessionId: string): Promise<void> {
+  try {
+    // Concatenate all chunks into single buffer
+    const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const audioData = new Int16Array(totalSamples);
+    let offset = 0;
+    for (const chunk of chunks) {
+      audioData.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    // Create WAV file buffer
+    const wavBuffer = createWavBuffer(audioData, SAMPLE_RATE, 1);
+    
+    // Save via IPC to main process (has file system access)
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      const filename = `${sessionId}_${source}.wav`;
+      eviaIpc.send('audio-debug:save', {
+        filename,
+        buffer: Array.from(new Uint8Array(wavBuffer))  // Convert to array for IPC
+      });
+      console.log(`[AudioDebug] 💾 Saved ${source} audio: ${filename} (${(wavBuffer.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+    } else {
+      console.error('[AudioDebug] ❌ IPC not available for saving audio');
+    }
+  } catch (error) {
+    console.error(`[AudioDebug] ❌ Failed to save ${source} audio:`, error);
+  }
+}
+
+/**
+ * Create WAV file buffer from PCM16 audio data
+ * Standard WAV format with RIFF header
+ */
+function createWavBuffer(audioData: Int16Array, sampleRate: number, numChannels: number): ArrayBuffer {
+  const bytesPerSample = 2; // 16-bit = 2 bytes
+  const dataSize = audioData.length * bytesPerSample;
+  const headerSize = 44;
+  const buffer = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(buffer);
+  
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);  // File size - 8
+  writeString(view, 8, 'WAVE');
+  
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);  // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true);   // AudioFormat (1 = PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);  // ByteRate
+  view.setUint16(32, numChannels * bytesPerSample, true);  // BlockAlign
+  view.setUint16(34, 16, true);  // BitsPerSample
+  
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+  
+  // Write PCM data
+  const dataView = new Int16Array(buffer, headerSize);
+  dataView.set(audioData);
+  
+  return buffer;
+}
+
+/**
+ * Helper: Write string to DataView
+ */
+function writeString(view: DataView, offset: number, string: string): void {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // WINDOWS FIX (2025-12-05): Pipeline Metrics for diagnostics
 // Exposed to DevTools via window.eviaPipelineMetrics and window.eviaHealthCheck()
 // ──────────────────────────────────────────────────────────────────────────────
@@ -819,6 +914,11 @@ async function setupMicProcessing(stream: MediaStream) {
       // 🎯 STEP 5: Send to backend (pcm16 already converted above)
       // ──────────────────────────────────────────────────────────────────────
       
+      // 🎙️ AUDIO DEBUG: Save chunk for later WAV export
+      if (DEBUG_SAVE_AUDIO) {
+        debugAudioBuffers.mic.push(new Int16Array(pcm16));
+      }
+      
       // v1.0.0 FIX: Direct WebSocket send (no IPC routing!)
       // EVIA uses renderer-based WebSockets (unlike Glass which uses main process)
       const ws = ensureMicWs();
@@ -961,6 +1061,12 @@ function setupSystemAudioProcessing(stream: MediaStream) {
       // ──────────────────────────────────────────────────────────────────────
       // Send system audio to backend
       // ──────────────────────────────────────────────────────────────────────
+      
+      // 🎙️ AUDIO DEBUG: Save chunk for later WAV export
+      if (DEBUG_SAVE_AUDIO) {
+        debugAudioBuffers.system.push(new Int16Array(pcm16));
+      }
+      
       const chatId = localStorage.getItem('current_chat_id') || undefined;
       const ws = ensureSystemWs(chatId);
       if (ws && ws.sendBinaryData) {
@@ -1010,6 +1116,13 @@ export async function startCapture(includeSystemAudio = false) {
   pipelineMetrics.lastSystemChunkTime = 0;
   pipelineMetrics.platform = (window as any).platformInfo?.platform || 'unknown';
   console.log(`[Pipeline] Session started - platform=${pipelineMetrics.platform}`);
+  
+  // 🎙️ AUDIO DEBUG: Initialize debug recording session
+  if (DEBUG_SAVE_AUDIO) {
+    debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    debugAudioBuffers = { mic: [], system: [] };
+    console.log('[AudioDebug] 🎙️ Debug session started:', debugSessionId);
+  }
   
   // CRITICAL: Also log to Ask window for debugging (since F12 doesn't work in Listen window)
   try {
@@ -1407,6 +1520,31 @@ export async function stopCapture(captureHandle?: any) {
   
   // WINDOWS FIX (2025-12-09): Mark capture as inactive
   isActivelyCapturing = false;
+  
+  // 🎙️ AUDIO DEBUG: Save accumulated audio to WAV files
+  if (DEBUG_SAVE_AUDIO) {
+    try {
+      console.log('[AudioDebug] 🎙️ Saving debug audio files...');
+      console.log('[AudioDebug]   - Mic chunks:', debugAudioBuffers.mic.length);
+      console.log('[AudioDebug]   - System chunks:', debugAudioBuffers.system.length);
+      
+      // Save mic audio if any chunks captured
+      if (debugAudioBuffers.mic.length > 0) {
+        await saveDebugAudio('mic', debugAudioBuffers.mic, debugSessionId);
+      }
+      
+      // Save system audio if any chunks captured
+      if (debugAudioBuffers.system.length > 0) {
+        await saveDebugAudio('system', debugAudioBuffers.system, debugSessionId);
+      }
+      
+      // Clear buffers
+      debugAudioBuffers = { mic: [], system: [] };
+      console.log('[AudioDebug] ✅ Debug audio files saved successfully');
+    } catch (error) {
+      console.error('[AudioDebug] ❌ Failed to save debug audio:', error);
+    }
+  }
   
   try {
     // WINDOWS FIX: Stop health check timers
