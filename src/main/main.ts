@@ -8,6 +8,7 @@ import * as fs from 'fs'
 import { systemAudioMacService } from './system-audio-mac-service';
 import { systemAudioWindowsService } from './system-audio-windows-service';
 import { headerController } from './header-controller';
+import { startSubscriptionMonitor, stopSubscriptionMonitor } from './subscription-monitor';
 
 let pendingDeepLink: string | null = null;
 
@@ -122,6 +123,10 @@ async function boot() {
   // Initialize header flow
   await headerController.initialize();
   
+  // 💳 Start subscription monitor for periodic status checks
+  startSubscriptionMonitor(headerController);
+  console.log('[Main] 💳 Subscription monitor started');
+  
   // Note: Global shortcuts are registered in overlay-windows.ts
 }
 
@@ -198,7 +203,12 @@ app.on("activate", () => {
 });
 
 app.on('quit', async () => {
-  console.log('[Main] App quitting, cleaning up system audio...')
+  console.log('[Main] App quitting, cleaning up...')
+  
+  // 💳 Stop subscription monitor
+  stopSubscriptionMonitor();
+  
+  // Clean up audio services
   await systemAudioMacService.stop()
   await systemAudioWindowsService.stop()
   processManager.cleanupAllProcesses()
@@ -347,11 +357,51 @@ ipcMain.handle('auth:logout', async () => {
   }
 });
 
+// 💳 Subscription refresh handler (Stripe Integration)
+ipcMain.handle('subscription:refresh', async () => {
+  console.log('[IPC] 💳 subscription:refresh called');
+  
+  try {
+    // Trigger state re-evaluation in HeaderController
+    // This will clear cache and re-fetch subscription status
+    await headerController.reevaluateState();
+    
+    return { success: true };
+  } catch (err) {
+    console.error('[IPC] subscription:refresh error:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// 💳 Get subscription status handler (Stripe Integration)
+ipcMain.handle('subscription:getStatus', async () => {
+  console.log('[IPC] 💳 subscription:getStatus called');
+  
+  try {
+    const { getCachedSubscriptionStatus } = await import('./subscription-service');
+    const status = await getCachedSubscriptionStatus();
+    return { success: true, status };
+  } catch (err) {
+    console.error('[IPC] subscription:getStatus error:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
 // 🌐 Shell API: Open external URLs/apps
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   try {
-    await shell.openExternal(url);
-    console.log('[Shell] ✅ Opened external URL:', url);
+    // macOS behavior: if the browser is already open, some setups appear
+    // to open the URL in the background. Force activation when possible.
+    try {
+      // Electron supports an options object with `activate` on macOS.
+      // If this Electron version doesn't support it, we'll fall back below.
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+    }
+    console.log('[Shell] ✅ Opened external URL (activated):', url);
     return { success: true };
   } catch (err: unknown) {
     console.error('[Shell] ❌ Failed to open URL:', err);
@@ -664,7 +714,8 @@ async function handleLaunchRequest(url: string) {
     const token = urlObj.searchParams.get('token');
     
     // Check if Desktop is already authenticated
-    const existingToken = await keytar.getPassword('evia', 'auth_token');
+    // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
+    const existingToken = await keytar.getPassword('evia', 'token');
     const isAlreadyAuthenticated = !!existingToken;
     console.log('[Launch] 🔐 Already authenticated:', isAlreadyAuthenticated);
     
@@ -686,7 +737,8 @@ async function handleLaunchRequest(url: string) {
       if (isAlreadyAuthenticated) {
         console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
         try {
-          await keytar.setPassword('evia', 'auth_token', token);
+          // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
+          await keytar.setPassword('evia', 'token', token);
           console.log('[Launch] 🔑 Token updated in keytar');
         } catch (err) {
           console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);
@@ -736,12 +788,40 @@ async function handleLaunchRequest(url: string) {
 // IPC Handler for navigation (Tab Reuse)
 ipcMain.handle('shell:navigate', async (_event, url: string) => {
   try {
-    await desktopBridge.navigateTo(url);
+    // Try to reuse existing tab via DesktopBridge WebSocket
+    // Returns true if tab was reused, false if no connected tab found
+    let tabReused = false;
+    try {
+      tabReused = await desktopBridge.navigateTo(url);
+      console.log(`[Shell] Tab reuse result: ${tabReused ? 'SUCCESS' : 'NO_TAB'}`);
+    } catch (err) {
+      console.error('[Bridge] Navigation failed:', err);
+      tabReused = false;
+    }
+
+    // Only open new tab if no existing tab was found
+    // This prevents duplicate tabs when WS connection is active
+    if (!tabReused) {
+      console.log('[Shell] Opening new browser tab');
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+      }
+    }
+
     return { success: true };
   } catch (err) {
-    console.error('[Bridge] Navigation failed:', err);
-    // Fallback to standard open
-    await shell.openExternal(url);
+    console.error('[Shell] Navigate handler failed unexpectedly:', err);
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await shell.openExternal(url, { activate: true });
+    } catch {
+      await shell.openExternal(url);
+    }
     return { success: true };
   }
 });
