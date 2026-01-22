@@ -194,18 +194,58 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // Glass parity: Auto-scroll when at bottom
+  // 🔧 FIX 2026-01-22: Improved auto-scroll with scroll-to-bottom button
+  const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "at bottom"
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Check if viewport is at bottom
+  const isAtBottom = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return true;
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    return scrollHeight - scrollTop - clientHeight <= SCROLL_THRESHOLD;
+  };
+
+  // Scroll to bottom function
+  const scrollToBottom = (smooth: boolean = true) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  };
+
+  // Handle scroll events
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
     const handleScroll = () => {
-      const isAtBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 50;
-      setAutoScroll(isAtBottom);
+      // Clear any pending timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      
+      // Check if at bottom and update auto-scroll state
+      const atBottom = isAtBottom();
+      setAutoScroll(atBottom);
+      autoScrollRef.current = atBottom;
+      
+      // Reset scroll flag after scroll stops (150ms debounce)
+      scrollTimeoutRef.current = setTimeout(() => {
+        shouldScrollAfterUpdate.current = atBottom;
+      }, 150);
     };
 
     viewport.addEventListener('scroll', handleScroll);
-    return () => viewport.removeEventListener('scroll', handleScroll);
+    return () => {
+      viewport.removeEventListener('scroll', handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, []);
 
   // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 178-185 in SttView.js)
@@ -259,24 +299,47 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Handle recording_started
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
+        
+        // 🔧 FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
         setTranscripts([]);
         setInsights(null);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(true);
+        setCopyState('idle');
+        setCopiedView(null);
+        setShowUndoButton(false);
+        setIsLoadingInsights(false);
+        
+        // Reset refs
         finalTranscriptCountRef.current = 0;
-        // 🔧 GLASS PARITY: Enable auto-scroll at session start
+        messageCountRef.current = 0;
+        lastMessageAtRef.current = null;
+        stallToastShownRef.current = false;
+        hasActivePartialRef.current = false;
+        lastPartialUpdate.current = {};
+        pendingPartialUpdates.current = {};
+        
+        // Enable auto-scroll at session start
         setAutoScroll(true);
         autoScrollRef.current = true;
         shouldScrollAfterUpdate.current = true;
-        console.log('[ListenView] 🔄 Reset final transcript counter, auto-scroll enabled');
-        // 🔧 GLASS PARITY: Force scroll to bottom after DOM updates (session fresh start)
+        
+        console.log('[ListenView] ✅ Full state reset complete - ready for new session');
+        
+        // Force scroll to bottom after DOM updates
         setTimeout(() => {
           if (viewportRef.current) {
-            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-            console.log('[ListenView] 📜 Scrolled to bottom on session start');
+            viewportRef.current.scrollTop = 0; // Reset to top first
+            setTimeout(() => {
+              if (viewportRef.current) {
+                viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+                console.log('[ListenView] 📜 Scrolled to bottom on session start');
+              }
+            }, 50);
           }
-        }, 50);
+        }, 10);
+        
         startTimer();
         return;
       }
@@ -1281,6 +1344,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div>
           )}
         </div>
+        
+        {/* 🔧 FIX 2026-01-22: Scroll-to-bottom button (only show when not at bottom and in transcript view) */}
+        {!autoScroll && viewMode === 'transcript' && transcripts.length > 0 && (
+          <button
+            onClick={() => {
+              scrollToBottom(true);
+              setAutoScroll(true);
+              autoScrollRef.current = true;
+            }}
+            className="scroll-to-bottom-button"
+            aria-label="Scroll to bottom"
+          >
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 15l-5-5h10l-5 5z" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

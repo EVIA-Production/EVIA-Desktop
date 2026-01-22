@@ -243,6 +243,19 @@
   /* Slightly increase spacing before Ask action */
   margin-right: 8px;
 }
+
+/* FIX: Remove yellow focus ring on mouse click (2026-01-22) */
+.evia-listen-button:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Accessibility: Keep focus ring for keyboard navigation */
+.evia-listen-button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
+}
+
 .evia-listen-button::before {
   content: '';
   position: absolute;
@@ -2743,4 +2756,50 @@
 
 .hidden {
   display: none;
+}
+
+/* ============================================
+   SCROLL-TO-BOTTOM BUTTON (2026-01-22 FIX)
+   ============================================ */
+.scroll-to-bottom-button {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 122, 255, 0.9);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.15s ease;
+  z-index: 100;
+}
+
+.scroll-to-bottom-button:hover {
+  background: rgba(0, 122, 255, 1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.scroll-to-bottom-button:active {
+  transform: translateY(0);
+}
+
+.scroll-to-bottom-button svg {
+  opacity: 1;
+}
+
+/* Remove focus ring from scroll button too */
+.scroll-to-bottom-button:focus {
+  outline: none;
+}
+
+.scroll-to-bottom-button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
 }
