@@ -40,6 +40,8 @@ const listenerMap = new Map<string, Map<any, any>>();
 
 contextBridge.exposeInMainWorld('evia', {
   createWs,
+  // Audio debug flag check (synchronous invoke)
+  checkDebugFlag: () => ipcRenderer.invoke('audio-debug:check-flag'),
   getDesktopCapturerSources: (options: Electron.SourcesOptions) => ipcRenderer.invoke('desktop-capturer:getSources', options),
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),

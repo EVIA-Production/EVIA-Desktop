@@ -19,33 +19,25 @@ let DEBUG_SAVE_AUDIO = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
 let debugSessionId: string = '';
 
-// Check for debug flag at runtime (works in production builds)
-async function checkDebugFlag() {
+// Check for debug flag SYNCHRONOUSLY on module load
+(async function initDebugFlag() {
   try {
-    // Check via IPC if debug flag file exists
-    const eviaIpc = (window as any).evia?.ipc;
-    if (eviaIpc?.send) {
-      eviaIpc.send('audio-debug:check-flag');
-    }
-  } catch (error) {
-    console.error('[AudioDebug] Failed to check flag:', error);
-  }
-}
-
-// Listen for debug flag status from main process
-if ((window as any).evia?.ipc?.on) {
-  (window as any).evia.ipc.on('audio-debug:flag-status', (enabled: boolean) => {
-    DEBUG_SAVE_AUDIO = enabled;
+    // Use IPC invoke for synchronous-style check
+    const enabled = await (window as any).evia?.checkDebugFlag?.();
+    DEBUG_SAVE_AUDIO = enabled === true;
+    
     if (DEBUG_SAVE_AUDIO) {
       console.log('[AudioDebug] 🎙️ Audio debug recording ENABLED');
       console.log('[AudioDebug] Files will be saved to: ~/Desktop/taylos-audio-debug/');
       console.log('[AudioDebug] To disable: rm ~/Desktop/EVIA_DEBUG_AUDIO');
+    } else {
+      console.log('[AudioDebug] ℹ️  Debug recording disabled (no flag file found)');
+      console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
     }
-  });
-}
-
-// Check flag on startup
-checkDebugFlag();
+  } catch (error) {
+    console.log('[AudioDebug] ⚠️  Could not check debug flag:', error);
+  }
+})();
 
 /**
  * Save debug audio as WAV file

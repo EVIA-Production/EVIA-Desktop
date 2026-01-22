@@ -584,8 +584,8 @@ ipcMain.on('abort-ask-stream', () => {
 // Disable: rm ~/Desktop/EVIA_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Check if debug flag file exists
-ipcMain.on('audio-debug:check-flag', (event) => {
+// Check if debug flag file exists (synchronous invoke)
+ipcMain.handle('audio-debug:check-flag', async () => {
   try {
     const homeDir = os.homedir();
     const flagPath = path.join(homeDir, 'Desktop', 'EVIA_DEBUG_AUDIO');
@@ -593,13 +593,14 @@ ipcMain.on('audio-debug:check-flag', (event) => {
     
     if (enabled) {
       console.log('[AudioDebug] 🎙️ Debug flag detected at:', flagPath);
+    } else {
+      console.log('[AudioDebug] ℹ️  No debug flag found at:', flagPath);
     }
     
-    // Send status back to renderer
-    event.sender.send('audio-debug:flag-status', enabled);
+    return enabled;
   } catch (error) {
     console.error('[AudioDebug] Failed to check flag:', error);
-    event.sender.send('audio-debug:flag-status', false);
+    return false;
   }
 });
 
