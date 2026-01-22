@@ -7,6 +7,14 @@ const BUFFER_SIZE = 2048;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 
 // ──────────────────────────────────────────────────────────────────────────────
+// AEC LATENCY COMPENSATION
+// The mic hears system audio from 50-150ms ago (acoustic delay)
+// We need to use a time-delayed reference signal for AEC to work properly
+// ──────────────────────────────────────────────────────────────────────────────
+const AEC_LATENCY_MS = 100; // Acoustic delay (mic hears speaker output from this long ago)
+const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 1000)) + 3; // +3 for safety
+
+// ──────────────────────────────────────────────────────────────────────────────
 // AUDIO DEBUG RECORDING (Development Only)
 // Saves raw PCM16 audio sent to Deepgram for manual verification
 // 
@@ -18,26 +26,37 @@ const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 let DEBUG_SAVE_AUDIO = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
 let debugSessionId: string = '';
+let debugFlagChecked = false;
 
-// Check for debug flag SYNCHRONOUSLY on module load
-(async function initDebugFlag() {
+// Check debug flag (called from startCapture)
+async function checkDebugFlag() {
+  if (debugFlagChecked) return; // Only check once
+  debugFlagChecked = true;
+  
+  console.log('[AudioDebug] Checking for debug flag file...');
+  
   try {
-    // Use IPC invoke for synchronous-style check
-    const enabled = await (window as any).evia?.checkDebugFlag?.();
+    const evia = (window as any).evia;
+    if (!evia || !evia.checkDebugFlag) {
+      console.log('[AudioDebug] ❌ window.evia.checkDebugFlag not available');
+      return;
+    }
+    
+    const enabled = await evia.checkDebugFlag();
     DEBUG_SAVE_AUDIO = enabled === true;
     
     if (DEBUG_SAVE_AUDIO) {
-      console.log('[AudioDebug] 🎙️ Audio debug recording ENABLED');
-      console.log('[AudioDebug] Files will be saved to: ~/Desktop/taylos-audio-debug/');
-      console.log('[AudioDebug] To disable: rm ~/Desktop/EVIA_DEBUG_AUDIO');
+      console.log('[AudioDebug] ✅ 🎙️ Audio debug recording ENABLED');
+      console.log('[AudioDebug] 💾 Files will be saved to: ~/Desktop/taylos-audio-debug/');
+      console.log('[AudioDebug] 🛑 To disable: rm ~/Desktop/EVIA_DEBUG_AUDIO');
     } else {
-      console.log('[AudioDebug] ℹ️  Debug recording disabled (no flag file found)');
-      console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+      console.log('[AudioDebug] ℹ️  Debug recording DISABLED (no flag file found)');
+      console.log('[AudioDebug] ⚡ To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
     }
   } catch (error) {
-    console.log('[AudioDebug] ⚠️  Could not check debug flag:', error);
+    console.error('[AudioDebug] ⚠️  Error checking debug flag:', error);
   }
-})();
+}
 
 /**
  * Save debug audio as WAV file
@@ -406,9 +425,10 @@ let aecModPromise: Promise<any> | null = null;
 let aecMod: any = null;
 let aecPtr: number = 0;
 
-// System audio buffer for AEC reference (stores recent system audio chunks)
+// System audio buffer for AEC reference (Ring buffer with time-delayed chunks)
+// Size: Limited to AEC_RING_BUFFER_SIZE for proper acoustic delay compensation
 let systemAudioBuffer: Array<{ data: string; timestamp: number }> = [];
-const MAX_SYSTEM_BUFFER_SIZE = 10;
+const MAX_SYSTEM_BUFFER_SIZE = AEC_RING_BUFFER_SIZE;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // WINDOWS FIX (2025-12-05): Buffer Maintenance to prevent memory pressure
@@ -420,16 +440,16 @@ const isWindowsPlatformGlobal = typeof window !== 'undefined' && Boolean((window
 
 /**
  * WINDOWS FIX: Perform periodic buffer maintenance
- * Clears old chunks while keeping recent ones for AEC continuity
+ * Maintains ring buffer size for time-aligned AEC reference
  */
 function performBufferMaintenance() {
   const now = Date.now();
   if (now - lastBufferClearTime > BUFFER_CLEAR_INTERVAL_MS) {
-    // Keep only the last 3 chunks for AEC continuity
-    if (systemAudioBuffer.length > 3) {
+    // Keep ring buffer size for time-aligned AEC
+    if (systemAudioBuffer.length > AEC_RING_BUFFER_SIZE) {
       const oldLength = systemAudioBuffer.length;
-      systemAudioBuffer = systemAudioBuffer.slice(-3);
-      console.log(`[AudioCapture] 🧹 Buffer maintenance: cleared ${oldLength - 3} old chunks, kept ${systemAudioBuffer.length}`);
+      systemAudioBuffer = systemAudioBuffer.slice(-AEC_RING_BUFFER_SIZE);
+      console.log(`[AudioCapture] 🧹 Buffer maintenance: cleared ${oldLength - AEC_RING_BUFFER_SIZE} old chunks, kept ${systemAudioBuffer.length}`);
     }
     lastBufferClearTime = now;
     
@@ -864,22 +884,28 @@ async function setupMicProcessing(stream: MediaStream) {
       let float32Chunk = new Float32Array(chunk); // Initial value (may be replaced by AEC)
       
       // ──────────────────────────────────────────────────────────────────────
-      // STEP 2: Apply AEC if system audio is available (Glass parity)
+      // STEP 2: Apply TIME-ALIGNED AEC (Acoustic Delay Compensation)
       // ──────────────────────────────────────────────────────────────────────
       if (systemAudioBuffer.length > 0) {
         try {
-          // Get latest system audio chunk as AEC reference
-          const latest = systemAudioBuffer[systemAudioBuffer.length - 1];
-          const sysF32 = base64ToFloat32Array(latest.data);
+          // FIX: Use time-delayed reference for AEC
+          // The mic hears system audio from AEC_LATENCY_MS ago (acoustic delay)
+          // We must use the corresponding historical system audio chunk
+          const delayedIndex = Math.max(0, systemAudioBuffer.length - Math.ceil(AEC_LATENCY_MS / 100));
+          const referenceChunk = systemAudioBuffer[delayedIndex];
+          const sysF32 = base64ToFloat32Array(referenceChunk.data);
           
-          // 🔧 STEP 2: Run AEC and verify it actually processed
+          const now = Date.now();
+          const referenceAge = now - referenceChunk.timestamp;
+          
+          // Run AEC with time-aligned reference
           const originalChunk = new Float32Array(chunk);
           const aecResult = runAecSync(originalChunk, sysF32);
-          float32Chunk = new Float32Array(aecResult); // Explicit copy to fix type
+          float32Chunk = new Float32Array(aecResult);
           
-          // Only log success if AEC actually ran (check if output differs from input)
+          // Verify AEC actually processed
           if (float32Chunk !== originalChunk && aecMod && aecPtr) {
-            console.log('[AEC] ✅ Applied WASM-AEC (Speex) - echo removed');
+            console.log(`[AEC] ✅ Time-aligned AEC applied (reference age: ${referenceAge}ms, target: ${AEC_LATENCY_MS}ms)`);
           }
         } catch (error) {
           console.error('[AEC] ❌ AEC processing failed, using unprocessed audio:', error);
@@ -888,12 +914,12 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 STEP 3: Convert to PCM16 first (needed for both debug recorder AND backend)
+      // STEP 3: Convert to PCM16 first (needed for both debug recorder AND backend)
       // ──────────────────────────────────────────────────────────────────────
       const pcm16 = convertFloat32ToInt16(float32Chunk);
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 STEP 4: Silence gate - Skip sending to backend if below threshold
+      // STEP 4: Calculate RMS for logging (SILENCE GATE DISABLED)
       // ──────────────────────────────────────────────────────────────────────
       let sumSquares = 0;
       for (let i = 0; i < float32Chunk.length; i++) {
@@ -901,33 +927,10 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       const rms = Math.sqrt(sumSquares / float32Chunk.length);
       
-      if (rms < SILENCE_RMS_THRESHOLD) {
-        silenceFrameCount++;
-        if (silenceFrameCount % 50 === 1) { // Log every 5 seconds (50 * 100ms)
-          console.log(`[AudioCapture] 🔇 MIC SILENCE GATE: Suppressing silent audio (RMS: ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD})`);
-          // 🔧 CRITICAL: Forward to Ask console
-          try {
-            const eviaIpc = (window as any).evia?.ipc;
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', `[AudioCapture] 🔇 SILENCE GATE ACTIVE: RMS ${rms.toFixed(6)} < ${SILENCE_RMS_THRESHOLD}`);
-            }
-          } catch {}
-        }
-        continue; // Skip sending to backend, but debug recorder already got it
-      }
-      
-      // Reset silence counter when audio detected
-      if (silenceFrameCount > 0) {
-        console.log(`[AudioCapture] 🎤 MIC AUDIO DETECTED after ${silenceFrameCount} silent frames (RMS: ${rms.toFixed(4)})`);
-        // 🔧 CRITICAL: Forward to Ask console
-        try {
-          const eviaIpc = (window as any).evia?.ipc;
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', `[AudioCapture] 🎤 AUDIO DETECTED! RMS: ${rms.toFixed(4)} (after ${silenceFrameCount} silent frames)`);
-          }
-        } catch {}
-        silenceFrameCount = 0;
-      }
+      // SILENCE GATE DISABLED - Causes audio cuts and maltranscription
+      // Previously: if (rms < 0.01) continue; was dropping quiet speech chunks
+      // Result: Gaps in audio → missing words in transcription
+      // Solution: Send ALL audio to Deepgram, let their VAD handle silence detection
       
       // ──────────────────────────────────────────────────────────────────────
       // 🎯 STEP 5: Send to backend (pcm16 already converted above)
@@ -1122,6 +1125,46 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 export async function startCapture(includeSystemAudio = false) {
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
   
+  // AUDIO DEBUG: Check IMMEDIATELY at function start
+  console.log('[AudioDebug] ═══════════════════════════════════════');
+  console.log('[AudioDebug] 🔍 CHECKING DEBUG FLAG NOW...');
+  console.log('[AudioDebug] ═══════════════════════════════════════');
+  
+  try {
+    const evia = (window as any).evia;
+    console.log('[AudioDebug] window.evia exists?', !!evia);
+    console.log('[AudioDebug] window.evia.checkDebugFlag exists?', !!evia?.checkDebugFlag);
+    
+    if (evia && evia.checkDebugFlag) {
+      const enabled = await evia.checkDebugFlag();
+      DEBUG_SAVE_AUDIO = enabled === true;
+      debugFlagChecked = true;
+      
+      console.log('[AudioDebug] Flag check result:', enabled);
+      console.log('[AudioDebug] DEBUG_SAVE_AUDIO set to:', DEBUG_SAVE_AUDIO);
+      
+      if (DEBUG_SAVE_AUDIO) {
+        debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        debugAudioBuffers = { mic: [], system: [] };
+        
+        console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
+        console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');
+        console.log('[AudioDebug] 🎙️ Session ID:', debugSessionId);
+        console.log('[AudioDebug] ═══════════════════════════════════════');
+      } else {
+        console.log('[AudioDebug] ❌ Debug flag file NOT FOUND');
+        console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+        console.log('[AudioDebug] ═══════════════════════════════════════');
+      }
+    } else {
+      console.log('[AudioDebug] ❌ window.evia.checkDebugFlag NOT AVAILABLE');
+      console.log('[AudioDebug] ═══════════════════════════════════════');
+    }
+  } catch (error) {
+    console.error('[AudioDebug] ❌ ERROR checking flag:', error);
+    console.log('[AudioDebug] ═══════════════════════════════════════');
+  }
+  
   // WINDOWS FIX (2025-12-09): Mark capture as active for transcript stall detection
   isActivelyCapturing = true;
   lastTranscriptReceivedTime = Date.now(); // Reset transcript timer
@@ -1135,13 +1178,6 @@ export async function startCapture(includeSystemAudio = false) {
   pipelineMetrics.lastSystemChunkTime = 0;
   pipelineMetrics.platform = (window as any).platformInfo?.platform || 'unknown';
   console.log(`[Pipeline] Session started - platform=${pipelineMetrics.platform}`);
-  
-  // 🎙️ AUDIO DEBUG: Initialize debug recording session
-  if (DEBUG_SAVE_AUDIO) {
-    debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-    debugAudioBuffers = { mic: [], system: [] };
-    console.log('[AudioDebug] 🎙️ Debug session started:', debugSessionId);
-  }
   
   // CRITICAL: Also log to Ask window for debugging (since F12 doesn't work in Listen window)
   try {
@@ -1687,6 +1723,47 @@ export async function startCaptureWithStreams(
     hasSystem: !!providedSystemStream,
     hasMic: !!providedMicStream,
   });
+
+  // AUDIO DEBUG: Check flag and initialize session
+  console.log('[AudioDebug] ═══════════════════════════════════════');
+  console.log('[AudioDebug] 🔍 CHECKING DEBUG FLAG NOW...');
+  console.log('[AudioDebug] ═══════════════════════════════════════');
+  
+  try {
+    const evia = (window as any).evia;
+    console.log('[AudioDebug] window.evia exists?', !!evia);
+    console.log('[AudioDebug] window.evia.checkDebugFlag exists?', !!evia?.checkDebugFlag);
+    
+    if (evia && evia.checkDebugFlag) {
+      const enabled = await evia.checkDebugFlag();
+      DEBUG_SAVE_AUDIO = enabled === true;
+      debugFlagChecked = true;
+      
+      console.log('[AudioDebug] Flag check result:', enabled);
+      console.log('[AudioDebug] DEBUG_SAVE_AUDIO set to:', DEBUG_SAVE_AUDIO);
+      
+      if (DEBUG_SAVE_AUDIO) {
+        debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        debugAudioBuffers = { mic: [], system: [] };
+        
+        console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
+        console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');
+        console.log('[AudioDebug] 🎙️ Session ID:', debugSessionId);
+        console.log('[AudioDebug] ═══════════════════════════════════════');
+      } else {
+        console.log('[AudioDebug] ❌ Debug flag file NOT FOUND');
+        console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+        console.log('[AudioDebug] ═══════════════════════════════════════');
+      }
+    } else {
+      console.log('[AudioDebug] ❌ window.evia.checkDebugFlag NOT AVAILABLE');
+      console.log('[AudioDebug] ═══════════════════════════════════════');
+    }
+  } catch (error) {
+    console.error('[AudioDebug] ⚠️  Error during flag check:', error);
+    DEBUG_SAVE_AUDIO = false;
+  }
+  // ═══════════════════════════════════════════════════════════════════════════════
 
   // Reset state flags
   micWsDisconnectedLogged = false;
