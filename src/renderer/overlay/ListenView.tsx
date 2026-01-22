@@ -922,7 +922,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
             const joinedText = group.texts.join(' ');  // Join with space (same utterance)
             return `${speakerLabel}:\n\n${joinedText}`;
-          }).join('\n\n---\n\n');  // Separator between different speakers
+          }).join('\n\n');  // Blank lines between speakers (no separator)
         })()
         : insights
         ? (() => {
