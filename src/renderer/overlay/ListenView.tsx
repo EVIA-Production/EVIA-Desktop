@@ -194,7 +194,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // 🔧 FIX 2026-01-22: Improved auto-scroll with scroll-to-bottom button
+  // FIX 2026-01-22: Improved auto-scroll with scroll-to-bottom button
   const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "at bottom"
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -928,6 +928,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
     console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
     setViewMode(newMode);
+    
+    // 🔧 FIX 2026-01-22: Always enable auto-scroll when switching to transcript view
+    if (newMode === 'transcript') {
+      setAutoScroll(true);
+      autoScrollRef.current = true;
+      shouldScrollAfterUpdate.current = true;
+      // Scroll to bottom after DOM update
+      setTimeout(() => {
+        scrollToBottom(false);
+      }, 50);
+    }
 
     // Hide undo button when manually toggling (user has control)
     if (showUndoButton) {
@@ -981,11 +992,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (currentGroup) groups.push(currentGroup);
           
           // Format: Speaker label once per group, texts as paragraphs
+          // 🔧 FIX 2026-01-22: Remove blank line after speaker label
           return groups.map(group => {
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
             const joinedText = group.texts.join(' ');  // Join with space (same utterance)
-            return `${speakerLabel}:\n\n${joinedText}`;
-          }).join('\n\n');  // Blank lines between speakers (no separator)
+            return `${speakerLabel}:\n${joinedText}`;  // No blank line after label
+          }).join('\n\n');  // Blank lines between speakers
         })()
         : insights
         ? (() => {
@@ -1344,23 +1356,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div>
           )}
         </div>
-        
-        {/* 🔧 FIX 2026-01-22: Scroll-to-bottom button (only show when not at bottom and in transcript view) */}
-        {!autoScroll && viewMode === 'transcript' && transcripts.length > 0 && (
-          <button
-            onClick={() => {
-              scrollToBottom(true);
-              setAutoScroll(true);
-              autoScrollRef.current = true;
-            }}
-            className="scroll-to-bottom-button"
-            aria-label="Scroll to bottom"
-          >
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 15l-5-5h10l-5 5z" />
-            </svg>
-          </button>
-        )}
       </div>
     </div>
   );
