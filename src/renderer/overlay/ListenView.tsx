@@ -35,22 +35,23 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
-  // 🔍 DIAGNOSTIC: Component function execution (runs on EVERY render)
-  console.log('[ListenView] 🔍🔍🔍 COMPONENT FUNCTION EXECUTING - PROOF OF INSTANTIATION')
-  console.log('[ListenView] 🔍 Props:', { linesCount: lines.length, followLive })
-  console.log('[ListenView] 🔍 Window location:', window.location.href)
-  console.log('[ListenView] 🔍 React:', typeof React, 'useState:', typeof useState, 'useEffect:', typeof useEffect)
-  
   const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number, utteranceId?: string}[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // PARTIAL THROTTLING: Prevent UI flicker from too-frequent updates
+  // ═══════════════════════════════════════════════════════════════════════
+  const PARTIAL_THROTTLE_MS = 300; // Update partials at most every 300ms
+  const lastPartialUpdate = useRef<Record<string, number>>({});
+  const pendingPartialUpdates = useRef<Record<string, {text: string, speaker: number | null, utteranceId?: string}>>({});
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
   const [isHovering, setIsHovering] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
-  // 🔥 CRITICAL FIX: Track session state for insights context
+
   const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>('before');
   // Glass parity: Insights fetched from backend via fetchInsights service
   const [insights, setInsights] = useState<Insight | null>(null);
@@ -65,8 +66,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
   const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [showUndoButton, setShowUndoButton] = useState(false); // 🎯 TASK 1: Undo button for auto-switched Insights
-  const finalTranscriptCountRef = useRef(0); // 🔥 GLASS PARITY: Counter for triggering auto-insights every 5 final transcripts
+  const [showUndoButton, setShowUndoButton] = useState(false); 
+  const finalTranscriptCountRef = useRef(0); 
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
@@ -301,7 +302,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       // Keepalive
       if (msg.type === 'keepalive') {
-        console.log('[ListenView] ❤️ Keepalive ping received - connection healthy');
+        console.log('[ListenView] Keepalive ping received - connection healthy');
         return;
       }
 
@@ -316,10 +317,39 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         text = msg.data.text || '';
         speaker = msg.data.speaker ?? null;
         isFinal = msg.data.is_final === true;
+        const isTurnComplete = msg.data.is_turn_complete === true; // NEW: Complete bubble flag
         isPartial = !isFinal;
         const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
         if (rawUtterance !== undefined && rawUtterance !== null) {
           utteranceId = String(rawUtterance);
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // TURN-COMPLETE HANDLING: Create exactly ONE bubble
+        // ═══════════════════════════════════════════════════════════════
+        // This comes from:
+        // - Flux EndOfTurn (English)
+        // - SentenceAccumulator complete sentence (German)
+        //
+        if (isTurnComplete && text) {
+          const completeText = text; // Capture for type safety
+          const completeSpeaker = speaker ?? 0;
+          const completeUtterance = utteranceId;
+          console.log('[ListenView] ✅ TURN COMPLETE:', completeText.substring(0, 60), 'speaker:', completeSpeaker);
+          setTranscripts(prev => {
+            // Remove any existing partial for this speaker
+            const filtered = prev.filter(t => !(t.speaker === completeSpeaker && t.isPartial));
+            // Add as ONE final bubble
+            return [...filtered, {
+              text: completeText,
+              speaker: completeSpeaker,
+              isPartial: false,
+              isFinal: true,
+              timestamp: Date.now(),
+              utteranceId: completeUtterance
+            }];
+          });
+          return; // Done - don't process further
         }
       } else if (msg.type === 'status' && msg.data?.echo_text) {
         text = msg.data.echo_text;
@@ -408,6 +438,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
         // We display it as-is - no extraction needed!
         if (isPartial) {
+          // ═══════════════════════════════════════════════════════════════
+          // THROTTLE PARTIAL UPDATES (prevent flicker)
+          // ═══════════════════════════════════════════════════════════════
+          const speakerKey = `${speaker ?? 'unknown'}`;
+          const now = Date.now();
+          const lastUpdate = lastPartialUpdate.current[speakerKey] || 0;
+          
+          // Always store latest text in pending buffer
+          pendingPartialUpdates.current[speakerKey] = { text, speaker, utteranceId: normalizedUtteranceId };
+          
+          // Check if enough time has passed since last update
+          if (now - lastUpdate < PARTIAL_THROTTLE_MS) {
+            // Throttled - skip this update but keep in pending
+            return newMessages;
+          }
+          
+          // Update timestamp
+          lastPartialUpdate.current[speakerKey] = now;
+          // ═══════════════════════════════════════════════════════════════
+          
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
             const existing = prev[targetIdx];
