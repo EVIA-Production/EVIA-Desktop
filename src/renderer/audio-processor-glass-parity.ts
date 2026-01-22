@@ -9,16 +9,43 @@ const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 // ──────────────────────────────────────────────────────────────────────────────
 // AUDIO DEBUG RECORDING (Development Only)
 // Saves raw PCM16 audio sent to Deepgram for manual verification
-// Enable via: VITE_DEBUG_SAVE_AUDIO=true in .env
+// 
+// To enable in production:
+//   touch ~/Desktop/EVIA_DEBUG_AUDIO
+// To disable:
+//   rm ~/Desktop/EVIA_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
-const DEBUG_SAVE_AUDIO = (import.meta as any).env?.VITE_DEBUG_SAVE_AUDIO === 'true';
+let DEBUG_SAVE_AUDIO = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
 let debugSessionId: string = '';
 
-if (DEBUG_SAVE_AUDIO) {
-  console.log('[AudioDebug] 🎙️ Audio debug recording ENABLED');
-  console.log('[AudioDebug] Files will be saved to: ~/Desktop/taylos-audio-debug/');
+// Check for debug flag at runtime (works in production builds)
+async function checkDebugFlag() {
+  try {
+    // Check via IPC if debug flag file exists
+    const eviaIpc = (window as any).evia?.ipc;
+    if (eviaIpc?.send) {
+      eviaIpc.send('audio-debug:check-flag');
+    }
+  } catch (error) {
+    console.error('[AudioDebug] Failed to check flag:', error);
+  }
 }
+
+// Listen for debug flag status from main process
+if ((window as any).evia?.ipc?.on) {
+  (window as any).evia.ipc.on('audio-debug:flag-status', (enabled: boolean) => {
+    DEBUG_SAVE_AUDIO = enabled;
+    if (DEBUG_SAVE_AUDIO) {
+      console.log('[AudioDebug] 🎙️ Audio debug recording ENABLED');
+      console.log('[AudioDebug] Files will be saved to: ~/Desktop/taylos-audio-debug/');
+      console.log('[AudioDebug] To disable: rm ~/Desktop/EVIA_DEBUG_AUDIO');
+    }
+  });
+}
+
+// Check flag on startup
+checkDebugFlag();
 
 /**
  * Save debug audio as WAV file

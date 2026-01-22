@@ -578,9 +578,32 @@ ipcMain.on('abort-ask-stream', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 🎙️ AUDIO DEBUG RECORDING IPC HANDLER
+// AUDIO DEBUG RECORDING IPC HANDLERS
 // Saves raw PCM16 audio to WAV files for manual verification
+// Enable: touch ~/Desktop/EVIA_DEBUG_AUDIO
+// Disable: rm ~/Desktop/EVIA_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Check if debug flag file exists
+ipcMain.on('audio-debug:check-flag', (event) => {
+  try {
+    const homeDir = os.homedir();
+    const flagPath = path.join(homeDir, 'Desktop', 'EVIA_DEBUG_AUDIO');
+    const enabled = fs.existsSync(flagPath);
+    
+    if (enabled) {
+      console.log('[AudioDebug] 🎙️ Debug flag detected at:', flagPath);
+    }
+    
+    // Send status back to renderer
+    event.sender.send('audio-debug:flag-status', enabled);
+  } catch (error) {
+    console.error('[AudioDebug] Failed to check flag:', error);
+    event.sender.send('audio-debug:flag-status', false);
+  }
+});
+
+// Save audio file
 ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string, buffer: number[] }) => {
   try {
     // Create debug directory if it doesn't exist
