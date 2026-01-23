@@ -70,6 +70,47 @@
   --neutral-350: #bebebe; /* dividers */
 }
 
+/* ============================================================================
+   GLOBAL FOCUS RING REMOVAL (2026-01-22)
+   Removes yellow/orange focus ring on mouse click
+   Keeps blue ring for keyboard navigation (accessibility)
+   ============================================================================ */
+
+/* Remove ALL focus outlines by default (mouse clicks) */
+*:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+  outline-color: transparent !important;
+}
+
+/* Re-add focus styles ONLY for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8) !important; /* Brand blue */
+  outline-offset: 2px !important;
+}
+
+/* Specific overrides for common problematic elements */
+button:focus,
+a:focus,
+input:focus,
+select:focus,
+textarea:focus,
+[tabindex]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8) !important;
+  outline-offset: 2px !important;
+}
+
 /* ===== Merged from overlay-tokens.css =====
    The following utility classes and lightweight components were migrated
    from the old `overlay-tokens.css` so callers can import a single file.
