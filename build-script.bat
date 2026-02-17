@@ -6,11 +6,11 @@ echo === Running vite build ===
 call npm run build:renderer
 echo === Build complete ===
 echo === Checking for new URL in build ===
-findstr /s /c:"tryevia.ai" dist\renderer\*.js
+findstr /s /c:"taylos.ai" dist\renderer\*.js
 if %errorlevel%==0 (
     echo === SUCCESS: New URL found ===
 ) else (
     echo === FAILED: New URL not found ===
-    findstr /s /c:"evia.work" dist\renderer\*.js
+    findstr /s /c:"tryevia.ai" dist\renderer\*.js
 )
 pause

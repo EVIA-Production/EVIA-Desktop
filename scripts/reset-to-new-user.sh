@@ -70,7 +70,7 @@ security delete-generic-password -s "evia-backend-url" 2>/dev/null && echo "   �
 echo ""
 echo "5️⃣  Browser data (manual step):"
 echo "   ℹ️  To fully reset, also clear browser cache for:"
-echo "      https://app.tryevia.ai"
+echo "      https://app.taylos.ai"
 echo ""
 echo "   In Chrome/Safari: Cmd+Shift+Delete → Clear browsing data"
 

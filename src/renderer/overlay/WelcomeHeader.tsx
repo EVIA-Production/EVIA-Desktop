@@ -97,13 +97,12 @@ const WelcomeHeader: React.FC = () => {
 
   /**
    * Opens privacy policy
-   * WINDOWS FIX (2025-12-05): Changed URL from evia.work/privacy to tryevia.ai/data-privacy
    */
   const handlePrivacyPolicy = async () => {
     console.log('[WelcomeHeader] Opening privacy policy...');
     try {
       if ((window as any).evia?.shell?.openExternal) {
-        await (window as any).evia.shell.openExternal('https://www.tryevia.ai/data-privacy');
+        await (window as any).evia.shell.openExternal('https://taylos.ai/data-privacy');
       }
     } catch (err) {
       console.error('[WelcomeHeader] ❌ Failed to open privacy policy:', err);

@@ -6,7 +6,7 @@ export const BACKEND_URL = IS_PRODUCTION
   : 'http://localhost:8000';
 
 export const FRONTEND_URL = IS_PRODUCTION
-  ? 'https://app.tryevia.ai'
+  ? 'https://app.taylos.ai'
   : 'http://localhost:5173';
 
 export const WS_BASE_URL = IS_PRODUCTION
