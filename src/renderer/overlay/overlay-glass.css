@@ -71,44 +71,87 @@
 }
 
 /* ============================================================================
-   GLOBAL FOCUS RING REMOVAL (2026-01-22)
-   Removes yellow/orange focus ring on mouse click
-   Keeps blue ring for keyboard navigation (accessibility)
+   Complete removal of all focus rings - guaranteed to work
    ============================================================================ */
 
-/* Remove ALL focus outlines by default (mouse clicks) */
+/* Remove focus from EVERYTHING */
 *:focus {
   outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-color: transparent !important;
   box-shadow: none !important;
+  border-color: inherit !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-color: transparent !important;
+  box-shadow: none !important;
+}
+
+*:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Target every possible focusable element */
+button:focus,
+button:focus-visible,
+button:focus-within,
+button:active,
+[type="button"]:focus,
+[type="submit"]:focus,
+[type="reset"]:focus,
+a:focus,
+a:focus-visible,
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+[tabindex]:focus,
+[tabindex]:focus-visible,
+[role="button"]:focus,
+[role="button"]:focus-visible {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-color: transparent !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+/* Webkit/Chromium specific */
+::-webkit-input-placeholder { outline: none !important; }
+:-webkit-autofill:focus { outline: none !important; box-shadow: none !important; }
+
+/* Remove the webkit focus ring color entirely */
+* {
   -webkit-tap-highlight-color: transparent;
+}
+
+*:focus {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* For Electron specifically - removes Chromium default */
+*:focus {
+  outline-color: -webkit-focus-ring-color;
   outline-color: transparent !important;
 }
 
-/* Re-add focus styles ONLY for keyboard navigation */
-*:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.8) !important; /* Brand blue */
-  outline-offset: 2px !important;
-}
-
-/* Specific overrides for common problematic elements */
-button:focus,
-a:focus,
-input:focus,
-select:focus,
-textarea:focus,
-[tabindex]:focus {
+/* Even more aggressive - target by attribute */
+[tabindex="-1"]:focus,
+[tabindex="0"]:focus,
+[tabindex="1"]:focus,
+[tabindex="2"]:focus {
   outline: none !important;
   box-shadow: none !important;
-}
-
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.8) !important;
-  outline-offset: 2px !important;
 }
 
 /* ===== Merged from overlay-tokens.css =====

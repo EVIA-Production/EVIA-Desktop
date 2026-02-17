@@ -1,50 +1,47 @@
-# EVIA Installation Guide
+# EVIA Desktop - Installation Guide
 
-## ⚠️ Important Security Notice
+## macOS Installation
 
-EVIA is currently distributed **without Apple notarization** (which requires a $99/year Apple Developer Program membership). 
+### Step 1: Download
+Download the appropriate version for your Mac:
+- **Apple Silicon (M1/M2/M3)**: `EVIA-1.0.4-arm64-mac.zip`
+- **Intel Mac**: `EVIA-1.0.4-mac.zip`
 
-**This means you WILL see a security warning.** This is normal and expected for open-source/independent apps. EVIA is safe to use.
+### Step 2: Extract
+Double-click the zip file to extract `EVIA.app`
 
----
+### Step 3: Open (First Launch Only)
 
-## 📥 Installation Steps (ZIP Method)
+**Important:** macOS will show a security warning because the app isn't notarized. This is normal for apps distributed outside the Mac App Store.
 
-### 1. Download the Correct Version
+**To open the app:**
 
-- **Apple Silicon (M1/M2/M3)**: `EVIA-1.0.2-arm64-mac.zip`
-- **Intel Macs**: `EVIA-1.0.2-x64-mac.zip` (Most older Macs)
+1. **Right-click** (or Control+Click) on `EVIA.app` in Finder
+2. Select **"Open"** from the context menu
+3. A dialog will appear saying "EVIA is from an unidentified developer"
+4. Click **"Open"** button
+5. The app will launch and be saved as an exception for future launches
 
-> **Note:** If you see "Software needs to be updated", you downloaded the wrong version. Try the other one.
+**After the first launch**, you can double-click the app normally - no more warnings!
 
-### 2. Install & Bypass Security Warning
+### Troubleshooting
 
-1. **Double-click** the ZIP to extract `EVIA.app`
-2. **Drag** `EVIA.app` to **Applications**
-3. **Right-click** (Control-click) on `EVIA` and select **Open**
-4. You will see a popup: *"Apple cannot check it for malicious software"*
-5. Click **"Open"** (or "Open Anyway")
+**If right-click → Open doesn't show "Open" option:**
+- Make sure you're right-clicking on `EVIA.app` itself (not the zip file)
+- Try Control+Click instead of right-click
+- If you see "Open Anyway" button, click it
 
-**If you don't see "Open" option:**
-1. Go to **System Settings** > **Privacy & Security**
-2. Scroll down to "Security" section
-3. You will see "EVIA was blocked..."
+**If you still can't open:**
+1. Go to **System Settings** → **Privacy & Security**
+2. Scroll down to **Security**
+3. You should see a message about EVIA being blocked
 4. Click **"Open Anyway"**
-5. Enter your Mac password if asked
+5. Enter your password if prompted
 
-> **Success:** You only need to do this **once**. EVIA is now whitelisted and will open normally next time.
+### Why This Happens
 
----
-
-## ❓ Troubleshooting
-
-### "EVIA is damaged"
-Run this command in Terminal: `xattr -cr /Applications/EVIA.app`
-
-### Permissions
-Grant **Microphone** and **Screen Recording** permissions when prompted to enable AI features.
+EVIA uses ad-hoc code signing (not Developer ID) to keep the app free. macOS Gatekeeper requires apps to be notarized by Apple, which costs $99/year for a Developer ID certificate. The right-click → Open method is Apple's approved way to run apps from trusted sources that aren't notarized.
 
 ---
 
-## 📧 Support
-Email: bene@tryevia.ai
+**Need Help?** Contact support at [your support email]

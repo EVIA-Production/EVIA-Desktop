@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
-import { FRONTEND_URL } from '../config/config';
+
+const WEB_APP_URL = 'https://app.taylos.ai';
 
 interface SettingsViewProps {
   language: 'de' | 'en';
@@ -165,7 +166,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       console.error('[SettingsView] Shell navigation API not available');
       // Fallback
       if ((window as any).evia?.windows?.openExternal) {
-        (window as any).evia.windows.openExternal(`${FRONTEND_URL}/activity`);
+        (window as any).evia.windows.openExternal(`${WEB_APP_URL}/activity`);
       }
       return;
     }
@@ -173,8 +174,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     try {
       const token = await eviaAuth?.getToken?.();
       const url = token 
-        ? `${FRONTEND_URL}/activity?desktop_token=${encodeURIComponent(token)}`
-        : `${FRONTEND_URL}/activity`;
+        ? `${WEB_APP_URL}/activity?desktop_token=${encodeURIComponent(token)}`
+        : `${WEB_APP_URL}/activity`;
       
       console.log('[SettingsView] 🧭 Requesting navigation via bridge');
       await eviaShell.navigate(url);
@@ -193,7 +194,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       console.error('[SettingsView] Shell navigation API not available');
       // Fallback
       if ((window as any).evia?.windows?.openExternal) {
-        (window as any).evia.windows.openExternal(`${FRONTEND_URL}/personalize`);
+        (window as any).evia.windows.openExternal(`${WEB_APP_URL}/personalize`);
       }
       return;
     }
@@ -201,8 +202,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     try {
       const token = await eviaAuth?.getToken?.();
       const url = token
-        ? `${FRONTEND_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
-        : `${FRONTEND_URL}/personalize`;
+        ? `${WEB_APP_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
+        : `${WEB_APP_URL}/personalize`;
       
       console.log('[SettingsView] 🧭 Requesting navigation via bridge');
       await eviaShell.navigate(url);
@@ -512,7 +513,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           ) : (
             <button className="settings-button half-width" onClick={() => {
               const eviaWindows = (window as any).evia?.windows;
-              eviaWindows?.openExternal?.(`${FRONTEND_URL}/login?source=desktop`);
+              eviaWindows?.openExternal?.(`${WEB_APP_URL}/login?source=desktop`);
             }}>
               <span>{t('login')}</span>
             </button>

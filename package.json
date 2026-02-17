@@ -14,7 +14,7 @@
     "dev:main": "npm run build:main && cross-env NODE_ENV=development electron .",
     "build:main": "tsc -p tsconfig.json",
     "build:renderer": "vite build",
-    "build": "tsc -p tsconfig.json && npm run build:renderer && electron-builder",
+    "build": "tsc -p tsconfig.json && npm run build:renderer && electron-builder --publish never",
     "start:prod": "npm run build:main && npm run build:renderer && cross-env NODE_ENV=production electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "postinstall": "electron-builder install-app-deps",

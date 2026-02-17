@@ -331,12 +331,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setTimeout(() => {
           if (viewportRef.current) {
             viewportRef.current.scrollTop = 0; // Reset to top first
-            setTimeout(() => {
-              if (viewportRef.current) {
-                viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-                console.log('[ListenView] 📜 Scrolled to bottom on session start');
-              }
-            }, 50);
+        setTimeout(() => {
+          if (viewportRef.current) {
+            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+            console.log('[ListenView] 📜 Scrolled to bottom on session start');
+          }
+        }, 50);
           }
         }, 10);
         

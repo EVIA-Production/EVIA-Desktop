@@ -1,0 +1,59 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish release artifacts
+        run: >
+          npx electron-builder
+          --publish always
+          -c.publish.provider=github
+          -c.publish.owner="${{ secrets.RELEASE_REPO_OWNER }}"
+          -c.publish.repo="${{ secrets.RELEASE_REPO_NAME }}"
+          -c.publish.releaseType=release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_GH_TOKEN }}
+          RELEASE_REPO_OWNER: ${{ secrets.RELEASE_REPO_OWNER }}
+          RELEASE_REPO_NAME: ${{ secrets.RELEASE_REPO_NAME }}
+          MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-desktop-dist
+          path: dist/*
+          if-no-files-found: warn

@@ -115,6 +115,16 @@ exports.default = async function(context) {
     console.error('❌ Failed to sign app bundle:', error.message);
     throw error;
   }
+  
+  // Step 7: Remove quarantine attribute from app bundle (for distribution)
+  try {
+    console.log('🧹 Removing quarantine attribute from app bundle...');
+    execSync(`xattr -cr "${appPath}"`, { stdio: 'ignore' });
+    console.log('✅ Quarantine removed - ready for distribution');
+  } catch (error) {
+    // Not fatal - might not have quarantine attribute
+    console.log('ℹ️  No quarantine attribute to remove (this is normal)');
+  }
 
   console.log('\n═══════════════════════════════════════════════════════════');
   console.log('✅ afterPack: SystemAudioDump ready for permissions!');

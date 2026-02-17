@@ -1,4 +1,5 @@
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import path from 'path'
@@ -75,6 +76,7 @@ async function boot() {
   }
   
   await app.whenReady();
+  registerAutoUpdater();
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
   // This ensures status detection works even if other subsystems hang
@@ -145,6 +147,68 @@ const processManager = require('./process-manager') as {
 
 const isDev = process.env.NODE_ENV === 'development'
 const platform = os.platform()
+
+function registerAutoUpdater() {
+  if (isDev) {
+    console.log('[Updater] Skipping auto-updater in development');
+    return;
+  }
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] ❌', err);
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update available',
+      message: `A new version (${info.version}) is available.`,
+      detail: 'Would you like to download it now?',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((res) => {
+      if (res.response === 0) {
+        autoUpdater.downloadUpdate().catch((downloadErr) => {
+          console.error('[Updater] Download failed:', downloadErr);
+        });
+      }
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update ready',
+      message: `Version ${info.version} has been downloaded.`,
+      detail: 'Restart now to install?',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((res) => {
+      if (res.response === 0) {
+        autoUpdater.quitAndInstall();
+      }
+    });
+  });
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[Updater] Initial check failed:', err);
+    });
+  }, 12000);
+
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[Updater] Periodic check failed:', err);
+    });
+  }, 60 * 60 * 1000);
+}
 
 app.on('window-all-closed', () => {
   if (platform !== 'darwin') app.quit()
@@ -383,6 +447,18 @@ ipcMain.handle('subscription:getStatus', async () => {
     return { success: true, status };
   } catch (err) {
     console.error('[IPC] subscription:getStatus error:', err);
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('updater:check-now', async () => {
+  if (isDev) {
+    return { success: false, reason: 'disabled_in_dev' };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { success: true };
+  } catch (err) {
     return { success: false, error: (err as Error).message };
   }
 });

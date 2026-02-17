@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import './overlay-glass.css';
-import { FRONTEND_URL } from '../config/config';
+
+const WEB_APP_URL = 'https://app.taylos.ai';
 
 /**
  * WelcomeHeader Component
@@ -69,7 +70,7 @@ const WelcomeHeader: React.FC = () => {
     console.log('[WelcomeHeader] 🔐 Opening browser for registration...');
     
     // Open register page instead of login for first-time users
-    const loginUrl = `${FRONTEND_URL}/register?source=desktop`;
+    const loginUrl = `${WEB_APP_URL}/register?source=desktop`;
     
     console.log('[WelcomeHeader] 🌐 Login URL:', loginUrl);
     console.log('[WelcomeHeader] 🔍 Checking evia bridge:', (window as any).evia);

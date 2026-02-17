@@ -2,7 +2,8 @@ appId: com.evia.app
 productName: EVIA
 
 afterPack: ./scripts/afterPack.js
-# 🔐 Custom URL scheme for deep linking (auth callback from web)
+afterSign: ./scripts/notarize.js
+# Custom URL scheme for deep linking (auth callback from web)
 protocols:
   - name: EVIA
     schemes:
@@ -24,6 +25,7 @@ mac:
   icon: src/main/assets/icon.png
   category: public.app-category.productivity
   hardenedRuntime: true
+  notarize: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
@@ -51,7 +53,7 @@ win:
   icon: build/icon.ico
   artifactName: "EVIA-${version}.${ext}"
   forceCodeSigning: false
-  signAndEditExecutable: false  # Disabled for now due to symlink error on Windows
+  signAndEditExecutable: true
 
 nsis:
   oneClick: false
@@ -61,5 +63,4 @@ nsis:
 
 dmg:
   format: UDZO
-  writeUpdateInfo: false
-publish: null
+  writeUpdateInfo: true

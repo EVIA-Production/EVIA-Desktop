@@ -51,6 +51,13 @@ npm run build
 open dist/mac-arm64/EVIA.app
 ```
 
+### Signed Releases + Auto-Update
+
+- CI workflow: `.github/workflows/release-desktop.yml`
+- Trigger: push a tag like `v1.0.5`
+- Required secrets/env: see `.env.release.example`
+- Release artifacts and update metadata are published to a release-only GitHub repo.
+
 ---
 
 ## ✨ FEATURES
