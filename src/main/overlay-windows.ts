@@ -4,7 +4,7 @@ import path from 'path'
 import os from 'os'
 import { headerController } from './header-controller'
 
-// 🔧 Dev mode detection for Vite dev server
+// Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
 const VITE_DEV_SERVER_URL = 'http://localhost:5174'
 
@@ -15,7 +15,7 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 
-// ✅ DYNAMIC WIDTH: Header automatically resizes to fit content (EviaBar.tsx:192-222)
+// DYNAMIC WIDTH: Header automatically resizes to fit content (EviaBar.tsx:192-222)
 // - Measures content width using getBoundingClientRect() on mount + language change
 // - IPC: header:set-window-width sends width to main process (lines 213-239)
 // - Main re-centers header and persists bounds (Glass parity)
@@ -39,7 +39,7 @@ const WINDOW_DATA = {
   },
   ask: {
     width: 640,  // Increased from 600 to fit form + padding
-    height: 58,   // 🔧 FIX #23: Symmetric compact size (input container: 12+12+34=58px, no extra chrome)
+    height: 58,   // FIX #23: Symmetric compact size (input container: 12+12+34=58px, no extra chrome)
     html: 'overlay.html?view=ask',
     zIndex: 2,
   },
@@ -47,13 +47,13 @@ const WINDOW_DATA = {
     width: 240, // Glass parity: windowManager.js:527
     height: 400, // Glass uses maxHeight: 400, we use fixed height
     html: 'overlay.html?view=settings',
-    zIndex: 10, // 🔧 FIX (2025-12-10): Settings ALWAYS on top of other windows
+    zIndex: 10, // FIX (2025-12-10): Settings ALWAYS on top of other windows
   },
   shortcuts: {
     width: 353, // Glass parity: windowManager.js:562
     height: 580, // Calculated: 12 shortcuts + header + buttons + padding (was 720, reduced to fit tighter)
     html: 'overlay.html?view=shortcuts',
-    zIndex: 11, // 🔧 FIX: Shortcuts above settings when both open
+    zIndex: 11, // FIX: Shortcuts above settings when both open
   },
 } satisfies Record<FeatureName, { width: number; height: number; html: string; zIndex: number }>
 
@@ -139,13 +139,13 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     movable: true,
     type: process.platform === 'darwin' ? 'panel' : undefined, // macOS: panel, Windows: normal window for taskbar
     alwaysOnTop: true,
-    skipTaskbar: false, // Show in taskbar so users can see EVIA is running
+    skipTaskbar: false, // Show in taskbar so users can see Taylos is running
     icon: iconPath,
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000', // Fully transparent
-    title: 'EVIA',
+    title: 'Taylos',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -203,7 +203,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
 
-  // 🔧 Load from Vite dev server in development, built files in production
+  // Load from Vite dev server in development, built files in production
   if (isDev) {
     headerWindow.loadURL(`${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
     console.log('[overlay-windows] 🔧 Header loading from Vite dev server:', `${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
@@ -227,7 +227,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     }
   })
 
-  // 🔥 LIVE FOLLOW: Continuously re-layout overlays while dragging/resizing the header
+  // LIVE FOLLOW: Continuously re-layout overlays while dragging/resizing the header
   // Throttle to ~60fps to avoid jank; do NOT persist to disk in this fast path.
   let liveLayoutScheduled = false
   const requestLiveLayout = () => {
@@ -258,7 +258,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     headerWindow?.showInactive()
     console.log('[overlay-windows] ✅ HEADER showInactive() called - header should be visible now')
     
-    // 🔧 DIAGNOSTIC: Log header state after showing
+    // DIAGNOSTIC: Log header state after showing
     setTimeout(() => {
       if (headerWindow && !headerWindow.isDestroyed()) {
         console.log('[overlay-windows] 🔍 HEADER state check (100ms after show):')
@@ -274,7 +274,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   })
 
   // Listen for content width requests from renderer (for dynamic sizing)
-  // 🔴 CRITICAL FIX: Prevent dragging header off-screen
+  // CRITICAL FIX: Prevent dragging header off-screen
   // This handler fires BEFORE the window moves, allowing us to clamp the position
   headerWindow.on('will-move', (event, newBounds) => {
     const clamped = clampBounds(newBounds)
@@ -315,7 +315,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     if (!headerWindow || headerWindow.isDestroyed()) return false
     try {
       const bounds = headerWindow.getBounds()
-      const newWidth = contentWidth // 🔴 FIX: Use exact content width, no minimum or padding
+      const newWidth = contentWidth // FIX: Use exact content width, no minimum or padding
       
       console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
       
@@ -412,7 +412,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Glass parity: All windows are interactive by default (windowManager.js:287)
   win.setIgnoreMouseEvents(false)
 
-  // 🔧 Load from Vite dev server in development, built files in production
+  // Load from Vite dev server in development, built files in production
   if (isDev) {
     const url = `${VITE_DEV_SERVER_URL}/overlay.html?view=${name}`
     win.loadURL(url)
@@ -433,7 +433,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     win.webContents.openDevTools({ mode: 'detach' })
   }
 
-  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools in production
+  // PRODUCTION DEVTOOLS: Add keyboard shortcuts to toggle DevTools in production
   // Cmd+Option+I (macOS) or F12 (all platforms)
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
@@ -458,7 +458,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     }
   })
 
-  // 🔴 CRITICAL FIX: Prevent dragging windows off-screen
+  // CRITICAL FIX: Prevent dragging windows off-screen
   // Only shortcuts window is movable, but we enforce boundaries for all windows
   if (isShortcuts) {
     win.on('will-move', (event, newBounds) => {
@@ -500,7 +500,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         if (isInside && !wasInsideSettings) {
           console.log('[overlay-windows] Cursor entered settings bounds')
           wasInsideSettings = true
-          // 🔧 FIX: Bring settings to front when hovered (above other windows)
+          // FIX: Bring settings to front when hovered (above other windows)
           try { win.moveTop() } catch {}
           // Cancel hide timer
           if (settingsHideTimer) {
@@ -516,7 +516,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
           settingsHideTimer = setTimeout(() => {
             console.log('[overlay-windows] Hiding settings after cursor left')
             // CRITICAL FIX: Only hide settings window, DON'T call updateWindows
-            // 🔧 FIX (2025-12-10): Don't change alwaysOnTop before hiding - just hide
+            // FIX (2025-12-10): Don't change alwaysOnTop before hiding - just hide
             if (win && !win.isDestroyed()) {
               win.hide()
             }
@@ -559,7 +559,7 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
   const screenBounds = display.bounds  // Full screen (for X axis - reach actual edge)
   const workArea = display.workArea    // Work area (for Y axis - avoid menu bar)
   
-  // 🔴 USER FIX: Use screenBounds for X (reach actual right edge, not dock edge)
+  // USER FIX: Use screenBounds for X (reach actual right edge, not dock edge)
   // Use workArea for Y (avoid menu bar at top)
   const padding = skipPadding ? 0 : 0  // No padding for any window
   
@@ -584,7 +584,7 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
   console.log(`[clampBounds] 📤 Output: (${clamped.x}, ${clamped.y}), clamped: x=${bounds.x !== clamped.x}, y=${bounds.y !== clamped.y}`)
   console.log(`[clampBounds] 📏 Final right edge gap: ${screenBounds.x + screenBounds.width - (clamped.x + clamped.width)}px`)
   
-  // 🔍 DIAGNOSTIC: Validate output is not NaN
+  // DIAGNOSTIC: Validate output is not NaN
   if (isNaN(clamped.x) || isNaN(clamped.y)) {
     console.error(`[clampBounds] ❌ Invalid clamped bounds:`, clamped, 'from input:', bounds)
     // Return original bounds if clamping failed
@@ -600,20 +600,20 @@ function layoutChildWindows(visible: WindowVisibility) {
   const hb = header.getBounds()
   const work = getWorkAreaBounds()
   
-  // 🔴 CRITICAL FIX: Get screen bounds for horizontal calculations (match clampBounds behavior)
+  // CRITICAL FIX: Get screen bounds for horizontal calculations (match clampBounds behavior)
   const centerX = hb.x + hb.width / 2
   const centerY = hb.y + hb.height / 2
   const display = screen.getDisplayNearestPoint({ x: centerX, y: centerY })
   const screenBounds = display.bounds  // Full screen width (for X axis - reach actual edge)
 
   const PAD_LOCAL = PAD
-  const screenWidth = screenBounds.width  // 🔴 Use SCREEN width (not workArea) for X axis
+  const screenWidth = screenBounds.width  // Use SCREEN width (not workArea) for X axis
   const screenHeight = work.height        // Use workArea height for Y axis (avoid menu bar)
   
-  // 🔧 FIX #9: Calculate header center more explicitly for perfect alignment
+  // FIX #9: Calculate header center more explicitly for perfect alignment
   // Use absolute positioning first, then convert to relative coordinates
   const headerCenterX = hb.x + (hb.width / 2)  // Absolute center X of header
-  const headerCenterXRel = headerCenterX - screenBounds.x  // 🔴 Relative to SCREEN (not workArea)
+  const headerCenterXRel = headerCenterX - screenBounds.x  // Relative to SCREEN (not workArea)
   
   const relativeY = (hb.y - work.y) / screenHeight
 
@@ -632,7 +632,7 @@ function layoutChildWindows(visible: WindowVisibility) {
 
     const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
     
-    // 🔧 CRITICAL FIX: Preserve Ask window's current height when it has content
+    // CRITICAL FIX: Preserve Ask window's current height when it has content
     // This prevents the "zap" when moving with arrow keys
     // Only use default height (58px) if window is newly created or very small
     let askH = 0
@@ -649,14 +649,14 @@ function layoutChildWindows(visible: WindowVisibility) {
 
     if (askVis && listenVis) {
       // Both windows: horizontal stack (listen left, ask right)
-      // 🔧 FIX: Center the ENTIRE group (listen + gap + ask) under header
+      // FIX: Center the ENTIRE group (listen + gap + ask) under header
       const totalWidth = listenW + PAD_LOCAL + askW
       const groupCenterXRel = headerCenterXRel - totalWidth / 2
       
       let listenXRel = groupCenterXRel
       let askXRel = listenXRel + listenW + PAD_LOCAL
 
-      // 🔴 FIX: Use 0 padding (same as header) to ensure identical boundaries
+      // FIX: Use 0 padding (same as header) to ensure identical boundaries
       // Child windows should reach exact screen edges like header does
       if (listenXRel < 0) {
         listenXRel = 0
@@ -677,7 +677,7 @@ function layoutChildWindows(visible: WindowVisibility) {
         layout.ask = { x: Math.round(askXRel + screenBounds.x), y: Math.round(yAbs), width: askW, height: askH }
         layout.listen = { x: Math.round(listenXRel + screenBounds.x), y: Math.round(yAbs), width: listenW, height: listenH }
         
-        // 🔧 DIAGNOSTIC: Log positioning to verify consistent layout
+        // DIAGNOSTIC: Log positioning to verify consistent layout
         console.log('[layoutChildWindows] Both windows positioned:');
         console.log('  Ask:', layout.ask);
         console.log('  Listen:', layout.listen);
@@ -690,7 +690,7 @@ function layoutChildWindows(visible: WindowVisibility) {
       const winH = askVis ? askH : listenH
 
       let xRel = headerCenterXRel - winW / 2
-      // 🔴 FIX: Use 0 padding (same as header) to ensure identical boundaries
+      // FIX: Use 0 padding (same as header) to ensure identical boundaries
       xRel = Math.max(0, Math.min(screenWidth - winW, xRel))
 
       let yPos: number
@@ -706,7 +706,7 @@ function layoutChildWindows(visible: WindowVisibility) {
   }
 
   // Handle Settings window
-  // 🔴 GLASS PARITY: Position settings window (windowLayoutManager.js:71-94)
+  // GLASS PARITY: Position settings window (windowLayoutManager.js:71-94)
   // Align settings' RIGHT edge with header's right edge (+ button padding 170px)
   if (visible.settings) {
     const settingsWin = createChildWindow('settings')
@@ -737,7 +737,7 @@ function layoutChildWindows(visible: WindowVisibility) {
     
     let x, y
     if (visible.settings && layout.settings) {
-      // 🔧 FIX: Position to the right of settings window (Glass parity)
+      // FIX: Position to the right of settings window (Glass parity)
       x = layout.settings.x + layout.settings.width + PAD
       y = layout.settings.y
     } else {
@@ -753,7 +753,7 @@ function layoutChildWindows(visible: WindowVisibility) {
   }
 
   // Apply layout
-  // 🔧 UI IMPROVEMENT: Set bounds BEFORE any animation/showing to prevent overlap flash
+  // UI IMPROVEMENT: Set bounds BEFORE any animation/showing to prevent overlap flash
   for (const [name, bounds] of Object.entries(layout)) {
     const win = createChildWindow(name as FeatureName)
     const clampedBounds = clampBounds(bounds as Electron.Rectangle)
@@ -763,7 +763,7 @@ function layoutChildWindows(visible: WindowVisibility) {
 }
 
 function animateShow(win: BrowserWindow) {
-  // 🔧 FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant show)
+  // FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant show)
   if (ANIM_DURATION === 0) {
     win.setOpacity(1)
     win.showInactive()
@@ -793,7 +793,7 @@ function animateShow(win: BrowserWindow) {
 }
 
 function animateHide(win: BrowserWindow, onComplete: () => void) {
-  // 🔧 FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant hide)
+  // FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant hide)
   if (ANIM_DURATION === 0) {
     win.hide()
     win.setOpacity(1)
@@ -904,12 +904,12 @@ function toggleWindow(name: FeatureName) {
   const vis = getVisibility()
   const current = !!vis[name]
   
-  // 🔧 FIX #34: CRITICAL - Only toggle the requested window, don't spread persisted state
+  // FIX #34: CRITICAL - Only toggle the requested window, don't spread persisted state
   // Problem: getVisibility() returns persisted state from disk (e.g. listen:true from previous session)
   // Solution: Explicitly build newVis with ONLY currently active windows + the toggled window
   
   if (name === 'ask') {
-    // 🔧 FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
+    // FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
     // Check actual current visibility to avoid state leak from disk
     const listenWin = childWindows.get('listen')
     const isListenCurrentlyVisible = listenWin && !listenWin.isDestroyed() && listenWin.isVisible()
@@ -924,7 +924,7 @@ function toggleWindow(name: FeatureName) {
     console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
     updateWindows(newVis)
     
-    // 🔧 CONSERVATIVE FIX: Focus Ask window when showing
+    // CONSERVATIVE FIX: Focus Ask window when showing
     if (!current) {  // If we're showing the Ask window (toggled from hidden to shown)
       const askWin = childWindows.get('ask')
       if (askWin && !askWin.isDestroyed()) {
@@ -950,7 +950,7 @@ function hideAllChildWindows() {
 }
 
 function handleHeaderToggle() {
-  // 🔧 FIX #2: Remove async/await and dynamic import to eliminate button delay
+  // FIX #2: Remove async/await and dynamic import to eliminate button delay
   // CRITICAL AUTH CHECK: Only allow toggle if user is authenticated and has permissions
   const currentState = headerController.getCurrentState()
   
@@ -988,7 +988,7 @@ function handleHeaderToggle() {
     headerWindow.setAlwaysOnTop(true, 'screen-saver')
     headerWindow.showInactive()
     
-    // 🔧 FIX #6: Restore ONLY previously visible windows (windowManager.js:245-249)
+    // FIX #6: Restore ONLY previously visible windows (windowManager.js:245-249)
     // Don't restore from persisted state - only from lastVisibleWindows Set
     console.log('[overlay-windows] 🔄 Restoring windows:', Array.from(lastVisibleWindows))
     const vis: WindowVisibility = {}
@@ -1016,10 +1016,10 @@ let animationStartTime = 0
 let animationTimer: NodeJS.Timeout | null = null
 
 function nudgeHeader(dx: number, dy: number) {
-  // 🔴 CRITICAL FIX #3: Smooth movement even with rapid/held key presses
+  // CRITICAL FIX #3: Smooth movement even with rapid/held key presses
   const header = getOrCreateHeaderWindow()
   
-  // 🔴 FIX 3a: If already animating, restart animation from current position to new target
+  // FIX 3a: If already animating, restart animation from current position to new target
   // User requirement: "press twice = move for 600ms" (extend duration)
   if (isAnimating) {
     // Stop current animation
@@ -1058,7 +1058,7 @@ function nudgeHeader(dx: number, dy: number) {
   isAnimating = true
   
   const animate = () => {
-    // 🔴 CRITICAL FIX: Validate header still exists
+    // CRITICAL FIX: Validate header still exists
     if (!header || header.isDestroyed()) {
       console.error('[nudgeHeader] ❌ Header destroyed during animation')
       isAnimating = false
@@ -1076,7 +1076,7 @@ function nudgeHeader(dx: number, dy: number) {
     const currentX = animationStartPos.x + (animationTarget.x - animationStartPos.x) * eased
     const currentY = animationStartPos.y + (animationTarget.y - animationStartPos.y) * eased
     
-    // 🔴 CRITICAL FIX: Validate coordinates are valid numbers
+    // CRITICAL FIX: Validate coordinates are valid numbers
     if (isNaN(currentX) || isNaN(currentY)) {
       console.error('[nudgeHeader] ❌ Invalid coordinates:', { currentX, currentY, animationStartPos, animationTarget })
       isAnimating = false
@@ -1087,7 +1087,7 @@ function nudgeHeader(dx: number, dy: number) {
     
     header.setPosition(Math.round(currentX), Math.round(currentY))
     
-    // 🔴 CRITICAL FIX: Reposition child windows DURING animation (not just at end)
+    // CRITICAL FIX: Reposition child windows DURING animation (not just at end)
     // This prevents windows from "appearing in borders" until arrow key is pressed
     const vis = getVisibility()
     layoutChildWindows(vis)
@@ -1112,8 +1112,8 @@ function openAskWindow() {
   console.log('[overlay-windows] 🚨 openAskWindow() CALLED - STACK TRACE:')
   console.trace()
   
-  // 🔧 FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
-  // 🔧 FIX: When closing Ask, don't close Listen (preserve Listen's state)
+  // FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
+  // FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
   const askVisible = !!vis.ask
   
@@ -1129,7 +1129,7 @@ function openAskWindow() {
   }
 }
 
-// 🔥 GLASS PARITY: Default shortcuts (Glass: shortcutsService.js:59-75)
+// GLASS PARITY: Default shortcuts (Glass: shortcutsService.js:59-75)
 function getDefaultShortcuts(): ShortcutConfig {
   const isMac = process.platform === 'darwin'
   const mod = isMac ? 'Cmd' : 'Ctrl'
@@ -1147,7 +1147,7 @@ function getDefaultShortcuts(): ShortcutConfig {
   }
 }
 
-// 🔥 GLASS PARITY: Load shortcuts from persisted state or use defaults
+// GLASS PARITY: Load shortcuts from persisted state or use defaults
 function loadShortcuts(): ShortcutConfig {
   if (persistedState.shortcuts) {
     // Merge saved shortcuts with defaults (in case new shortcuts added)
@@ -1157,7 +1157,7 @@ function loadShortcuts(): ShortcutConfig {
   return getDefaultShortcuts()
 }
 
-// 🔥 GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
+// GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
 function registerShortcuts() {
   // Unregister all first (Glass does this)
   globalShortcut.unregisterAll()
@@ -1310,13 +1310,13 @@ function startAlwaysOnTopRefresh() {
   if (process.platform !== 'win32') return;
   if (alwaysOnTopInterval) return; // Already running
   
-  // 🔧 FIX: Use longer interval (60s) and only use moveTop() - no flicker
+  // FIX: Use longer interval (60s) and only use moveTop() - no flicker
   alwaysOnTopInterval = setInterval(() => {
     // Only refresh if header window exists and is visible
     if (!headerWindow || headerWindow.isDestroyed() || !headerWindow.isVisible()) return;
     
     try {
-      // 🔧 FIX: Don't toggle alwaysOnTop - just bring windows to front
+      // FIX: Don't toggle alwaysOnTop - just bring windows to front
       // This prevents the visual flicker caused by toggling the state
       
       // Move visible child windows to front first
@@ -1480,7 +1480,7 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   const header = getOrCreateHeaderWindow()
   const currentBounds = header.getBounds()
   
-  // 🔴 DIAGNOSTIC: Log every step to find why clamping fails
+  // DIAGNOSTIC: Log every step to find why clamping fails
   console.log(`[win:moveHeaderTo] 📥 Input: (${x}, ${y})`)
   console.log(`[win:moveHeaderTo] 📊 Current header bounds:`, currentBounds)
   
@@ -1512,7 +1512,7 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   
   saveState({ headerBounds: clampedBounds })
   
-  // 🔴 CRITICAL: Reposition child windows CONTINUOUSLY during drag
+  // CRITICAL: Reposition child windows CONTINUOUSLY during drag
   const vis = getVisibility()
   layoutChildWindows(vis)
   
@@ -1555,7 +1555,7 @@ ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
 })
 
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
-  // 🔧 FIX #42: Ensure window exists and bounds are updated correctly
+  // FIX #42: Ensure window exists and bounds are updated correctly
   const win = createChildWindow(winName)
   if (!win || win.isDestroyed()) {
     console.error(`[IPC] ❌ adjust-window-height: Window '${winName}' not available`)
@@ -1586,7 +1586,7 @@ ipcMain.handle('header:open-ask', () => {
   return { ok: true }
 })
 
-// 🔧 UI IMPROVEMENT: Auth validation IPC handler
+// UI IMPROVEMENT: Auth validation IPC handler
 ipcMain.handle('auth:validate', async () => {
   const { headerController } = await import('./header-controller');
   const isAuthenticated = await headerController.validateAuthentication();
@@ -1616,7 +1616,7 @@ ipcMain.handle('auth:validate', async () => {
   return { ok: true, authenticated: isAuthenticated, user };
 })
 
-// 🔧 FIX ISSUE #2: Auto-update toggle persistence
+// FIX ISSUE #2: Auto-update toggle persistence
 ipcMain.handle('settings:get-auto-update', () => {
   const enabled = persistedState.autoUpdate !== undefined ? persistedState.autoUpdate : true;
   console.log('[Settings] 📡 get-auto-update:', enabled);
@@ -1629,7 +1629,7 @@ ipcMain.handle('settings:set-auto-update', (_event, enabled: boolean) => {
   return { ok: true };
 })
 
-// 🔥 GLASS PARITY: Shortcuts persistence (Glass: shortcutsService.js:77-121)
+// GLASS PARITY: Shortcuts persistence (Glass: shortcutsService.js:77-121)
 ipcMain.handle('shortcuts:get', () => {
   const shortcuts = loadShortcuts();
   console.log('[Shortcuts] 📡 get-shortcuts:', shortcuts);
@@ -1662,9 +1662,9 @@ ipcMain.handle('shortcuts:reset', () => {
   return { ok: true, shortcuts: defaults };
 })
 
-// 🔧 GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
+// GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
 ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string }) => {
-  // 🔧 FIX: Handle both old format (string) and new format (object with sessionState)
+  // FIX: Handle both old format (string) and new format (object with sessionState)
   const promptText = typeof payload === 'string' ? payload : payload.text;
   console.log('[Main] 📨 ask:send-and-submit received:', promptText.substring(0, 50));
   if (typeof payload === 'object' && payload.sessionState) {
@@ -1674,7 +1674,7 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
   // Use original payload for relay (preserves sessionState if present)
   const prompt = payload;
   
-  // 🎯 CRITICAL FIX: Ensure Ask window exists and is visible BEFORE sending prompt
+  // CRITICAL FIX: Ensure Ask window exists and is visible BEFORE sending prompt
   let askWin = childWindows.get('ask');
   if (!askWin || askWin.isDestroyed()) {
     console.log('[Main] 🔧 Ask window not found, creating...');
@@ -1682,14 +1682,14 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
   }
   
   if (askWin && !askWin.isDestroyed()) {
-    // 🔧 FIX #25: Explicitly close settings when opening Ask (prevent unwanted settings popup)
+    // FIX #25: Explicitly close settings when opening Ask (prevent unwanted settings popup)
     const vis = getVisibility();
     if (!vis.ask || vis.settings) {
       console.log('[Main] 🔧 Opening Ask window, closing settings');
       updateWindows({ ...vis, ask: true, settings: false });
     }
     
-    // 🔧 FIX #24: Wait for window to be FULLY ready before sending prompt
+    // FIX #24: Wait for window to be FULLY ready before sending prompt
     // Use did-finish-load event to ensure IPC handlers are registered
     const sendPrompt = () => {
       if (askWin && !askWin.isDestroyed()) {
@@ -1714,7 +1714,7 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
   }
 });
 
-// 🔧 FIX: Expose desktopCapturer.getSources for system audio capture
+// FIX: Expose desktopCapturer.getSources for system audio capture
 ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.SourcesOptions) => {
   const { desktopCapturer, systemPreferences } = require('electron')
   try {
@@ -1750,7 +1750,7 @@ ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.S
     console.error('[Main] Error message:', error.message)
     console.error('[Main] Error stack:', error.stack)
     
-    // 🔧 CRITICAL FIX: Don't throw - return empty array so renderer can continue with mic-only
+    // CRITICAL FIX: Don't throw - return empty array so renderer can continue with mic-only
     // If we throw here, it crashes the entire startCapture() in renderer, breaking BOTH mic AND system audio
     console.warn('[Main] ⚠️ Returning empty sources array - system audio will be unavailable')
     console.warn('[Main] User should grant Screen Recording permission in System Settings')
@@ -1758,12 +1758,12 @@ ipcMain.handle('desktop-capturer:getSources', async (_event, options: Electron.S
   }
 })
 
-// 🎯 TASK 3: Enhanced Mac screenshot with ScreenCaptureKit (via desktopCapturer)
+// TASK 3: Enhanced Mac screenshot with ScreenCaptureKit (via desktopCapturer)
 ipcMain.handle('capture:screenshot', async () => {
   const { desktopCapturer, systemPreferences, screen } = require('electron')
   
   try {
-    // 🔒 TASK 3: Check screen recording permission on macOS (SCK requirement)
+    // TASK 3: Check screen recording permission on macOS (SCK requirement)
     if (process.platform === 'darwin') {
       const status = systemPreferences.getMediaAccessStatus('screen')
       console.log('[Screenshot] macOS Screen Recording permission status:', status)
@@ -1781,7 +1781,7 @@ ipcMain.handle('capture:screenshot', async () => {
       }
     }
     
-    // 🎯 TASK 3: Get primary display dimensions for full-resolution capture
+    // TASK 3: Get primary display dimensions for full-resolution capture
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width, height } = primaryDisplay.size
     const scaleFactor = primaryDisplay.scaleFactor || 1
@@ -1806,7 +1806,7 @@ ipcMain.handle('capture:screenshot', async () => {
     const buffer = thumbnail.toPNG()
     const size = thumbnail.getSize()
     
-    // 🎯 TASK 3: Base64 encode for /ask API
+    // TASK 3: Base64 encode for /ask API
     const base64 = buffer.toString('base64')
     
     // Optional: Save to temp for debugging (can be removed in production)
@@ -1863,7 +1863,7 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     settingsHideTimer = null
   }
   
-  // 🔴 ATOMIC FIX STEP 2: Use layoutChildWindows() for correct positioning
+  // ATOMIC FIX STEP 2: Use layoutChildWindows() for correct positioning
   // Old hardcoded logic was wrong - always placed below, never flipped, wrong alignment
   
   // Get current visibility and add settings
@@ -1927,7 +1927,7 @@ ipcMain.on('hide-settings-window', () => {
   }
   settingsHideTimer = setTimeout(() => {
     console.log('[overlay-windows] 200ms timer expired - hiding settings')
-    // 🔧 FIX (2025-12-10): Only hide settings, don't change alwaysOnTop
+    // FIX (2025-12-10): Only hide settings, don't change alwaysOnTop
     const settingsWin = childWindows.get('settings')
     if (settingsWin && !settingsWin.isDestroyed()) {
       settingsWin.hide()
@@ -1947,7 +1947,7 @@ ipcMain.on('cancel-hide-settings-window', () => {
   }
 })
 
-// 🔧 FIX #7: Blink header red twice on error
+// FIX #7: Blink header red twice on error
 ipcMain.on('blink-header-error', () => {
   console.log('[overlay-windows] ⚠️ Blinking header red for error indication')
   const header = getOrCreateHeaderWindow()
@@ -1957,20 +1957,20 @@ ipcMain.on('blink-header-error', () => {
   }
 })
 
-// 🔧 DIAGNOSTIC: Log Ask errors to main process terminal for visibility
+// DIAGNOSTIC: Log Ask errors to main process terminal for visibility
 ipcMain.on('ask:error-diagnostic', (_event, data: { error: string; canRetry: boolean }) => {
   console.error('[Ask] ❌ ERROR:', data.error, '(canRetry:', data.canRetry, ')')
 })
 
-// 🔧 DIAGNOSTIC: Forward debug logs from renderer to main process terminal
+// DIAGNOSTIC: Forward debug logs from renderer to main process terminal
 // This allows us to see AudioCapture logs from the Header window
 ipcMain.on('debug-log', (_event, message: string) => {
   console.log('[Renderer]', message)
 })
 
-// 🔧 CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
+// CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)
 // Glass parity: Forward prompt from Listen/Insights to Ask window
-// 🧹 REMOVED: Old ask:set-prompt handler (replaced by single-step ask:send-and-submit at line ~901)
+// REMOVED: Old ask:set-prompt handler (replaced by single-step ask:send-and-submit at line ~901)
 
 // IPC relay: Forward transcript messages from Header window to Listen window
 // This is REQUIRED because Header captures audio and receives transcripts,
@@ -2000,7 +2000,7 @@ ipcMain.on('transcript-message', (_event, message: any) => {
   }
 })
 
-// 🔧 FIX #27: Relay session:closed from Header to Ask window (Fertig button pressed)
+// FIX #27: Relay session:closed from Header to Ask window (Fertig button pressed)
 ipcMain.on('session:closed', () => {
   const askWin = childWindows.get('ask')
   if (askWin && !askWin.isDestroyed()) {
@@ -2009,7 +2009,7 @@ ipcMain.on('session:closed', () => {
   }
 })
 
-// 🔧 REACTIVE I18N: Broadcast language changes to ALL windows
+// REACTIVE I18N: Broadcast language changes to ALL windows
 ipcMain.on('language-changed', (_event, newLanguage: string) => {
   console.log('[Main] 🌐 Broadcasting language change to all windows:', newLanguage)
   
@@ -2035,7 +2035,7 @@ function getAllChildWindows(): BrowserWindow[] {
   return Array.from(childWindows.values()).filter(win => win && !win.isDestroyed())
 }
 
-// 🔐 Welcome Window (Phase 2: Auth Flow)
+// Welcome Window (Phase 2: Auth Flow)
 // Shown when user is not logged in (no token in keytar)
 let welcomeWindow: BrowserWindow | null = null
 
@@ -2058,7 +2058,7 @@ export function createWelcomeWindow(): BrowserWindow {
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000',
-    title: 'Welcome to EVIA',
+    title: 'Welcome to Taylos',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -2066,7 +2066,7 @@ export function createWelcomeWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: true, // 🔥 ENABLE in production for debugging
+      devTools: true, // ENABLE in production for debugging
     },
   })
 
@@ -2092,7 +2092,7 @@ export function createWelcomeWindow(): BrowserWindow {
     welcomeWindow.loadFile(path.join(__dirname, '../renderer/welcome.html'))
   }
 
-  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  // PRODUCTION DEVTOOLS: Add keyboard shortcuts
   welcomeWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
       if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
@@ -2118,7 +2118,7 @@ export function createWelcomeWindow(): BrowserWindow {
     }
   })
 
-  // 🔴 CRITICAL FIX: Prevent dragging welcome window off-screen
+  // CRITICAL FIX: Prevent dragging welcome window off-screen
   welcomeWindow.on('will-move', (event, newBounds) => {
     const display = screen.getDisplayNearestPoint({ x: newBounds.x, y: newBounds.y })
     const work = display.workArea
@@ -2160,7 +2160,7 @@ export function closeWelcomeWindow() {
   }
 }
 
-// 🔐 Permission Window (Phase 3: Permission Flow)
+// Permission Window (Phase 3: Permission Flow)
 // Shown after successful login, before main header appears
 let permissionWindow: BrowserWindow | null = null
 
@@ -2178,14 +2178,14 @@ export function createPermissionWindow(): BrowserWindow {
     show: false,
     frame: false,
     transparent: true,
-    resizable: true,  // 🔧 FIX: Allow resizing for DevTools console access
+    resizable: true,  // FIX: Allow resizing for DevTools console access
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000',
-    title: 'EVIA Permissions',
+    title: 'Taylos Permissions',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -2193,7 +2193,7 @@ export function createPermissionWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: true, // 🔥 ENABLE in production for debugging
+      devTools: true, // ENABLE in production for debugging
     },
   })
 
@@ -2219,7 +2219,7 @@ export function createPermissionWindow(): BrowserWindow {
     permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'))
   }
 
-  // 🔥 PRODUCTION DEVTOOLS: Add keyboard shortcuts
+  // PRODUCTION DEVTOOLS: Add keyboard shortcuts
   permissionWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
       if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
@@ -2228,10 +2228,10 @@ export function createPermissionWindow(): BrowserWindow {
           if (permissionWindow.webContents.isDevToolsOpened()) {
             permissionWindow.webContents.closeDevTools()
           } else {
-            // 🔧 FIX: Open DevTools in detached mode with console activated
+            // FIX: Open DevTools in detached mode with console activated
             permissionWindow.webContents.openDevTools({ mode: 'detach', activate: true })
             
-            // 🔧 FIX: Switch to Console tab after opening
+            // FIX: Switch to Console tab after opening
             // DevTools needs a moment to initialize before we can switch tabs
             setTimeout(() => {
               if (permissionWindow && !permissionWindow.isDestroyed()) {
@@ -2260,10 +2260,10 @@ export function createPermissionWindow(): BrowserWindow {
           if (permissionWindow.webContents.isDevToolsOpened()) {
             permissionWindow.webContents.closeDevTools()
           } else {
-            // 🔧 FIX: Open DevTools in detached mode with console activated
+            // FIX: Open DevTools in detached mode with console activated
             permissionWindow.webContents.openDevTools({ mode: 'detach', activate: true })
             
-            // 🔧 FIX: Switch to Console tab after opening
+            // FIX: Switch to Console tab after opening
             // DevTools needs a moment to initialize before we can switch tabs
             setTimeout(() => {
               if (permissionWindow && !permissionWindow.isDestroyed()) {

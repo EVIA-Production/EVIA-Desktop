@@ -2,7 +2,7 @@
 const IS_PRODUCTION = import.meta.env?.PROD ?? false;
 
 export const BACKEND_URL = IS_PRODUCTION
-  ? 'https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io'
+  ? 'https://api.taylos.ai'
   : 'http://localhost:8000';
 
 export const FRONTEND_URL = IS_PRODUCTION
@@ -10,7 +10,7 @@ export const FRONTEND_URL = IS_PRODUCTION
   : 'http://localhost:5173';
 
 export const WS_BASE_URL = IS_PRODUCTION
-  ? 'wss://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io'
+  ? 'wss://api.taylos.ai'
   : 'ws://localhost:8000';
 
 console.log('[Config] Environment:', IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT');

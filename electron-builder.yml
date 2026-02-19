@@ -1,11 +1,11 @@
-appId: com.evia.app
-productName: EVIA
+appId: com.taylos.app
+productName: Taylos
 
 afterPack: ./scripts/afterPack.js
 afterSign: ./scripts/notarize.js
 # Custom URL scheme for deep linking (auth callback from web)
 protocols:
-  - name: EVIA
+  - name: Taylos
     schemes:
       - evia
 files:
@@ -32,9 +32,9 @@ mac:
   extendInfo:
     LSUIElement: false # Ensure app shows in Dock
     ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
-    NSMicrophoneUsageDescription: "EVIA needs access to your microphone to transcribe your voice in meetings."
-    NSScreenCaptureUsageDescription: "EVIA needs access to screen recording to capture system audio from meetings and calls."
-    NSCameraUsageDescription: "EVIA may need camera access for screen recording functionality."
+    NSMicrophoneUsageDescription: "Taylos needs access to your microphone to transcribe your voice in meetings."
+    NSScreenCaptureUsageDescription: "Taylos needs access to screen recording to capture system audio from meetings and calls."
+    NSCameraUsageDescription: "Taylos may need camera access for screen recording functionality."
   target:
     - target: dir
     - target: dmg
@@ -51,7 +51,7 @@ win:
     - target: dir
     - target: portable
   icon: build/icon.ico
-  artifactName: "EVIA-${version}.${ext}"
+  artifactName: "Taylos-${version}.${ext}"
   forceCodeSigning: false
   signAndEditExecutable: true
 

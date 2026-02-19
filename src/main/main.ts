@@ -87,7 +87,7 @@ async function boot() {
     console.error('[Main] ❌ Failed to start desktop bridge:', err);
   }
 
-  // 🪟 Windows: Handle deep link on cold launch
+  // Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
     if (pendingDeepLink.startsWith('evia://auth-callback')) {
     handleAuthCallback(pendingDeepLink);
@@ -303,7 +303,7 @@ ipcMain.handle('system-audio:is-running', async () => {
   return systemAudioMacService.isSystemAudioRunning()
 })
 
-// 🪟 Windows system audio (WASAPI) IPC Handlers
+// Windows system audio (WASAPI) IPC Handlers
 ipcMain.handle('system-audio-windows:start', async () => {
   console.log('[Main] IPC: system-audio-windows:start called')
   const result = await systemAudioWindowsService.start()
@@ -358,7 +358,7 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('evia', 'token');
 });
 
-// 🔧 NEW: Check if token is valid and not expired
+// NEW: Check if token is valid and not expired
 ipcMain.handle('auth:checkTokenValidity', async () => {
   try {
     const token = await keytar.getPassword('evia', 'token');
@@ -409,7 +409,7 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
   }
 });
 
-// 🚪 Logout handler (Phase 4: HeaderController integration)
+// Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
     await headerController.handleLogout();
@@ -463,7 +463,7 @@ ipcMain.handle('updater:check-now', async () => {
   }
 });
 
-// 🌐 Shell API: Open external URLs/apps
+// Shell API: Open external URLs/apps
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   try {
     // macOS behavior: if the browser is already open, some setups appear
@@ -485,7 +485,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   }
 });
 
-// 👻 Invisibility: Toggle content protection (screen recording invisibility)
+// Invisibility: Toggle content protection (screen recording invisibility)
 // Glass parity: Uses setContentProtection to make windows invisible to screenshots/screen recording
 // while still allowing user interaction
 ipcMain.handle('window:set-click-through', async (_event, enabled: boolean) => {
@@ -514,13 +514,13 @@ ipcMain.handle('window:set-click-through', async (_event, enabled: boolean) => {
   }
 });
 
-// 🚪 App quit handler
+// App quit handler
 ipcMain.handle('app:quit', () => {
   console.log('[App] ✅ Quit requested via IPC');
   app.quit();
 });
 
-// 🎯 Session state broadcast handler (CRITICAL FIX for Demo)
+// Session state broadcast handler (CRITICAL FIX for Demo)
 // Receives session state from EviaBar (Header window) and broadcasts to all windows
 // This ensures AskView always has the correct session state (before/during/after meeting)
 ipcMain.on('session-state-changed', (_event, newState: string) => {
@@ -541,7 +541,7 @@ ipcMain.on('session-state-changed', (_event, newState: string) => {
   console.log(`[Main] ✅ Broadcast complete - sent to ${broadcastCount} window(s)`);
 });
 
-// 🔐 Permission handlers (Phase 3: Permission window)
+// Permission handlers (Phase 3: Permission window)
 // Check microphone and screen recording permissions
 ipcMain.handle('permissions:check', async () => {
   try {
@@ -708,7 +708,7 @@ ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
-// 🔐 Register evia:// protocol for deep linking (auth callback from web)
+// Register evia:// protocol for deep linking (auth callback from web)
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('evia', process.execPath, [process.argv[1]]);
@@ -722,7 +722,7 @@ if (process.env.NODE_ENV === 'development' && process.platform === 'win32') {
 }
 console.log('[Protocol] ✅ Registered evia:// protocol');
 
-// 🍎 macOS: Handle evia:// URLs when app is already running
+// macOS: Handle evia:// URLs when app is already running
 app.on('open-url', (event, url) => {
   event.preventDefault();
   console.log('[Protocol] 🔗 macOS open-url:', url);
@@ -734,7 +734,7 @@ app.on('open-url', (event, url) => {
   }
 });
 
-// 🎯 Handle auth callback from Frontend (Phase 4: HeaderController integration)
+// Handle auth callback from Frontend (Phase 4: HeaderController integration)
 async function handleAuthCallback(url: string) {
   try {
     const urlObj = new URL(url);
@@ -950,7 +950,7 @@ function ensureWindowsAnchorWindow() {
     movable: false,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    title: 'EVIA Anchor',
+    title: 'Taylos Anchor',
     webPreferences: {
       sandbox: true,
       contextIsolation: true,

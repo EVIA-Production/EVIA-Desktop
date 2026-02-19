@@ -148,14 +148,14 @@ const SubscriptionRequired: React.FC = () => {
       <button 
         className="close-button" 
         onClick={handleQuit}
-        aria-label="Quit EVIA"
+        aria-label="Quit Taylos"
       >
         ×
       </button>
 
       {/* Header Section */}
       <div className="header-section">
-        <div className="title">Welcome to EVIA</div>
+        <div className="title">Welcome to Taylos</div>
         <div className="subtitle">Your AI-powered sales coach</div>
       </div>
 

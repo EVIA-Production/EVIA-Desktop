@@ -1,8 +1,8 @@
 {
-  "name": "evia",
-  "productName": "EVIA",
+  "name": "taylos-desktop",
+  "productName": "Taylos",
   "version": "1.0.4",
-  "description": "Real-time AI Sales Assistant for Deal Closing",
+  "description": "Real-time AI sales assistant for deal closing",
   "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
   "main": "dist/main/main.js",

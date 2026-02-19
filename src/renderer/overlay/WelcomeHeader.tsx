@@ -137,18 +137,18 @@ const WelcomeHeader: React.FC = () => {
       <button 
         className="close-button" 
         onClick={handleQuit}
-        aria-label="Quit EVIA"
+        aria-label="Quit Taylos"
       >
         ×
       </button>
       
       {/* Header Section */}
       <div className="header-section">
-        <div className="title">Welcome to EVIA</div>
+        <div className="title">Welcome to Taylos</div>
         <div className="subtitle">Your AI-powered meeting assistant</div>
       </div>
 
-      {/* 🔧 FIX #13: Login button positioned in upper right (absolute) */}
+      {/* FIX #13: Login button positioned in upper right (absolute) */}
       <button 
         className="action-button action-button-absolute" 
         onClick={handleLogin}
@@ -166,7 +166,7 @@ const WelcomeHeader: React.FC = () => {
         <div className="option-content">
           <div className="option-title">Get Started</div>
           <div className="option-description">
-            Log in to access your EVIA account<br />
+            Log in to access your Taylos account<br />
             Your conversations are securely stored<br />
             Access insights and meeting notes
           </div>
@@ -175,7 +175,7 @@ const WelcomeHeader: React.FC = () => {
 
       {/* Footer with Privacy Policy */}
       <div className="footer">
-        EVIA keeps your personal data private —{' '}
+        Taylos keeps your personal data private —{' '}
         <span 
           className="footer-link" 
           onClick={handlePrivacyPolicy}

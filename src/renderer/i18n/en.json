@@ -21,11 +21,11 @@
       "reconnected": "Audio reconnected",
       "waitingForSpeech": "Waiting for speech...",
       "noInsightsYet": "No insights yet",
-      "listening": "EVIA is Listening",
+      "listening": "Taylos is listening",
       "copyTranscript": "Copy Transcript",
       "copiedTranscript": "Copied! Transcript",
-      "copyInsights": "Copy EVIA Analysis",
-      "copiedInsights": "Copied! EVIA Analysis",
+      "copyInsights": "Copy Taylos analysis",
+      "copiedInsights": "Copied! Taylos analysis",
       "speaker": "Speaker",
       "unknown": "Unknown",
       "local": "You",
@@ -34,12 +34,12 @@
       "followUps": "Follow-Ups"
     },
     "insights": {
-      "dummyInsight1": "EVIA is analyzing your conversation...",
+      "dummyInsight1": "Taylos is analyzing your conversation...",
       "dummyInsight2": "Insights are generated in real-time",
       "dummyInsight3": "Start listening to receive personalized insights"
     },
     "ask": {
-      "title": "Ask EVIA",
+      "title": "Ask Taylos",
       "placeholder": "Ask a question...",
       "submit": "Ask",
       "submitting": "Asking...",
@@ -54,7 +54,7 @@
       "answerLabel": "Answer"
     },
     "settings": {
-      "title": "EVIA",
+      "title": "Taylos",
       "accountNotLoggedIn": "Not Logged In",
       "accountLoggedInAs": "Logged in as",
       "language": "Language",

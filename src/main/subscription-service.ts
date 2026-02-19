@@ -1,7 +1,7 @@
 /**
  * Subscription Service
  * 
- * Handles checking subscription status from the EVIA backend.
+ * Handles checking subscription status from the Taylos backend.
  * Used to gate features based on subscription state.
  * 
  * Part of Stripe Integration - Agent 3: Desktop App Subscription Gating
@@ -17,7 +17,7 @@ function getBackendUrl(): string {
   // Default to production backend
   return process.env.NODE_ENV === 'development' 
     ? 'http://localhost:8000'
-    : 'https://backend.livelydesert-1db1c46d.westeurope.azurecontainerapps.io';
+    : 'https://api.taylos.ai';
 }
 
 /**

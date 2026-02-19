@@ -21,11 +21,11 @@
       "reconnected": "Audio wiederhergestellt",
       "waitingForSpeech": "Auf Sprache warten...",
       "noInsightsYet": "Noch keine Erkenntnisse",
-      "listening": "EVIA hört zu",
+      "listening": "Taylos hört zu",
       "copyTranscript": "Transkript kopieren",
       "copiedTranscript": "Transkript kopiert!",
-      "copyInsights": "EVIA Analyse kopieren",
-      "copiedInsights": "EVIA Analyse kopiert!",
+      "copyInsights": "Taylos Analyse kopieren",
+      "copiedInsights": "Taylos Analyse kopiert!",
       "speaker": "Sprecher",
       "unknown": "Unbekannt",
       "local": "Sie",
@@ -34,12 +34,12 @@
       "followUps": "Follow-Ups"
     },
     "insights": {
-      "dummyInsight1": "EVIA analysiert Ihr Gespräch...",
+      "dummyInsight1": "Taylos analysiert Ihr Gespräch...",
       "dummyInsight2": "Erkenntnisse werden in Echtzeit generiert",
       "dummyInsight3": "Beginnen Sie mit dem Zuhören, um persönliche Erkenntnisse zu erhalten"
     },
     "ask": {
-      "title": "EVIA fragen",
+      "title": "Taylos fragen",
       "placeholder": "Stellen Sie eine Frage...",
       "submit": "Fragen",
       "submitting": "Frage wird gestellt...",
@@ -48,13 +48,13 @@
       "copied": "Kopiert!",
       "noResponse": "Noch keine Antwort",
       "screenshot": "Screenshot aufgenommen",
-      "aiResponse": "EVIA-Antwort",
+      "aiResponse": "Taylos-Antwort",
       "thinking": "Denkt nach...",
       "questionLabel": "Frage",
       "answerLabel": "Antwort"
     },
     "settings": {
-      "title": "EVIA",
+      "title": "Taylos",
       "accountNotLoggedIn": "Nicht angemeldet",
       "accountLoggedInAs": "Angemeldet als",
       "language": "Sprache",
