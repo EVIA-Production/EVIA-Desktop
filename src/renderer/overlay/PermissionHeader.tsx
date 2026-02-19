@@ -128,7 +128,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
 
   // Note: handleContinue removed - auto-continue happens in checkPermissions
 
-  // 🔥 v1.0.0 LOGIC: Check permissions immediately and poll every 1 second
+  // v1.0.0 LOGIC: Check permissions immediately and poll every 1 second
   // This is the PROVEN working logic from the release that works
   useEffect(() => {
     console.log('[PermissionHeader] 🚀 Component mounted, starting permission checks');

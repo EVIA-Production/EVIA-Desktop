@@ -42,7 +42,7 @@ export const OfflineIndicator: React.FC = () => {
 const styles = {
   container: {
     position: 'fixed' as const,
-    top: '55px',  // 🔴 FIX: Moved down from 10px to 55px (below header ~47px + gap)
+    top: '55px',  // FIX: Moved down from 10px to 55px (below header ~47px + gap)
     left: '50%',
     transform: 'translateX(-50%)',
     zIndex: 999998,

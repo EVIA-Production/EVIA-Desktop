@@ -58,7 +58,7 @@ interface EviaBridge {
   };
   // Desktop capturer for screen/audio capture
   getDesktopCapturerSources: (opts: any) => Promise<any[]>;
-  // 🔐 Authentication via secure keytar storage
+  // Authentication via secure keytar storage
   auth: {
     login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => Promise<{ success: boolean; error?: string }>;
@@ -71,15 +71,15 @@ interface EviaBridge {
     refresh: () => Promise<{ success: boolean; error?: string }>;
     getStatus: () => Promise<{ success: boolean; status?: SubscriptionStatus; error?: string }>;
   };
-  // 🌐 Shell API for opening external URLs
+  // Shell API for opening external URLs
   shell: {
     openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
   };
-  // 🚪 App control
+  // App control
   app: {
     quit: () => Promise<void>;
   };
-  // 🔐 Permissions API (Phase 3)
+  // Permissions API (Phase 3)
   permissions: {
     check: () => Promise<{ microphone: string; screen: string }>;
     requestMicrophone: () => Promise<{ status: string; error?: string }>;

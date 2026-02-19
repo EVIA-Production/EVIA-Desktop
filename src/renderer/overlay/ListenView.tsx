@@ -39,9 +39,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   
-  // ═══════════════════════════════════════════════════════════════════════
+  // -----------------------------------------------------------------------
   // PARTIAL THROTTLING: Prevent UI flicker from too-frequent updates
-  // ═══════════════════════════════════════════════════════════════════════
+  // -----------------------------------------------------------------------
   const PARTIAL_THROTTLE_MS = 300; // Update partials at most every 300ms
   const lastPartialUpdate = useRef<Record<string, number>>({});
   const pendingPartialUpdates = useRef<Record<string, {text: string, speaker: number | null, utteranceId?: string}>>({});
@@ -60,10 +60,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
-  const autoScrollRef = useRef(true); // 🔧 FIX: Use ref to avoid re-render dependency issues
+  const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
-  const shouldScrollAfterUpdate = useRef(false); // 🔧 GLASS PARITY: Track if near bottom before update
+  const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
@@ -109,7 +109,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Sync autoScroll state with ref
   useEffect(() => {
     // Watchdog: if session is active but no transcript messages arrive for WATCHDOG_MS, warn the user
-    // 🔥 FIX: Only run watchdog when in transcript view (not insights view)
+    // FIX: Only run watchdog when in transcript view (not insights view)
     const WATCHDOG_MS = 8000; // consider stall if >8s without transcript while session active
     const CHECK_INTERVAL = 3000;
 
@@ -261,7 +261,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []);
 
-  // 🔧 GLASS PARITY: Scroll AFTER React renders (lines 178-185 in SttView.js)
+  // GLASS PARITY: Scroll AFTER React renders (lines 178-185 in SttView.js)
   // Glass uses setTimeout(fn, 0) to ensure DOM is fully updated before scrolling
   useEffect(() => {
     if (shouldScrollAfterUpdate.current && viewportRef.current) {
@@ -284,7 +284,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []);
 
-  // 🔧 FIX: Cleanup timer on unmount
+  // FIX: Cleanup timer on unmount
   useEffect(() => {
     return () => {
       console.log('[ListenView] 🛑 Stopping timer on unmount');
@@ -313,7 +313,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
         
-        // 🔧 FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
+        // FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
         setTranscripts([]);
         setInsights(null);
         setViewMode('transcript');
@@ -400,9 +400,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           utteranceId = String(rawUtterance);
         }
         
-        // ═══════════════════════════════════════════════════════════════
+        // -----------------------------------------------------------------
         // TURN-COMPLETE HANDLING: Create exactly ONE bubble
-        // ═══════════════════════════════════════════════════════════════
+        // -----------------------------------------------------------------
         // This comes from:
         // - Flux EndOfTurn (English)
         // - SentenceAccumulator complete sentence (German)
@@ -457,7 +457,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const container = viewportRef.current;
       if (container) {
-        // 🔧 GLASS PARITY FIX: Only check isAtBottom, exactly like Glass SttView.js line 120
+        // GLASS PARITY FIX: Only check isAtBottom, exactly like Glass SttView.js line 120
         // This ensures auto-scroll works when user is at bottom, regardless of autoScrollRef state
         const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
         shouldScrollAfterUpdate.current = isAtBottom;
@@ -514,9 +514,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
         // We display it as-is - no extraction needed!
         if (isPartial) {
-          // ═══════════════════════════════════════════════════════════════
+          // -----------------------------------------------------------------
           // THROTTLE PARTIAL UPDATES (prevent flicker)
-          // ═══════════════════════════════════════════════════════════════
+          // -----------------------------------------------------------------
           const speakerKey = `${speaker ?? 'unknown'}`;
           const now = Date.now();
           const lastUpdate = lastPartialUpdate.current[speakerKey] || 0;
@@ -532,7 +532,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           
           // Update timestamp
           lastPartialUpdate.current[speakerKey] = now;
-          // ═══════════════════════════════════════════════════════════════
+          // -----------------------------------------------------------------
           
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
@@ -548,7 +548,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text: text,  // ← Just use Deepgram's text as-is!
+              text: text,  // Just use Deepgram's text as-is!
               speaker,
               isFinal: false,
               isPartial: true,
@@ -656,7 +656,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
         console.log('[ListenView] 📡 Session state changed:', newState);
-        // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+        // CRITICAL FIX: Also update localStorage in THIS window's context
         // Each Electron window has its own localStorage, so we must sync it here!
         localStorage.setItem('evia_session_state', newState);
         setSessionState(newState);
@@ -848,7 +848,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           sessionState: derivedSessionState
         });
         
-        // 🔍 Check if we got actual insights (not stub "no transcripts" message)
+        // Check if we got actual insights (not stub "no transcripts" message)
         const hasTranscripts = fetchedInsights?.summary?.[0] !== "Keine Transkripte vorhanden für Analyse" &&
                               fetchedInsights?.summary?.[0] !== "No transcripts available for analysis";
         
@@ -860,10 +860,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: No transcripts yet (stub message received)`);
           if (attempt < MAX_RETRIES - 1) {
             console.log(`[ListenView] 🔄 Will retry in ${RETRY_DELAYS[attempt + 1]}ms...`);
-            // 🔥 CRITICAL: DON'T set stub insights - keep showing loading spinner
+            // CRITICAL: DON'T set stub insights - keep showing loading spinner
             fetchedInsights = null;
           } else {
-            // 🔥 CRITICAL: Even on max retries, DON'T show stub - keep null/loading
+            // CRITICAL: Even on max retries, DON'T show stub - keep null/loading
             console.log('[ListenView] ⏭️ Max retries reached, NO transcripts yet - keeping loading state');
             fetchedInsights = null;
           }
@@ -1007,7 +1007,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
     setViewMode(newMode);
     
-    // 🔧 FIX 2026-01-22: Always enable auto-scroll when switching to transcript view
+    // FIX 2026-01-22: Always enable auto-scroll when switching to transcript view
     if (newMode === 'transcript') {
       setAutoScroll(true);
       autoScrollRef.current = true;
@@ -1028,7 +1028,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setCopyState('idle');
     }
 
-    // 🔥 COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
+    // COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
     // This ensures insights reflect the latest transcript context, critical for real-time coaching
     if (newMode === 'insights') {
       console.log(`[ListenView] Switched to insights view - Fetching fresh insights`);
@@ -1070,7 +1070,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (currentGroup) groups.push(currentGroup);
           
           // Format: Speaker label once per group, texts as paragraphs
-          // 🔧 FIX 2026-01-22: Remove blank line after speaker label
+          // FIX 2026-01-22: Remove blank line after speaker label
           return groups.map(group => {
             const speakerLabel = group.speaker === 1 ? meLabel : themLabel;
             const joinedText = group.texts.join(' ');  // Join with space (same utterance)
@@ -1088,7 +1088,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             // Build insights text with translated sections
             let text = `${summaryHeader}:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\n${actionsHeader}:\n${insights.actions.join('\n')}`;
             
-            // 🔧 DEMO FIX: Only include Follow-Ups if session is NOT active (after meeting)
+            // DEMO FIX: Only include Follow-Ups if session is NOT active (after meeting)
             // During active recording, user only wants Summary/Topics/Actions copied
             if (insights.followUps && insights.followUps.length > 0 && !isSessionActive) {
               text += `\n\n${followUpsHeader}:\n${insights.followUps.join('\n')}`;
@@ -1149,8 +1149,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div> */}
           </div>
           <div className="bar-controls">
-            {/* 🎙️ DEBUG: WAV recorder button */}
-            {/* 🎯 TASK 1: Undo button (shown for 10s after auto-switch) */}
+            {/* DEBUG: WAV recorder button */}
+            {/* TASK 1: Undo button (shown for 10s after auto-switch) */}
             {showUndoButton && viewMode === 'insights' && (
               <button
                 className="toggle-button" 
@@ -1209,7 +1209,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
               transcripts.map((line, i) => {
-                // 🎨 GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
+                // GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
                 // null defaults to system (grey, left) for safety
                 const isMe = line.speaker === 1;
                 const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
@@ -1220,29 +1220,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     <div
                       className={`bubble ${isMe ? 'me' : 'them'} ${line.isPartial ? 'partial' : 'final'}`}
                       style={{
-                        // 🎨 GLASS PARITY: Highlight partial vs final directly in opacity
+                        // GLASS PARITY: Highlight partial vs final directly in opacity
                         opacity: line.isPartial ? 0.78 : 1,
-                        // 🎨 GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
+                        // GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                         background: isMe
                           ? 'rgba(0, 122, 255, 0.75)'  // Slightly more transparent mic blue
                           : 'rgba(255, 255, 255, 0.1)', // Glass .them color
                         color: isMe ? '#ffffff' : 'rgba(255, 255, 255, 0.9)',
-                        // 🎨 REMOVED inline alignment - let CSS handle it for proper specificity
-                        // 🎨 GLASS PARITY: Border radius (asymmetric per Glass)
+                        // REMOVED inline alignment - let CSS handle it for proper specificity
+                        // GLASS PARITY: Border radius (asymmetric per Glass)
                         borderRadius: '12px',
                         borderBottomLeftRadius: isThem ? '4px' : '12px',
                         borderBottomRightRadius: isMe ? '4px' : '12px',
                         padding: '8px 12px',
                         marginBottom: '8px',
                         maxWidth: '80%',
-                        // 🎨 GLASS PARITY: iMessage-style width shrinks to content, not full-width
+                        // GLASS PARITY: iMessage-style width shrinks to content, not full-width
                         width: 'fit-content',
                         wordWrap: 'break-word',
                         fontSize: '13px',
                         lineHeight: '1.5',
                       }}
                     >
-                      {/* 🔧 GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
+                      {/* GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
                       <span className="bubble-text">{line.text}</span>
                     </div>
                   </div>
@@ -1261,7 +1261,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               <div style={{ padding: '0px 12px 4px 12px' }}>
               {/* Summary Section */}
               <div style={{ marginBottom: '4px' }}>
-                {/* 🔧 FIX #33: Added marginTop:0 to eliminate browser default spacing above "Zusammenfassung" */}
+                {/* FIX #33: Added marginTop:0 to eliminate browser default spacing above "Zusammenfassung" */}
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
                   {i18n.t('overlay.listen.summary')}
                 </h3>
@@ -1270,16 +1270,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     key={`summary-${idx}`}
                     onClick={() => handleInsightClick(point)}
                     style={{ 
-                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
-                      lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
+                      fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
+                      lineHeight: '1.3',   // FIX #16: Tighter line height
                       marginBottom: '0px',
-                      marginTop: '0px',    // 🔧 FIX #16: Zero margins
+                      marginTop: '0px',    // FIX #16: Zero margins
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '4px 12px',  // 🔧 FIX #16: Reduce vertical padding
+                      padding: '4px 12px',  // FIX #16: Reduce vertical padding
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -1312,16 +1312,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     key={`bullet-${idx}`}
                     onClick={() => handleInsightClick(bullet)}
                     style={{ 
-                      fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
-                      lineHeight: '1.3',   // 🔧 FIX #16: Tighter line height
+                      fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
+                      lineHeight: '1.3',   // FIX #16: Tighter line height
                       marginBottom: '0px',
-                      marginTop: '0px',    // 🔧 FIX #16: Zero margins
+                      marginTop: '0px',    // FIX #16: Zero margins
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '4px 12px',  // 🔧 FIX #16: Reduce vertical padding
+                      padding: '4px 12px',  // FIX #16: Reduce vertical padding
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -1350,10 +1350,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
                 {insights.actions.map((action, idx) => {
-                  // 🔥 FIX: Only display title (before ":"), but send full question when clicked
-                  // Backend now returns format: "💬 Title: Answer text..."
-                  // Button should only show "💬 Title"
-                  // When clicked, send "💬 Title" (the question) to Ask bar
+                  // FIX: Only display title (before ":"), but send full question when clicked
+                  // Backend now returns format: "Title: Answer text..."
+                  // Button should only show "Title"
+                  // When clicked, send "Title" (the question) to Ask bar
                   const colonIndex = action.indexOf(':');
                   const displayText = colonIndex > -1 ? action.substring(0, colonIndex) : action;
                   const questionText = displayText; // Send the title/question to Ask bar
@@ -1363,7 +1363,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                       key={`action-${idx}`}
                       onClick={() => handleInsightClick(questionText)}
                       style={{ 
-                        fontSize: '12px',    // 🔧 FIX #20: Increased from 11px per user feedback
+                        fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
                         lineHeight: '1.4', 
                         marginBottom: '3px',
                         color: 'rgba(255, 255, 255, 0.85)',
@@ -1390,7 +1390,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 })}
               </div>
 
-              {/* 🔧 FIX #3: Follow-Ups Section (Glass parity) - Only shown when recording is complete */}
+              {/* FIX #3: Follow-Ups Section (Glass parity) - Only shown when recording is complete */}
               {!isSessionActive && insights.followUps && insights.followUps.length > 0 && (
                 <div style={{ marginTop: '8px' }}>
                   <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>

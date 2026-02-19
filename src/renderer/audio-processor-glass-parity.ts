@@ -410,7 +410,7 @@ let micWsInstance: any = null;
 let micAudioContext: AudioContext | null = null;
 let micAudioProcessor: ScriptProcessorNode | null = null;
 let micStream: MediaStream | null = null;
-let micWsDisconnectedLogged: boolean = false; // 🔧 FIX: Prevent spam logging
+let micWsDisconnectedLogged: boolean = false; // FIX: Prevent spam logging
 
 // System audio state  
 let systemWsInstance: any = null;
@@ -419,7 +419,7 @@ let systemAudioProcessor: ScriptProcessorNode | null = null;
 let systemStream: MediaStream | null = null;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 🎯 AEC (Acoustic Echo Cancellation) - Glass Parity with Speex WASM
+// AEC (Acoustic Echo Cancellation) - Glass Parity with Speex WASM
 // ──────────────────────────────────────────────────────────────────────────────
 let aecModPromise: Promise<any> | null = null;
 let aecMod: any = null;
@@ -477,7 +477,7 @@ async function getAec(): Promise<any> {
       const createAecModule = aecModule.default || aecModule;
       const M: any = await createAecModule();
       
-      // 🔧 STEP 2: Verify heap buffers exist (critical for AEC to work)
+      // STEP 2: Verify heap buffers exist (critical for AEC to work)
       if (!M.HEAPU8) {
         console.error('[AEC] ❌ WASM loaded but HEAPU8 buffer missing!');
         return null;
@@ -580,7 +580,7 @@ function base64ToFloat32Array(base64: string): Float32Array {
  * @returns Processed audio with echo removed (Float32Array, 2400 samples)
  */
 function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
-  // 🔧 STEP 2: Enhanced AEC verification - check module, instance, AND heap
+  // STEP 2: Enhanced AEC verification - check module, instance, AND heap
   if (!aecMod || !aecPtr || !aecMod.HEAPU8 || !aecMod.HEAP16) {
     // Only warn once to avoid log spam (use window instead of global for browser/renderer)
     const globalAny = (typeof window !== 'undefined' ? window : global) as any;
@@ -779,7 +779,7 @@ function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
 // Glass parity: Setup microphone processing with ScriptProcessorNode + AEC
 async function setupMicProcessing(stream: MediaStream) {
   // ──────────────────────────────────────────────────────────────────────────
-  // 🎯 STEP 2: Load AEC WASM module first (Glass parity) - with enhanced verification
+  // STEP 2: Load AEC WASM module first (Glass parity) - with enhanced verification
   // ──────────────────────────────────────────────────────────────────────────
   try {
     const mod = await getAec();
@@ -787,7 +787,7 @@ async function setupMicProcessing(stream: MediaStream) {
       // Create AEC instance with verified parameters
       aecPtr = mod.newPtr(160, 1600, 24000, 1);
       
-      // 🔧 STEP 2: Verify instance was actually created
+      // STEP 2: Verify instance was actually created
       if (aecPtr && aecPtr > 0) {
         console.log('[AEC] ✅ AEC instance created (ptr=' + aecPtr + ', frameSize=160, filterLength=1600, sampleRate=24000)');
         console.log('[AEC] ✅ Heap buffers verified: HEAPU8=' + !!mod.HEAPU8 + ', HEAP16=' + !!mod.HEAP16);
@@ -829,7 +829,7 @@ async function setupMicProcessing(stream: MediaStream) {
   let chunkCount = 0; // Track chunks sent for logging
   
   micProcessor.onaudioprocess = (e) => {
-    // 🔥 CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
+    // CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
     // Log diagnostic info instead
     if (frameCounter === 0) {
       console.log('[MIC-DIAGNOSTIC] 🎤 onaudioprocess FIRING! First frame received!');
@@ -933,7 +933,7 @@ async function setupMicProcessing(stream: MediaStream) {
       // Solution: Send ALL audio to Deepgram, let their VAD handle silence detection
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 STEP 5: Send to backend (pcm16 already converted above)
+      // STEP 5: Send to backend (pcm16 already converted above)
       // ──────────────────────────────────────────────────────────────────────
       
       // 🎙️ AUDIO DEBUG: Save chunk for later WAV export
@@ -1012,7 +1012,7 @@ async function setupMicProcessing(stream: MediaStream) {
   console.log('[AudioCapture] 🔊 Sample rate:', micAudioContext.sampleRate);
   console.log('[AudioCapture] 🔊 Processor connected:', !!micProcessor);
   
-  // 🔥 CRITICAL: Forward diagnostics to Ask console
+  // CRITICAL: Forward diagnostics to Ask console
   try {
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
@@ -1056,7 +1056,7 @@ function setupSystemAudioProcessing(stream: MediaStream) {
       const pcm16 = convertFloat32ToInt16(float32Chunk);
       
       // ──────────────────────────────────────────────────────────────────────
-      // 🎯 AEC INTEGRATION: Store system audio in buffer for AEC reference
+      // AEC INTEGRATION: Store system audio in buffer for AEC reference
       // ──────────────────────────────────────────────────────────────────────
       // Convert PCM16 to base64 for storage (Glass parity)
       const arrayBuffer = pcm16.buffer;
@@ -1118,7 +1118,7 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   return { context: sysAudioContext, processor: sysProcessor };
 }
 
-// ✅ v1.0.0 FIX: No IPC routing needed for mic audio
+// v1.0.0 FIX: No IPC routing needed for mic audio
 // EVIA uses renderer-based WebSockets (direct send from onaudioprocess)
 
 // Glass parity: Start capture with explicit permission checks
@@ -1192,7 +1192,7 @@ export async function startCapture(includeSystemAudio = false) {
   // FIX: Reset disconnection flag when starting new capture
   micWsDisconnectedLogged = false;
   
-  // 🔥 GLASS PARITY FIX: Call getUserMedia FIRST (like Glass does at line 453)
+  // GLASS PARITY FIX: Call getUserMedia FIRST (like Glass does at line 453)
   // This prevents the hang that was occurring when we tried to connect WebSocket before getUserMedia
   // Step 1: Request microphone permission (MOVED TO TOP!)
   try {
@@ -1236,7 +1236,7 @@ export async function startCapture(includeSystemAudio = false) {
       settings: t.getSettings()
     })));
     
-    // 🔧 CRITICAL DIAGNOSTIC: Log device info to Ask console
+    // CRITICAL DIAGNOSTIC: Log device info to Ask console
     if (audioTracks.length > 0) {
       const track = audioTracks[0];
       const settings = track.getSettings();
@@ -1321,7 +1321,7 @@ export async function startCapture(includeSystemAudio = false) {
       if (eviaIpc?.send) eviaIpc.send('debug-log', errorMsg);
     } catch {}
     
-    // 🔧 FIX: Check if chat_id was cleared (signal for 403/404)
+    // FIX: Check if chat_id was cleared (signal for 403/404)
     const currentChatId = localStorage.getItem('current_chat_id');
     if (!currentChatId) {
       console.log('[AudioCapture] Chat ID was cleared - auto-creating new chat...');
@@ -1376,7 +1376,7 @@ export async function startCapture(includeSystemAudio = false) {
         } catch (error) {
           console.error('[AudioCapture] System WebSocket connect failed:', error);
           
-          // 🔧 FIX: Check if chat_id was cleared (signal for 403/404)
+          // FIX: Check if chat_id was cleared (signal for 403/404)
           const currentChatId = localStorage.getItem('current_chat_id');
           if (!currentChatId) {
             console.log('[AudioCapture] Chat ID was cleared - using newly created chat...');
@@ -1402,7 +1402,7 @@ export async function startCapture(includeSystemAudio = false) {
         }
         
       // ════════════════════════════════════════════════════════════════════════
-      // 🪟 WINDOWS: Use Electron's native loopback via getDisplayMedia (GLASS PARITY!)
+      // WINDOWS: Use Electron's native loopback via getDisplayMedia (GLASS PARITY!)
       // Glass uses this approach: getDisplayMedia({ video: true, audio: true })
       // which triggers Electron's setDisplayMediaRequestHandler with audio: 'loopback'
       // ════════════════════════════════════════════════════════════════════════
@@ -1467,7 +1467,7 @@ export async function startCapture(includeSystemAudio = false) {
         }
       }
       // ════════════════════════════════════════════════════════════════════════
-      // 🍎 macOS: Use SystemAudioDump binary (unchanged)
+      // macOS: Use SystemAudioDump binary (unchanged)
       // ════════════════════════════════════════════════════════════════════════
       else if (isMac) {
         if (!eviaApi?.systemAudio) {
@@ -1655,7 +1655,7 @@ export async function stopCapture(captureHandle?: any) {
       systemStream = null;
     }
     
-    // 🔧 FIX: Properly close system WebSocket (disconnect AND remove from map to prevent double handlers)
+    // FIX: Properly close system WebSocket (disconnect AND remove from map to prevent double handlers)
     if (systemWsInstance) {
       const chatId = localStorage.getItem('current_chat_id') || '';
       closeWebSocketInstance(chatId, 'system');
@@ -1663,7 +1663,7 @@ export async function stopCapture(captureHandle?: any) {
     }
     
     // ──────────────────────────────────────────────────────────────────────
-    // 🎯 AEC CLEANUP: Dispose AEC instance and clear system audio buffer
+    // AEC CLEANUP: Dispose AEC instance and clear system audio buffer
     // ──────────────────────────────────────────────────────────────────────
     disposeAec();
     systemAudioBuffer = [];
@@ -1813,7 +1813,7 @@ export async function startCaptureWithStreams(
   const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
 
   // ════════════════════════════════════════════════════════════════════════
-  // 🪟 WINDOWS: Use native loopback via getDisplayMedia (GLASS PARITY!)
+  // WINDOWS: Use native loopback via getDisplayMedia (GLASS PARITY!)
   // ════════════════════════════════════════════════════════════════════════
   if (isWindows) {
     try {

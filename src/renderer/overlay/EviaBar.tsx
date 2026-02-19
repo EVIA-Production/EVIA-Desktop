@@ -158,7 +158,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     listenStatusRef.current = listenStatus;
   }, [listenStatus]);
 
-  // 🔧 SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
+  // SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
   // This allows AskView to send the correct session_state to backend
   useEffect(() => {
     const eviaIpc = (window as any).evia?.ipc;
@@ -190,7 +190,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, []);
 
-  // 🔧 FIX #7: Listen for error blink trigger from main process
+  // FIX #7: Listen for error blink trigger from main process
   useEffect(() => {
     const handleErrorBlink = () => {
       console.log('[EviaBar] ⚠️ Triggering error blink animation');
@@ -269,7 +269,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, []);
 
-  // 🔧 FIX: Reset listen button state when language is changed or session is cleared
+  // FIX: Reset listen button state when language is changed or session is cleared
   useEffect(() => {
     const handleLanguageChanged = () => {
       console.log('[EviaBar] 🌐 Language changed - resetting listen button to "before" state');
@@ -283,7 +283,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       setIsListenActive(false);
     };
 
-    // 🔧 TODO #9 FIX: Handle graceful shutdown - complete active session before quit
+    // TODO #9 FIX: Handle graceful shutdown - complete active session before quit
     const handleBeforeQuit = async () => {
       console.log('[EviaBar] 🚪 App quitting - completing active session...');
       
@@ -491,7 +491,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
       console.log('[EviaBar] Stop → Done: Window stays visible');
       
-      // 🔥 FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
+      // FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
       try {
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
@@ -522,7 +522,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         console.error('[EviaBar] ❌ Error calling /session/pause:', error);
       }
       
-      // 🔥 CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
+      // CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
       localStorage.setItem('evia_session_state', 'after');
       console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "after" (BEFORE React state)');
       
@@ -531,7 +531,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       onToggleListening();
       // Window remains visible for insights
     } else if (listenStatus === 'after') {
-      // 🔧 FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
+      // FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
       console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
       
       // 🆕 BACKEND INTEGRATION: Call /session/complete BEFORE hiding windows
@@ -579,7 +579,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       // Broadcast session-closed event so Ask can clear its state
       (window as any).evia?.ipc?.send?.('session:closed');
 
-      // 🔧 FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
+      // FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
       // This ensures each "Listen → Done" cycle creates a separate session
       localStorage.removeItem('current_chat_id');
       console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
@@ -605,7 +605,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       settingsHideTimerRef.current = null;
     }
     
-    // 🔧 FIX #1: Calculate actual 3-dot button position for settings window
+    // FIX #1: Calculate actual 3-dot button position for settings window
     // This fixes the issue where English header is narrower but settings position stays the same
     const settingsButton = document.querySelector('.evia-settings-button') as HTMLElement;
     if (settingsButton) {
@@ -629,7 +629,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
   const hideSettingsWindow = () => {
     console.log('[EviaBar] hideSettingsWindow called - starting 50ms timer');
-    // 🔧 TASK: Reduce delay from 200ms to 50ms for more responsive hide/show (per user feedback)
+    // TASK: Reduce delay from 200ms to 50ms for more responsive hide/show (per user feedback)
     // Hide after 50ms delay (allows mouse to move to settings panel)
     if (settingsHideTimerRef.current) {
       clearTimeout(settingsHideTimerRef.current);

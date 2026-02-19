@@ -20,7 +20,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [isInvisible, setIsInvisible] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
 
-  // 🔧 FIX: Track session state to disable preset changes during recording
+  // FIX: Track session state to disable preset changes during recording
   useEffect(() => {
     const checkSessionState = () => {
       const sessionState = localStorage.getItem('evia_session_state');
@@ -34,7 +34,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc) {
       eviaIpc.on('session-state-changed', (newState: string) => {
-        // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+        // CRITICAL FIX: Also update localStorage in THIS window's context
         // Each Electron window has its own localStorage, so we must sync it here!
         localStorage.setItem('evia_session_state', newState);
         setIsSessionActive(newState === 'during');
@@ -77,7 +77,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     fetchAccountInfo();
   }, []);
 
-  // 🔧 FIX ISSUE #2: Load auto-update setting on mount
+  // FIX ISSUE #2: Load auto-update setting on mount
   useEffect(() => {
     const loadAutoUpdateSetting = async () => {
       try {
@@ -94,7 +94,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     loadAutoUpdateSetting();
   }, []);
 
-  // 🔧 FIX ISSUE #2.1: Fetch presets from backend on mount
+  // FIX ISSUE #2.1: Fetch presets from backend on mount
   useEffect(() => {
     const fetchPresets = async () => {
       try {
@@ -213,7 +213,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
-  // 🔧 FIX ISSUE #2: Persist auto-update toggle via IPC
+  // FIX ISSUE #2: Persist auto-update toggle via IPC
   const handleToggleAutoUpdate = async () => {
     const newState = !autoUpdateEnabled;
     setAutoUpdateEnabled(newState);
@@ -234,7 +234,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const handleMoveLeft = () => {
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
-      // 🔧 FIX: Increased from -10 to -50 to match arrow key movement distance
+      // FIX: Increased from -10 to -50 to match arrow key movement distance
       eviaWindows.nudgeHeader(-50, 0);
     }
   };
@@ -242,7 +242,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const handleMoveRight = () => {
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.nudgeHeader) {
-      // 🔧 FIX: Increased from 10 to 50 to match arrow key movement distance
+      // FIX: Increased from 10 to 50 to match arrow key movement distance
       eviaWindows.nudgeHeader(50, 0);
     }
   };
@@ -252,7 +252,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     setIsInvisible(newState);
     console.log('[SettingsView] 👻 Invisibility:', newState);
     
-    // 🔧 NEW: Implement invisibility via IPC
+    // NEW: Implement invisibility via IPC
     try {
       const eviaWindows = (window as any).evia?.windows;
       if (eviaWindows?.setClickThrough) {
@@ -265,7 +265,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   const handlePresetSelect = async (preset: any) => {
-    // 🔒 PREVENT preset changes during active recording session
+    // PREVENT preset changes during active recording session
     if (isSessionActive) {
       console.warn('[SettingsView] ⚠️ Cannot change preset during active recording session');
       console.warn('[SettingsView] ⚠️ Please stop recording first, then change preset');
@@ -340,7 +340,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handleEditShortcuts = () => {
     console.log('[SettingsView] ⌨️ Edit Shortcuts clicked');
-    // 🔧 NEW: Open shortcuts window
+    // NEW: Open shortcuts window
     const eviaWindows = (window as any).evia?.windows;
     if (eviaWindows?.show) {
       eviaWindows.show('shortcuts');

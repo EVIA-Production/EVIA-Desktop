@@ -91,7 +91,7 @@ export class HeaderController {
     const token = await keytar.getPassword('evia', 'token');
     let hasToken = !!token;
     
-    // 🔐 FIX: Validate token is not expired
+    // FIX: Validate token is not expired
     if (hasToken && token) {
       try {
         const parts = token.split('.');
@@ -133,13 +133,13 @@ export class HeaderController {
     
     if (process.platform === 'darwin') {
       try {
-        // 🔥 FIX: Force fresh permission check (bypass macOS cache)
+        // FIX: Force fresh permission check (bypass macOS cache)
         micPermission = systemPreferences.getMediaAccessStatus('microphone');
         screenPermission = systemPreferences.getMediaAccessStatus('screen');
         
         console.log('[HeaderController] 🔍 Permission check - Mic:', micPermission, '| Screen:', screenPermission, '| Completed flag:', this.permissionsCompleted);
         
-        // 🔥 FIX: Only reset permissionsCompleted if NEITHER permission is granted
+        // FIX: Only reset permissionsCompleted if NEITHER permission is granted
         // This prevents false resets when macOS cache is stale but permissions are actually granted
         // We trust the user clicked "Continue" in permission window, so only reset if both are lost
         if (this.permissionsCompleted) {
@@ -177,7 +177,7 @@ export class HeaderController {
    * Order: auth → subscription → permissions → ready
    */
   private determineNextState(data: StateData): AppState {
-    // 🔧 UI IMPROVEMENT: ALWAYS check token, even in dev mode
+    // UI IMPROVEMENT: ALWAYS check token, even in dev mode
     // If no token, show welcome (no flicker)
     if (!data.hasToken) {
       console.log('[HeaderController] 🔐 No token found - showing welcome screen');
@@ -191,7 +191,7 @@ export class HeaderController {
       return 'subscription_required';
     }
     
-    // 🔧 DEV MODE: Skip ONLY permission checks in development
+    // DEV MODE: Skip ONLY permission checks in development
     // Still validate token and subscription above
     const isDev = process.env.NODE_ENV === 'development';
     if (isDev) {
@@ -260,7 +260,7 @@ export class HeaderController {
         break;
         
       case 'ready':
-        // 🔐 CRITICAL: Validate auth before showing header
+        // CRITICAL: Validate auth before showing header
         console.log('[HeaderController] 🔐 Validating auth before showing header...');
         const isValid = await this.validateAuthentication();
         
@@ -512,7 +512,7 @@ export class HeaderController {
   public async onAppActivated() {
     console.log('[HeaderController] 🔄 App activated, validating auth and permissions...');
     
-    // 🔐 CRITICAL: Validate auth first (before permission checks)
+    // CRITICAL: Validate auth first (before permission checks)
     if (this.currentState === 'ready') {
       console.log('[HeaderController] 🔐 Checking if JWT is still valid...');
       const isValid = await this.validateAuthentication();
@@ -540,7 +540,7 @@ export class HeaderController {
       return;
     }
     
-    // 🔥 AGGRESSIVE POLLING: Check every 500ms for up to 5 seconds
+    // AGGRESSIVE POLLING: Check every 500ms for up to 5 seconds
     // macOS cache can take 1-3 seconds to refresh after relaunch
     // Wait for STABLE state (same value 2x in a row) to avoid transient cache issues
     console.log('[HeaderController] 🔄 Starting aggressive permission polling (every 500ms, max 5s)...');

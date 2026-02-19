@@ -2,9 +2,9 @@ export type StreamAskParams = {
   baseUrl: string
   chatId: number
   prompt: string
-  transcript?: string          // 🔧 NEW: Full transcript context for backend
+  transcript?: string          // NEW: Full transcript context for backend
   language: 'de' | 'en'
-  sessionState?: 'before' | 'during' | 'after'  // 🔧 NEW: Session state for context-aware responses
+  sessionState?: 'before' | 'during' | 'after'  // NEW: Session state for context-aware responses
   token: string
   tokenType?: string
   signal?: AbortSignal
@@ -25,7 +25,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     'Content-Type': 'application/json'
   }
   
-  // 🔧 GLASS PARITY: Send transcript as main prompt, question as prompt_override
+  // GLASS PARITY: Send transcript as main prompt, question as prompt_override
   // Backend expects: prompt = transcript context, prompt_override = user question
   const payload: any = { 
     chat_id: chatId, 
@@ -34,7 +34,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     stream: true 
   }
   
-  // 🔧 SESSION STATE: Add session state for context-aware responses
+  // SESSION STATE: Add session state for context-aware responses
   if (sessionState) {
     payload.session_state = sessionState;
     console.log('[evia-ask-stream] 🎯 Session state:', sessionState);
@@ -68,7 +68,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
   }
 
   ;(async () => {
-    // 🔥 CRITICAL FIX: Retry logic for transient errors (Ask endpoint)
+    // CRITICAL FIX: Retry logic for transient errors (Ask endpoint)
     const MAX_RETRIES = 2; // Shorter for streaming (user expects fast response)
     const RETRY_DELAY = 1500;
     

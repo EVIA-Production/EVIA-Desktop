@@ -31,9 +31,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseContainerRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);  // 🔧 UI IMPROVEMENT: Auto-focus input
-  const lastResponseRef = useRef<string>('');  // 🔧 UI IMPROVEMENT: Track when content actually changes
-  const storedContentHeightRef = useRef<number | null>(null);  // 🔧 CRITICAL: Store content-based height to restore after arrow key movement
+  const inputRef = useRef<HTMLInputElement>(null);  // UI IMPROVEMENT: Auto-focus input
+  const lastResponseRef = useRef<string>('');  // UI IMPROVEMENT: Track when content actually changes
+  const storedContentHeightRef = useRef<number | null>(null);  // CRITICAL: Store content-based height to restore after arrow key movement
   const responseBufferRef = useRef<string>('');
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
@@ -52,11 +52,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     responseIndexRef.current = responseIndex;
   }, [responseIndex]);
 
-  // 🎯 UX IMPROVEMENT: Helper function to focus input with retry (NO DELAYS - instant focus)
+  // UX IMPROVEMENT: Helper function to focus input with retry (NO DELAYS - instant focus)
   const focusInputWithRetry = useCallback(() => {
     if (!inputRef.current) return;
     
-    // ✅ INSTANT focus (no setTimeout delays)
+    // INSTANT focus (no setTimeout delays)
     requestAnimationFrame(() => {
         inputRef.current?.focus();
         console.log('[AskView] ⌨️ Auto-focused input (attempt 1)');
@@ -72,7 +72,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
   }, []);
 
-  // 🔧 SESSION STATE: Track current session state for context-aware responses
+  // SESSION STATE: Track current session state for context-aware responses
   // Values: 'before' (pre-call), 'during' (active call), 'after' (post-call)
   // Synced from EviaBar via IPC, with localStorage as backup for initial state
   const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>(() => {
@@ -95,7 +95,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Note: marked v9+ uses marked.use() for extensions, but we'll highlight after render
   }, []);
 
-  // 🔥 GLASS PARITY: RAF-throttled ResizeObserver (not time-based debounce)
+  // GLASS PARITY: RAF-throttled ResizeObserver (not time-based debounce)
   // Glass uses requestAnimationFrame to throttle measurements (at most once per frame)
   // CRITICAL: Final measurement happens in onDone(), this is just for live updates
   useEffect(() => {
@@ -105,7 +105,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     let rafThrottled = false;
 
     resizeObserverRef.current = new ResizeObserver(entries => {
-      // 🔥 GLASS PATTERN: RAF throttling prevents measurement spam
+      // GLASS PATTERN: RAF throttling prevents measurement spam
       if (rafThrottled) return;
       
       rafThrottled = true;
@@ -160,7 +160,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   }, [response, isStreaming]);
 
-  // 🔧 UI IMPROVEMENT: Update lastResponseRef when streaming completes
+  // UI IMPROVEMENT: Update lastResponseRef when streaming completes
   // This allows ResizeObserver to know when content has actually changed vs just window moving
   useEffect(() => {
     if (!isStreaming && response) {
@@ -170,7 +170,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   }, [isStreaming, response]);
 
-  // 🔧 GLASS PARITY FIX: Listen for single-step IPC send-and-submit (from ListenView insight clicks)
+  // GLASS PARITY FIX: Listen for single-step IPC send-and-submit (from ListenView insight clicks)
   useEffect(() => {
     const eviaIpc = (window as any).evia?.ipc;
     if (!eviaIpc) {
@@ -179,13 +179,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
 
     const handleSendAndSubmit = (payload: string | { text: string, sessionState?: string }) => {
-      // 🔧 FIX: Handle both old format (string) and new format (object with sessionState)
+      // FIX: Handle both old format (string) and new format (object with sessionState)
       const incomingPrompt = typeof payload === 'string' ? payload : payload.text;
       const explicitSessionState = typeof payload === 'object' ? payload.sessionState : undefined;
       
       console.log('[AskView] 📥 Received send-and-submit via IPC:', incomingPrompt.substring(0, 50));
       
-      // 🔧 FIX: If session state explicitly provided, update it BEFORE starting stream
+      // FIX: If session state explicitly provided, update it BEFORE starting stream
       // This ensures backend receives correct session_state (especially 'after' from Insights clicks)
       if (explicitSessionState) {
         console.log('[AskView] 🎯 Updating session state from Insights:', explicitSessionState);
@@ -198,7 +198,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Auto-submit after state updates (next tick)
       setTimeout(() => {
         startStream(false, incomingPrompt);
-        // 🔧 FIX: Focus input AFTER stream starts so user can ask follow-up questions
+        // FIX: Focus input AFTER stream starts so user can ask follow-up questions
         // Wait for window to be visible and expanded before focusing
         setTimeout(() => {
           focusInputWithRetry();
@@ -206,7 +206,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }, 50);
     };
 
-    // 🔧 FIX #27: Clear response when session FULLY closes (Fertig pressed, not just Stopp)
+    // FIX #27: Clear response when session FULLY closes (Fertig pressed, not just Stopp)
     const handleSessionClosed = () => {
       console.log('[AskView] 🛑 Session closed (Fertig pressed) - clearing all state');
       setResponse('');
@@ -221,7 +221,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Window will be hidden by EviaBar, no need to resize
     };
 
-    // 🔧 DESKTOP SENTINEL: Abort streaming if language toggle occurs
+    // DESKTOP SENTINEL: Abort streaming if language toggle occurs
     const handleAbortStream = () => {
       console.log('[AskView] 🛑 Received abort-ask-stream - stopping stream');
       if (streamRef.current?.abort) {
@@ -233,7 +233,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.log('[AskView] ✅ Stream aborted due to language toggle');
     };
 
-    // 🔧 FIX: Clear session on language change (clears question, response, etc.)
+    // FIX: Clear session on language change (clears question, response, etc.)
     const handleClearSession = () => {
       console.log('[AskView] 🧹 Received clear-session - clearing all state (language change or session end)');
       // Abort any active stream first
@@ -257,16 +257,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.log('[AskView] ✅ Session cleared');
     };
 
-    // 🔧 SESSION STATE: Listen for session state changes from EviaBar
+    // SESSION STATE: Listen for session state changes from EviaBar
     const handleSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
       console.log('[AskView] 🎯 Session state changed:', newState);
-      // 🔴 CRITICAL FIX: Also update localStorage in THIS window's context
+      // CRITICAL FIX: Also update localStorage in THIS window's context
       // Each Electron window has its own localStorage, so we must sync it here!
       localStorage.setItem('evia_session_state', newState);
       setSessionState(newState);
     };
 
-    // 🔧 FIX: Clear state on language change (fixes Test 3 failure)
+    // FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
       console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
       
@@ -325,14 +325,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);
     eviaIpc.on('session:closed', handleSessionClosed);
     eviaIpc.on('abort-ask-stream', handleAbortStream);
-    eviaIpc.on('clear-session', handleClearSession);  // 🔧 NEW: Listen for clear-session
+    eviaIpc.on('clear-session', handleClearSession);  // NEW: Listen for clear-session
     eviaIpc.on('session-state-changed', handleSessionStateChanged);
-    eviaIpc.on('language-changed', handleLanguageChanged);  // 🔧 FIX: Listen for language-changed
+    eviaIpc.on('language-changed', handleLanguageChanged);  // FIX: Listen for language-changed
     eviaIpc.on('shortcut:next-step', handleShortcutNextStep);
     eviaIpc.on('shortcut:previous-response', handleShortcutPreviousResponse);
     eviaIpc.on('shortcut:next-response', handleShortcutNextResponse);
     
-    // 🔧 CRITICAL: Register debug-log listener to show Listen window logs here
+    // CRITICAL: Register debug-log listener to show Listen window logs here
     // (since F12 doesn't work in Listen window due to volume controls)
     eviaIpc.on('debug-log', (message: string) => {
       console.log('[🔊 LISTEN WINDOW]', message);
@@ -350,21 +350,21 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       eviaIpc.off('shortcut:next-step', handleShortcutNextStep);
       eviaIpc.off('shortcut:previous-response', handleShortcutPreviousResponse);
       eviaIpc.off('shortcut:next-response', handleShortcutNextResponse);
-      eviaIpc.off('debug-log');  // 🔧 Clean up debug-log listener
+      eviaIpc.off('debug-log');  // Clean up debug-log listener
       console.log('[AskView] 🧹 Cleaning up IPC listeners');
     };
   }, []);
 
-  // 🔧 UI IMPROVEMENT: Auto-focus input when window becomes visible
-  // 🐛 CRITICAL FIX: Window persists between opens (not unmounted), so useEffect with []
+  // UI IMPROVEMENT: Auto-focus input when window becomes visible
+  // CRITICAL FIX: Window persists between opens (not unmounted), so useEffect with []
   // only runs once. Must listen to window focus AND visibility changes.
   useEffect(() => {
-    // 🔥 CRITICAL: Listen to visibility change (when window shows/hides)
+    // CRITICAL: Listen to visibility change (when window shows/hides)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         console.log('[AskView] 👁️ Window became visible, waiting for animation...');
         
-        // 🔧 ASYNC FIX: Use transitionend event instead of setTimeout
+        // ASYNC FIX: Use transitionend event instead of setTimeout
         // Wait for actual window animation to complete, not arbitrary delay
         const waitForAnimation = () => {
           const askContainer = document.querySelector('.ask-view-container');
@@ -396,7 +396,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     };
     
-    // 🔥 CRITICAL: Listen to window focus (when user clicks window or Cmd+Tab back)
+    // CRITICAL: Listen to window focus (when user clicks window or Cmd+Tab back)
     const handleWindowFocus = () => {
       console.log('[AskView] 🎯 Window gained focus, focusing input');
       focusInputWithRetry();
@@ -418,7 +418,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     };
   }, [focusInputWithRetry]);
 
-  // 🔧 FIX #7: Blink header frame red twice to indicate error
+  // FIX #7: Blink header frame red twice to indicate error
   const blinkHeaderRed = () => {
     // Send IPC message to main process to blink header
     try {
@@ -432,11 +432,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
   
   // EVIA enhancement: Error toast with auto-dismiss
-  // 🔧 FIX #6: Map technical errors to user-friendly messages
+  // FIX #6: Map technical errors to user-friendly messages
   const showError = (message: string, canRetry: boolean = false) => {
     console.error('[AskView] 💥 Error:', message);
     
-    // 🔧 DIAGNOSTIC: Relay error to main process for terminal visibility
+    // DIAGNOSTIC: Relay error to main process for terminal visibility
     try {
       const eviaIpc = (window as any).evia?.ipc;
       eviaIpc?.send?.('ask:error-diagnostic', { error: message, canRetry });
@@ -500,7 +500,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
-    // 🔧 FIX: Support override prompt for auto-submit from insights
+    // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
     if (!actualPrompt.trim() || isStreaming) return;
     
@@ -525,7 +525,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       return;
     }
     
-    // 🔧 FIX: Check token validity before making request
+    // FIX: Check token validity before making request
     if (eviaAuth?.checkTokenValidity) {
       const validity = await (eviaAuth as any).checkTokenValidity();
       if (!validity.valid) {
@@ -587,7 +587,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     }
 
-    // 🔧 GLASS PARITY: Fetch transcript context for backend
+    // GLASS PARITY: Fetch transcript context for backend
     let transcriptContext = '';
     try {
       const { getChatTranscripts } = await import('../services/websocketService');
@@ -636,14 +636,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     setResponse('');
     responseBufferRef.current = '';
-    lastResponseRef.current = '';  // 🔧 UI IMPROVEMENT: Clear last response ref on new question
-    storedContentHeightRef.current = null;  // 🔧 CRITICAL: Clear stored height for new question
+    lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
+    storedContentHeightRef.current = null;  // CRITICAL: Clear stored height for new question
     setIsStreaming(true);
     setHasFirstDelta(false);
     setTtftMs(null);
     streamStartTime.current = performance.now();
 
-    // 🔴 CRITICAL FIX: Re-read session state from localStorage before streaming
+    // CRITICAL FIX: Re-read session state from localStorage before streaming
     // EviaBar updates localStorage immediately when Listen starts, but the IPC event
     // might arrive too late (after user clicks shortcut button)
     const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'before';
@@ -655,7 +655,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
     console.log('[AskView] 🎯 Session state:', currentSessionState);
 
-    // 🔧 GLASS PARITY: Pass transcript context to backend
+    // GLASS PARITY: Pass transcript context to backend
     // Use currentSessionState (freshly read from localStorage) instead of stale sessionState
     const handle = streamAsk({ 
       baseUrl, 
@@ -663,14 +663,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       prompt: actualPrompt, 
       transcript: transcriptContext || undefined,  // Pass transcript for context
       language, 
-      sessionState: currentSessionState,  // 🔧 CRITICAL: Use freshly synced session state
+      sessionState: currentSessionState,  // CRITICAL: Use freshly synced session state
       token, 
       screenshotRef 
     });
     streamRef.current = handle;
 
     handle.onDelta((d) => {
-      // 🔴 CRITICAL FIX #2: Detect backend error messages and show friendly error
+      // CRITICAL FIX #2: Detect backend error messages and show friendly error
       // Backend yields "Error generating suggestion: <error>" on failures
       if (d.includes('Error generating suggestion:')) {
         console.error('[AskView] ❌ Backend error detected in stream:', d);
@@ -715,7 +715,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     handle.onDone(() => {
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
-      setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes
+      setHeaderText(i18n.t('overlay.ask.aiResponse')); // FIX: Ensure header updates when stream completes
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
 
@@ -728,7 +728,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         });
       }
       
-      // 🔥 FIX (2025-12-10): Final measurement - calculate from components
+      // FIX (2025-12-10): Final measurement - calculate from components
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const headerEl = document.querySelector('.response-header') as HTMLElement;
@@ -755,7 +755,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
           }
           
-          // 🎯 UX IMPROVEMENT: Auto-focus input after response completes
+          // UX IMPROVEMENT: Auto-focus input after response completes
           // Allows users to ask follow-up questions without clicking back into field
           console.log('[AskView] 🎯 Auto-focusing input after response completion');
           setTimeout(() => focusInputWithRetry(), 300); // Delay to ensure window resize completes first
@@ -806,7 +806,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const handleCopy = async () => {
     if (copyState === 'copied' || !response) return;
 
-    // 🔧 FIX #10: Use i18n for clipboard labels (Frage/Question, Antwort/Answer)
+    // FIX #10: Use i18n for clipboard labels (Frage/Question, Antwort/Answer)
     const questionLabel = i18n.t('overlay.ask.questionLabel');
     const answerLabel = i18n.t('overlay.ask.answerLabel');
     const textToCopy = `${questionLabel}: ${currentQuestion}\n\n${answerLabel}: ${response}`;
@@ -877,7 +877,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   };
 
-  // 🔧 FIX (2025-12-10): Resize to fit content - measure components
+  // FIX (2025-12-10): Resize to fit content - measure components
   const triggerManualResize = useCallback(() => {
     // Empty state: compact ask bar
     if (!response || response.trim() === '') {
@@ -916,7 +916,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // ResizeObserver handles non-empty states automatically
   }, [response, triggerManualResize]);
 
-  // 🔧 FIX #41: On visibility change, give ResizeObserver a nudge
+  // FIX #41: On visibility change, give ResizeObserver a nudge
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -975,7 +975,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   const hasResponse = isLoadingFirstToken || response || isStreaming;
   
-  // 🔧 GLASS PARITY (2025-12-10): Don't return early for loading state
+  // GLASS PARITY (2025-12-10): Don't return early for loading state
   // Glass shows full component with header ("Thinking...") + loading dots in response area + input field
   // Removed the minimal loading bar that caused "cut off" appearance
 

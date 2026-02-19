@@ -35,7 +35,7 @@ function createWs(url: string): WsHandle {
   }
 }
 
-// 🔧 Store wrapped IPC listeners for proper cleanup
+// Store wrapped IPC listeners for proper cleanup
 const listenerMap = new Map<string, Map<any, any>>();
 
 contextBridge.exposeInMainWorld('evia', {
@@ -59,7 +59,7 @@ contextBridge.exposeInMainWorld('evia', {
     onStatus: (cb: (line: string) => void) => 
       ipcRenderer.on('system-audio:status', (_e, line) => cb(line)),
   },
-  // 🪟 Windows system audio (WASAPI loopback) — mirrors mac API shape
+  // Windows system audio (WASAPI loopback) — mirrors mac API shape
   systemAudioWindows: {
     start: () => ipcRenderer.invoke('system-audio-windows:start'),
     stop: () => ipcRenderer.invoke('system-audio-windows:stop'),
@@ -92,9 +92,9 @@ contextBridge.exposeInMainWorld('evia', {
     toggleAllVisibility: () => ipcRenderer.invoke('header:toggle-visibility'),
     nudgeHeader: (dx: number, dy: number) => ipcRenderer.invoke('header:nudge', { dx, dy }),
     openAskWindow: () => ipcRenderer.invoke('header:open-ask'),
-    // 🔧 NEW: Invisibility toggle (click-through)
+    // NEW: Invisibility toggle (click-through)
     setClickThrough: (enabled: boolean) => ipcRenderer.invoke('window:set-click-through', enabled),
-    // 🔧 NEW: Open external URL in browser
+    // NEW: Open external URL in browser
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
   capture: {
@@ -109,8 +109,8 @@ contextBridge.exposeInMainWorld('evia', {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
     getToken: () => ipcRenderer.invoke('auth:getToken'),
     logout: () => ipcRenderer.invoke('auth:logout'),
-    checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // 🔧 NEW: Check token expiry
-    validate: () => ipcRenderer.invoke('auth:validate')  // 🔧 UI IMPROVEMENT: Proactive auth validation
+    checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // NEW: Check token expiry
+    validate: () => ipcRenderer.invoke('auth:validate')  // UI IMPROVEMENT: Proactive auth validation
   },
   // 💳 Subscription APIs (Stripe Integration)
   subscription: {
@@ -128,23 +128,23 @@ contextBridge.exposeInMainWorld('evia', {
       return ipcRenderer.invoke('subscription:getStatus');
     }
   },
-  // 🌐 Shell API: Open external URLs and Navigate
+  // Shell API: Open external URLs and Navigate
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
     navigate: (url: string) => ipcRenderer.invoke('shell:navigate', url)
   },
-  // 🚪 App control
+  // App control
   app: {
     quit: () => ipcRenderer.invoke('app:quit')
   },
-  // 🔐 Permissions API (Phase 3: Permission window)
+  // Permissions API (Phase 3: Permission window)
   permissions: {
     check: () => ipcRenderer.invoke('permissions:check'),
     requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
     openSystemPreferences: (pane: string) => ipcRenderer.invoke('permissions:open-system-preferences', pane),
     markComplete: () => ipcRenderer.invoke('permissions:mark-complete')
   },
-  // 🔧 FIX: IPC bridge for cross-window communication (Header → Listen)
+  // FIX: IPC bridge for cross-window communication (Header → Listen)
   ipc: {
     send: (channel: string, ...args: any[]) => {
       // Reduce log spam - only log non-frequent channels
@@ -169,7 +169,7 @@ contextBridge.exposeInMainWorld('evia', {
       
       ipcRenderer.on(channel, wrappedListener);
     },
-    // 🔥 CRITICAL FIX: Add off method for cleanup (React useEffect cleanup)
+    // CRITICAL FIX: Add off method for cleanup (React useEffect cleanup)
     off: (channel: string, listener: (...args: any[]) => void) => {
       // Reduce log spam
       
@@ -218,7 +218,7 @@ contextBridge.exposeInMainWorld('evia', {
       // Finally, call underlying removeAllListeners
       try { ipcRenderer.removeAllListeners(channel); } catch (err) { console.warn('[Preload] ipcRenderer.removeAllListeners failed', err); }
     },
-    // 🔥 CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
+    // CRITICAL FIX: Add invoke method for Settings/Shortcuts IPC
     invoke: (channel: string, ...args: any[]) => {
       // Reduce log spam - only log infrequent channels
       if (!channel.includes('audio') && !channel.includes('transcript') && !channel.includes('debug')) {

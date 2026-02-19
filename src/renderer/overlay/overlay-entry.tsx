@@ -58,12 +58,12 @@ console.log('[OverlayEntry] Rendering view:', view)
 // Initialize language from localStorage or default to German
 const savedLanguage = i18n.getLanguage()
 
-// 🔧 DESKTOP SENTINEL: Race condition protection
+// DESKTOP SENTINEL: Race condition protection
 let isTogglingLanguage = false;
 
 // Language toggle function that broadcasts to all windows
 const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean, setIsCapturing: (val: boolean) => void) => {
-  // 🔧 EDGE CASE #1: Prevent rapid toggle race conditions
+  // EDGE CASE #1: Prevent rapid toggle race conditions
   if (isTogglingLanguage) {
     console.warn('[OverlayEntry] ⚠️ Language toggle already in progress, ignoring duplicate request');
     return;
@@ -77,7 +77,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     
     console.log('[OverlayEntry] 🌐 Language toggle started:', currentLang, '→', newLang)
     
-    // 🔧 EDGE CASE #2: Stop audio capture first (graceful close of active session)
+    // EDGE CASE #2: Stop audio capture first (graceful close of active session)
     if (isCapturing && captureHandleRef.current) {
       console.log('[OverlayEntry] 🛑 Stopping audio capture before language toggle...')
       try {
@@ -97,7 +97,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
       }
     }
   
-  // 🔧 BACKEND INTEGRATION: Send language change command via WebSocket
+  // BACKEND INTEGRATION: Send language change command via WebSocket
   try {
     const chatId = localStorage.getItem('current_chat_id');
     if (chatId) {
@@ -113,18 +113,18 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     // Continue with toggle even if backend command fails
   }
   
-  // 🔧 FIX ISSUE #4: Clear session state in ListenView (transcripts, insights, timer)
+  // FIX ISSUE #4: Clear session state in ListenView (transcripts, insights, timer)
   const eviaIpc = (window as any).evia?.ipc
   if (eviaIpc?.send) {
     eviaIpc.send('clear-session')
     console.log('[OverlayEntry] ✅ Sent clear-session message to ListenView')
     
-    // 🔧 EDGE CASE #6: Abort streaming in Ask window if active
+    // EDGE CASE #6: Abort streaming in Ask window if active
     eviaIpc.send('abort-ask-stream')
     console.log('[OverlayEntry] ✅ Sent abort-ask-stream message to AskView')
   }
   
-  // 🔧 CRITICAL: Clear current_chat_id to force new chat creation with new language
+  // CRITICAL: Clear current_chat_id to force new chat creation with new language
   // When user presses "Listen" or "Ask" next, a new chat will be created with the new language
   const oldChatId = localStorage.getItem('current_chat_id');
   if (oldChatId) {
@@ -132,7 +132,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     console.log(`[OverlayEntry] 🧹 Cleared chat_id ${oldChatId} to force new chat with new language: ${newLang}`);
   }
   
-  // 🔧 FIX: Close all child windows except Settings
+  // FIX: Close all child windows except Settings
   const eviaWindows = (window as any).evia?.windows
   if (eviaWindows) {
     console.log('[OverlayEntry] Closing child windows (keeping Settings open)...')
@@ -146,7 +146,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     }
   }
   
-  // 🔧 SINGULARITY ANIMATION: Shrink header to point, then expand with new language
+  // SINGULARITY ANIMATION: Shrink header to point, then expand with new language
   const headerElement = document.querySelector('.evia-main-header') as HTMLElement
   if (headerElement) {
     console.log('[OverlayEntry] 🌀 Starting singularity animation...')
@@ -162,7 +162,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     // Update language (happens at singularity point)
     i18n.setLanguage(newLang)
     
-    // 🔧 REACTIVE I18N: Broadcast to all windows
+    // REACTIVE I18N: Broadcast to all windows
     const eviaIpc = (window as any).evia?.ipc
     if (eviaIpc) {
       eviaIpc.send('language-changed', newLang)
@@ -186,7 +186,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     
     console.log('[OverlayEntry] ✅ Singularity animation complete, language:', newLang)
   } else {
-    // 🔧 EDGE CASE #3: Fallback if header element not found
+    // EDGE CASE #3: Fallback if header element not found
     console.warn('[OverlayEntry] ⚠️ Header element not found, performing instant language toggle');
     i18n.setLanguage(newLang)
     const eviaIpc = (window as any).evia?.ipc
@@ -196,7 +196,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
   }
   } catch (error) {
-    // 🔧 EDGE CASE #4: Error during toggle - log and recover gracefully
+    // EDGE CASE #4: Error during toggle - log and recover gracefully
     console.error('[OverlayEntry] ❌ Error during language toggle:', error);
     // Attempt basic language change even if animation fails
     try {
@@ -208,7 +208,7 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
       console.error('[OverlayEntry] ❌ Failed to recover from toggle error:', recoveryError);
     }
   } finally {
-    // 🔧 EDGE CASE #5: Always release lock, even if error occurred
+    // EDGE CASE #5: Always release lock, even if error occurred
     isTogglingLanguage = false;
     console.log('[OverlayEntry] 🔓 Language toggle lock released');
   }
@@ -219,7 +219,7 @@ function App() {
   const [isCapturing, setIsCapturing] = useState(false)
   const captureHandleRef = useRef<any>(null)
 
-  // 🔧 REACTIVE I18N: Listen for language changes (local window event)
+  // REACTIVE I18N: Listen for language changes (local window event)
   useEffect(() => {
     const handleLanguageChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ language: 'de' | 'en' }>
@@ -231,7 +231,7 @@ function App() {
     return () => window.removeEventListener('evia-language-changed', handleLanguageChange)
   }, [])
 
-  // 🔧 REACTIVE I18N: Listen for language changes from OTHER windows via IPC
+  // REACTIVE I18N: Listen for language changes from OTHER windows via IPC
   useEffect(() => {
     const eviaIpc = (window as any).evia?.ipc
     if (!eviaIpc) {
@@ -255,7 +255,7 @@ function App() {
     }
   }, [])
 
-  // 🔧 UI IMPROVEMENT: Proactive authentication validation
+  // UI IMPROVEMENT: Proactive authentication validation
   // Validates auth status periodically and before critical actions
   // If not authenticated, main process will hide header and show welcome window
   useEffect(() => {
@@ -323,7 +323,7 @@ function App() {
         // Start capture
         console.log('[OverlayEntry] Starting audio capture...')
         
-        // 🔧 Get auth token from keytar (secure credential storage)
+        // Get auth token from keytar (secure credential storage)
         console.log('[OverlayEntry] 🔍 Getting auth token from keytar...')
         const token = await (window as any).evia?.auth?.getToken?.()
         const backend = BACKEND_URL
@@ -367,7 +367,7 @@ function App() {
         setIsCapturing(false)
         console.log('[OverlayEntry] Audio capture stopped successfully')
         
-        // 🔧 FIX: Notify Listen window to stop timer
+        // FIX: Notify Listen window to stop timer
         try {
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {

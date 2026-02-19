@@ -44,7 +44,7 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
     try {
       console.log(`[Chat] Attempt ${attempt + 1} to create chat`);
       
-      // 🔥 CRITICAL FIX: Get language from i18n and send to backend
+      // CRITICAL FIX: Get language from i18n and send to backend
       const { i18n } = await import('../i18n/i18n');
       const currentLang = i18n.getLanguage();
       console.log(`[Chat] Creating chat with language: ${currentLang}`);
@@ -122,7 +122,7 @@ export class ChatWebSocket {
         return;
       }
       
-      // 🔐 Get token from secure keytar storage (not localStorage!)
+      // Get token from secure keytar storage (not localStorage!)
       console.log('[WS] Getting auth token from keytar...');
       const token = await (window.evia as any).auth.getToken();
       if (!token) {
@@ -130,7 +130,7 @@ export class ChatWebSocket {
         return;
       }
       
-      // 🔧 FIX: Check token validity before connecting
+      // FIX: Check token validity before connecting
       const validity = await (window.evia as any).auth.checkTokenValidity();
       if (!validity.valid) {
         console.error('[WS] ❌ Token invalid:', validity.reason);
@@ -150,10 +150,10 @@ export class ChatWebSocket {
       }
       this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
-      // 🔧 FIX: Get current language from i18n for backend transcription
+      // FIX: Get current language from i18n for backend transcription
       const i18nModule = await import('../i18n/i18n');
       const currentLang = i18nModule.i18n.getLanguage() || 'de';
-      const langParam = `&dg_lang=${currentLang}`;  // 🎯 FIXED: dg_lang (not lang) for Deepgram
+      const langParam = `&dg_lang=${currentLang}`;  // FIXED: dg_lang (not lang) for Deepgram
       console.log('[WS] 🌐 Connecting with language:', currentLang);
       
       // WINDOWS FIX (2025-11-28): Add platform query param for backend detection
@@ -180,7 +180,7 @@ export class ChatWebSocket {
           this.isConnectedFlag = false;
           this.connectionChangeHandlers.forEach(h => h(false));
           
-          // 🔧 FIX: Detect auth/not found errors (close code 1008 = policy violation, 4xxx = app errors)
+          // FIX: Detect auth/not found errors (close code 1008 = policy violation, 4xxx = app errors)
           if (event.code === 1008 || (event.code >= 4000 && event.code < 5000)) {
             console.error('[WS] Auth/not found error detected - chat may not exist');
             // Clear invalid chat_id and signal for recreation
@@ -195,7 +195,7 @@ export class ChatWebSocket {
           this.isConnectedFlag = false;
           const errorMsg = (ev as ErrorEvent).message || 'Unknown error';
           
-          // 🔥 CRITICAL FIX: Emit user-facing error notification
+          // CRITICAL FIX: Emit user-facing error notification
           this.emitErrorNotification(`Connection error: ${errorMsg}. Attempting to reconnect...`);
           
           reject(new Error(`WS Error: ${errorMsg}`));
@@ -322,7 +322,7 @@ export class ChatWebSocket {
   private scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     
-    // 🔥 CRITICAL FIX: Cap exponential backoff at 32 seconds + max 10 attempts
+    // CRITICAL FIX: Cap exponential backoff at 32 seconds + max 10 attempts
     const MAX_RECONNECT_ATTEMPTS = 10;
     const MAX_DELAY = 32000;
     
@@ -366,7 +366,7 @@ export class ChatWebSocket {
     }
   }
   
-  // 🔥 CRITICAL FIX: Error notification system for user feedback
+  // CRITICAL FIX: Error notification system for user feedback
   onErrorNotification(handler: (error: string) => void) {
     this.errorNotificationHandlers.push(handler);
     return () => {

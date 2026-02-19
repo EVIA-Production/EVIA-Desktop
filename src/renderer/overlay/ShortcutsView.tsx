@@ -28,7 +28,7 @@ const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
 ];
 
 const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
-  // 🔧 FIX: Track language state to force re-render on language change
+  // FIX: Track language state to force re-render on language change
   const [currentLanguage, setCurrentLanguage] = useState<'de' | 'en'>(language);
   const [shortcuts, setShortcuts] = useState<ShortcutConfig[]>(DEFAULT_SHORTCUTS);
   const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
@@ -119,7 +119,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     };
   }, [editingShortcut, recordedKeys, shortcuts, feedback]);
 
-  // 🔧 FIX: Listen for language changes and update current language
+  // FIX: Listen for language changes and update current language
   useEffect(() => {
     const handleLanguageChanged = (newLang: string) => {
       console.log('[ShortcutsView] 🌐 Language changed to:', newLang);
@@ -138,7 +138,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     };
   }, []);
 
-  // 🔥 GLASS PARITY: Load shortcuts from main process on mount
+  // GLASS PARITY: Load shortcuts from main process on mount
   useEffect(() => {
     const loadSavedShortcuts = async () => {
       try {
@@ -163,7 +163,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
   const handleSave = async () => {
     console.log('[ShortcutsView] 💾 Saving shortcuts:', shortcuts);
     
-    // 🔥 GLASS PARITY: Convert to main process format and save via IPC
+    // GLASS PARITY: Convert to main process format and save via IPC
     try {
       const eviaIpc = (window as any).evia?.ipc;
       const shortcutsMap: { [key: string]: string } = {};
@@ -202,7 +202,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
   const handleReset = async () => {
     console.log('[ShortcutsView] 🔄 Reset to defaults');
     
-    // 🔥 GLASS PARITY: Reset via IPC (main process will save and re-register)
+    // GLASS PARITY: Reset via IPC (main process will save and re-register)
     try {
       const eviaIpc = (window as any).evia?.ipc;
       const result = await eviaIpc?.invoke('shortcuts:reset');
@@ -240,7 +240,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     }, 1500);
   };
 
-  // 🔧 FIX: Helper function to get translated shortcut name
+  // FIX: Helper function to get translated shortcut name
   const getShortcutName = (shortcut: ShortcutConfig): string => {
     // Map shortcut IDs to i18n keys
     const i18nKeyMap: { [key: string]: string } = {

@@ -9,8 +9,8 @@ export interface Insight {
     bullets: string[];
   };
   actions: string[];
-  followUps?: string[]; // 🔧 FIX #3: Follow-up actions shown after recording completes
-  session_state?: 'before' | 'during' | 'after'; // 🔥 CRITICAL: Session state when insights were generated
+  followUps?: string[]; // FIX #3: Follow-up actions shown after recording completes
+  session_state?: 'before' | 'during' | 'after'; // CRITICAL: Session state when insights were generated
 }
 
 interface FetchInsightsParams {
@@ -19,7 +19,7 @@ interface FetchInsightsParams {
   language?: string;
   token: string;
   baseUrl?: string;
-  sessionState?: 'before' | 'during' | 'after'; // 🔥 CRITICAL FIX: Add session state
+  sessionState?: 'before' | 'during' | 'after'; // CRITICAL FIX: Add session state
 }
 
 export async function fetchInsights({
@@ -28,11 +28,11 @@ export async function fetchInsights({
   language = 'de',
   token,
   baseUrl,
-  sessionState = 'before', // 🔥 Default to 'before' if not provided
+  sessionState = 'before', // Default to 'before' if not provided
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || BACKEND_URL;
   
-  // 🔥 CRITICAL FIX: Retry logic for transient network errors
+  // CRITICAL FIX: Retry logic for transient network errors
   const MAX_RETRIES = 3;
   const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
   
@@ -60,7 +60,7 @@ export async function fetchInsights({
 
       const data = await response.json();
     
-    // 🔧 FIX #3: Add default follow-up actions (Glass parity)
+    // FIX #3: Add default follow-up actions (Glass parity)
     // These are shown after recording completes, providing next-step options
     const followUps = language === 'en' 
       ? ['✉️ Draft a follow-up email', '✅ Generate action items', '📝 Show summary']
@@ -79,7 +79,7 @@ export async function fetchInsights({
       });
       return insightWithFollowUps as Insight;
     } catch (error) {
-      // 🔥 CRITICAL FIX: Retry on network errors
+      // CRITICAL FIX: Retry on network errors
       const isNetworkError = error instanceof TypeError || 
                              (error instanceof Error && error.message.includes('Failed to fetch'));
       
