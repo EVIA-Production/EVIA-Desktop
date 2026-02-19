@@ -7,7 +7,7 @@ afterSign: ./scripts/notarize.js
 protocols:
   - name: Taylos
     schemes:
-      - evia
+      - taylos
 files:
   - dist/main/**
   - dist/renderer/**

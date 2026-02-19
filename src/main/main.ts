@@ -16,7 +16,7 @@ let pendingDeepLink: string | null = null;
 if (process.platform === "win32") {
   // Capture possible deeplink in initial argv (may be quoted)
   try {
-    const rawStartup = process.argv.find((a) => typeof a === "string" && a.includes("evia://"));
+    const rawStartup = process.argv.find((a) => typeof a === "string" && a.includes("taylos://"));
     if (rawStartup) {
       pendingDeepLink = String(rawStartup).trim().replace(/^"+|"+$/g, "");
       console.log("[Protocol] 🔗 Detected cold-start deep link (pending):", pendingDeepLink);
@@ -33,16 +33,16 @@ if (process.platform === "win32") {
   } else {
     app.on('second-instance', (_event, argv) => {
       console.log('[Protocol] second-instance argv:', argv);
-      const raw = argv.find((a) => typeof a === 'string' && a.includes('evia://'));
+      const raw = argv.find((a) => typeof a === 'string' && a.includes('taylos://'));
       if (raw) {
         const url = String(raw).trim().replace(/^"+|"+$/g, '');
         console.log('[Protocol] second-instance found url:', url);
         // If app is ready, handle immediately, otherwise queue
         if (app.isReady()) {
           try {
-            if (url.startsWith('evia://auth-callback')) {
+            if (url.startsWith('taylos://auth-callback')) {
               handleAuthCallback(url);
-            } else if (url.startsWith('evia://launch')) {
+            } else if (url.startsWith('taylos://launch')) {
               handleLaunchRequest(url);
             }
           } catch (err) {
@@ -72,7 +72,7 @@ function getBackendHttpBase(): string {
 async function boot() {
   // Set AppUserModelId for Windows taskbar - must be before whenReady
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.evia.app');
+    app.setAppUserModelId('com.taylos.app');
   }
   
   await app.whenReady();
@@ -89,9 +89,9 @@ async function boot() {
 
   // Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
-    if (pendingDeepLink.startsWith('evia://auth-callback')) {
+    if (pendingDeepLink.startsWith('taylos://auth-callback')) {
     handleAuthCallback(pendingDeepLink);
-    } else if (pendingDeepLink.startsWith('evia://launch')) {
+    } else if (pendingDeepLink.startsWith('taylos://launch')) {
       handleLaunchRequest(pendingDeepLink);
     }
   }
@@ -227,7 +227,7 @@ app.on("activate", () => {
       // Check token presence via keytar
       let hasToken = false;
       try {
-        const token = await keytar.getPassword("evia", "token");
+        const token = await keytar.getPassword("taylos", "token");
         hasToken = !!token;
       } catch (e) {
         console.warn("[Main] activate: keytar read failed:", e);
@@ -347,7 +347,7 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
     });
     if (!res.ok) throw new Error('Login failed');
     const data = await res.json();
-    await keytar.setPassword('evia', 'token', data.access_token);
+    await keytar.setPassword('taylos', 'token', data.access_token);
     return {success: true};
   } catch (err: unknown) {
     return {success: false, error: (err as Error).message};
@@ -355,13 +355,13 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
 });
 
 ipcMain.handle('auth:getToken', async () => {
-  return await keytar.getPassword('evia', 'token');
+  return await keytar.getPassword('taylos', 'token');
 });
 
 // NEW: Check if token is valid and not expired
 ipcMain.handle('auth:checkTokenValidity', async () => {
   try {
-    const token = await keytar.getPassword('evia', 'token');
+    const token = await keytar.getPassword('taylos', 'token');
     if (!token) {
       return { valid: false, reason: 'no_token' };
     }
@@ -708,7 +708,7 @@ ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string
 // Note: Window management handlers (capture:screenshot, header:toggle-visibility, 
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
-// Register evia:// protocol for deep linking (auth callback from web)
+// Register taylos:// protocol for deep linking (auth callback from web)
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('evia', process.execPath, [process.argv[1]]);
@@ -718,18 +718,18 @@ if (process.defaultApp) {
 }
 if (process.env.NODE_ENV === 'development' && process.platform === 'win32') {
   app.setAsDefaultProtocolClient('evia', process.execPath, [path.resolve(process.argv[1])]);
-  console.log('[Protocol] 🔧 Dev evia:// handler re-registered');
+  console.log('[Protocol] 🔧 Dev taylos:// handler re-registered');
 }
-console.log('[Protocol] ✅ Registered evia:// protocol');
+console.log('[Protocol] ✅ Registered taylos:// protocol');
 
-// macOS: Handle evia:// URLs when app is already running
+// macOS: Handle taylos:// URLs when app is already running
 app.on('open-url', (event, url) => {
   event.preventDefault();
   console.log('[Protocol] 🔗 macOS open-url:', url);
   
-  if (url.startsWith('evia://auth-callback')) {
+  if (url.startsWith('taylos://auth-callback')) {
     handleAuthCallback(url);
-  } else if (url.startsWith('evia://launch')) {
+  } else if (url.startsWith('taylos://launch')) {
     handleLaunchRequest(url);
   }
 });
@@ -815,7 +815,7 @@ async function handleLaunchRequest(url: string) {
     
     // Check if Desktop is already authenticated
     // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
-    const existingToken = await keytar.getPassword('evia', 'token');
+    const existingToken = await keytar.getPassword('taylos', 'token');
     const isAlreadyAuthenticated = !!existingToken;
     console.log('[Launch] 🔐 Already authenticated:', isAlreadyAuthenticated);
     
@@ -838,7 +838,7 @@ async function handleLaunchRequest(url: string) {
         console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
         try {
           // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
-          await keytar.setPassword('evia', 'token', token);
+          await keytar.setPassword('taylos', 'token', token);
           console.log('[Launch] 🔑 Token updated in keytar');
         } catch (err) {
           console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);

@@ -4,7 +4,7 @@
  * Orchestrates the complete user onboarding flow:
  * 1. Check auth token (keytar)
  * 2. Show welcome window if no token
- * 3. Handle login callback (evia://auth-callback)
+ * 3. Handle login callback (taylos://auth-callback)
  * 4. Check permissions after login
  * 5. Show permission window if needed
  * 6. Show main header when ready
@@ -88,7 +88,7 @@ export class HeaderController {
    * 💳 Also checks subscription status for feature gating
    */
   private async getStateData(): Promise<StateData> {
-    const token = await keytar.getPassword('evia', 'token');
+    const token = await keytar.getPassword('taylos', 'token');
     let hasToken = !!token;
     
     // FIX: Validate token is not expired
@@ -103,14 +103,14 @@ export class HeaderController {
             const now = Math.floor(Date.now() / 1000);
             if (exp <= now) {
               console.log('[HeaderController] ⚠️ Token expired, removing and treating as no token');
-              await keytar.deletePassword('evia', 'token');
+              await keytar.deletePassword('taylos', 'token');
               hasToken = false; // Treat expired token as no token
             }
           }
         }
       } catch (err) {
         console.warn('[HeaderController] Failed to validate token, removing:', err);
-        await keytar.deletePassword('evia', 'token');
+        await keytar.deletePassword('taylos', 'token');
         hasToken = false; // Treat invalid token as no token
       }
     }
@@ -307,7 +307,7 @@ export class HeaderController {
   }
 
   /**
-   * Handle auth callback from web (evia://auth-callback?token=...)
+   * Handle auth callback from web (taylos://auth-callback?token=...)
    * Called from main.ts when deep link received
    * Now also handles subscription state after authentication
    */
@@ -315,7 +315,7 @@ export class HeaderController {
     console.log('[HeaderController] 🔑 Auth callback received, storing token');
     
     try {
-      await keytar.setPassword('evia', 'token', token);
+      await keytar.setPassword('taylos', 'token', token);
       console.log('[HeaderController] ✅ Token stored in keytar');
       
       // 💳 Clear subscription cache to force fresh check with new token
@@ -340,7 +340,7 @@ export class HeaderController {
   }
 
   /**
-   * Handle auth error from web (evia://auth-callback?error=...)
+   * Handle auth error from web (taylos://auth-callback?error=...)
    * Called from main.ts when deep link has error
    */
   public async handleAuthError(error: string) {
@@ -357,7 +357,7 @@ export class HeaderController {
     console.log('[HeaderController] 🚪 Logging out...');
     
     try {
-      await keytar.deletePassword('evia', 'token');
+      await keytar.deletePassword('taylos', 'token');
       this.permissionsCompleted = false;
       this.savePersistedState();
       
@@ -437,7 +437,7 @@ export class HeaderController {
   public async validateAuthentication(): Promise<boolean> {
     console.log('[HeaderController] 🔐 Validating authentication...');
     
-    const token = await keytar.getPassword('evia', 'token');
+    const token = await keytar.getPassword('taylos', 'token');
     
     if (!token) {
       console.log('[HeaderController] ❌ No token found');
@@ -455,7 +455,7 @@ export class HeaderController {
         console.log('[HeaderController] ❌ Invalid token format');
         if (this.currentState === 'ready') {
           console.log('[HeaderController] ⚠️ Redirecting to welcome (invalid format)');
-          await keytar.deletePassword('evia', 'token'); // Remove invalid token
+          await keytar.deletePassword('taylos', 'token'); // Remove invalid token
           await this.transitionTo('welcome');
         }
         return false;
@@ -473,7 +473,7 @@ export class HeaderController {
           console.log('[HeaderController] ❌ Token expired', -timeUntilExpiry, 'seconds ago');
           if (this.currentState === 'ready') {
             console.log('[HeaderController] ⚠️ Redirecting to welcome (expired token)');
-            await keytar.deletePassword('evia', 'token'); // Remove expired token
+            await keytar.deletePassword('taylos', 'token'); // Remove expired token
             await this.transitionTo('welcome');
           }
           return false;
@@ -496,7 +496,7 @@ export class HeaderController {
       console.error('[HeaderController] ❌ Failed to decode JWT:', decodeError);
       if (this.currentState === 'ready') {
         console.log('[HeaderController] ⚠️ Redirecting to welcome (decode error)');
-        await keytar.deletePassword('evia', 'token'); // Remove corrupted token
+        await keytar.deletePassword('taylos', 'token'); // Remove corrupted token
         await this.transitionTo('welcome');
       }
       return false;
@@ -637,7 +637,7 @@ export class HeaderController {
     console.log('[HeaderController] 🔄 Resetting all state...');
     
     try {
-      await keytar.deletePassword('evia', 'token');
+      await keytar.deletePassword('taylos', 'token');
       this.permissionsCompleted = false;
       this.savePersistedState();
       
