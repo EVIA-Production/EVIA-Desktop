@@ -1141,10 +1141,7 @@ function getDefaultShortcuts(): ShortcutConfig {
     moveDown: `${mod}+Down`,
     moveLeft: `${mod}+Left`,
     moveRight: `${mod}+Right`,
-    scrollUp: `${mod}+Shift+Up`,
-    scrollDown: `${mod}+Shift+Down`,
     toggleClickThrough: `${mod}+M`,
-    manualScreenshot: `${mod}+Shift+S`,
     previousResponse: `${mod}+[`,
     nextResponse: `${mod}+]`,
   }
@@ -1173,6 +1170,31 @@ function registerShortcuts() {
   const nudgeDown = () => nudgeHeader(0, step)
   const nudgeLeft = () => nudgeHeader(-step, 0)
   const nudgeRight = () => nudgeHeader(step, 0)
+  const findActiveSuggestionWindow = (): BrowserWindow | null => {
+    const askWin = childWindows.get('ask')
+    const listenWin = childWindows.get('listen')
+    const candidates = [askWin, listenWin].filter(
+      (win): win is BrowserWindow => !!win && !win.isDestroyed() && win.isVisible()
+    )
+
+    if (candidates.length === 0) return null
+
+    const focused = candidates.find((win) => win.isFocused())
+    if (focused) return focused
+
+    // Prefer Ask when both are visible but neither is focused.
+    return askWin && !askWin.isDestroyed() && askWin.isVisible() ? askWin : candidates[0]
+  }
+  const relayShortcutToSuggestionWindow = (channel: 'shortcut:next-step' | 'shortcut:previous-response' | 'shortcut:next-response') => {
+    const activeWin = findActiveSuggestionWindow()
+    if (!activeWin) {
+      console.log(`[Shortcuts] ℹ️ No visible Ask/Listen window for ${channel}`)
+      return
+    }
+
+    activeWin.webContents.send(channel)
+    console.log(`[Shortcuts] ✅ Relayed ${channel} to active window`)
+  }
   
   // WINDOWS FIX (2025-12-05): Validate accelerator format before registering
   // Electron requires valid accelerator strings like "Ctrl+S" or "Cmd+Shift+Enter"
@@ -1254,14 +1276,15 @@ function registerShortcuts() {
   }
   
   registerSafe(shortcuts.toggleVisibility, handleHeaderToggle)
-  registerSafe(shortcuts.nextStep, openAskWindow)
+  registerSafe(shortcuts.nextStep, () => relayShortcutToSuggestionWindow('shortcut:next-step'))
   registerSafe(shortcuts.moveUp, nudgeUp)
   registerSafe(shortcuts.moveDown, nudgeDown)
   registerSafe(shortcuts.moveLeft, nudgeLeft)
   registerSafe(shortcuts.moveRight, nudgeRight)
+  registerSafe(shortcuts.previousResponse, () => relayShortcutToSuggestionWindow('shortcut:previous-response'))
+  registerSafe(shortcuts.nextResponse, () => relayShortcutToSuggestionWindow('shortcut:next-response'))
   
-  // NOTE: scroll/toggleClickThrough/screenshot/response handlers will be added in Phase 2
-  // Current implementation covers core navigation shortcuts (6/12 implemented)
+  // NOTE: toggleClickThrough remains unchanged and is handled outside this Agent 6 scope.
   
   console.log('[Shortcuts] Registered shortcuts:', Object.keys(shortcuts).length)
 }

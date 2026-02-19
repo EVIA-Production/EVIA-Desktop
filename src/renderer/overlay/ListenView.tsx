@@ -55,6 +55,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>('before');
   // Glass parity: Insights fetched from backend via fetchInsights service
   const [insights, setInsights] = useState<Insight | null>(null);
+  const [insightsHistory, setInsightsHistory] = useState<Insight[]>([]);
+  const [insightsIndex, setInsightsIndex] = useState(-1);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
@@ -73,6 +75,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
   const stallToastShownRef = useRef(false);
   const hasActivePartialRef = useRef(false);
+  const insightsHistoryRef = useRef<Insight[]>([]);
+  const insightsIndexRef = useRef(-1);
+  const fetchInsightsNowRef = useRef<() => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    insightsHistoryRef.current = insightsHistory;
+  }, [insightsHistory]);
+
+  useEffect(() => {
+    insightsIndexRef.current = insightsIndex;
+  }, [insightsIndex]);
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -625,6 +638,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🧹 Received clear-session - resetting all state');
         setTranscripts([]);
         setInsights(null);
+        setInsightsHistory([]);
+        setInsightsIndex(-1);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(false);
@@ -635,6 +650,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const onLanguageChanged = (newLang: string) => {
         console.log('[ListenView] 🌐 Language changed - clearing insights');
         setInsights(null);
+        setInsightsHistory([]);
+        setInsightsIndex(-1);
       };
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
@@ -882,6 +899,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🔍 Topic bullets:', fetchedInsights.topic?.bullets);
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
         setInsights(fetchedInsights);
+        setInsightsHistory((prev) => {
+          const next = [...prev, fetchedInsights];
+          setInsightsIndex(next.length - 1);
+          return next;
+        });
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
         console.warn('[ListenView] ⚠️ This could mean:');
@@ -923,6 +945,62 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
+  useEffect(() => {
+    fetchInsightsNowRef.current = fetchInsightsNow;
+  }, [fetchInsightsNow]);
+
+
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc;
+    if (!eviaIpc?.on) return;
+
+    const onShortcutNextStep = () => {
+      setViewMode('insights');
+      fetchInsightsNowRef.current();
+    };
+
+    const onShortcutPreviousResponse = () => {
+      const history = insightsHistoryRef.current;
+      if (!history.length) return;
+
+      const current = insightsIndexRef.current >= 0 ? insightsIndexRef.current : history.length - 1;
+      const nextIdx = Math.max(0, current - 1);
+      if (nextIdx === current) return;
+
+      setInsightsIndex(nextIdx);
+      setInsights(history[nextIdx]);
+      setViewMode('insights');
+    };
+
+    const onShortcutNextResponse = () => {
+      const history = insightsHistoryRef.current;
+      if (!history.length) return;
+
+      const current = insightsIndexRef.current >= 0 ? insightsIndexRef.current : history.length - 1;
+      const nextIdx = Math.min(history.length - 1, current + 1);
+      if (nextIdx === current) return;
+
+      setInsightsIndex(nextIdx);
+      setInsights(history[nextIdx]);
+      setViewMode('insights');
+    };
+
+    eviaIpc.on('shortcut:next-step', onShortcutNextStep);
+    eviaIpc.on('shortcut:previous-response', onShortcutPreviousResponse);
+    eviaIpc.on('shortcut:next-response', onShortcutNextResponse);
+
+    return () => {
+      if (typeof eviaIpc.off === 'function') {
+        eviaIpc.off('shortcut:next-step', onShortcutNextStep);
+        eviaIpc.off('shortcut:previous-response', onShortcutPreviousResponse);
+        eviaIpc.off('shortcut:next-response', onShortcutNextResponse);
+      } else if (typeof eviaIpc.removeListener === 'function') {
+        eviaIpc.removeListener('shortcut:next-step', onShortcutNextStep);
+        eviaIpc.removeListener('shortcut:previous-response', onShortcutPreviousResponse);
+        eviaIpc.removeListener('shortcut:next-response', onShortcutNextResponse);
+      }
+    };
+  }, []);
 
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';

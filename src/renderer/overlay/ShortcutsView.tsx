@@ -14,7 +14,7 @@ interface ShortcutConfig {
   category: 'window' | 'navigation' | 'action';
 }
 
-// Glass parity: All 12 shortcuts from DEFAULT_KEYBINDS
+// Active shortcuts shown in editor
 const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { id: 'toggleVisibility', name: 'Show / Hide', accelerator: 'Cmd+\\', category: 'window' },
   { id: 'nextStep', name: 'Ask Anything', accelerator: 'Cmd+Enter', category: 'action' },
@@ -22,10 +22,7 @@ const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { id: 'moveDown', name: 'Move Down Window', accelerator: 'Cmd+Down', category: 'navigation' },
   { id: 'moveLeft', name: 'Move Left Window', accelerator: 'Cmd+Left', category: 'navigation' },
   { id: 'moveRight', name: 'Move Right Window', accelerator: 'Cmd+Right', category: 'navigation' },
-  { id: 'scrollUp', name: 'Scroll Up Response', accelerator: 'Cmd+Shift+Up', category: 'navigation' },
-  { id: 'scrollDown', name: 'Scroll Down Response', accelerator: 'Cmd+Shift+Down', category: 'navigation' },
   { id: 'toggleClickThrough', name: 'Toggle Click Through', accelerator: 'Cmd+M', category: 'action' },
-  { id: 'manualScreenshot', name: 'Manual Screenshot', accelerator: 'Cmd+Shift+S', category: 'action' },
   { id: 'previousResponse', name: 'Previous Response', accelerator: 'Cmd+[', category: 'navigation' },
   { id: 'nextResponse', name: 'Next Response', accelerator: 'Cmd+]', category: 'navigation' },
 ];
@@ -253,10 +250,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
       'moveDown': 'shortcutMoveDown',
       'moveLeft': 'shortcutMoveLeft',
       'moveRight': 'shortcutMoveRight',
-      'scrollUp': 'shortcutScrollUp',
-      'scrollDown': 'shortcutScrollDown',
       'toggleClickThrough': 'shortcutToggleClickThrough',
-      'manualScreenshot': 'shortcutManualScreenshot',
       'previousResponse': 'shortcutPreviousResponse',
       'nextResponse': 'shortcutNextResponse',
     };

@@ -23,6 +23,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [showTextInput, setShowTextInput] = useState(true);
   const [headerText, setHeaderText] = useState(i18n.t('overlay.ask.aiResponse'));
+  const [responseHistory, setResponseHistory] = useState<string[]>([]);
+  const [responseIndex, setResponseIndex] = useState(-1);
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
@@ -32,12 +34,23 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const inputRef = useRef<HTMLInputElement>(null);  // 🔧 UI IMPROVEMENT: Auto-focus input
   const lastResponseRef = useRef<string>('');  // 🔧 UI IMPROVEMENT: Track when content actually changes
   const storedContentHeightRef = useRef<number | null>(null);  // 🔧 CRITICAL: Store content-based height to restore after arrow key movement
+  const responseBufferRef = useRef<string>('');
+  const responseHistoryRef = useRef<string[]>([]);
+  const responseIndexRef = useRef<number>(-1);
   
   // EVIA-specific: Error handling
   const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
   const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
+
+  useEffect(() => {
+    responseHistoryRef.current = responseHistory;
+  }, [responseHistory]);
+
+  useEffect(() => {
+    responseIndexRef.current = responseIndex;
+  }, [responseIndex]);
 
   // 🎯 UX IMPROVEMENT: Helper function to focus input with retry (NO DELAYS - instant focus)
   const focusInputWithRetry = useCallback(() => {
@@ -197,6 +210,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const handleSessionClosed = () => {
       console.log('[AskView] 🛑 Session closed (Fertig pressed) - clearing all state');
       setResponse('');
+      setResponseHistory([]);
+      setResponseIndex(-1);
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
@@ -228,6 +243,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
       // Clear all state
       setResponse('');
+      setResponseHistory([]);
+      setResponseIndex(-1);
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
@@ -264,6 +281,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
       // Clear all state (same as clear-session)
       setResponse('');
+      setResponseHistory([]);
+      setResponseIndex(-1);
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
@@ -273,12 +292,45 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.log('[AskView] ✅ State cleared due to language change');
     };
 
+    const handleShortcutNextStep = () => {
+      startStream();
+    };
+
+    const handleShortcutPreviousResponse = () => {
+      const history = responseHistoryRef.current;
+      if (!history.length) return;
+
+      const current = responseIndexRef.current >= 0 ? responseIndexRef.current : history.length - 1;
+      const nextIdx = Math.max(0, current - 1);
+      if (nextIdx === current) return;
+
+      setResponseIndex(nextIdx);
+      setResponse(history[nextIdx]);
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+    };
+
+    const handleShortcutNextResponse = () => {
+      const history = responseHistoryRef.current;
+      if (!history.length) return;
+
+      const current = responseIndexRef.current >= 0 ? responseIndexRef.current : history.length - 1;
+      const nextIdx = Math.min(history.length - 1, current + 1);
+      if (nextIdx === current) return;
+
+      setResponseIndex(nextIdx);
+      setResponse(history[nextIdx]);
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+    };
+
     eviaIpc.on('ask:send-and-submit', handleSendAndSubmit);
     eviaIpc.on('session:closed', handleSessionClosed);
     eviaIpc.on('abort-ask-stream', handleAbortStream);
     eviaIpc.on('clear-session', handleClearSession);  // 🔧 NEW: Listen for clear-session
     eviaIpc.on('session-state-changed', handleSessionStateChanged);
     eviaIpc.on('language-changed', handleLanguageChanged);  // 🔧 FIX: Listen for language-changed
+    eviaIpc.on('shortcut:next-step', handleShortcutNextStep);
+    eviaIpc.on('shortcut:previous-response', handleShortcutPreviousResponse);
+    eviaIpc.on('shortcut:next-response', handleShortcutNextResponse);
     
     // 🔧 CRITICAL: Register debug-log listener to show Listen window logs here
     // (since F12 doesn't work in Listen window due to volume controls)
@@ -295,6 +347,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       eviaIpc.off('clear-session', handleClearSession);
       eviaIpc.off('session-state-changed', handleSessionStateChanged);
       eviaIpc.off('language-changed', handleLanguageChanged);
+      eviaIpc.off('shortcut:next-step', handleShortcutNextStep);
+      eviaIpc.off('shortcut:previous-response', handleShortcutPreviousResponse);
+      eviaIpc.off('shortcut:next-response', handleShortcutNextResponse);
       eviaIpc.off('debug-log');  // 🔧 Clean up debug-log listener
       console.log('[AskView] 🧹 Cleaning up IPC listeners');
     };
@@ -580,6 +635,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (onSubmitPrompt) onSubmitPrompt(prompt);
 
     setResponse('');
+    responseBufferRef.current = '';
     lastResponseRef.current = '';  // 🔧 UI IMPROVEMENT: Clear last response ref on new question
     storedContentHeightRef.current = null;  // 🔧 CRITICAL: Clear stored height for new question
     setIsStreaming(true);
@@ -652,6 +708,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setHasFirstDelta(true);
         console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
       }
+      responseBufferRef.current += d;
       setResponse((prev) => prev + d);
     });
     
@@ -661,6 +718,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // 🔧 FIX: Ensure header updates when stream completes
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
+
+      const finalResponse = responseBufferRef.current.trim();
+      if (finalResponse) {
+        setResponseHistory((prev) => {
+          const next = [...prev, finalResponse];
+          setResponseIndex(next.length - 1);
+          return next;
+        });
+      }
       
       // 🔥 FIX (2025-12-10): Final measurement - calculate from components
       requestAnimationFrame(() => {
@@ -783,12 +849,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => document.removeEventListener('keydown', handleEsc);
   }, [response, isStreaming, isLoadingFirstToken]);
 
-  // Cmd+Enter for screenshot
+  // Keep local Cmd/Ctrl+Enter aligned with shortcut submit behavior
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        startStream(true);
+        startStream();
       }
     };
     window.addEventListener('keydown', onKey);
