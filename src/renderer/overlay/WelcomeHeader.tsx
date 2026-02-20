@@ -13,7 +13,7 @@ const WEB_APP_URL = 'https://app.taylos.ai';
  * 1. User sees this window on first launch (no token in keytar)
  * 2. Clicks "Open Browser to Log In" button
  * 3. Browser opens to Taylos-Frontend/login?source=desktop
- * 4. After successful login, Frontend redirects to evia://auth-callback?token=...
+ * 4. After successful login, Frontend redirects to taylos://auth-callback?token=...
  * 5. This window closes, permission window opens
  * 
  * Glass Reference: glass/src/ui/app/WelcomeHeader.js
@@ -64,7 +64,7 @@ const WelcomeHeader: React.FC = () => {
   }, []);
   /**
    * Opens default browser to Frontend register page for first-time users
-   * Adds ?source=desktop param so Frontend knows to redirect back via evia://
+   * Adds ?source=desktop param so Frontend knows to redirect back via taylos://
    */
   const handleLogin = async () => {
     console.log('[WelcomeHeader] 🔐 Opening browser for registration...');

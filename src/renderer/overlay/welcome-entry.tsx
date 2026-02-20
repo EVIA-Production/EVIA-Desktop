@@ -8,7 +8,7 @@
  * 1. App launches → HeaderController checks for token
  * 2. No token found → Shows this Welcome window
  * 3. User clicks "Login" → Opens browser to Frontend
- * 4. After login → Frontend redirects to evia://auth-callback?token=...
+ * 4. After login → Frontend redirects to taylos://auth-callback?token=...
  * 5. Token stored → HeaderController transitions to permission window
  */
 

@@ -192,8 +192,8 @@ if [ -f "$FRONTEND_LOGIN" ]; then
         test_fail "Frontend missing desktop redirect logic"
     fi
     
-    if grep -q "evia://auth-callback" "$FRONTEND_LOGIN"; then
-        test_pass "Frontend has evia:// protocol redirect"
+    if grep -q "taylos://auth-callback" "$FRONTEND_LOGIN"; then
+        test_pass "Frontend has taylos:// protocol redirect"
     else
         test_fail "Frontend missing protocol redirect"
     fi
@@ -222,7 +222,7 @@ echo ""
 # Check if electron-builder.yml has protocol registered
 log "Checking protocol registration..."
 if [ -f "electron-builder.yml" ]; then
-    if grep -q "evia://" electron-builder.yml || grep -q "protocols:" electron-builder.yml; then
+    if grep -q "taylos://" electron-builder.yml || grep -q "protocols:" electron-builder.yml; then
         test_pass "Protocol handler registered in electron-builder.yml"
     else
         test_warn "Protocol handler might not be registered"
@@ -319,9 +319,9 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "2. Start main: EVIA_DEV=1 npm run dev:main"
     echo "3. Verify Welcome window appears"
     echo "4. Click login button"
-    echo "5. Test token redirect: open 'evia://auth-callback?token=test123' in browser"
+    echo "5. Test token redirect: open 'taylos://auth-callback?token=test123' in browser"
     echo "6. Verify main header appears"
-    echo "7. Test error: open 'evia://auth-callback?error=bad'"
+    echo "7. Test error: open 'taylos://auth-callback?error=bad'"
     echo "8. Test logout"
     echo ""
     exit 0
