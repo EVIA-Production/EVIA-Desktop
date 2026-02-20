@@ -390,8 +390,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let utteranceId: string | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
+        const source = msg.data.source || msg._source;
         text = msg.data.text || '';
-        speaker = msg.data.speaker ?? null;
+        if (source === 'mic') {
+          speaker = 1;
+        } else if (source === 'system') {
+          speaker = 0;
+        } else {
+          speaker = msg.data.speaker ?? null;
+        }
         isFinal = msg.data.is_final === true;
         const isTurnComplete = msg.data.is_turn_complete === true; // NEW: Complete bubble flag
         isPartial = !isFinal;
@@ -427,15 +434,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           });
           return; // Done - don't process further
         }
-      } else if (msg.type === 'status' && msg.data?.echo_text) {
-        text = msg.data.echo_text;
-        speaker = msg._source === 'mic' ? 1 : msg._source === 'system' ? 0 : null;
-        isFinal = msg.data.final === true;
-        isPartial = !isFinal;
-        const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
-        if (rawUtterance !== undefined && rawUtterance !== null) {
-          utteranceId = String(rawUtterance);
-        }
       } else if (msg.type === 'status') {
         console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
         return;
@@ -443,7 +441,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       if (!text) return;
 
-      if (text.trim().toLowerCase().includes('evia connection')) {
+      const normalizedText = text.trim().toLowerCase();
+      if (normalizedText === 'taylos connection ok' || normalizedText === 'evia connection ok') {
         console.log('[ListenView] 🚫 Filtered connection status message');
         return;
       }

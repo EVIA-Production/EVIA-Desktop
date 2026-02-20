@@ -289,6 +289,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';
       storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
+
+      // Force a fresh chat after language switch so follow-up suggestions
+      // cannot inherit stale language/session context from the previous chat.
+      try {
+        localStorage.removeItem('current_chat_id');
+      } catch {}
       console.log('[AskView] ✅ State cleared due to language change');
     };
 
@@ -545,6 +551,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language }),
         });
         
         if (res.status === 401) {
@@ -566,6 +573,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         if (chatId && !Number.isNaN(chatId)) {
           try {
             localStorage.setItem('current_chat_id', String(chatId));
+          } catch {}
+          try {
+            await (window as any).evia?.prefs?.set?.({ current_chat_id: String(chatId) });
           } catch {}
         } else {
           showError('Invalid chat session. Please reconnect.', true);
@@ -597,8 +607,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         // Format as conversation: "You: ... | Prospect: ..."
         transcriptContext = transcripts
           .map(t => {
-            const speaker = t.speaker === 1 ? 'You' : 'Prospect';
             const text = (t.text || '').trim();
+            if (!text) return null;
+            if (/^(taylos|evia) connection ok$/i.test(text)) return null;
+            const speaker = t.speaker === 1 ? 'You' : 'Prospect';
             return text ? `${speaker}: ${text}` : null;
           })
           .filter(Boolean)
