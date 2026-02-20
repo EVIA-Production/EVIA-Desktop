@@ -1,4 +1,4 @@
-// Audio utilities for EVIA
+// Audio utilities for Taylos
 
 /**
  * Calculate the RMS (Root Mean Square) value of an audio buffer

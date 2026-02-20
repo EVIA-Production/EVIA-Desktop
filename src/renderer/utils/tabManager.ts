@@ -1,7 +1,7 @@
 /**
  * Tab Management Utility
  * 
- * Reuses existing EVIA web tabs instead of opening new ones.
+ * Reuses existing Taylos web tabs instead of opening new ones.
  * 
  * Strategy:
  * 1. Write navigation request to localStorage with timestamp

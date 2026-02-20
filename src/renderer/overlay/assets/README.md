@@ -1,4 +1,4 @@
-EVIA Overlay Assets
+Taylos Overlay Assets
 
 Place the Glass symbol SVGs here for the overlay UI.
 

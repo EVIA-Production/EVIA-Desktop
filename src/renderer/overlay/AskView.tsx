@@ -38,7 +38,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
   
-  // EVIA-specific: Error handling
+  // Taylos-specific: Error handling
   const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
   const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -431,7 +431,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
   };
   
-  // EVIA enhancement: Error toast with auto-dismiss
+  // Taylos enhancement: Error toast with auto-dismiss
   // FIX #6: Map technical errors to user-friendly messages
   const showError = (message: string, canRetry: boolean = false) => {
     console.error('[AskView] 💥 Error:', message);
@@ -612,7 +612,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.warn('[AskView] ⚠️ Could not fetch transcript (continuing without context):', e);
     }
 
-    // EVIA enhancement: Screenshot capture
+    // Taylos enhancement: Screenshot capture
     let screenshotRef: string | undefined;
     if (captureScreenshot) {
       try {
@@ -981,7 +981,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   return (
     <div className="ask-container">
-      {/* EVIA enhancement: Error Toast - Compact Version */}
+      {/* Taylos enhancement: Error Toast - Compact Version */}
       {errorToast && (
         <div className="error-toast">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

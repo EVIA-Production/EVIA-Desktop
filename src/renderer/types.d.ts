@@ -1,4 +1,4 @@
-// Type definitions for EVIA Desktop
+// Type definitions for Taylos Desktop
 export {};
 
 interface WebSocketWrapper {
@@ -91,7 +91,7 @@ interface EviaBridge {
 declare global {
   interface Window {
     evia: EviaBridge;
-    EVIA_BACKEND_WS?: string;
+    Taylos_BACKEND_WS?: string;
     eviaExport?: {
       saveLatestSystemWav: () => void;
     };

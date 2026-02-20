@@ -63,7 +63,7 @@ if (process.platform === "win32") {
 }
 
 function getBackendHttpBase(): string {
-  const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
+  const env = process.env.Taylos_BACKEND_URL || process.env.API_BASE_URL;
   if (env && env.trim()) return String(env).replace(/\/$/, '');
   return 'http://localhost:8000';
 }
@@ -587,7 +587,7 @@ ipcMain.handle('permissions:open-system-preferences', async (_event, pane: strin
     
     if (pane === 'screen-recording' || pane === 'screen') {
       // CRITICAL: Trigger screen capture request first to register app with macOS
-      // This ensures EVIA appears in System Preferences > Screen Recording
+      // This ensures Taylos appears in System Preferences > Screen Recording
       // Based on Glass: permissionService.js lines 48-57
       try {
         console.log('[Permissions] 📹 Triggering screen capture request to register app...');
@@ -656,15 +656,15 @@ ipcMain.on('abort-ask-stream', () => {
 // ──────────────────────────────────────────────────────────────────────────────
 // AUDIO DEBUG RECORDING IPC HANDLERS
 // Saves raw PCM16 audio to WAV files for manual verification
-// Enable: touch ~/Desktop/EVIA_DEBUG_AUDIO
-// Disable: rm ~/Desktop/EVIA_DEBUG_AUDIO
+// Enable: touch ~/Desktop/Taylos_DEBUG_AUDIO
+// Disable: rm ~/Desktop/Taylos_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Check if debug flag file exists (synchronous invoke)
 ipcMain.handle('audio-debug:check-flag', async () => {
   try {
     const homeDir = os.homedir();
-    const flagPath = path.join(homeDir, 'Desktop', 'EVIA_DEBUG_AUDIO');
+    const flagPath = path.join(homeDir, 'Desktop', 'Taylos_DEBUG_AUDIO');
     const enabled = fs.existsSync(flagPath);
     
     if (enabled) {

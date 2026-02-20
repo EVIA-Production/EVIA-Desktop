@@ -1,5 +1,5 @@
 /**
- * EVIA Desktop - Audio Test Window Manager
+ * Taylos Desktop - Audio Test Window Manager
  * Creates and manages the audio test window
  */
 
@@ -15,7 +15,7 @@ function createAudioTestWindow() {
   const testWindow = new BrowserWindow({
     width: 800,
     height: 800,
-    title: 'EVIA Audio Test',
+    title: 'Taylos Audio Test',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -33,7 +33,7 @@ function createAudioTestWindow() {
   testWindow.loadURL(audioTestPath);
   
   // Open DevTools in development mode
-  if (process.env.EVIA_DEV) {
+  if (process.env.Taylos_DEV) {
     testWindow.webContents.openDevTools({ mode: 'detach' });
   }
   

@@ -232,7 +232,7 @@ export class SystemAudioMacService {
           console.error('[SystemAudioMacService]     2. Go to Privacy & Security → Screen & System Audio Recording');
           console.error('[SystemAudioMacService]     3. Add Terminal.app (or iTerm2.app if you use that)');
           console.error('[SystemAudioMacService]     4. Toggle it ON');
-          console.error('[SystemAudioMacService]     5. Quit and restart EVIA from Terminal');
+          console.error('[SystemAudioMacService]     5. Quit and restart Taylos from Terminal');
         }
       });
 
@@ -246,7 +246,7 @@ export class SystemAudioMacService {
           console.error('[SystemAudioMacService] ❌ Binary exited with code 1 - PERMISSION DENIED');
           console.error('[SystemAudioMacService] 🔧 FIX: Grant Screen Recording permission to Terminal.app');
           console.error('[SystemAudioMacService]     System Settings → Privacy & Security → Screen & System Audio Recording → Add Terminal');
-          console.error('[SystemAudioMacService]     Then relaunch EVIA from Terminal (not Cursor)');
+          console.error('[SystemAudioMacService]     Then relaunch Taylos from Terminal (not Cursor)');
         } else if (code !== 0 && code !== null) {
           console.error('[SystemAudioMacService] ❌ Binary exited with code:', code);
         }

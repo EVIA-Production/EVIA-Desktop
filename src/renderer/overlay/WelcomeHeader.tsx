@@ -12,7 +12,7 @@ const WEB_APP_URL = 'https://app.taylos.ai';
  * Flow:
  * 1. User sees this window on first launch (no token in keytar)
  * 2. Clicks "Open Browser to Log In" button
- * 3. Browser opens to EVIA-Frontend/login?source=desktop
+ * 3. Browser opens to Taylos-Frontend/login?source=desktop
  * 4. After successful login, Frontend redirects to evia://auth-callback?token=...
  * 5. This window closes, permission window opens
  * 

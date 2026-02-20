@@ -185,7 +185,7 @@ export class HeaderController {
     }
     
     // 💳 SUBSCRIPTION CHECK: After auth, before permissions
-    // User must have active subscription to use EVIA
+    // User must have active subscription to use Taylos
     if (!data.hasSubscription) {
       console.log('[HeaderController] 💳 No active subscription - showing subscription required screen');
       return 'subscription_required';

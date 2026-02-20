@@ -1,4 +1,4 @@
-// Toast Notification System for EVIA Desktop
+// Toast Notification System for Taylos Desktop
 import React, { useState, useEffect } from 'react';
 
 export interface Toast {

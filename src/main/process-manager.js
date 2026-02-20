@@ -1,4 +1,4 @@
-// Process manager for EVIA Desktop
+// Process manager for Taylos Desktop
 // Helps with starting/stopping and managing the Swift helper process
 
 const { spawn } = require('child_process');

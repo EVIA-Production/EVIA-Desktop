@@ -234,7 +234,7 @@ textarea:focus-visible,
 }
 
 /* ============================================
-  EVIA BAR 
+  Taylos BAR 
   ============================================ */
 .evia-main-header {
   -webkit-app-region: drag; /* Entire header is draggable */
@@ -386,7 +386,7 @@ textarea:focus-visible,
 .evia-settings-button:hover { background: rgba(255,255,255,0.1); }
 .evia-settings-button.active { background: rgba(255,255,255,0.14); }
 
-/* ========== End EVIA BAR ========== */
+/* ========== End Taylos BAR ========== */
 
 /* ============================================
   Right-side semicircular draggable handle
@@ -1570,7 +1570,7 @@ textarea:focus-visible,
   z-index: -1;
 }
 
-/* Error Toast (EVIA enhancement) */
+/* Error Toast (Taylos enhancement) */
 .error-toast {
   position: fixed;
   top: 12px;
@@ -2494,7 +2494,7 @@ textarea:focus-visible,
   height: 14px;
 }
 
-/* Language Section (EVIA-specific) */
+/* Language Section (Taylos-specific) */
 .language-section {
   padding: 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.1);

@@ -177,7 +177,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   // WINDOWS FIX (2025-12-10): Use 'screen-saver' level on ALL platforms for highest priority
-  // This is the highest always-on-top level and prevents EVIA from going behind other windows
+  // This is the highest always-on-top level and prevents Taylos from going behind other windows
   // Previous approach with 'floating' + blur listeners caused visual flicker
   headerWindow.setAlwaysOnTop(true, 'screen-saver');
   
@@ -1595,7 +1595,7 @@ ipcMain.handle('auth:validate', async () => {
   if (isAuthenticated) {
     try {
       const keytar = require('keytar');
-      const token = await keytar.getPassword('evia', 'token');
+      const token = await keytar.getPassword('taylos', 'token');
       if (token) {
         // Decode JWT to get user info (JWT format: header.payload.signature)
         const parts = token.split('.');

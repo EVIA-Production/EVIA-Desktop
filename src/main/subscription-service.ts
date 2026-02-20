@@ -48,7 +48,7 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus | null
   
   try {
     // Get stored auth token - using 'token' key to match existing codebase
-    const token = await keytar.getPassword('evia', 'token');
+    const token = await keytar.getPassword('taylos', 'token');
     
     if (!token) {
       console.log('[SubscriptionService] No auth token found');

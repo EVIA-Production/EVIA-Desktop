@@ -19,9 +19,9 @@ const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 
 // Saves raw PCM16 audio sent to Deepgram for manual verification
 // 
 // To enable in production:
-//   touch ~/Desktop/EVIA_DEBUG_AUDIO
+//   touch ~/Desktop/Taylos_DEBUG_AUDIO
 // To disable:
-//   rm ~/Desktop/EVIA_DEBUG_AUDIO
+//   rm ~/Desktop/Taylos_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
 let DEBUG_SAVE_AUDIO = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
@@ -48,10 +48,10 @@ async function checkDebugFlag() {
     if (DEBUG_SAVE_AUDIO) {
       console.log('[AudioDebug] ✅ 🎙️ Audio debug recording ENABLED');
       console.log('[AudioDebug] 💾 Files will be saved to: ~/Desktop/taylos-audio-debug/');
-      console.log('[AudioDebug] 🛑 To disable: rm ~/Desktop/EVIA_DEBUG_AUDIO');
+      console.log('[AudioDebug] 🛑 To disable: rm ~/Desktop/Taylos_DEBUG_AUDIO');
     } else {
       console.log('[AudioDebug] ℹ️  Debug recording DISABLED (no flag file found)');
-      console.log('[AudioDebug] ⚡ To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+      console.log('[AudioDebug] ⚡ To enable: touch ~/Desktop/Taylos_DEBUG_AUDIO');
     }
   } catch (error) {
     console.error('[AudioDebug] ⚠️  Error checking debug flag:', error);
@@ -942,7 +942,7 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       
       // v1.0.0 FIX: Direct WebSocket send (no IPC routing!)
-      // EVIA uses renderer-based WebSockets (unlike Glass which uses main process)
+      // Taylos uses renderer-based WebSockets (unlike Glass which uses main process)
       const ws = ensureMicWs();
       // CRITICAL FIX: Verify WebSocket is actually connected before sending
       if (ws && ws.isConnected() && ws.sendBinaryData) {
@@ -1119,7 +1119,7 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 }
 
 // v1.0.0 FIX: No IPC routing needed for mic audio
-// EVIA uses renderer-based WebSockets (direct send from onaudioprocess)
+// Taylos uses renderer-based WebSockets (direct send from onaudioprocess)
 
 // Glass parity: Start capture with explicit permission checks
 export async function startCapture(includeSystemAudio = false) {
@@ -1153,7 +1153,7 @@ export async function startCapture(includeSystemAudio = false) {
         console.log('[AudioDebug] ═══════════════════════════════════════');
       } else {
         console.log('[AudioDebug] ❌ Debug flag file NOT FOUND');
-        console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+        console.log('[AudioDebug] To enable: touch ~/Desktop/Taylos_DEBUG_AUDIO');
         console.log('[AudioDebug] ═══════════════════════════════════════');
       }
     } else {
@@ -1752,7 +1752,7 @@ export async function startCaptureWithStreams(
         console.log('[AudioDebug] ═══════════════════════════════════════');
       } else {
         console.log('[AudioDebug] ❌ Debug flag file NOT FOUND');
-        console.log('[AudioDebug] To enable: touch ~/Desktop/EVIA_DEBUG_AUDIO');
+        console.log('[AudioDebug] To enable: touch ~/Desktop/Taylos_DEBUG_AUDIO');
         console.log('[AudioDebug] ═══════════════════════════════════════');
       }
     } else {

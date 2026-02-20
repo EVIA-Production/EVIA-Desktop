@@ -4,7 +4,7 @@
  * Writes a heartbeat timestamp to localStorage every 2 seconds
  * to let the web frontend know that Desktop is running.
  * 
- * This enables the "EVIA Desktop Open" status in the web UI.
+ * This enables the "Taylos Desktop Open" status in the web UI.
  */
 
 export function startDesktopHeartbeat() {

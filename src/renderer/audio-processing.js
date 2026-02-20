@@ -1,4 +1,4 @@
-// Audio processing utilities for EVIA Desktop
+// Audio processing utilities for Taylos Desktop
 // Improved from Glass patterns for stable audio processing
 
 // Import buffer manager

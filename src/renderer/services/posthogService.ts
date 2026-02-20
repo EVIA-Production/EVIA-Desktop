@@ -1,5 +1,5 @@
 /**
- * PostHog Analytics Service for EVIA Desktop
+ * PostHog Analytics Service for Taylos Desktop
  * 
  * This is the Desktop (Electron renderer) version of the PostHog service.
  * It mirrors the Frontend service but includes Desktop-specific events.

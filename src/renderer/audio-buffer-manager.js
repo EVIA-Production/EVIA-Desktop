@@ -1,5 +1,5 @@
 /**
- * Audio Buffer Manager for EVIA Desktop
+ * Audio Buffer Manager for Taylos Desktop
  * Handles accumulation and processing of audio chunks
  */
 

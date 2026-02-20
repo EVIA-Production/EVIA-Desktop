@@ -97,7 +97,7 @@ exports.default = async function(context) {
   }
   
   // Step 6: Ad-hoc sign the ENTIRE App Bundle
-  // This is critical for "EVIA is damaged" error prevention
+  // This is critical for "Taylos is damaged" error prevention
   // without this, electron-builder doesn't sign the main bundle in ad-hoc mode
   // leading to missing _CodeSignature/CodeResources
   try {
@@ -131,7 +131,7 @@ exports.default = async function(context) {
   console.log('═══════════════════════════════════════════════════════════\n');
   
   console.log('📋 What this means for users:');
-  console.log('   1. When they first press "Listen", EVIA will request Screen Recording');
+  console.log('   1. When they first press "Listen", Taylos will request Screen Recording');
   console.log('   2. Then SystemAudioDump will request Screen Recording again');
   console.log('   3. Both permissions are needed for system audio capture');
   console.log('   4. This is normal and expected!');

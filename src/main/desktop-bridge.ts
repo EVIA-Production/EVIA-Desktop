@@ -3,7 +3,7 @@ import { Server as WebSocketServer, WebSocket } from 'ws';
 import { app, shell, BrowserWindow } from 'electron';
 import { exec } from 'child_process';
 
-const PORT = 17394; // EVIA on phone pad
+const PORT = 17394; // Taylos on phone pad
 const HOST = '127.0.0.1';
 
 /**
@@ -16,7 +16,7 @@ function activateBrowser(): void {
     // macOS: Try to activate common browsers - doesn't open new tab, just brings to front
     // Use osascript for more reliable activation
     // FIX: Always try to activate browsers, even if one is already frontmost
-    // This helps focus the EVIA tab when user clicks "Personalize / Meeting Notes"
+    // This helps focus the Taylos tab when user clicks "Personalize / Meeting Notes"
     // Previously, we skipped activation if a browser was already front, but that
     // left the user on a different tab within the same browser window
     const applescriptCommand = `
@@ -153,7 +153,7 @@ class DesktopBridge {
         this.activeClients.add(ws);
 
         // WINDOWS FIX (2025-12-05): Send desktop_open status immediately on connection
-        // This allows the frontend to update "EVIA Desktop öffnen" button to reflect connection
+        // This allows the frontend to update "Taylos Desktop öffnen" button to reflect connection
         try {
           ws.send(JSON.stringify({ 
             type: 'status', 
