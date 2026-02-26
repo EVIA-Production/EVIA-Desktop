@@ -31,7 +31,7 @@ mac:
   gatekeeperAssess: false
   extendInfo:
     LSUIElement: false # Ensure app shows in Dock
-    ElectronTeamID: "not-set" # Use "not-set" for ad-hoc signing
+    ElectronTeamID: ${APPLE_TEAM_ID} # Set via env var when signing
     NSMicrophoneUsageDescription: "Taylos needs access to your microphone to transcribe your voice in meetings."
     NSScreenCaptureUsageDescription: "Taylos needs access to screen recording to capture system audio from meetings and calls."
     NSCameraUsageDescription: "Taylos may need camera access for screen recording functionality."
@@ -48,11 +48,14 @@ mac:
 
 win:
   target:
-    - target: dir
+    - target: nsis
     - target: portable
   icon: build/icon.ico
   artifactName: "Taylos-${version}.${ext}"
   forceCodeSigning: false
+  # Certum code signing — set WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD env vars
+  # certificateSubjectName: "Benedict Kroetz"  # Uncomment when Certum .p12 is extracted
+  publisherName: "Benedict Kroetz"
   signAndEditExecutable: true
 
 nsis:
