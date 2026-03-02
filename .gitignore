@@ -11,6 +11,8 @@ native/mac/SystemAudioCapture/.build/
 # Environment files (may contain sensitive config)
 .env
 .env.local
+.env.release
+.env.release.local
 
 # Audio debug files (development only)
 taylos-audio-debug/
