@@ -40,7 +40,7 @@
     },
     "ask": {
       "title": "Taylos fragen",
-      "placeholder": "Rage irgendetwas...",
+      "placeholder": "Frage irgendetwas...",
       "submit": "Fragen",
       "submitting": "Frage wird gestellt...",
       "abort": "Stopp",
