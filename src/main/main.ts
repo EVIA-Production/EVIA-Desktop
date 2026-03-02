@@ -154,7 +154,8 @@ function registerAutoUpdater() {
     return;
   }
 
-  autoUpdater.autoDownload = false;
+  // Download updates in the background to remove manual "Download" friction.
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('error', (err) => {
@@ -162,22 +163,7 @@ function registerAutoUpdater() {
   });
 
   autoUpdater.on('update-available', (info) => {
-    console.log('[Updater] Update available:', info.version);
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update available',
-      message: `A new version (${info.version}) is available.`,
-      detail: 'Would you like to download it now?',
-      buttons: ['Download', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((res) => {
-      if (res.response === 0) {
-        autoUpdater.downloadUpdate().catch((downloadErr) => {
-          console.error('[Updater] Download failed:', downloadErr);
-        });
-      }
-    });
+    console.log('[Updater] Update available, downloading automatically:', info.version);
   });
 
   autoUpdater.on('update-downloaded', (info) => {
