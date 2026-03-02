@@ -40,7 +40,7 @@
     },
     "ask": {
       "title": "Ask Taylos",
-      "placeholder": "Ask a question...",
+      "placeholder": "Ask anything...",
       "submit": "Ask",
       "submitting": "Asking...",
       "abort": "Stop",
@@ -111,4 +111,3 @@
     }
   }
 }
-
