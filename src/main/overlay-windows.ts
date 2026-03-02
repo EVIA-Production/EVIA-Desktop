@@ -1197,23 +1197,11 @@ function registerShortcuts() {
     console.log(`[Shortcuts] ✅ Relayed ${channel} to active window`)
   }
 
-  // Custom handler for nextStep (Cmd+Enter) which is the "Ask Anything" shortcut
+  // Cmd+Enter should strictly toggle Ask window (open/close).
+  // Submission is still handled by plain Enter inside AskView input.
   const handleNextStepShortcut = () => {
-    const activeWin = findActiveSuggestionWindow()
-    const askWin = childWindows.get('ask')
-
-    // If no window is active, or if the active window isn't Ask (and Ask isn't visible)
-    // Then Cmd+Enter should act as the global "Open Ask" shortcut
-    if (!activeWin || (!activeWin.isFocused() && (!askWin || !askWin.isVisible()))) {
-      console.log(`[Shortcuts] 💡 No active window, opening Ask window via Cmd+Enter`)
-      openAskWindow()
-      return
-    }
-
-    // If the Ask window IS active, we relay the "next-step" event 
-    // so it can submit the user's prompt (handled in AskView.tsx)
-    activeWin.webContents.send('shortcut:next-step')
-    console.log(`[Shortcuts] ✅ Relayed shortcut:next-step to active window`)
+    console.log('[Shortcuts] 💡 Cmd+Enter toggling Ask window')
+    openAskWindow()
   }
 
   // WINDOWS FIX (2025-12-05): Validate accelerator format before registering
