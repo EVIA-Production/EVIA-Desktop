@@ -33,12 +33,7 @@ jobs:
         run: |
           npm run build:main
           npm run build:renderer
-          npx electron-builder \
-            --publish always \
-            --config.publish.provider=github \
-            --config.publish.owner="${{ github.repository_owner }}" \
-            --config.publish.repo="${{ github.event.repository.name }}" \
-            --config.publish.releaseType=release
+          npx electron-builder --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}" --config.publish.releaseType=release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
