@@ -14,6 +14,14 @@ native/mac/SystemAudioCapture/.build/
 .env.release
 .env.release.local
 
+# Local certificates/keys (must never be committed)
+certs/
+*.p12
+*.pfx
+*.cer
+*.key
+*.csr
+
 # Audio debug files (development only)
 taylos-audio-debug/
 *.wav
