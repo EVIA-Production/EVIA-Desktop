@@ -53,10 +53,12 @@ win:
   icon: build/icon.ico
   artifactName: "Taylos-${version}.${ext}"
   forceCodeSigning: false
-  # Certum code signing — set WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD env vars
-  # certificateSubjectName: "Benedict Kroetz"  # Uncomment when Certum .p12 is extracted
-  publisherName: "Benedict Kroetz"
   signAndEditExecutable: true
+  # Certum code signing (electron-builder v26 schema)
+  signtoolOptions:
+    # certificateSubjectName: "Benedict Kroetz"  # Optional explicit match if needed
+    publisherName:
+      - "Benedict Kroetz"
 
 nsis:
   oneClick: false
