@@ -1016,6 +1016,11 @@ let animationStartTime = 0
 let animationTimer: NodeJS.Timeout | null = null
 
 function nudgeHeader(dx: number, dy: number) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+    console.error('[nudgeHeader] ❌ Invalid delta values', { dx, dy })
+    return
+  }
+
   // CRITICAL FIX #3: Smooth movement even with rapid/held key presses
   const header = getOrCreateHeaderWindow()
 
@@ -1077,7 +1082,7 @@ function nudgeHeader(dx: number, dy: number) {
     const currentY = animationStartPos.y + (animationTarget.y - animationStartPos.y) * eased
 
     // CRITICAL FIX: Validate coordinates are valid numbers
-    if (isNaN(currentX) || isNaN(currentY)) {
+    if (!Number.isFinite(currentX) || !Number.isFinite(currentY)) {
       console.error('[nudgeHeader] ❌ Invalid coordinates:', { currentX, currentY, animationStartPos, animationTarget })
       isAnimating = false
       if (animationTimer) clearTimeout(animationTimer)
@@ -1607,6 +1612,10 @@ ipcMain.handle('header:toggle-visibility', () => {
 })
 
 ipcMain.handle('header:nudge', (_event, { dx, dy }: { dx: number; dy: number }) => {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+    console.error('[IPC] ❌ header:nudge invalid payload', { dx, dy })
+    return { ok: false, error: 'invalid_nudge_payload' }
+  }
   nudgeHeader(dx, dy)
   return { ok: true }
 })

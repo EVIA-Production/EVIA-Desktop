@@ -114,6 +114,24 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
               try { errorHandler(new Error('Malformed JSONL line')) } catch {}
               continue
             }
+            const meta = obj?.meta
+            if (meta && typeof meta === 'object') {
+              try {
+                const provider = String(meta.provider || 'unknown')
+                const model = String(meta.model || 'unknown')
+                const reason = String(meta.reason || 'unknown')
+                const tokens = meta.estimated_input_tokens
+                const threshold = meta.context_switch_threshold
+                console.log(
+                  `[Ask][ProviderRoute] provider=${provider} model=${model} reason=${reason}` +
+                  (Number.isFinite(tokens) ? ` tokens=${tokens}` : '') +
+                  (Number.isFinite(threshold) ? ` threshold=${threshold}` : '')
+                )
+              } catch (err) {
+                console.warn('[Ask] Failed to log provider route metadata:', err)
+              }
+              continue
+            }
             const delta = typeof obj?.delta === 'string' ? obj.delta : ''
             const doneFlag = obj?.done === true
 

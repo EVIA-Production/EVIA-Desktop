@@ -447,6 +447,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
     if (listenStatus === 'before') {
       console.log('[EviaBar] Listen → Stop: Showing listen window');
 
+      // Hard reset stale per-session UI before showing Listen again.
+      // Prevents previous-session insights/transcripts from flashing for a frame.
+      (window as any).evia?.ipc?.send?.('clear-session');
+      console.log('[EviaBar] 🧹 Sent clear-session before opening Listen');
+
       await (window as any).evia?.windows?.ensureShown?.('listen');
       onViewChange?.('listen');
 
@@ -578,6 +583,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
       await (window as any).evia?.windows?.hide?.('ask');
       // Broadcast session-closed event so Ask can clear its state
       (window as any).evia?.ipc?.send?.('session:closed');
+      // Broadcast full session clear so Listen does not show previous insights/transcripts on next open.
+      (window as any).evia?.ipc?.send?.('clear-session');
 
       // FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
       // This ensures each "Listen → Done" cycle creates a separate session
