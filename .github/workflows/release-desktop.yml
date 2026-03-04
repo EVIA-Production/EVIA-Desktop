@@ -82,6 +82,29 @@ jobs:
 
           echo "PKCS12 preflight passed."
 
+      - name: Validate Apple notarization credentials
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${APPLE_ID:-}" || -z "${APPLE_ID_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            echo "::error::APPLE_ID / APPLE_ID_PASSWORD / APPLE_TEAM_ID must all be set."
+            exit 1
+          fi
+
+          if ! xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" >/tmp/notary_preflight.log 2>&1; then
+            echo "::error::Apple notarization credentials are invalid. APPLE_ID_PASSWORD must be an app-specific password."
+            cat /tmp/notary_preflight.log || true
+            exit 1
+          fi
+
+          echo "Notary credentials preflight passed."
+
       - name: Build and publish release artifacts
         run: |
           npm run build:main
