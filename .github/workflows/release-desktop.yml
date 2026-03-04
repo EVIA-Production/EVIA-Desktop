@@ -64,6 +64,11 @@ jobs:
             fi
           fi
 
+          echo "::add-mask::$CSC_LINK"
+          {
+            echo "CSC_LINK_CLEAN=$CSC_LINK"
+          } >> "$GITHUB_ENV"
+
           if [[ ! -s "$TMP_P12" ]]; then
             echo "::error::Decoded PKCS12 file is empty."
             exit 1
@@ -85,7 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
-          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '' }}
+          CSC_LINK: ${{ env.CSC_LINK_CLEAN }}
           CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID_PASSWORD || '' }}
