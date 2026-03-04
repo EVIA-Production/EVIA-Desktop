@@ -1571,11 +1571,32 @@ ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: 
     return { ok: false, error: 'window_not_available' }
   }
 
+  if (!Number.isFinite(height)) {
+    console.error(`[IPC] ❌ adjust-window-height: Invalid height '${height}' for '${winName}'`)
+    return { ok: false, error: 'invalid_height' }
+  }
+
   const currentBounds = win.getBounds()
   const newBounds = { ...currentBounds, height: Math.round(height) }
 
   console.log(`[IPC] 📏 adjust-window-height: ${winName} ${currentBounds.height}px → ${newBounds.height}px`)
   win.setBounds(newBounds)
+
+  // CRITICAL: Re-run layout so flipped windows (above header) keep their bottom anchor.
+  // Without this, Ask grows from a stale Y and can overlap the header bar when expanded.
+  const vis = getVisibility()
+  if (vis.ask || vis.listen) {
+    layoutChildWindows(vis)
+
+    // Preserve z-order after re-layout.
+    if (win.isVisible()) {
+      try { win.moveTop() } catch {}
+    }
+    const header = getHeaderWindow()
+    if (header && !header.isDestroyed()) {
+      try { header.moveTop() } catch {}
+    }
+  }
 
   return { ok: true }
 })
