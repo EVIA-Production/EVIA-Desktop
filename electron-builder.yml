@@ -51,7 +51,7 @@ win:
     - target: nsis
     - target: portable
   icon: build/icon.ico
-  artifactName: "Taylos-${version}.${ext}"
+  artifactName: "Taylos-Setup-${version}.${ext}"
   forceCodeSigning: false
   signAndEditExecutable: true
   # Certum code signing (electron-builder v26 schema)
@@ -65,6 +65,9 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: "Taylos-Portable-${version}.${ext}"
 
 dmg:
   format: UDZO

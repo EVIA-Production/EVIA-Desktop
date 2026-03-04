@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -29,18 +29,60 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate macOS signing certificate secret
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CSC_LINK:-}" ]]; then
+            echo "::error::MAC_CSC_LINK is empty."
+            exit 1
+          fi
+
+          if [[ -z "${CSC_KEY_PASSWORD:-}" ]]; then
+            echo "::error::MAC_CSC_KEY_PASSWORD is empty."
+            exit 1
+          fi
+
+          TMP_P12="$RUNNER_TEMP/macos-signing-cert.p12"
+
+          if [[ "$CSC_LINK" =~ ^https?:// ]]; then
+            curl --fail --silent --show-error --location "$CSC_LINK" --output "$TMP_P12"
+          else
+            if ! printf '%s' "$CSC_LINK" | openssl base64 -d -A -out "$TMP_P12" 2>/tmp/csc_decode_error.log; then
+              echo "::error::MAC_CSC_LINK is not a valid base64 PKCS12 payload."
+              cat /tmp/csc_decode_error.log || true
+              exit 1
+            fi
+          fi
+
+          if [[ ! -s "$TMP_P12" ]]; then
+            echo "::error::Decoded PKCS12 file is empty."
+            exit 1
+          fi
+
+          if ! openssl pkcs12 -in "$TMP_P12" -passin "pass:${CSC_KEY_PASSWORD}" -nokeys >/dev/null 2>/tmp/csc_pkcs12_error.log; then
+            echo "::error::MAC_CSC_KEY_PASSWORD does not unlock MAC_CSC_LINK PKCS12."
+            cat /tmp/csc_pkcs12_error.log || true
+            exit 1
+          fi
+
+          echo "PKCS12 preflight passed."
+
       - name: Build and publish release artifacts
         run: |
           npm run build:main
           npm run build:renderer
-          npx electron-builder --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}" --config.publish.releaseType=release
+          npx electron-builder --mac dmg zip --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}" --config.publish.releaseType=release --config.publish.timeout=600000
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
           CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          WIN_CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || '' }}
-          WIN_CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
