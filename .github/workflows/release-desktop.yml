@@ -5,12 +5,28 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      notarize:
+        description: "Run Apple notarization (disable only for fast internal test builds)"
+        required: false
+        default: true
+        type: boolean
+      split_publish:
+        description: "Split build+publish into separate steps (debug only)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-publish:
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +99,7 @@ jobs:
           echo "PKCS12 preflight passed."
 
       - name: Validate Apple notarization credentials
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && (github.event_name != 'workflow_dispatch' || inputs.notarize)
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -106,6 +122,8 @@ jobs:
           echo "Notary credentials preflight passed."
 
       - name: Build and publish release artifacts
+        if: github.event_name != 'workflow_dispatch' || inputs.split_publish != true
+        timeout-minutes: 80
         run: |
           npm run build:main
           npm run build:renderer
@@ -118,6 +136,55 @@ jobs:
           APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          NOTARIZE_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.notarize }}
+
+      - name: Build release artifacts (split mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true
+        timeout-minutes: 80
+        run: |
+          npm run build:main
+          npm run build:renderer
+          npx electron-builder --mac dmg zip --publish never
+          echo "Built artifacts:"
+          ls -lah dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+          CSC_LINK: ${{ env.CSC_LINK_CLEAN }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_ID_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          NOTARIZE_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.notarize }}
+
+      - name: Publish release artifacts (split mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          TITLE="Taylos ${VERSION}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists - uploading with --clobber"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "Automated desktop release"
+          fi
+
+          mapfile -d '' FILES < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "::error::No release files found in dist/"
+            exit 1
+          fi
+
+          printf 'Uploading %s file(s)\n' "${#FILES[@]}"
+          gh release upload "$TAG" "${FILES[@]}" --clobber
+          gh release view "$TAG"
 
       - name: Upload artifacts
         if: always()

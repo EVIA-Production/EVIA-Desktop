@@ -10,6 +10,13 @@ exports.default = async function notarizeApp(context) {
     return;
   }
 
+  // Allow CI to skip notarization for fast internal builds.
+  const notarizeEnabled = String(process.env.NOTARIZE_ENABLED || 'true').toLowerCase();
+  if (notarizeEnabled === 'false' || notarizeEnabled === '0' || notarizeEnabled === 'no') {
+    console.log('[notarize] Skipping notarization - NOTARIZE_ENABLED=false');
+    return;
+  }
+
   const appPath = path.join(appOutDir, `${packager.appInfo.productName}.app`);
   const appleId = process.env.APPLE_ID;
   const appleIdPassword = process.env.APPLE_ID_PASSWORD;
