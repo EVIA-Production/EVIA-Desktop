@@ -53,6 +53,10 @@ jobs:
           if [[ "$CSC_LINK" =~ ^https?:// ]]; then
             curl --fail --silent --show-error --location "$CSC_LINK" --output "$TMP_P12"
           else
+            if [[ "$CSC_LINK" =~ ^data:.*base64, ]]; then
+              CSC_LINK="${CSC_LINK#*,}"
+            fi
+
             if ! printf '%s' "$CSC_LINK" | openssl base64 -d -A -out "$TMP_P12" 2>/tmp/csc_decode_error.log; then
               echo "::error::MAC_CSC_LINK is not a valid base64 PKCS12 payload."
               cat /tmp/csc_decode_error.log || true
