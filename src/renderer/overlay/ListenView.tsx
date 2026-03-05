@@ -81,12 +81,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
-  const autoInsightsMilestoneRef = useRef(0);
   const lastInsightsFetchCountRef = useRef(0);
+  const lastInsightsFetchAtRef = useRef(0);
   const periodicInsightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const INSIGHTS_REFRESH_THRESHOLD = 3;
+  const MIN_INSIGHTS_REFRESH_INTERVAL_MS = 20_000;
 
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const isNearDuplicateText = (a: string, b: string) => {
+    const an = normalizeTranscriptText(a || '');
+    const bn = normalizeTranscriptText(b || '');
+    if (!an || !bn) return false;
+    if (an === bn) return true;
+    if (an.length > 20 && bn.length > 20 && (an.includes(bn) || bn.includes(an))) return true;
+    return false;
+  };
 
   const mergeTranscriptText = (base: string, incoming: string) => {
     const a = (base || '').trim();
@@ -99,6 +110,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (bn.startsWith(an)) return b;
     if (an.startsWith(bn)) return a;
     return `${a} ${b}`.replace(/\s+/g, ' ').trim();
+  };
+
+  const isStubInsightPayload = (payload: Insight | null | undefined) => {
+    if (!payload) return true;
+    const allText = JSON.stringify(payload).toLowerCase();
+    const stubPhrases = [
+      'keine transkripte vorhanden',
+      'no transcripts available',
+      'meeting läuft noch',
+      'meeting still in progress',
+      'wait for more context',
+      'warte auf mehr kontext',
+      'prüfe deine notizen',
+      'check your notes',
+    ];
+    return stubPhrases.filter(phrase => allText.includes(phrase)).length >= 2;
   };
 
   useEffect(() => {
@@ -198,17 +225,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, [transcripts]);
 
   useEffect(() => {
-    const finalCount = transcripts.filter(t => t.isFinal && !t.isPartial).length;
-    finalTranscriptCountRef.current = finalCount;
-
-    if (!isSessionActive) return;
-    const milestone = Math.floor(finalCount / 5) * 5;
-    if (milestone >= 5 && milestone > autoInsightsMilestoneRef.current) {
-      autoInsightsMilestoneRef.current = milestone;
-      console.log(`[ListenView] 🎯 Triggering auto-insights at milestone ${milestone}`);
+    if (!isSessionActive || isLoadingInsights) return;
+    const finalCount = finalTranscriptCountRef.current;
+    const lastFetched = lastInsightsFetchCountRef.current;
+    const now = Date.now();
+    if (
+      finalCount >= lastFetched + INSIGHTS_REFRESH_THRESHOLD &&
+      now - lastInsightsFetchAtRef.current >= MIN_INSIGHTS_REFRESH_INTERVAL_MS
+    ) {
+      lastInsightsFetchAtRef.current = now;
+      console.log(
+        `[ListenView] 🎯 Auto-insights refresh (finalCount=${finalCount}, lastFetched=${lastFetched})`
+      );
       setTimeout(() => fetchInsightsNowRef.current(), 100);
     }
-  }, [transcripts, isSessionActive]);
+  }, [transcripts, isSessionActive, isLoadingInsights]);
 
   useEffect(() => {
     if (periodicInsightsIntervalRef.current) {
@@ -217,11 +248,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
     if (!isSessionActive) return;
 
-    const PERIODIC_REFRESH_MS = 30_000;
+    const PERIODIC_REFRESH_MS = 20_000;
     periodicInsightsIntervalRef.current = setInterval(() => {
       const finalCount = finalTranscriptCountRef.current;
       const lastFetched = lastInsightsFetchCountRef.current;
-      if (finalCount >= lastFetched + 3 && !isLoadingInsights) {
+      const now = Date.now();
+      if (
+        finalCount >= lastFetched + INSIGHTS_REFRESH_THRESHOLD &&
+        !isLoadingInsights &&
+        now - lastInsightsFetchAtRef.current >= MIN_INSIGHTS_REFRESH_INTERVAL_MS
+      ) {
+        lastInsightsFetchAtRef.current = now;
         console.log(
           `[ListenView] 🔄 Periodic auto-insights refresh (finals=${finalCount}, lastFetched=${lastFetched})`
         );
@@ -395,6 +432,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // Reset refs
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
+        lastInsightsFetchAtRef.current = 0;
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
         stallToastShownRef.current = false;
@@ -404,7 +442,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
-        autoInsightsMilestoneRef.current = 0;
         
         // Enable auto-scroll at session start
         setAutoScroll(true);
@@ -660,6 +697,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           // FINAL DEDUPE + MERGE:
           // - avoid duplicate bubble when TURN_COMPLETE + is_final arrive close together
           // - merge multi-part finals for same utterance into one bubble
+          let acceptedFinal = false;
           const now = Date.now();
           const WINDOW_MS = 30_000;
           for (const [key, ts] of finalizedTextRef.current.entries()) {
@@ -675,7 +713,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (normalizedUtteranceId) {
             const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
             const seenHash = finalizedUtteranceRef.current.get(utteranceKey);
-            if (seenHash === normalizedText) {
+            if (seenHash && isNearDuplicateText(seenHash, normalizedText)) {
               console.log('[ListenView] 🚫 Skipping duplicate FINAL by utterance key:', utteranceKey);
               return prev;
             }
@@ -706,11 +744,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
+            acceptedFinal = true;
           } else {
               // No previous partial - try merge with existing final bubble of same utterance
               const existingFinalIdx = findLastFinalIdx(speaker, normalizedUtteranceId);
               if (existingFinalIdx !== -1) {
-                const merged = mergeTranscriptText(prev[existingFinalIdx].text, text);
+                const previousFinalText = prev[existingFinalIdx].text;
+                if (isNearDuplicateText(previousFinalText, text)) {
+                  console.log('[ListenView] 🚫 Skipping duplicate FINAL merge for utterance', normalizedUtteranceId ?? '∅');
+                  return prev;
+                }
+                const merged = mergeTranscriptText(previousFinalText, text);
                 console.log('[ListenView] 🔗 MERGING FINAL into existing utterance bubble at index', existingFinalIdx, 'utt:', normalizedUtteranceId ?? '∅');
                 newMessages[existingFinalIdx] = {
                   ...newMessages[existingFinalIdx],
@@ -720,7 +764,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   isPartial: false,
                   utteranceId: normalizedUtteranceId ?? newMessages[existingFinalIdx].utteranceId,
                 };
+                acceptedFinal = true;
               } else {
+                const recentFinalSameSpeaker = [...prev]
+                  .reverse()
+                  .find(item => item.speaker === speaker && item.isFinal && !item.isPartial);
+                if (
+                  recentFinalSameSpeaker &&
+                  recentFinalSameSpeaker.timestamp &&
+                  now - recentFinalSameSpeaker.timestamp < 4000 &&
+                  isNearDuplicateText(recentFinalSameSpeaker.text, text)
+                ) {
+                  console.log('[ListenView] 🚫 Skipping duplicate FINAL near recent same-speaker bubble');
+                  return prev;
+                }
                 // No previous partial/final match - create new bubble
               console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
               console.log('  └─ NEW:', text.substring(0, 50));
@@ -734,6 +791,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 timestamp: messageTimestamp,
                 utteranceId: normalizedUtteranceId,
               });
+              acceptedFinal = true;
               }
           }
 
@@ -742,9 +800,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(text));
             finalizedAtRef.current.set(utteranceKey, now);
           }
+          if (acceptedFinal) {
+            finalTranscriptCountRef.current += 1;
+          }
         }
-
-        finalTranscriptCountRef.current = newMessages.filter(t => t.isFinal && !t.isPartial).length;
         return newMessages;
       });
       // After transcripts state scheduled update, schedule an update of last-message age (ms) DEV-ONLY metric
@@ -774,7 +833,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setIsSessionActive(false);
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
-        autoInsightsMilestoneRef.current = 0;
+        lastInsightsFetchAtRef.current = 0;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -789,7 +848,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsIndex(-1);
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
-        autoInsightsMilestoneRef.current = 0;
+        lastInsightsFetchAtRef.current = 0;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -809,7 +868,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setIsSessionActive(true);
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
-          autoInsightsMilestoneRef.current = 0;
+          lastInsightsFetchAtRef.current = 0;
         } else if (newState === 'after') {
           setIsSessionActive(false);
         } else if (newState === 'before') {
@@ -821,7 +880,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setIsSessionActive(false);
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
-          autoInsightsMilestoneRef.current = 0;
+          lastInsightsFetchAtRef.current = 0;
         }
       };
 
@@ -1038,6 +1097,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
+        if (isStubInsightPayload(fetchedInsights)) {
+          console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
+          return;
+        }
         
         // Log session_state metadata from insights
         console.log('[ListenView] 🎯 INSIGHT METADATA:');
@@ -1061,6 +1124,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
         setInsights(fetchedInsights);
         lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
+        lastInsightsFetchAtRef.current = Date.now();
         setInsightsHistory((prev) => {
           const next = [...prev, fetchedInsights];
           setInsightsIndex(next.length - 1);

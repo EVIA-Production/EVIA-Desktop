@@ -13,6 +13,13 @@ interface AskViewProps {
   onSubmitPrompt?: (prompt: string) => void;
 }
 
+type AskTranscriptEntry = {
+  speaker: number | null;
+  text: string;
+  created_at?: string;
+  timestamp?: number;
+};
+
 const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) => {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
@@ -37,6 +44,26 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseBufferRef = useRef<string>('');
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
+  const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
+
+  const deduplicateTranscriptEntries = useCallback((entries: AskTranscriptEntry[]): AskTranscriptEntry[] => {
+    const deduped: AskTranscriptEntry[] = [];
+    const seen = new Set<string>();
+
+    for (const entry of entries) {
+      const cleaned = (entry.text || '').trim();
+      if (!cleaned) continue;
+      if (/^(taylos|evia) connection ok$/i.test(cleaned)) continue;
+
+      const normalized = normalizeContextText(cleaned);
+      const key = `${entry.speaker ?? 'u'}:${normalized.slice(0, 80)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push({ ...entry, text: cleaned });
+    }
+
+    return deduped;
+  }, [normalizeContextText]);
   
   // Taylos-specific: Error handling
   const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
@@ -622,22 +649,28 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     let transcriptContext = '';
     try {
       const { getChatTranscripts } = await import('../services/websocketService');
-      const transcripts = await getChatTranscripts(chatId, token, 50); // Last 50 turns
+      const transcripts = await getChatTranscripts(chatId, token, 100); // Last 100 turns
       
       if (transcripts && transcripts.length > 0) {
-        // Format as conversation: "You: ... | Prospect: ..."
-        transcriptContext = transcripts
-          .map(t => {
-            const text = (t.text || '').trim();
-            if (!text) return null;
-            if (/^(taylos|evia) connection ok$/i.test(text)) return null;
-            const speaker = t.speaker === 1 ? 'You' : 'Prospect';
-            return text ? `${speaker}: ${text}` : null;
-          })
-          .filter(Boolean)
-          .join('\n');
+        const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
+        const maxChars = 12000;
+        const lines: string[] = [];
+        let charCount = 0;
+
+        // Build from most recent backwards, then reassemble chronologically.
+        for (let i = deduped.length - 1; i >= 0; i--) {
+          const entry = deduped[i];
+          const speakerLabel = entry.speaker === 1 ? 'You' : 'Prospect';
+          const line = `${speakerLabel}: ${entry.text}`;
+          const projected = charCount + line.length + 1;
+          if (projected > maxChars) break;
+          lines.unshift(line);
+          charCount = projected;
+        }
+
+        transcriptContext = lines.join('\n');
         
-        console.log('[AskView] 📄 Fetched transcript context:', transcriptContext.length, 'chars,', transcripts.length, 'entries');
+        console.log('[AskView] 📄 Fetched transcript context:', transcriptContext.length, 'chars,', lines.length, 'entries');
       } else {
         console.log('[AskView] ℹ️ No transcript history yet');
       }

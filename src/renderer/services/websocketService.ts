@@ -430,6 +430,17 @@ export interface TranscriptEntry {
   created_at?: string;
 }
 
+const normalizeTranscriptText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const areNearDuplicate = (a: string, b: string) => {
+  const an = normalizeTranscriptText(a);
+  const bn = normalizeTranscriptText(b);
+  if (!an || !bn) return false;
+  if (an === bn) return true;
+  if (an.length > 20 && bn.length > 20 && (an.includes(bn) || bn.includes(an))) return true;
+  return false;
+};
+
 export async function getChatTranscripts(chatId: number, token: string, limit: number = 50): Promise<TranscriptEntry[]> {
   try {
     const backendUrl = getBackendHttpBase();
@@ -467,7 +478,18 @@ export async function getChatTranscripts(chatId: number, token: string, limit: n
       const tb = b.created_at ? Date.parse(b.created_at) : 0;
       return ta - tb;
     });
-    return normalized;
+    const deduped: TranscriptEntry[] = [];
+    for (const item of normalized) {
+      const text = (item.text || '').trim();
+      if (!text) continue;
+      if (/^(taylos|evia) connection ok$/i.test(text)) continue;
+      const prev = deduped[deduped.length - 1];
+      if (prev && prev.speaker === item.speaker && areNearDuplicate(prev.text, text)) {
+        continue;
+      }
+      deduped.push({ ...item, text });
+    }
+    return deduped;
   } catch (error) {
     console.error('[Transcripts] ❌ Failed to fetch:', error);
     return []; // Return empty on error - graceful degradation
