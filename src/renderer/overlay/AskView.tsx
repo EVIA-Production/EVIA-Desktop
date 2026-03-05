@@ -56,7 +56,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       if (/^(taylos|evia) connection ok$/i.test(cleaned)) continue;
 
       const normalized = normalizeContextText(cleaned);
-      const key = `${entry.speaker ?? 'u'}:${normalized.slice(0, 80)}`;
+      const key = `${entry.speaker ?? 'u'}:${normalized}`;
       if (seen.has(key)) continue;
       seen.add(key);
       deduped.push({ ...entry, text: cleaned });
@@ -649,11 +649,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     let transcriptContext = '';
     try {
       const { getChatTranscripts } = await import('../services/websocketService');
-      const transcripts = await getChatTranscripts(chatId, token, 100); // Last 100 turns
+      const transcripts = await getChatTranscripts(chatId, token, 200); // Last 200 turns
       
       if (transcripts && transcripts.length > 0) {
         const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
-        const maxChars = 12000;
+        const maxChars = 20000;
         const lines: string[] = [];
         let charCount = 0;
 

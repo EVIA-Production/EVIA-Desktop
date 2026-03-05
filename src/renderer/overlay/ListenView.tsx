@@ -52,7 +52,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [isSessionActive, setIsSessionActive] = useState(false);
 
-  const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>('before');
+  const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>(() => {
+    const stored = localStorage.getItem('evia_session_state');
+    if (stored === 'before' || stored === 'during' || stored === 'after') {
+      console.log('[ListenView] 🎯 Initial session state from localStorage:', stored);
+      return stored;
+    }
+    return 'before';
+  });
   // Glass parity: Insights fetched from backend via fetchInsights service
   const [insights, setInsights] = useState<Insight | null>(null);
   const [insightsHistory, setInsightsHistory] = useState<Insight[]>([]);
@@ -416,6 +423,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(true);
+        setSessionState('during');
+        localStorage.setItem('evia_session_state', 'during');
         setCopyState('idle');
         setCopiedView(null);
         setShowUndoButton(false);
@@ -464,6 +473,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🛑 Recording stopped - stopping timer');
         stopTimer();
         setIsSessionActive(false);
+        setSessionState('after');
+        localStorage.setItem('evia_session_state', 'after');
 
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
