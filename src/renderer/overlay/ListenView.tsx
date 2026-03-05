@@ -82,6 +82,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
   const autoInsightsMilestoneRef = useRef(0);
+  const lastInsightsFetchCountRef = useRef(0);
+  const periodicInsightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -207,6 +209,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setTimeout(() => fetchInsightsNowRef.current(), 100);
     }
   }, [transcripts, isSessionActive]);
+
+  useEffect(() => {
+    if (periodicInsightsIntervalRef.current) {
+      clearInterval(periodicInsightsIntervalRef.current);
+      periodicInsightsIntervalRef.current = null;
+    }
+    if (!isSessionActive) return;
+
+    const PERIODIC_REFRESH_MS = 30_000;
+    periodicInsightsIntervalRef.current = setInterval(() => {
+      const finalCount = finalTranscriptCountRef.current;
+      const lastFetched = lastInsightsFetchCountRef.current;
+      if (finalCount >= lastFetched + 3 && !isLoadingInsights) {
+        console.log(
+          `[ListenView] 🔄 Periodic auto-insights refresh (finals=${finalCount}, lastFetched=${lastFetched})`
+        );
+        fetchInsightsNowRef.current();
+      }
+    }, PERIODIC_REFRESH_MS);
+
+    return () => {
+      if (periodicInsightsIntervalRef.current) {
+        clearInterval(periodicInsightsIntervalRef.current);
+        periodicInsightsIntervalRef.current = null;
+      }
+    };
+  }, [isSessionActive, isLoadingInsights]);
 
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
@@ -365,6 +394,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         
         // Reset refs
         finalTranscriptCountRef.current = 0;
+        lastInsightsFetchCountRef.current = 0;
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
         stallToastShownRef.current = false;
@@ -714,6 +744,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
         }
 
+        finalTranscriptCountRef.current = newMessages.filter(t => t.isFinal && !t.isPartial).length;
         return newMessages;
       });
       // After transcripts state scheduled update, schedule an update of last-message age (ms) DEV-ONLY metric
@@ -742,6 +773,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setElapsedTime('00:00');
         setIsSessionActive(false);
         finalTranscriptCountRef.current = 0;
+        lastInsightsFetchCountRef.current = 0;
         autoInsightsMilestoneRef.current = 0;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
@@ -756,6 +788,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsHistory([]);
         setInsightsIndex(-1);
         finalTranscriptCountRef.current = 0;
+        lastInsightsFetchCountRef.current = 0;
         autoInsightsMilestoneRef.current = 0;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
@@ -770,11 +803,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setSessionState(newState);
         if (newState === 'during') {
           // Prevent one-frame flash of stale insights from previous session.
+          setTranscripts([]);
           setViewMode('transcript');
           setInsights(null);
           setIsSessionActive(true);
+          finalTranscriptCountRef.current = 0;
+          lastInsightsFetchCountRef.current = 0;
+          autoInsightsMilestoneRef.current = 0;
         } else if (newState === 'after') {
           setIsSessionActive(false);
+        } else if (newState === 'before') {
+          setTranscripts([]);
+          setInsights(null);
+          setInsightsHistory([]);
+          setInsightsIndex(-1);
+          setViewMode('transcript');
+          setIsSessionActive(false);
+          finalTranscriptCountRef.current = 0;
+          lastInsightsFetchCountRef.current = 0;
+          autoInsightsMilestoneRef.current = 0;
         }
       };
 
@@ -1013,6 +1060,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] 🔍 Topic bullets:', fetchedInsights.topic?.bullets);
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
         setInsights(fetchedInsights);
+        lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
         setInsightsHistory((prev) => {
           const next = [...prev, fetchedInsights];
           setInsightsIndex(next.length - 1);

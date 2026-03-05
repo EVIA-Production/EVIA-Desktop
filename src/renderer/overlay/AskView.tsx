@@ -134,7 +134,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
               console.log('[AskView] 📏 Live (streaming): header=%d + content=%d + input=%d + pad=%d = %dpx', 
                 headerH, contentH, inputH, padding, targetHeight);
             }
-          } else if (storedContentHeightRef.current && Math.abs(current - storedContentHeightRef.current) > 5) {
+          } else if (
+            storedContentHeightRef.current &&
+            Math.abs(current - storedContentHeightRef.current) > 5
+          ) {
+            // Between sessions ('before') we intentionally keep compact height and
+            // must not restore stale expanded heights from the previous call.
+            if (sessionState === 'before' && !response && !isStreaming) {
+              return;
+            }
             // CASE 2: Content stable but height wrong (external resize like arrow keys)
             console.warn('[AskView] ⚠️ Height mismatch detected, restoring: %dpx → %dpx', 
               current, storedContentHeightRef.current);
@@ -151,7 +159,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => {
       resizeObserverRef.current?.disconnect();
     };
-  }, [isStreaming, response]);
+  }, [isStreaming, response, sessionState]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -264,6 +272,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Each Electron window has its own localStorage, so we must sync it here!
       localStorage.setItem('evia_session_state', newState);
       setSessionState(newState);
+
+      if (newState === 'before') {
+        // Hard reset between sessions so no previous response/height is restored.
+        setResponse('');
+        setResponseHistory([]);
+        setResponseIndex(-1);
+        setCurrentQuestion('');
+        setPrompt('');
+        setIsStreaming(false);
+        setIsLoadingFirstToken(false);
+        lastResponseRef.current = '';
+        storedContentHeightRef.current = null;
+      }
     };
 
     // FIX: Clear state on language change (fixes Test 3 failure)
@@ -601,7 +622,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     let transcriptContext = '';
     try {
       const { getChatTranscripts } = await import('../services/websocketService');
-      const transcripts = await getChatTranscripts(chatId, token, 30); // Last 30 turns
+      const transcripts = await getChatTranscripts(chatId, token, 50); // Last 50 turns
       
       if (transcripts && transcripts.length > 0) {
         // Format as conversation: "You: ... | Prospect: ..."

@@ -430,7 +430,7 @@ export interface TranscriptEntry {
   created_at?: string;
 }
 
-export async function getChatTranscripts(chatId: number, token: string, limit: number = 30): Promise<TranscriptEntry[]> {
+export async function getChatTranscripts(chatId: number, token: string, limit: number = 50): Promise<TranscriptEntry[]> {
   try {
     const backendUrl = getBackendHttpBase();
     console.log('[Transcripts] 📄 Fetching last', limit, 'transcripts for chat:', chatId);
@@ -455,12 +455,19 @@ export async function getChatTranscripts(chatId: number, token: string, limit: n
     const transcripts = Array.isArray(data) ? data : (data.transcripts || []);
     console.log('[Transcripts] ✅ Fetched', transcripts.length, 'transcripts');
     
-    return transcripts.map((t: any) => ({
+    // Defensive ordering in case backend/revision mismatch returns unsorted rows.
+    const normalized = transcripts.map((t: any) => ({
       speaker: t.speaker ?? null,
       text: t.text || t.content || '',
       timestamp: t.timestamp,
       created_at: t.created_at,
     }));
+    normalized.sort((a, b) => {
+      const ta = a.created_at ? Date.parse(a.created_at) : 0;
+      const tb = b.created_at ? Date.parse(b.created_at) : 0;
+      return ta - tb;
+    });
+    return normalized;
   } catch (error) {
     console.error('[Transcripts] ❌ Failed to fetch:', error);
     return []; // Return empty on error - graceful degradation
