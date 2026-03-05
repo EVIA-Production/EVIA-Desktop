@@ -28,7 +28,7 @@ export async function fetchInsights({
   language = 'de',
   token,
   baseUrl,
-  sessionState = 'before', // Default to 'before' if not provided
+  sessionState = 'during',
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || BACKEND_URL;
   
@@ -98,4 +98,3 @@ export async function fetchInsights({
   // Should never reach here, but TypeScript requires it
   return null;
 }
-

@@ -114,14 +114,16 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
               try { errorHandler(new Error('Malformed JSONL line')) } catch {}
               continue
             }
+            const isProviderRouteEvent = obj?.type === 'provider_route'
             const meta = obj?.meta
-            if (meta && typeof meta === 'object') {
+            if (isProviderRouteEvent || (meta && typeof meta === 'object')) {
               try {
-                const provider = String(meta.provider || 'unknown')
-                const model = String(meta.model || 'unknown')
-                const reason = String(meta.reason || 'unknown')
-                const tokens = meta.estimated_input_tokens
-                const threshold = meta.context_switch_threshold
+                const route = isProviderRouteEvent ? obj : meta
+                const provider = String(route?.provider || 'unknown')
+                const model = String(route?.model || 'unknown')
+                const reason = String(route?.reason || 'unknown')
+                const tokens = route?.estimated_input_tokens
+                const threshold = route?.context_switch_threshold
                 console.log(
                   `[Ask][ProviderRoute] provider=${provider} model=${model} reason=${reason}` +
                   (Number.isFinite(tokens) ? ` tokens=${tokens}` : '') +

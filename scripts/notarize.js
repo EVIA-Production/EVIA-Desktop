@@ -27,8 +27,8 @@ exports.default = async function notarizeApp(context) {
     return;
   }
 
-  const timeoutMinutesRaw = Number(process.env.NOTARIZE_TIMEOUT_MINUTES || '60');
-  const timeoutMinutes = Number.isFinite(timeoutMinutesRaw) && timeoutMinutesRaw > 0 ? timeoutMinutesRaw : 60;
+  const timeoutMinutesRaw = Number(process.env.NOTARIZE_TIMEOUT_MINUTES || '180');
+  const timeoutMinutes = Number.isFinite(timeoutMinutesRaw) && timeoutMinutesRaw > 0 ? timeoutMinutesRaw : 180;
   const timeoutMs = timeoutMinutes * 60 * 1000;
 
   console.log('[notarize] Notarizing app:', appPath);

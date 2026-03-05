@@ -78,6 +78,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
   const fetchInsightsNowRef = useRef<() => Promise<void>>(async () => {});
+  const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
+  const finalizedAtRef = useRef<Map<string, number>>(new Map());
+  const finalizedTextRef = useRef<Map<string, number>>(new Map());
+  const autoInsightsMilestoneRef = useRef(0);
+
+  const normalizeTranscriptText = (value: string) =>
+    value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const mergeTranscriptText = (base: string, incoming: string) => {
+    const a = (base || '').trim();
+    const b = (incoming || '').trim();
+    if (!a) return b;
+    if (!b) return a;
+    const an = normalizeTranscriptText(a);
+    const bn = normalizeTranscriptText(b);
+    if (an === bn) return a.length >= b.length ? a : b;
+    if (bn.startsWith(an)) return b;
+    if (an.startsWith(bn)) return a;
+    return `${a} ${b}`.replace(/\s+/g, ' ').trim();
+  };
 
   useEffect(() => {
     insightsHistoryRef.current = insightsHistory;
@@ -175,6 +195,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   }, [transcripts]);
 
+  useEffect(() => {
+    const finalCount = transcripts.filter(t => t.isFinal && !t.isPartial).length;
+    finalTranscriptCountRef.current = finalCount;
+
+    if (!isSessionActive) return;
+    const milestone = Math.floor(finalCount / 5) * 5;
+    if (milestone >= 5 && milestone > autoInsightsMilestoneRef.current) {
+      autoInsightsMilestoneRef.current = milestone;
+      console.log(`[ListenView] 🎯 Triggering auto-insights at milestone ${milestone}`);
+      setTimeout(() => fetchInsightsNowRef.current(), 100);
+    }
+  }, [transcripts, isSessionActive]);
+
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
 
@@ -264,16 +297,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // GLASS PARITY: Scroll AFTER React renders (lines 178-185 in SttView.js)
   // Glass uses setTimeout(fn, 0) to ensure DOM is fully updated before scrolling
   useEffect(() => {
-    if (shouldScrollAfterUpdate.current && viewportRef.current) {
-      // Use setTimeout(0) like Glass SttView.js line 179-184 scrollToBottom()
-      setTimeout(() => {
-        if (viewportRef.current) {
-          viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-        }
-      }, 0);
-      shouldScrollAfterUpdate.current = false;
-    }
-  }, [transcripts]); // Run after transcripts update
+    if (viewMode !== 'transcript') return;
+    if ((!autoScrollRef.current && !shouldScrollAfterUpdate.current) || !viewportRef.current) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!viewportRef.current) return;
+        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        // Fallback pass for browsers that report stale scrollHeight in the same frame.
+        setTimeout(() => {
+          if (viewportRef.current) {
+            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+          }
+        }, 0);
+      });
+    });
+    shouldScrollAfterUpdate.current = false;
+  }, [transcripts, viewMode]); // Run after transcripts update
 
   useEffect(() => {
     adjustWindowHeight();
@@ -332,6 +371,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         hasActivePartialRef.current = false;
         lastPartialUpdate.current = {};
         pendingPartialUpdates.current = {};
+        finalizedUtteranceRef.current.clear();
+        finalizedAtRef.current.clear();
+        finalizedTextRef.current.clear();
+        autoInsightsMilestoneRef.current = 0;
         
         // Enable auto-scroll at session start
         setAutoScroll(true);
@@ -407,32 +450,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           utteranceId = String(rawUtterance);
         }
         
-        // -----------------------------------------------------------------
-        // TURN-COMPLETE HANDLING: Create exactly ONE bubble
-        // -----------------------------------------------------------------
-        // This comes from:
-        // - Flux EndOfTurn (English)
-        // - SentenceAccumulator complete sentence (German)
-        //
+        // TURN_COMPLETE can arrive before/alongside is_final and previously caused
+        // duplicate or fragmented bubbles. We only finalize on is_final payloads.
         if (isTurnComplete && text) {
-          const completeText = text; // Capture for type safety
-          const completeSpeaker = speaker ?? 0;
-          const completeUtterance = utteranceId;
-          console.log('[ListenView] ✅ TURN COMPLETE:', completeText.substring(0, 60), 'speaker:', completeSpeaker);
-          setTranscripts(prev => {
-            // Remove any existing partial for this speaker
-            const filtered = prev.filter(t => !(t.speaker === completeSpeaker && t.isPartial));
-            // Add as ONE final bubble
-            return [...filtered, {
-              text: completeText,
-              speaker: completeSpeaker,
-              isPartial: false,
-              isFinal: true,
-              timestamp: Date.now(),
-              utteranceId: completeUtterance
-            }];
-          });
-          return; // Done - don't process further
+          console.log('[ListenView] ✅ TURN COMPLETE signal received (awaiting is_final):', text.substring(0, 60), 'speaker:', speaker);
         }
       } else if (msg.type === 'status') {
         console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
@@ -456,13 +477,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const container = viewportRef.current;
       if (container) {
-        // GLASS PARITY FIX: Only check isAtBottom, exactly like Glass SttView.js line 120
-        // This ensures auto-scroll works when user is at bottom, regardless of autoScrollRef state
-        const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
-        shouldScrollAfterUpdate.current = isAtBottom;
-        // Also sync the autoScroll state for UI consistency
-        if (isAtBottom !== autoScrollRef.current) {
-          autoScrollRef.current = isAtBottom;
+        const nearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - SCROLL_THRESHOLD;
+        shouldScrollAfterUpdate.current = autoScrollRef.current || nearBottom;
+        if (nearBottom !== autoScrollRef.current) {
+          autoScrollRef.current = nearBottom;
         }
       }
 
@@ -478,7 +496,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         } catch (err) {
           console.warn('[ListenView] DIAG logging failed', err);
         }
-        // Find last partial for THIS speaker (like Glass SttView.js:122-128)s
+        // Find last partial for THIS speaker
         const findLastPartialIdx = (spk: number | null, candidateUtteranceId?: string) => {
           for (let i = prev.length - 1; i >= 0; i--) {
             const item = prev[i];
@@ -500,9 +518,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
           return -1;
         };
+        const findLastFinalIdx = (spk: number | null, candidateUtteranceId?: string) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const item = prev[i];
+            if (item.speaker !== spk) continue;
+            if (!item.isFinal || item.isPartial) continue;
+            if (candidateUtteranceId) {
+              if (item.utteranceId === candidateUtteranceId) return i;
+              continue;
+            }
+            return i;
+          }
+          return -1;
+        };
 
         const newMessages = [...prev];
         const normalizedUtteranceId = utteranceId ?? undefined;
+        const normalizedText = normalizeTranscriptText(text);
         let targetIdx = findLastPartialIdx(speaker, normalizedUtteranceId);
         if (targetIdx === -1 && !normalizedUtteranceId) {
           // Fallback: match any partial for this speaker when no IDs are present at all
@@ -554,7 +586,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
-          } else{
+          } else {
+            // Merge-back window: if a premature final exists for same utterance, convert it
+            // back to partial and continue growing that same bubble.
+            const existingFinalIdx = normalizedUtteranceId
+              ? findLastFinalIdx(speaker, normalizedUtteranceId)
+              : -1;
+            if (existingFinalIdx !== -1 && normalizedUtteranceId) {
+              const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
+              const finalizedAt = finalizedAtRef.current.get(utteranceKey) ?? 0;
+              const ageMs = now - finalizedAt;
+              if (ageMs <= 2500) {
+                const oldText = prev[existingFinalIdx].text;
+                console.log('[ListenView] 🔁 MERGE-BACK partial into recently finalized utterance', utteranceKey, `(age=${ageMs}ms)`);
+                newMessages[existingFinalIdx] = {
+                  ...newMessages[existingFinalIdx],
+                  text: mergeTranscriptText(oldText, text),
+                  speaker,
+                  isFinal: false,
+                  isPartial: true,
+                  timestamp: messageTimestamp,
+                  utteranceId: normalizedUtteranceId,
+                };
+                return newMessages;
+              }
+            }
+
             // No partial found, add new one
             console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
             console.log('  └─ NEW:', text.substring(0, 50));
@@ -570,7 +627,39 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             });
           }
         } else if (isFinal) {
-          // Final: Convert existing partial to final, OR merge with last final, OR add new
+          // FINAL DEDUPE + MERGE:
+          // - avoid duplicate bubble when TURN_COMPLETE + is_final arrive close together
+          // - merge multi-part finals for same utterance into one bubble
+          const now = Date.now();
+          const WINDOW_MS = 30_000;
+          for (const [key, ts] of finalizedTextRef.current.entries()) {
+            if (now - ts > WINDOW_MS) finalizedTextRef.current.delete(key);
+          }
+          for (const [key, ts] of finalizedAtRef.current.entries()) {
+            if (now - ts > WINDOW_MS) {
+              finalizedAtRef.current.delete(key);
+              finalizedUtteranceRef.current.delete(key);
+            }
+          }
+
+          if (normalizedUtteranceId) {
+            const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
+            const seenHash = finalizedUtteranceRef.current.get(utteranceKey);
+            if (seenHash === normalizedText) {
+              console.log('[ListenView] 🚫 Skipping duplicate FINAL by utterance key:', utteranceKey);
+              return prev;
+            }
+          } else {
+            const textKey = `${speaker ?? 'unknown'}:${normalizedText}`;
+            const seenAt = finalizedTextRef.current.get(textKey);
+            if (seenAt && now - seenAt < 4000) {
+              console.log('[ListenView] 🚫 Skipping duplicate FINAL by text window:', text.substring(0, 50));
+              return prev;
+            }
+            finalizedTextRef.current.set(textKey, now);
+          }
+
+          // Final: convert existing partial to final, merge into existing final by utterance, or add new
           if (targetIdx !== -1) {
             // Convert existing partial to final
             const oldText = prev[targetIdx].text;
@@ -579,22 +668,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
             console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
-              newMessages[targetIdx] = {
-                text,
-                speaker,
-                isFinal: true,
-                isPartial: false,
-                timestamp: messageTimestamp,
-                utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
-              };
-
-              finalTranscriptCountRef.current += 1;
-              if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
-                console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
-                setTimeout(() => fetchInsightsNow(), 100);
-              }
+            newMessages[targetIdx] = {
+              text: mergeTranscriptText(oldText, text),
+              speaker,
+              isFinal: true,
+              isPartial: false,
+              timestamp: messageTimestamp,
+              utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
+            };
           } else {
-              // No previous partial - create new bubble
+              // No previous partial - try merge with existing final bubble of same utterance
+              const existingFinalIdx = findLastFinalIdx(speaker, normalizedUtteranceId);
+              if (existingFinalIdx !== -1) {
+                const merged = mergeTranscriptText(prev[existingFinalIdx].text, text);
+                console.log('[ListenView] 🔗 MERGING FINAL into existing utterance bubble at index', existingFinalIdx, 'utt:', normalizedUtteranceId ?? '∅');
+                newMessages[existingFinalIdx] = {
+                  ...newMessages[existingFinalIdx],
+                  text: merged,
+                  timestamp: messageTimestamp,
+                  isFinal: true,
+                  isPartial: false,
+                  utteranceId: normalizedUtteranceId ?? newMessages[existingFinalIdx].utteranceId,
+                };
+              } else {
+                // No previous partial/final match - create new bubble
               console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
               console.log('  └─ NEW:', text.substring(0, 50));
               console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- creating new final bubble');
@@ -607,11 +704,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 timestamp: messageTimestamp,
                 utteranceId: normalizedUtteranceId,
               });
-              finalTranscriptCountRef.current += 1;
-              if (finalTranscriptCountRef.current >= 5 && finalTranscriptCountRef.current % 5 === 0 && isSessionActive) {
-                console.log(`[ListenView] 🎯 Triggering auto-insights - ${finalTranscriptCountRef.current} final transcripts accumulated`);
-                setTimeout(() => fetchInsightsNow(), 100);
               }
+          }
+
+          if (normalizedUtteranceId) {
+            const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
+            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(text));
+            finalizedAtRef.current.set(utteranceKey, now);
           }
         }
 
@@ -642,6 +741,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(false);
+        finalTranscriptCountRef.current = 0;
+        autoInsightsMilestoneRef.current = 0;
+        finalizedUtteranceRef.current.clear();
+        finalizedAtRef.current.clear();
+        finalizedTextRef.current.clear();
         stopTimer();
         console.log('[ListenView] ✅ Session cleared');
       };
@@ -651,6 +755,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
+        finalTranscriptCountRef.current = 0;
+        autoInsightsMilestoneRef.current = 0;
+        finalizedUtteranceRef.current.clear();
+        finalizedAtRef.current.clear();
+        finalizedTextRef.current.clear();
       };
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
@@ -659,8 +768,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // Each Electron window has its own localStorage, so we must sync it here!
         localStorage.setItem('evia_session_state', newState);
         setSessionState(newState);
-        if (newState === 'during') setIsSessionActive(true);
-        else if (newState === 'after') setIsSessionActive(false);
+        if (newState === 'during') {
+          // Prevent one-frame flash of stale insights from previous session.
+          setViewMode('transcript');
+          setInsights(null);
+          setIsSessionActive(true);
+        } else if (newState === 'after') {
+          setIsSessionActive(false);
+        }
       };
 
       // Register listeners

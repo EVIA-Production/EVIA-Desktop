@@ -775,13 +775,18 @@ function animateShow(win: BrowserWindow) {
     win.showInactive()
     const [x, y] = win.getPosition()
     const targetY = y
-    win.setPosition(x, y - 10)
+    if (!safeSetWindowPosition(win, x, y - 10, 'animateShow.init')) {
+      win.showInactive()
+      return
+    }
     const start = Date.now()
     const tick = () => {
       if (win.isDestroyed()) return
       const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
       const eased = 1 - Math.pow(1 - progress, 3)
-      win.setPosition(x, targetY - Math.round((1 - eased) * 10))
+      if (!safeSetWindowPosition(win, x, targetY - Math.round((1 - eased) * 10), 'animateShow.tick')) {
+        return
+      }
       win.setOpacity(eased)
       if (progress < 1) setTimeout(tick, 16)
     }
@@ -789,6 +794,26 @@ function animateShow(win: BrowserWindow) {
   } catch (error) {
     console.warn('[overlay] animateShow failed', error)
     win.showInactive()
+  }
+}
+
+function safeSetWindowPosition(
+  win: BrowserWindow | null | undefined,
+  x: number,
+  y: number,
+  context: string
+): boolean {
+  if (!win || win.isDestroyed()) return false
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    console.error(`[overlay-windows] ❌ ${context}: invalid coordinates`, { x, y })
+    return false
+  }
+  try {
+    win.setPosition(Math.round(x), Math.round(y))
+    return true
+  } catch (err) {
+    console.error(`[overlay-windows] ❌ ${context}: setPosition failed`, { x, y, err })
+    return false
   }
 }
 
@@ -809,13 +834,15 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
     const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
     const eased = 1 - Math.pow(progress, 3)
     win.setOpacity(startOpacity * eased)
-    win.setPosition(x, y - Math.round(progress * 10))
+    if (!safeSetWindowPosition(win, x, y - Math.round(progress * 10), 'animateHide.tick')) {
+      return
+    }
     if (progress < 1) {
       setTimeout(tick, 16)
     } else {
       win.hide()
       win.setOpacity(1)
-      win.setPosition(x, y)
+      safeSetWindowPosition(win, x, y, 'animateHide.done')
       onComplete()
     }
   }
@@ -1090,7 +1117,12 @@ function nudgeHeader(dx: number, dy: number) {
       return
     }
 
-    header.setPosition(Math.round(currentX), Math.round(currentY))
+    if (!safeSetWindowPosition(header, currentX, currentY, 'nudgeHeader.animate')) {
+      isAnimating = false
+      if (animationTimer) clearTimeout(animationTimer)
+      animationTimer = null
+      return
+    }
 
     // CRITICAL FIX: Reposition child windows DURING animation (not just at end)
     // This prevents windows from "appearing in borders" until arrow key is pressed

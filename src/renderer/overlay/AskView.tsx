@@ -18,7 +18,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [response, setResponse] = useState('');
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [hasFirstDelta, setHasFirstDelta] = useState(false);
   const [ttftMs, setTtftMs] = useState<number | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [showTextInput, setShowTextInput] = useState(true);
@@ -28,6 +27,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
+  const ttftLoggedRef = useRef(false);
   const responseContainerRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -215,8 +215,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
-      setHasFirstDelta(false);
       setTtftMs(null);
+      ttftLoggedRef.current = false;
       setErrorToast(null);
       // Window will be hidden by EviaBar, no need to resize
     };
@@ -248,8 +248,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
-      setHasFirstDelta(false);
       setTtftMs(null);
+      ttftLoggedRef.current = false;
       setErrorToast(null);
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';  // Clear resize tracking
@@ -651,14 +651,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
     storedContentHeightRef.current = null;  // CRITICAL: Clear stored height for new question
     setIsStreaming(true);
-    setHasFirstDelta(false);
     setTtftMs(null);
+    ttftLoggedRef.current = false;
     streamStartTime.current = performance.now();
 
     // CRITICAL FIX: Re-read session state from localStorage before streaming
     // EviaBar updates localStorage immediately when Listen starts, but the IPC event
     // might arrive too late (after user clicks shortcut button)
-    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'before';
+    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     if (currentSessionState !== sessionState) {
       console.log('[AskView] 🔄 Syncing session state from localStorage:', currentSessionState, '(was:', sessionState, ')');
       setSessionState(currentSessionState);
@@ -714,10 +714,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setHeaderText(i18n.t('overlay.ask.aiResponse'));
       }
       
-      if (!hasFirstDelta && streamStartTime.current) {
+      if (!ttftLoggedRef.current && streamStartTime.current) {
         const ttft = performance.now() - streamStartTime.current;
         setTtftMs(ttft);
-        setHasFirstDelta(true);
+        ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
       }
       responseBufferRef.current += d;
@@ -728,6 +728,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // FIX: Ensure header updates when stream completes
+      ttftLoggedRef.current = false;
+      streamStartTime.current = null;
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
 
@@ -780,6 +782,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsLoadingFirstToken(false);
       streamRef.current = null;
       setHeaderText(i18n.t('overlay.ask.aiResponse'));
+      ttftLoggedRef.current = false;
+      streamStartTime.current = null;
       
       console.error('[AskView] ❌ Stream error:', e);
       
@@ -812,6 +816,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setIsLoadingFirstToken(false);
     streamRef.current = null;
     setHeaderText(i18n.t('overlay.ask.aiResponse'));
+    ttftLoggedRef.current = false;
+    streamStartTime.current = null;
   };
 
   // Glass parity: Copy entire response
