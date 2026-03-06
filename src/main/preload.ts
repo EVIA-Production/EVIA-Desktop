@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('evia', {
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),
     stop: () => ipcRenderer.invoke('system-audio:stop'),
+    restart: () => ipcRenderer.invoke('system-audio:restart'),
     isRunning: () => ipcRenderer.invoke('system-audio:is-running'),
     // Glass parity: system-audio-data event sends {data: base64String}
     onData: (cb: (data: { data: string }) => void) => {

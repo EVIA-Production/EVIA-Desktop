@@ -25,6 +25,11 @@ export class SystemAudioMacService {
   private systemAudioProc: ChildProcess | null = null;
   private audioBuffer: Buffer = Buffer.alloc(0);
   private isRunning: boolean = false;
+  private chunkWatchdog: NodeJS.Timeout | null = null;
+  private lastChunkAt: number = 0;
+  private chunksForwarded: number = 0;
+  private readonly CHUNK_STALL_MS = 8000;
+  private readonly WATCHDOG_INTERVAL_MS = 3000;
 
   constructor() {
     // Only log/init details on macOS to avoid noise on Windows/Linux
@@ -95,6 +100,27 @@ export class SystemAudioMacService {
         win.webContents.send(channel, data);
       }
     });
+  }
+
+  private startChunkWatchdog(): void {
+    this.stopChunkWatchdog();
+    this.chunkWatchdog = setInterval(() => {
+      if (!this.isRunning || !this.systemAudioProc) return;
+      const ageMs = this.lastChunkAt > 0 ? Date.now() - this.lastChunkAt : 0;
+      if (ageMs > this.CHUNK_STALL_MS) {
+        console.warn(
+          `[SystemAudioMacService] 🚨 No audio chunk for ${Math.round(ageMs / 1000)}s (chunks=${this.chunksForwarded})`
+        );
+        this.sendToRenderer('system-audio:status', `stall:${ageMs}`);
+      }
+    }, this.WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopChunkWatchdog(): void {
+    if (this.chunkWatchdog) {
+      clearInterval(this.chunkWatchdog);
+      this.chunkWatchdog = null;
+    }
   }
 
   /**
@@ -197,6 +223,9 @@ export class SystemAudioMacService {
 
       console.log('[SystemAudioMacService] ✅ SystemAudioDump started with PID:', this.systemAudioProc.pid);
       this.isRunning = true;
+      this.lastChunkAt = Date.now();
+      this.chunksForwarded = 0;
+      this.startChunkWatchdog();
 
       // Step 4: Process audio data from stdout
       this.systemAudioProc.stdout!.on('data', (data: Buffer) => {
@@ -210,9 +239,17 @@ export class SystemAudioMacService {
           // Convert stereo to mono
           const monoChunk = this.convertStereoToMono(chunk);
           const base64Data = monoChunk.toString('base64');
+          this.lastChunkAt = Date.now();
+          this.chunksForwarded += 1;
 
           // Send to renderer for AEC reference
           this.sendToRenderer('system-audio-data', { data: base64Data });
+
+          if (this.chunksForwarded % 50 === 0) {
+            console.log(
+              `[SystemAudioMacService] 🎧 Forwarded ${this.chunksForwarded} chunks (last=${new Date(this.lastChunkAt).toISOString()})`
+            );
+          }
 
           // Log chunk transmission (verbose, can be removed in production)
           // console.log('[SystemAudioMacService] Sent SYSTEM chunk:', monoChunk.length * 2, 'bytes (original stereo:', chunk.length, 'bytes)');
@@ -241,6 +278,7 @@ export class SystemAudioMacService {
         this.systemAudioProc = null;
         this.isRunning = false;
         this.audioBuffer = Buffer.alloc(0);
+        this.stopChunkWatchdog();
 
         if (code === 1) {
           console.error('[SystemAudioMacService] ❌ Binary exited with code 1 - PERMISSION DENIED');
@@ -260,6 +298,7 @@ export class SystemAudioMacService {
         this.systemAudioProc = null;
         this.isRunning = false;
         this.audioBuffer = Buffer.alloc(0);
+        this.stopChunkWatchdog();
       });
 
       return { success: true };
@@ -287,6 +326,9 @@ export class SystemAudioMacService {
 
       this.isRunning = false;
       this.audioBuffer = Buffer.alloc(0);
+      this.lastChunkAt = 0;
+      this.chunksForwarded = 0;
+      this.stopChunkWatchdog();
 
       // Also kill any orphaned processes
       await this.killExistingSystemAudioDump();
@@ -306,6 +348,16 @@ export class SystemAudioMacService {
     return this.isRunning;
   }
 
+  public async restart(): Promise<{ success: boolean; error?: string }> {
+    console.log('[SystemAudioMacService] 🔄 Restart requested');
+    const stopResult = await this.stop();
+    if (!stopResult.success) {
+      return stopResult;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+    return this.start();
+  }
+
   /**
    * Get current audio buffer size (for debugging)
    */
@@ -316,4 +368,3 @@ export class SystemAudioMacService {
 
 // Singleton instance
 export const systemAudioMacService = new SystemAudioMacService();
-

@@ -110,33 +110,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
     if (!payload) return true;
     if ((payload as any).stub === true) return true;
-    const allText = JSON.stringify(payload).toLowerCase();
-    const stubPhrases = [
-      'kein transkript erkannt',
-      'no transcript detected',
-      'sprich, um insights zu generieren',
-      'speak to generate insights',
-      'taylos hört zu',
-      'taylos hoert zu',
-      'taylos is listening',
-      'warte auf gespräch',
-      'warte auf gespraech',
-      'bereit zur analyse sobald du sprichst',
-      'listening for conversation',
-      'keine transkripte vorhanden',
-      'no transcripts available',
-      'meeting läuft noch',
-      'meeting still in progress',
-      'wait for more context',
-      'warte auf mehr kontext',
-      'prüfe deine notizen',
-      'check your notes',
-      'pruefe deine notizen',
-      'identifiziere verbesserungen',
-      'bewerte naechste schritte',
-      'noch keine konkreten',
+    const normalizedSummary = (payload.summary || [])
+      .map(line => normalizeTranscriptText(line || ''))
+      .filter(Boolean);
+    const knownStubSets = [
+      [
+        'kein transkript erkannt',
+        'sprich, um insights zu generieren',
+        'taylos hört zu',
+      ],
+      [
+        'no transcript detected',
+        'speak to generate insights',
+        'taylos is listening',
+      ],
+      [
+        'meeting beendet',
+        'ergebnisse dokumentieren',
+        'follow-up plan ausführen',
+      ],
+      [
+        'meeting ended',
+        'document key outcomes',
+        'execute follow-up plan',
+      ],
     ];
-    return stubPhrases.some(phrase => allText.includes(phrase));
+    return knownStubSets.some(stubSet => stubSet.every(line => normalizedSummary.includes(line)));
   };
 
   useEffect(() => {
@@ -1106,8 +1105,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
         if (isStubInsightPayload(fetchedInsights)) {
-          console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
-          return;
+          if (insightsHistoryRef.current.length > 0) {
+            console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
+            return;
+          }
+          console.log('[ListenView] ℹ️ Initial stub insights accepted because no previous insights exist yet');
         }
         
         // Log session_state metadata from insights

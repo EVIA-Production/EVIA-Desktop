@@ -203,21 +203,142 @@ const RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 se
 // WINDOWS FIX (2025-12-09): Also track TRANSCRIPT reception, not just audio sending
 // CRITICAL: Reduced from 30s to 15s for faster detection
 const TRANSCRIPT_STALE_THRESHOLD_MS = 15000; // 15 seconds without transcripts = stale
+const MAC_SYSTEM_HEALTH_CHECK_INTERVAL = 4000;
+const MAC_SYSTEM_CHUNK_STALE_MS = 7000;
+const MAC_SYSTEM_TRANSCRIPT_STALE_MS = 15000;
+const MAC_SYSTEM_RESTART_COOLDOWN_MS = 12000;
 
 let micHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let systemHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
+let macSystemHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let lastMicWsActivity = Date.now();
 let lastSystemWsActivity = Date.now();
 let lastMicReconnectAttempt = 0;
 let lastSystemReconnectAttempt = 0;
 // WINDOWS FIX (2025-12-09): Track transcript reception separately
 let lastTranscriptReceivedTime = Date.now();
+let lastSystemTranscriptReceivedTime = Date.now();
 let isActivelyCapturing = false; // Track if we're in an active capture session
 
 // WINDOWS FIX: Function to update transcript activity (called when transcript received)
-export function updateTranscriptActivity() {
+export function updateTranscriptActivity(source: 'mic' | 'system' = 'mic') {
   lastTranscriptReceivedTime = Date.now();
+  if (source === 'system') {
+    lastSystemTranscriptReceivedTime = Date.now();
+  }
   console.log('[AudioCapture] 📨 Transcript activity updated');
+}
+
+async function restartMacSystemAudioPipeline(reason: string) {
+  const eviaApi = (window as any).evia;
+  if (!eviaApi?.systemAudio) {
+    console.warn('[AudioCapture] 🍎 Cannot restart system audio helper - API unavailable');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastSystemReconnectAttempt < MAC_SYSTEM_RESTART_COOLDOWN_MS) {
+    return;
+  }
+  lastSystemReconnectAttempt = now;
+  pipelineMetrics.reconnectAttempts += 1;
+
+  const eviaIpc = eviaApi?.ipc;
+  try {
+    console.warn(`[AudioCapture] 🍎 Restarting macOS system audio pipeline: ${reason}`);
+    if (eviaIpc?.send) {
+      eviaIpc.send('debug-log', `[Recovery] 🍎 Restarting system audio: ${reason}`);
+    }
+
+    if (systemWsInstance) {
+      try {
+        systemWsInstance.disconnect();
+      } catch (disconnectErr) {
+        console.warn('[AudioCapture] 🍎 Failed to disconnect system WS before restart:', disconnectErr);
+      }
+    }
+
+    const restartResult = await eviaApi.systemAudio.restart();
+    if (!restartResult?.success) {
+      throw new Error(restartResult?.error || 'system audio restart failed');
+    }
+
+    if (systemWsInstance) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await systemWsInstance.connect();
+    }
+
+    lastSystemWsActivity = Date.now();
+    lastSystemTranscriptReceivedTime = Date.now();
+    pipelineMetrics.lastSystemChunkTime = Date.now();
+
+    if (eviaIpc?.send) {
+      eviaIpc.send('debug-log', `[Recovery] ✅ macOS system audio restarted: ${reason}`);
+    }
+  } catch (error) {
+    console.error('[AudioCapture] 🍎 macOS system audio restart failed:', error);
+    pipelineMetrics.errorsEncountered += 1;
+    if (eviaIpc?.send) {
+      eviaIpc.send('debug-log', `[Recovery] ❌ macOS system audio restart failed: ${error}`);
+    }
+  }
+}
+
+function startMacSystemHealthCheck() {
+  const isMac = Boolean((window as any)?.platformInfo?.isMac);
+  if (!isMac) return;
+
+  if (macSystemHealthCheckTimer) {
+    clearInterval(macSystemHealthCheckTimer);
+  }
+
+  console.log('[AudioCapture] 🍎 Starting macOS system-audio watchdog');
+  macSystemHealthCheckTimer = setInterval(async () => {
+    try {
+      if (!isActivelyCapturing) return;
+      const eviaApi = (window as any).evia;
+      if (!eviaApi?.systemAudio) return;
+
+      const now = Date.now();
+      const timeSinceChunk = pipelineMetrics.lastSystemChunkTime ? now - pipelineMetrics.lastSystemChunkTime : Number.POSITIVE_INFINITY;
+      const timeSinceTranscript = now - lastSystemTranscriptReceivedTime;
+      const helperRunning = await eviaApi.systemAudio.isRunning();
+
+      if (timeSinceChunk > 5000 || timeSinceTranscript > 10000) {
+        console.log(
+          `[AudioCapture] 🍎 System watchdog: helper=${helperRunning} chunk=${Math.round(timeSinceChunk / 1000)}s transcript=${Math.round(timeSinceTranscript / 1000)}s`
+        );
+      }
+
+      if (!helperRunning) {
+        await restartMacSystemAudioPipeline('helper-not-running');
+        return;
+      }
+
+      if (timeSinceChunk > MAC_SYSTEM_CHUNK_STALE_MS) {
+        await restartMacSystemAudioPipeline(`no-audio-chunks-${Math.round(timeSinceChunk / 1000)}s`);
+        return;
+      }
+
+      if (
+        pipelineMetrics.lastSystemChunkTime > 0 &&
+        timeSinceChunk < 5000 &&
+        timeSinceTranscript > MAC_SYSTEM_TRANSCRIPT_STALE_MS
+      ) {
+        await restartMacSystemAudioPipeline(`no-system-transcript-${Math.round(timeSinceTranscript / 1000)}s`);
+      }
+    } catch (error) {
+      console.error('[AudioCapture] 🍎 macOS watchdog error:', error);
+    }
+  }, MAC_SYSTEM_HEALTH_CHECK_INTERVAL);
+}
+
+function stopMacSystemHealthCheck() {
+  if (macSystemHealthCheckTimer) {
+    clearInterval(macSystemHealthCheckTimer);
+    macSystemHealthCheckTimer = null;
+    console.log('[AudioCapture] 🍎 Stopped macOS system-audio watchdog');
+  }
 }
 
 /**
@@ -681,7 +802,7 @@ function ensureMicWs() {
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           // WINDOWS FIX (2025-12-09): Track transcript reception for stall detection
           if (msg.type === 'transcript_segment') {
-            updateTranscriptActivity();
+            updateTranscriptActivity('mic');
           }
 
           console.log('[AudioCapture] Forwarding MIC message to Listen window:', msg.type);
@@ -746,7 +867,7 @@ function ensureSystemWs(chatId?: string) {
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
           // WINDOWS FIX (2025-12-09): Track transcript reception for stall detection
           if (msg.type === 'transcript_segment') {
-            updateTranscriptActivity();
+            updateTranscriptActivity('system');
           }
 
           console.log('[AudioCapture] Forwarding SYSTEM message to Listen window:', msg.type);
@@ -1168,6 +1289,7 @@ export async function startCapture(includeSystemAudio = false) {
   // WINDOWS FIX (2025-12-09): Mark capture as active for transcript stall detection
   isActivelyCapturing = true;
   lastTranscriptReceivedTime = Date.now(); // Reset transcript timer
+  lastSystemTranscriptReceivedTime = Date.now();
 
   // WINDOWS FIX: Reset pipeline metrics for new session
   pipelineMetrics.sessionStart = Date.now();
@@ -1425,7 +1547,11 @@ export async function startCapture(includeSystemAudio = false) {
           // This triggers the setDisplayMediaRequestHandler in main.ts
           systemStream = await navigator.mediaDevices.getDisplayMedia({
             video: true, // Required for getDisplayMedia
-            audio: true  // This triggers Electron's native loopback
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            } as MediaTrackConstraints,
           });
 
           // Verify we got audio tracks
@@ -1502,6 +1628,7 @@ export async function startCapture(includeSystemAudio = false) {
           }
 
           console.log('[AudioCapture] ✅ System audio helper started successfully');
+          startMacSystemHealthCheck();
 
           // Listen for system audio data from binary (via IPC)
           const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
@@ -1582,6 +1709,8 @@ export async function stopCapture(captureHandle?: any) {
 
   // WINDOWS FIX (2025-12-09): Mark capture as inactive
   isActivelyCapturing = false;
+  lastMicReconnectAttempt = 0;
+  lastSystemReconnectAttempt = 0;
 
   // 🎙️ AUDIO DEBUG: Save accumulated audio to WAV files
   if (DEBUG_SAVE_AUDIO) {
@@ -1612,6 +1741,7 @@ export async function stopCapture(captureHandle?: any) {
     // WINDOWS FIX: Stop health check timers
     stopWindowsHealthCheck('mic');
     stopWindowsHealthCheck('system');
+    stopMacSystemHealthCheck();
 
     // Stop mic processor
     if (micAudioProcessor) {
@@ -1713,6 +1843,7 @@ export async function stopCapture(captureHandle?: any) {
     // Clean up window flags
     (window as any)._systemAudioIsWindows = undefined;
     (window as any)._systemAudioUsingLoopback = undefined;
+    lastSystemTranscriptReceivedTime = Date.now();
 
     console.log('[AudioCapture] Capture stopped successfully (mic + system)');
   } catch (error) {

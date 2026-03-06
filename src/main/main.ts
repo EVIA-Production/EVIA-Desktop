@@ -285,6 +285,12 @@ ipcMain.handle('system-audio:stop', async () => {
   return result
 })
 
+ipcMain.handle('system-audio:restart', async () => {
+  console.log('[Main] IPC: system-audio:restart called')
+  const result = await systemAudioMacService.restart()
+  return result
+})
+
 ipcMain.handle('system-audio:is-running', async () => {
   return systemAudioMacService.isSystemAudioRunning()
 })
