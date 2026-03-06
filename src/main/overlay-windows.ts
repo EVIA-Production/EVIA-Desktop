@@ -72,6 +72,15 @@ type PersistedState = {
 }
 let persistedState: PersistedState = {}
 
+type LiveTranscriptSnapshot = {
+  chatId: number
+  sessionState: 'before' | 'during' | 'after'
+  transcriptContext: string
+  updatedAt: number
+}
+
+let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
+
 // Glass parity: Track visibility before hide (windowManager.js:227-233)
 let lastVisibleWindows = new Set<FeatureName>()
 
@@ -1734,7 +1743,7 @@ ipcMain.handle('shortcuts:reset', () => {
 })
 
 // GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
-ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string }) => {
+ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string; transcriptContext?: string }) => {
   // FIX: Handle both old format (string) and new format (object with sessionState)
   const promptText = typeof payload === 'string' ? payload : payload.text;
   console.log('[Main] 📨 ask:send-and-submit received:', promptText.substring(0, 50));
@@ -1905,6 +1914,27 @@ ipcMain.handle('capture:screenshot', async () => {
       needsPermission: isPermissionError
     }
   }
+})
+
+ipcMain.handle('live-transcript:get', (_event, chatId?: number) => {
+  if (!liveTranscriptSnapshot) {
+    return { ok: true, data: null }
+  }
+  if (typeof chatId === 'number' && chatId > 0 && liveTranscriptSnapshot.chatId !== chatId) {
+    return { ok: true, data: null }
+  }
+  return { ok: true, data: liveTranscriptSnapshot }
+})
+
+ipcMain.on('live-transcript:set', (_event, payload: LiveTranscriptSnapshot | null) => {
+  if (!payload || !payload.chatId) {
+    return
+  }
+  liveTranscriptSnapshot = payload
+})
+
+ipcMain.on('live-transcript:clear', () => {
+  liveTranscriptSnapshot = null
 })
 
 ipcMain.handle('prefs:get', () => {

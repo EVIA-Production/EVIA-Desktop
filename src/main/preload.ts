@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld('evia', {
     get: () => ipcRenderer.invoke('prefs:get'),
     set: (prefs: Record<string, any>) => ipcRenderer.invoke('prefs:set', prefs),
   },
+  liveTranscript: {
+    get: (chatId?: number) => ipcRenderer.invoke('live-transcript:get', chatId),
+    set: (payload: Record<string, any>) => ipcRenderer.send('live-transcript:set', payload),
+    clear: () => ipcRenderer.send('live-transcript:clear'),
+  },
   closeWindow: (name: string) => ipcRenderer.invoke('close-window', name),
   auth: {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),

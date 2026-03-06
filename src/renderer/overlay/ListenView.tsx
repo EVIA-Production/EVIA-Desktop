@@ -85,6 +85,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
   const fetchInsightsNowRef = useRef<() => Promise<void>>(async () => {});
+  const transcriptsRef = useRef<TranscriptLine[]>([]);
+  const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
+  const isSessionActiveRef = useRef(false);
   const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
@@ -105,6 +108,69 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (an === bn) return true;
     if (an.length > 20 && bn.length > 20 && (an.includes(bn) || bn.includes(an))) return true;
     return false;
+  };
+
+  const getWordTokens = (value: string) => normalizeTranscriptText(value).split(' ').filter(Boolean);
+
+  const getSharedPrefixWordCount = (a: string, b: string) => {
+    const aWords = getWordTokens(a);
+    const bWords = getWordTokens(b);
+    let idx = 0;
+    while (idx < aWords.length && idx < bWords.length && aWords[idx] === bWords[idx]) {
+      idx += 1;
+    }
+    return idx;
+  };
+
+  const areCompatiblePartialTexts = (existingText: string, incomingText: string) => {
+    const existing = normalizeTranscriptText(existingText || '');
+    const incoming = normalizeTranscriptText(incomingText || '');
+    if (!existing || !incoming) return false;
+    if (existing === incoming) return true;
+    if (existing.length >= 8 && incoming.length >= 8 && (existing.includes(incoming) || incoming.includes(existing))) {
+      return true;
+    }
+    const sharedPrefixWords = getSharedPrefixWordCount(existing, incoming);
+    if (sharedPrefixWords >= 2) return true;
+    const existingWords = getWordTokens(existing);
+    const incomingWords = getWordTokens(incoming);
+    if (
+      existingWords.length > 0 &&
+      incomingWords.length > 0 &&
+      existingWords[0] === incomingWords[0] &&
+      Math.min(existingWords.length, incomingWords.length) <= 4
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const shouldReplaceShortDivergentPartial = (existingText: string, incomingText: string) => {
+    if (areCompatiblePartialTexts(existingText, incomingText)) return false;
+    const existingWords = getWordTokens(existingText);
+    const incomingWords = getWordTokens(incomingText);
+    return (
+      existingWords.length <= 2 &&
+      incomingWords.length <= 6 &&
+      normalizeTranscriptText(existingText).length <= 18
+    );
+  };
+
+  const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) => {
+    const lines: string[] = [];
+    let charCount = 0;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const entry = rows[i];
+      const cleaned = (entry.text || '').trim();
+      if (!cleaned) continue;
+      const speakerLabel = entry.speaker === 1 ? 'You' : 'Prospect';
+      const line = `${speakerLabel}: ${cleaned}`;
+      const projected = charCount + line.length + 1;
+      if (projected > maxChars) break;
+      lines.unshift(line);
+      charCount = projected;
+    }
+    return lines.join('\n');
   };
 
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
@@ -145,6 +211,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     insightsIndexRef.current = insightsIndex;
   }, [insightsIndex]);
+
+  useEffect(() => {
+    transcriptsRef.current = transcripts;
+  }, [transcripts]);
+
+  useEffect(() => {
+    sessionStateRef.current = sessionState;
+  }, [sessionState]);
+
+  useEffect(() => {
+    isSessionActiveRef.current = isSessionActive;
+  }, [isSessionActive]);
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -233,6 +311,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       stallToastShownRef.current = false;
     }
   }, [transcripts]);
+
+  useEffect(() => {
+    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const liveTranscriptApi = (window as any).evia?.liveTranscript;
+    if (!liveTranscriptApi) return;
+    if (!chatId || Number.isNaN(chatId)) {
+      liveTranscriptApi.clear?.();
+      return;
+    }
+    const transcriptContext = buildTranscriptContextForAsk(transcripts);
+    liveTranscriptApi.set?.({
+      chatId,
+      sessionState,
+      transcriptContext,
+      updatedAt: Date.now(),
+    });
+  }, [transcripts, sessionState]);
 
   useEffect(() => {
     if (!isSessionActive || isLoadingInsights) return;
@@ -427,6 +522,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Handle recording_started
       if (msg.type === 'recording_started') {
         console.log('[ListenView] ▶️  Recording started - starting timer');
+        (window as any).evia?.liveTranscript?.clear?.();
         
         // FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
         setTranscripts([]);
@@ -494,7 +590,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms...');
         setTimeout(() => {
           console.log('[ListenView] 🚀 Fetching post-call insights NOW');
-          fetchInsightsNow();
+          fetchInsightsNowRef.current();
         }, 300);
 
         return;
@@ -583,20 +679,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         let newMessages = [...prev];
         let didMutateRows = false;
 
-        const findLastPartialIdx = (
+        const findMatchingPartialIdx = (
           rows: typeof newMessages,
           spk: number | null,
-          candidateUtteranceId?: string
+          candidateUtteranceId: string | undefined,
+          incomingText: string
         ) => {
-          let fallbackIdx = -1;
+          let bestCompatibleIdx = -1;
           for (let i = rows.length - 1; i >= 0; i--) {
             const item = rows[i];
             if (item.speaker !== spk) continue;
             if (!item.isPartial || item.isFinal) continue;
-            if (candidateUtteranceId && item.utteranceId === candidateUtteranceId) return i;
-            if (fallbackIdx === -1) fallbackIdx = i;
+            if (
+              candidateUtteranceId &&
+              item.utteranceId === candidateUtteranceId &&
+              areCompatiblePartialTexts(item.text || '', incomingText)
+            ) {
+              return i;
+            }
+            if (bestCompatibleIdx === -1 && areCompatiblePartialTexts(item.text || '', incomingText)) {
+              bestCompatibleIdx = i;
+            }
           }
-          return fallbackIdx;
+          return bestCompatibleIdx;
         };
 
         const removeMicEchoEntries = (rows: typeof newMessages, referenceText: string, ts: number) =>
@@ -650,7 +755,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           lastPartialUpdate.current[speakerKey] = now;
           // -----------------------------------------------------------------
 
-          const targetIdx = findLastPartialIdx(newMessages, speaker, normalizedUtteranceId);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text);
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
             const existing = newMessages[targetIdx];
@@ -682,7 +787,37 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               newMessages.push(currentPartial);
             }
           } else {
-            // No partial found, append a new partial at the end.
+            const recentSameSpeakerPartialIdx = [...newMessages]
+              .map((item, idx) => ({ item, idx }))
+              .reverse()
+              .find(({ item }) => item.speaker === speaker && item.isPartial && !item.isFinal)?.idx ?? -1;
+
+            if (recentSameSpeakerPartialIdx !== -1) {
+              const recentPartial = newMessages[recentSameSpeakerPartialIdx];
+              const recentTs = recentPartial.timestamp ?? 0;
+              if (
+                recentTs > 0 &&
+                Math.abs(messageTimestamp - recentTs) <= 2500 &&
+                shouldReplaceShortDivergentPartial(recentPartial.text || '', text)
+              ) {
+                console.log('[ListenView] ♻️ REPLACING short divergent partial at index', recentSameSpeakerPartialIdx);
+                console.log('  ├─ OLD:', recentPartial.text.substring(0, 50));
+                console.log('  └─ NEW:', text.substring(0, 50));
+                newMessages[recentSameSpeakerPartialIdx] = {
+                  ...recentPartial,
+                  text,
+                  speaker,
+                  isFinal: false,
+                  isPartial: true,
+                  timestamp: messageTimestamp,
+                  utteranceId: normalizedUtteranceId,
+                };
+                didMutateRows = true;
+                return newMessages;
+              }
+            }
+
+            // No compatible partial found, append a new partial at the end.
             console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
             console.log('  └─ NEW:', text.substring(0, 50));
             console.log('  ✅ REASON: No existing partial found for speaker', speaker);
@@ -757,7 +892,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             }
           }
 
-          const targetIdx = findLastPartialIdx(newMessages, speaker, normalizedUtteranceId);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text);
           if (targetIdx !== -1) {
             // Freeze existing partial in place as final
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
@@ -831,6 +966,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const onClearSession = () => {
         console.log('[ListenView] 🧹 Received clear-session - resetting all state');
+        (window as any).evia?.liveTranscript?.clear?.();
         setTranscripts([]);
         setInsights(null);
         setInsightsHistory([]);
@@ -850,6 +986,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const onLanguageChanged = (newLang: string) => {
         console.log('[ListenView] 🌐 Language changed - clearing insights');
+        (window as any).evia?.liveTranscript?.clear?.();
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
@@ -868,6 +1005,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         localStorage.setItem('evia_session_state', newState);
         setSessionState(newState);
         if (newState === 'during') {
+          (window as any).evia?.liveTranscript?.clear?.();
           // Prevent one-frame flash of stale insights from previous session.
           setTranscripts([]);
           setViewMode('transcript');
@@ -879,6 +1017,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         } else if (newState === 'after') {
           setIsSessionActive(false);
         } else if (newState === 'before') {
+          (window as any).evia?.liveTranscript?.clear?.();
           setTranscripts([]);
           setInsights(null);
           setInsightsHistory([]);
@@ -983,10 +1122,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Send to AskView via IPC for auto-submit WITH insight's original session state
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
+      const transcriptContext = buildTranscriptContextForAsk(transcriptsRef.current);
       // Send as object with text and sessionState (using insight's metadata)
       eviaIpc.send('ask:send-and-submit', { 
         text: insightText,
-        sessionState: insightSessionState
+        sessionState: insightSessionState,
+        transcriptContext,
       });
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
@@ -997,13 +1138,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Extract insights fetching to reusable function
   const fetchInsightsNow = async () => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
+    const currentTranscripts = transcriptsRef.current;
+    const currentSessionState = sessionStateRef.current;
+    const currentIsSessionActive = isSessionActiveRef.current;
 
     // DIAGNOSTIC: Log start of fetch
     console.log('[ListenView] 🔍 DIAGNOSTIC: Starting fetchInsightsNow');
-    console.log('[ListenView] 🔍 Transcript count (local UI):', transcripts.length);
+    console.log('[ListenView] 🔍 Transcript count (local UI):', currentTranscripts.length);
     console.log('[ListenView] 🔍 Final transcript count (ref):', finalTranscriptCountRef.current);
-    console.log('[ListenView] 🔍 Session state:', sessionState);
-    console.log('[ListenView] 🔍 Is session active:', isSessionActive);
+    console.log('[ListenView] 🔍 Session state:', currentSessionState);
+    console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
 
     // ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
     // Users will see spinner instead of wrong "Vorbereitung" insights
@@ -1042,7 +1186,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const derivedSessionState = latestSessionState;
     const currentLang = i18n.getLanguage();
     
-    console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', sessionState, ', isSessionActive =', isSessionActive);
+    console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', currentSessionState, ', isSessionActive =', currentIsSessionActive);
     
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
     
