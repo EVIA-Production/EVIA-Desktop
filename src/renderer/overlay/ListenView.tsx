@@ -109,8 +109,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
     if (!payload) return true;
+    if ((payload as any).stub === true) return true;
     const allText = JSON.stringify(payload).toLowerCase();
     const stubPhrases = [
+      'kein transkript erkannt',
+      'no transcript detected',
+      'sprich, um insights zu generieren',
+      'speak to generate insights',
+      'taylos hört zu',
+      'taylos hoert zu',
+      'taylos is listening',
+      'warte auf gespräch',
+      'warte auf gespraech',
+      'bereit zur analyse sobald du sprichst',
+      'listening for conversation',
       'keine transkripte vorhanden',
       'no transcripts available',
       'meeting läuft noch',

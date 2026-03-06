@@ -653,7 +653,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       
       if (transcripts && transcripts.length > 0) {
         const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
-        const maxChars = 20000;
+        const maxChars = 40000;
         const lines: string[] = [];
         let charCount = 0;
 
