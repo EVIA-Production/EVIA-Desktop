@@ -34,19 +34,27 @@ exports.default = async function(context) {
     appPath,
     'Contents/Resources/app.asar.unpacked/src/main/assets/SystemAudioDump'
   );
+  const fallbackSourcePath = path.join(__dirname, '../src/main/assets/SystemAudioDump');
   const entitlementsPath = path.join(__dirname, '../build/entitlements.mac.plist');
   
   console.log('📂 App path:', appPath);
   console.log('📂 SystemAudioDump path:', systemAudioDumpPath);
+  console.log('📂 Fallback source path:', fallbackSourcePath);
   console.log('📂 Entitlements path:', entitlementsPath);
   console.log('');
   
   // Step 1: Verify SystemAudioDump exists
   if (!fs.existsSync(systemAudioDumpPath)) {
-    console.error('❌ SystemAudioDump binary NOT found!');
-    console.error('   Expected at:', systemAudioDumpPath);
-    console.error('   This will cause system audio capture to fail!');
-    throw new Error('SystemAudioDump binary missing');
+    console.warn('⚠️  SystemAudioDump missing at unpacked path - attempting fallback copy');
+    if (!fs.existsSync(fallbackSourcePath)) {
+      console.error('❌ SystemAudioDump binary NOT found!');
+      console.error('   Expected at:', systemAudioDumpPath);
+      console.error('   Fallback source missing at:', fallbackSourcePath);
+      throw new Error('SystemAudioDump binary missing');
+    }
+    fs.mkdirSync(path.dirname(systemAudioDumpPath), { recursive: true });
+    fs.copyFileSync(fallbackSourcePath, systemAudioDumpPath);
+    console.log('✅ Copied SystemAudioDump into app.asar.unpacked fallback path');
   }
   
   console.log('✅ SystemAudioDump binary found');
@@ -137,4 +145,3 @@ exports.default = async function(context) {
   console.log('   4. This is normal and expected!');
   console.log('');
 };
-

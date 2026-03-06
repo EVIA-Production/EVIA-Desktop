@@ -27,24 +27,13 @@ exports.default = async function notarizeApp(context) {
     return;
   }
 
-  const timeoutMinutesRaw = Number(process.env.NOTARIZE_TIMEOUT_MINUTES || '180');
-  const timeoutMinutes = Number.isFinite(timeoutMinutesRaw) && timeoutMinutesRaw > 0 ? timeoutMinutesRaw : 180;
-  const timeoutMs = timeoutMinutes * 60 * 1000;
-
   console.log('[notarize] Notarizing app:', appPath);
-  await Promise.race([
-    notarize({
-      tool: 'notarytool',
-      appPath,
-      appleId,
-      appleIdPassword,
-      teamId,
-    }),
-    new Promise((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`[notarize] Timed out after ${timeoutMinutes} minutes (set NOTARIZE_TIMEOUT_MINUTES to adjust).`));
-      }, timeoutMs);
-    }),
-  ]);
+  await notarize({
+    tool: 'notarytool',
+    appPath,
+    appleId,
+    appleIdPassword,
+    teamId,
+  });
   console.log('[notarize] Notarization complete');
 };
