@@ -17,6 +17,7 @@ const { execSync } = require('child_process');
 
 exports.default = async function(context) {
   const { appOutDir, packager } = context;
+  const isUniversalTempBuild = /mac-universal-(x64|arm64)-temp$/.test(appOutDir);
   
   console.log('\n═══════════════════════════════════════════════════════════');
   console.log('🔧 afterPack: Signing SystemAudioDump binary');
@@ -105,23 +106,26 @@ exports.default = async function(context) {
   }
   
   // Step 6: Ad-hoc sign the ENTIRE App Bundle
-  // This is critical for "Taylos is damaged" error prevention
-  // without this, electron-builder doesn't sign the main bundle in ad-hoc mode
-  // leading to missing _CodeSignature/CodeResources
-  try {
-    console.log('🔐 Ad-hoc signing the entire app bundle...');
-    // --deep is recursive
-    // --force replaces any existing partial signatures
-    // - means ad-hoc signing
-    const bundleSignCommand = `codesign --force --deep --sign - "${appPath}"`;
-    
-    console.log('   Command:', bundleSignCommand);
-    execSync(bundleSignCommand, { stdio: 'pipe' });
-    
-    console.log('✅ App bundle signed successfully');
-  } catch (error) {
-    console.error('❌ Failed to sign app bundle:', error.message);
-    throw error;
+  // Skip this for temporary universal merge bundles, otherwise the generated
+  // CodeResources differ between x64/arm64 temps and @electron/universal aborts.
+  if (isUniversalTempBuild) {
+    console.log('⏭️  Skipping app bundle ad-hoc signing for universal temp build');
+  } else {
+    try {
+      console.log('🔐 Ad-hoc signing the entire app bundle...');
+      // --deep is recursive
+      // --force replaces any existing partial signatures
+      // - means ad-hoc signing
+      const bundleSignCommand = `codesign --force --deep --sign - "${appPath}"`;
+      
+      console.log('   Command:', bundleSignCommand);
+      execSync(bundleSignCommand, { stdio: 'pipe' });
+      
+      console.log('✅ App bundle signed successfully');
+    } catch (error) {
+      console.error('❌ Failed to sign app bundle:', error.message);
+      throw error;
+    }
   }
   
   // Step 7: Remove quarantine attribute from app bundle (for distribution)
