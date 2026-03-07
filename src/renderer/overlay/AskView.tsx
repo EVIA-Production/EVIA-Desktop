@@ -51,14 +51,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
   const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
-  const stripMarkdown = useCallback((text: string) => {
+  const stripDangerousMarkdown = useCallback((text: string) => {
     if (!text) return '';
     return text
-      .replace(/\*\*(.+?)\*\*/gs, '$1')
-      .replace(/\*(.+?)\*/gs, '$1')
-      .replace(/`(.+?)`/gs, '$1')
+      .replace(/```[\s\S]*?```/g, '')
       .replace(/^#{1,6}\s+/gm, '')
-      .replace(/^\s*[-*]\s+/gm, '');
+      .replace(/^\s*[-*]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/`(.+?)`/gs, '$1');
   }, []);
 
   const deduplicateTranscriptEntries = useCallback((entries: AskTranscriptEntry[]): AskTranscriptEntry[] => {
@@ -808,9 +808,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
       }
-      const cleanedDelta = stripMarkdown(d);
-      responseBufferRef.current += cleanedDelta;
-      setResponse((prev) => prev + cleanedDelta);
+      responseBufferRef.current += d;
+      setResponse(stripDangerousMarkdown(responseBufferRef.current));
     });
     
     handle.onDone(() => {
@@ -822,7 +821,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
 
-      const finalResponse = stripMarkdown(responseBufferRef.current).trim();
+      const finalResponse = stripDangerousMarkdown(responseBufferRef.current).trim();
       if (finalResponse !== responseBufferRef.current) {
         responseBufferRef.current = finalResponse;
         setResponse(finalResponse);
@@ -1047,14 +1046,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (!text) return '';
 
     try {
-      const html = marked.parse(stripMarkdown(text)) as string;
+      const html = marked.parse(stripDangerousMarkdown(text)) as string;
       const sanitized = DOMPurify.sanitize(html, {
-        ALLOWED_TAGS: [
-          'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'b', 'em', 'i',
-          'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'table', 'thead',
-          'tbody', 'tr', 'th', 'td', 'hr', 'sup', 'sub', 'del', 'ins', 'span',
-        ],
-        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+        ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'hr'],
+        ALLOWED_ATTR: [],
       });
       
       return sanitized;

@@ -1,16 +1,25 @@
-// Insights service for fetching and managing insights
-// Glass format: {summary: [], topic: {header, bullets}, actions: [], followUps: []}
+// Insights service for fetching and normalizing insights payloads.
 import { BACKEND_URL } from '../config/config';
+
+export interface InsightActionItem {
+  label: string;
+  icon?: string;
+}
 
 export interface Insight {
   summary: string[];
+  prospect_info?: string[];
+  sales_analysis?: string[];
+  meeting_title?: string;
   topic: {
     header: string;
     bullets: string[];
   };
   actions: string[];
-  followUps?: string[]; // FIX #3: Follow-up actions shown after recording completes
-  session_state?: 'before' | 'during' | 'after'; // CRITICAL: Session state when insights were generated
+  action_items?: InsightActionItem[];
+  followUps?: string[];
+  session_state?: 'before' | 'during' | 'after';
+  stub?: boolean;
 }
 
 interface FetchInsightsParams {
@@ -36,6 +45,66 @@ export async function fetchInsights({
   const MAX_RETRIES = 3;
   const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
   
+  const inferIcon = (label: string): string => {
+    if (label.startsWith('💬')) return 'chat';
+    if (label.startsWith('❓')) return 'question';
+    if (label.startsWith('✨')) return 'sparkle';
+    if (label.startsWith('📧')) return 'mail';
+    if (label.startsWith('📞')) return 'phone';
+    if (label.startsWith('📊')) return 'chart';
+    return 'sparkle';
+  };
+
+  const normalizeInsightPayload = (data: any): Insight => {
+    const summary = Array.isArray(data?.prospect_info)
+      ? data.prospect_info
+      : Array.isArray(data?.summary)
+      ? data.summary
+      : [];
+    const salesAnalysis = Array.isArray(data?.sales_analysis)
+      ? data.sales_analysis
+      : Array.isArray(data?.topic?.bullets)
+      ? data.topic.bullets
+      : [];
+    const actionItems: InsightActionItem[] = Array.isArray(data?.action_items)
+      ? data.action_items
+          .filter((item: any) => item && typeof item.label === 'string' && item.label.trim())
+          .map((item: any) => ({
+            label: item.label.trim(),
+            icon: typeof item.icon === 'string' && item.icon.trim() ? item.icon.trim() : inferIcon(item.label.trim()),
+          }))
+      : Array.isArray(data?.actions)
+      ? data.actions
+          .filter((label: any) => typeof label === 'string' && label.trim())
+          .map((label: string) => ({
+            label: label.trim(),
+            icon: inferIcon(label.trim()),
+          }))
+      : [];
+
+    return {
+      ...data,
+      summary,
+      prospect_info: summary,
+      sales_analysis: salesAnalysis,
+      meeting_title: typeof data?.meeting_title === 'string' ? data.meeting_title.trim() : '',
+      topic: {
+        header:
+          typeof data?.topic?.header === 'string' && data.topic.header.trim()
+            ? data.topic.header.trim()
+            : language === 'en'
+            ? 'Sales Analysis'
+            : 'Sales Analyse',
+        bullets: salesAnalysis,
+      },
+      actions: actionItems.map((item) => item.label),
+      action_items: actionItems,
+      followUps: Array.isArray(data?.followUps) ? data.followUps.filter((item: any) => typeof item === 'string') : [],
+      session_state: data?.session_state,
+      stub: data?.stub === true,
+    };
+  };
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       console.log(`[Insights] Fetching insights for chat ${chatId} (attempt ${attempt + 1}/${MAX_RETRIES}) session_state: ${sessionState}`);
@@ -59,25 +128,17 @@ export async function fetchInsights({
       }
 
       const data = await response.json();
-    
-    // FIX #3: Add default follow-up actions (Glass parity)
-    // These are shown after recording completes, providing next-step options
-    const followUps = language === 'en' 
-      ? ['✉️ Draft a follow-up email', '✅ Generate action items', '📝 Show summary']
-      : ['✉️ Verfasse eine Follow-up E-Mail', '✅ Generiere Aktionspunkte', '📝 Zeige Zusammenfassung'];
-    
-    const insightWithFollowUps = {
-      ...data,
-      followUps
-    };
-    
+
+      const normalized = normalizeInsightPayload(data);
+
       console.log('[Insights] ✅ Received Glass format with follow-ups:', {
-        summaryCount: data.summary?.length || 0,
-        topicHeader: data.topic?.header,
-        actionsCount: data.actions?.length || 0,
-        followUpsCount: followUps.length
+        meetingTitle: normalized.meeting_title,
+        prospectInfoCount: normalized.prospect_info?.length || 0,
+        salesAnalysisCount: normalized.sales_analysis?.length || 0,
+        actionsCount: normalized.actions?.length || 0,
+        stub: normalized.stub === true,
       });
-      return insightWithFollowUps as Insight;
+      return normalized;
     } catch (error) {
       // CRITICAL FIX: Retry on network errors
       const isNetworkError = error instanceof TypeError || 

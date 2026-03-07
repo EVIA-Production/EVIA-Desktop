@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance, getChatTranscripts } from '../services/websocketService';
-import { fetchInsights, Insight } from '../services/insightsService';
+import { fetchInsights, Insight, InsightActionItem } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
@@ -215,7 +215,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
     if (!payload) return true;
     if ((payload as any).stub === true) return true;
-    const normalizedSummary = (payload.summary || [])
+    const normalizedSummary = ((payload.prospect_info && payload.prospect_info.length > 0 ? payload.prospect_info : payload.summary) || [])
       .map(line => normalizeTranscriptText(line || ''))
       .filter(Boolean);
     const knownStubSets = [
@@ -243,6 +243,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return knownStubSets.some(stubSet => stubSet.every(line => normalizedSummary.includes(line)));
   };
 
+  const getProspectInfo = (payload: Insight | null | undefined): string[] => {
+    if (!payload) return [];
+    if (Array.isArray(payload.prospect_info) && payload.prospect_info.length > 0) return payload.prospect_info;
+    return Array.isArray(payload.summary) ? payload.summary : [];
+  };
+
+  const getSalesAnalysis = (payload: Insight | null | undefined): string[] => {
+    if (!payload) return [];
+    if (Array.isArray(payload.sales_analysis) && payload.sales_analysis.length > 0) return payload.sales_analysis;
+    if (Array.isArray(payload.topic?.bullets) && payload.topic.bullets.length > 0) return payload.topic.bullets;
+    return [];
+  };
+
+  const getInsightActions = (payload: Insight | null | undefined): InsightActionItem[] => {
+    if (!payload) return [];
+    if (Array.isArray(payload.action_items) && payload.action_items.length > 0) {
+      return payload.action_items.filter(item => item && typeof item.label === 'string' && item.label.trim());
+    }
+    return (payload.actions || [])
+      .filter(action => typeof action === 'string' && action.trim())
+      .map(action => ({ label: action.trim() }));
+  };
+
+  const getMeetingTitle = (payload: Insight | null | undefined): string => {
+    if (!payload) return '';
+    return typeof payload.meeting_title === 'string' ? payload.meeting_title.trim() : '';
+  };
+
   useEffect(() => {
     insightsHistoryRef.current = insightsHistory;
   }, [insightsHistory]);
@@ -253,6 +281,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   useEffect(() => {
     transcriptsRef.current = transcripts;
+  }, [transcripts]);
+
+  useEffect(() => {
+    const speaker0Count = transcripts.filter(t => t.speaker === 0).length;
+    const speaker1Count = transcripts.filter(t => t.speaker === 1).length;
+    console.log(`[Transcript] Total: ${transcripts.length}, Speaker0: ${speaker0Count}, Speaker1: ${speaker1Count}`);
   }, [transcripts]);
 
   useEffect(() => {
@@ -566,6 +600,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
         setTranscripts([]);
         setInsights(null);
+        setInsightsHistory([]);
+        setInsightsIndex(-1);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(true);
@@ -1130,6 +1166,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   }, []);
 
+  const latestHistoricalInsight =
+    insightsHistory.length > 0
+      ? insightsHistory[insightsIndex >= 0 ? insightsIndex : insightsHistory.length - 1]
+      : null;
+  const displayedInsights = insights || latestHistoricalInsight;
+
   // Handle insight clicks - send to AskView via IPC
   // When user clicks an insight (summary point, topic bullet, or action), we:
   // 1. Log the click for debugging
@@ -1142,7 +1184,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
     // Otherwise: Insights generated "during" call are clicked "after" call → wrong prompt!
-    const insightSessionState = insights?.session_state || 'during';
+    const insightSessionState = displayedInsights?.session_state || 'during';
     const localStorageState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     
     console.log('[ListenView] 🎯 Insight click session state:');
@@ -1188,9 +1230,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Session state:', currentSessionState);
     console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
 
-    // ASYNC FIX: Clear insights FIRST to show loading state, preventing stub flicker
-    // Users will see spinner instead of wrong "Vorbereitung" insights
-    setInsights(null);
+    // Keep current insights visible while refreshing. Only replace on successful fetch.
 
     // SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
     // - Attempt 1: Immediate (0ms) - Fast path if transcripts already saved
@@ -1259,8 +1299,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         });
         
         // Check if we got actual insights (not stub "no transcripts" message)
-        const hasTranscripts = fetchedInsights?.summary?.[0] !== "Keine Transkripte vorhanden für Analyse" &&
-                              fetchedInsights?.summary?.[0] !== "No transcripts available for analysis";
+        const probeLines = getProspectInfo(fetchedInsights);
+        const hasTranscripts = probeLines.length > 0 &&
+          probeLines[0] !== "Keine Transkripte vorhanden für Analyse" &&
+          probeLines[0] !== "No transcripts available for analysis";
         
         if (hasTranscripts) {
           const ttftMs = Date.now() - ttftStart;
@@ -1302,18 +1344,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView]   - Current localStorage state:', localStorageState);
         
         console.log('[ListenView] 🔍 Insights structure:', {
-          hasSummary: !!fetchedInsights.summary,
-          summaryLength: fetchedInsights.summary?.length,
-          hasTopic: !!fetchedInsights.topic,
-          topicHeader: fetchedInsights.topic?.header,
-          topicBulletsCount: fetchedInsights.topic?.bullets?.length,
+          meetingTitle: getMeetingTitle(fetchedInsights),
+          prospectInfoCount: getProspectInfo(fetchedInsights).length,
+          salesAnalysisCount: getSalesAnalysis(fetchedInsights).length,
           hasActions: !!fetchedInsights.actions,
           actionsCount: fetchedInsights.actions?.length,
           sessionState: fetchedInsights.session_state,
           ttftMs
         });
-        console.log('[ListenView] 🔍 Summary content:', fetchedInsights.summary);
-        console.log('[ListenView] 🔍 Topic bullets:', fetchedInsights.topic?.bullets);
+        console.log('[ListenView] 🔍 Prospect info:', getProspectInfo(fetchedInsights));
+        console.log('[ListenView] 🔍 Sales analysis:', getSalesAnalysis(fetchedInsights));
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
         setInsights(fetchedInsights);
         lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
@@ -1336,29 +1376,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Show user-friendly error message instead of infinite loading
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
-      
-      // Set stub insights with error message so UI shows something meaningful
-      const lang = i18n.getLanguage();
-      setInsights({
-        summary: [
-          lang === 'de' 
-            ? '⚠️ Insights konnten nicht geladen werden'
-            : '⚠️ Failed to load insights',
-          lang === 'de'
-            ? 'Versuche es erneut oder überprüfe deine Verbindung'
-            : 'Try again or check your connection'
-        ],
-        topic: {
-          header: lang === 'de' ? 'Fehlerdetails' : 'Error Details',
-          bullets: [errorMessage.substring(0, 100)]
-        },
-        actions: [
-          lang === 'de' 
-            ? '🔄 Transkript ↔ Erkenntnisse (um erneut zu versuchen)'
-            : '🔄 Toggle view to retry'
-        ],
-        followUps: []
-      });
     } finally {
       setIsLoadingInsights(false);
     }
@@ -1496,26 +1513,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             return `${speakerLabel}:\n${joinedText}`;  // No blank line after label
           }).join('\n\n');  // Blank lines between speakers
         })()
-        : insights
+        : displayedInsights
         ? (() => {
-            // Use translated headers instead of hardcoded "Summary"
             const currentLang = i18n.getLanguage();
-            const summaryHeader = currentLang === 'de' ? 'Zusammenfassung' : 'Summary';
+            const prospectHeader = currentLang === 'de' ? 'Info about Prospect' : 'Info about Prospect';
+            const salesHeader = currentLang === 'de' ? 'Sales Analyse' : 'Sales Analysis';
             const actionsHeader = currentLang === 'de' ? 'Actions' : 'Actions';
-            const followUpsHeader = currentLang === 'de' ? 'Follow-Ups' : 'Follow-Ups';
-            
-            // Build insights text with translated sections
-            let text = `${summaryHeader}:\n${insights.summary.join('\n')}\n\n${insights.topic.header}:\n${insights.topic.bullets.join('\n')}\n\n${actionsHeader}:\n${insights.actions.join('\n')}`;
-            
-            // DEMO FIX: Only include Follow-Ups if session is NOT active (after meeting)
-            // During active recording, user only wants Summary/Topics/Actions copied
-            if (insights.followUps && insights.followUps.length > 0 && !isSessionActive) {
-              text += `\n\n${followUpsHeader}:\n${insights.followUps.join('\n')}`;
-              console.log('[ListenView] 📋 Copy: Included Follow-Ups (session inactive)');
-            } else if (isSessionActive) {
-              console.log('[ListenView] 📋 Copy: Excluded Follow-Ups (session active)');
+            const meetingTitle = getMeetingTitle(displayedInsights);
+            const prospectInfo = getProspectInfo(displayedInsights);
+            const salesAnalysis = getSalesAnalysis(displayedInsights);
+            const actionLabels = getInsightActions(displayedInsights).map(action => action.label);
+
+            let text = '';
+            if (meetingTitle) {
+              text += `${meetingTitle}\n\n`;
             }
-            
+            text += `${prospectHeader}:\n${prospectInfo.join('\n')}\n\n${salesHeader}:\n${salesAnalysis.join('\n')}\n\n${actionsHeader}:\n${actionLabels.join('\n')}`;
             return text;
           })()
         : '';
@@ -1672,33 +1685,43 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {i18n.t('overlay.listen.waitingForSpeech')}
               </div>
             )
-          ) : isLoadingInsights ? (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-              Loading insights...
-            </div>
-          ) : insights ? (
+          ) : displayedInsights ? (
               <div style={{ padding: '0px 12px 4px 12px' }}>
-              {/* Summary Section */}
+              {getMeetingTitle(displayedInsights) && (
+                <div style={{ marginBottom: '8px' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.96)' }}>
+                    <span
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(getMeetingTitle(displayedInsights)) }}
+                    />
+                  </h3>
+                </div>
+              )}
+
+              {isLoadingInsights && (
+                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
+                  {i18n.getLanguage() === 'en' ? 'Refreshing insights...' : 'Insights werden aktualisiert...'}
+                </div>
+              )}
+
               <div style={{ marginBottom: '4px' }}>
-                {/* FIX #33: Added marginTop:0 to eliminate browser default spacing above "Zusammenfassung" */}
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.t('overlay.listen.summary')}
+                  {i18n.getLanguage() === 'en' ? 'Info about Prospect' : 'Info about Prospect'}
                 </h3>
-                {insights.summary.map((point, idx) => (
-                  <p 
-                    key={`summary-${idx}`}
+                {getProspectInfo(displayedInsights).map((point, idx) => (
+                  <p
+                    key={`prospect-${idx}`}
                     onClick={() => handleInsightClick(point)}
-                    style={{ 
-                      fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
-                      lineHeight: '1.3',   // FIX #16: Tighter line height
+                    style={{
+                      fontSize: '12px',
+                      lineHeight: '1.3',
                       marginBottom: '0px',
-                      marginTop: '0px',    // FIX #16: Zero margins
+                      marginTop: '0px',
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '4px 12px',  // FIX #16: Reduce vertical padding
+                      padding: '4px 12px',
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -1713,7 +1736,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     }}
                   >
                     <span style={{ position: 'absolute', left: '12px' }}>•</span>
-                    <span 
+                    <span
                       style={{ marginLeft: '12px', display: 'block' }}
                       dangerouslySetInnerHTML={{ __html: renderMarkdownInline(point) }}
                     />
@@ -1721,26 +1744,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 ))}
               </div>
 
-              {/* Topic Section */}
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {insights.topic.header}
+                  {i18n.getLanguage() === 'en' ? 'Sales Analysis' : 'Sales Analyse'}
                 </h3>
-                {insights.topic.bullets.map((bullet, idx) => (
-                  <p 
-                    key={`bullet-${idx}`}
+                {getSalesAnalysis(displayedInsights).map((bullet, idx) => (
+                  <p
+                    key={`analysis-${idx}`}
                     onClick={() => handleInsightClick(bullet)}
-                    style={{ 
-                      fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
-                      lineHeight: '1.3',   // FIX #16: Tighter line height
+                    style={{
+                      fontSize: '12px',
+                      lineHeight: '1.3',
                       marginBottom: '0px',
-                      marginTop: '0px',    // FIX #16: Zero margins
+                      marginTop: '0px',
                       color: 'rgba(255, 255, 255, 0.85)',
                       paddingLeft: '12px',
                       position: 'relative',
                       cursor: 'pointer',
                       borderRadius: '4px',
-                      padding: '4px 12px',  // FIX #16: Reduce vertical padding
+                      padding: '4px 12px',
                       marginLeft: '0',
                       transition: 'all 0.15s ease',
                       background: 'transparent'
@@ -1755,7 +1777,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     }}
                   >
                     <span style={{ position: 'absolute', left: '12px' }}>•</span>
-                    <span 
+                    <span
                       style={{ marginLeft: '12px', display: 'block' }}
                       dangerouslySetInnerHTML={{ __html: renderMarkdownInline(bullet) }}
                     />
@@ -1763,89 +1785,44 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 ))}
               </div>
 
-              {/* Actions Section */}
               <div>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
-                {insights.actions.map((action, idx) => {
-                  // FIX: Only display title (before ":"), but send full question when clicked
-                  // Backend now returns format: "Title: Answer text..."
-                  // Button should only show "Title"
-                  // When clicked, send "Title" (the question) to Ask bar
-                  const colonIndex = action.indexOf(':');
-                  const displayText = colonIndex > -1 ? action.substring(0, colonIndex) : action;
-                  const questionText = displayText; // Send the title/question to Ask bar
-                  
-                  return (
-                    <p 
-                      key={`action-${idx}`}
-                      onClick={() => handleInsightClick(questionText)}
-                      style={{ 
-                        fontSize: '12px',    // FIX #20: Increased from 11px per user feedback
-                        lineHeight: '1.4', 
-                        marginBottom: '3px',
-                        color: 'rgba(255, 255, 255, 0.85)',
-                        padding: '6px 10px',
-                        background: 'rgba(255, 255, 255, 0.08)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                        e.currentTarget.style.transform = 'translateX(2px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }}
-                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(displayText) }}
-                    />
-                  );
-                })}
+                {getInsightActions(displayedInsights).map((action, idx) => (
+                  <p
+                    key={`action-${idx}`}
+                    onClick={() => handleInsightClick(action.label)}
+                    style={{
+                      fontSize: '12px',
+                      lineHeight: '1.4',
+                      marginBottom: '3px',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      padding: '6px 10px',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                      e.currentTarget.style.transform = 'translateX(2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.transform = 'translateX(0)';
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
+                  />
+                ))}
               </div>
-
-              {/* FIX #3: Follow-Ups Section (Glass parity) - Only shown when recording is complete */}
-              {!isSessionActive && insights.followUps && insights.followUps.length > 0 && (
-                <div style={{ marginTop: '8px' }}>
-                  <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                    {i18n.getLanguage() === 'en' ? 'Follow-Ups' : 'Follow-Ups'}
-                  </h3>
-                  {insights.followUps.map((followUp, idx) => (
-                    <p 
-                      key={`followup-${idx}`}
-                      onClick={() => handleInsightClick(followUp)}
-                      style={{ 
-                        fontSize: '12px',
-                        lineHeight: '1.4',
-                        marginBottom: '3px',
-                        color: 'rgba(255, 255, 255, 0.85)',
-                        padding: '6px 10px',
-                        background: 'rgba(255, 255, 255, 0.08)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                        e.currentTarget.style.transform = 'translateX(2px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }}
-                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(followUp) }}
-                    />
-                  ))}
-                </div>
-              )}
+            </div>
+          ) : isLoadingInsights ? (
+            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              Loading insights...
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
