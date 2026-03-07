@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
-import { getWebSocketInstance } from '../services/websocketService';
+import { getWebSocketInstance, getChatTranscripts } from '../services/websocketService';
 import { fetchInsights, Insight } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
@@ -172,6 +172,45 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
     return lines.join('\n');
   };
+
+  useEffect(() => {
+    if (!isSessionActive || sessionState !== 'during' || transcripts.length > 0) return;
+
+    let cancelled = false;
+    const hydrateTimer = setTimeout(async () => {
+      if (cancelled || transcriptsRef.current.length > 0) return;
+
+      const token = await (window as any).evia?.auth?.getToken?.();
+      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+      if (!token || !chatId) return;
+
+      try {
+        const history = await getChatTranscripts(chatId, token, 200);
+        if (cancelled || !history?.length || transcriptsRef.current.length > 0) return;
+        const hydrated = history
+          .map(entry => ({
+            text: (entry.text || '').trim(),
+            speaker: entry.speaker ?? null,
+            isFinal: true,
+            isPartial: false,
+            timestamp: entry.created_at ? Date.parse(entry.created_at) : Date.now(),
+          }))
+          .filter(entry => entry.text);
+        if (!hydrated.length) return;
+
+        console.warn('[ListenView] 🔄 Hydrating transcript view from persisted history:', hydrated.length, 'entries');
+        setTranscripts(hydrated);
+        finalTranscriptCountRef.current = hydrated.length;
+      } catch (err) {
+        console.warn('[ListenView] ⚠️ Transcript hydration fallback failed:', err);
+      }
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(hydrateTimer);
+    };
+  }, [isSessionActive, sessionState, transcripts.length]);
 
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
     if (!payload) return true;

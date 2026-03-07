@@ -51,6 +51,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
   const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
+  const stripMarkdown = useCallback((text: string) => {
+    if (!text) return '';
+    return text
+      .replace(/\*\*(.+?)\*\*/gs, '$1')
+      .replace(/\*(.+?)\*/gs, '$1')
+      .replace(/`(.+?)`/gs, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/^\s*[-*]\s+/gm, '');
+  }, []);
 
   const deduplicateTranscriptEntries = useCallback((entries: AskTranscriptEntry[]): AskTranscriptEntry[] => {
     const deduped: AskTranscriptEntry[] = [];
@@ -799,8 +808,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
       }
-      responseBufferRef.current += d;
-      setResponse((prev) => prev + d);
+      const cleanedDelta = stripMarkdown(d);
+      responseBufferRef.current += cleanedDelta;
+      setResponse((prev) => prev + cleanedDelta);
     });
     
     handle.onDone(() => {
@@ -812,7 +822,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
 
-      const finalResponse = responseBufferRef.current.trim();
+      const finalResponse = stripMarkdown(responseBufferRef.current).trim();
+      if (finalResponse !== responseBufferRef.current) {
+        responseBufferRef.current = finalResponse;
+        setResponse(finalResponse);
+      }
       if (finalResponse) {
         setResponseHistory((prev) => {
           const next = [...prev, finalResponse];
@@ -1033,7 +1047,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (!text) return '';
 
     try {
-      const html = marked.parse(text) as string;
+      const html = marked.parse(stripMarkdown(text)) as string;
       const sanitized = DOMPurify.sanitize(html, {
         ALLOWED_TAGS: [
           'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'b', 'em', 'i',
