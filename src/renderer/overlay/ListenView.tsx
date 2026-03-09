@@ -84,7 +84,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const hasActivePartialRef = useRef(false);
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
-  const fetchInsightsNowRef = useRef<() => Promise<void>>(async () => {});
+  const fetchInsightsNowRef = useRef<(options?: { fullReplace?: boolean }) => Promise<void>>(async () => {});
   const transcriptsRef = useRef<TranscriptLine[]>([]);
   const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
   const isSessionActiveRef = useRef(false);
@@ -266,9 +266,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       .map(action => ({ label: action.trim() }));
   };
 
-  const getMeetingTitle = (payload: Insight | null | undefined): string => {
-    if (!payload) return '';
-    return typeof payload.meeting_title === 'string' ? payload.meeting_title.trim() : '';
+  const getFollowUpActions = (payload: Insight | null | undefined): InsightActionItem[] => {
+    if (!payload || !Array.isArray(payload.followUpActions)) return [];
+    return payload.followUpActions.filter(item => item && typeof item.label === 'string' && item.label.trim());
   };
 
   useEffect(() => {
@@ -657,6 +657,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setIsSessionActive(false);
         setSessionState('after');
         localStorage.setItem('evia_session_state', 'after');
+        setInsights(null);
+        setInsightsHistory([]);
+        setInsightsIndex(-1);
 
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
@@ -665,7 +668,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms...');
         setTimeout(() => {
           console.log('[ListenView] 🚀 Fetching post-call insights NOW');
-          fetchInsightsNowRef.current();
+          fetchInsightsNowRef.current({ fullReplace: true });
         }, 300);
 
         return;
@@ -1085,12 +1088,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setTranscripts([]);
           setViewMode('transcript');
           setInsights(null);
+          setInsightsHistory([]);
+          setInsightsIndex(-1);
           setIsSessionActive(true);
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
           lastInsightsFetchAtRef.current = 0;
         } else if (newState === 'after') {
           setIsSessionActive(false);
+          setInsights(null);
+          setInsightsHistory([]);
+          setInsightsIndex(-1);
+          setViewMode('insights');
+          setTimeout(() => {
+            fetchInsightsNowRef.current({ fullReplace: true });
+          }, 300);
         } else if (newState === 'before') {
           (window as any).evia?.liveTranscript?.clear?.();
           setTranscripts([]);
@@ -1178,8 +1190,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 2. Determine current session state (after recording stops, isSessionActive = false)
   // 3. Send to AskView via IPC with 'ask:send-and-submit' channel INCLUDING session state
   // 4. AskView receives it, populates input, updates session state, and auto-submits
-  const handleInsightClick = (insightText: string) => {
-    console.log('[ListenView] 📨 Insight clicked:', insightText.substring(0, 50));
+  const handleInsightClick = (insightText: string, promptOverride?: string) => {
+    const outboundPrompt = (promptOverride || insightText || '').trim();
+    console.log('[ListenView] 📨 Insight clicked:', outboundPrompt.substring(0, 50));
     
     // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
@@ -1206,7 +1219,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const transcriptContext = buildTranscriptContextForAsk(transcriptsRef.current);
       // Send as object with text and sessionState (using insight's metadata)
       eviaIpc.send('ask:send-and-submit', { 
-        text: insightText,
+        text: outboundPrompt,
         sessionState: insightSessionState,
         transcriptContext,
       });
@@ -1217,7 +1230,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   // Extract insights fetching to reusable function
-  const fetchInsightsNow = async () => {
+  const fetchInsightsNow = async (options: { fullReplace?: boolean } = {}) => {
     if (isLoadingInsights) return; // Prevent duplicate fetches
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
@@ -1263,6 +1276,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     const localStorageState = latestSessionState; // For logging purposes
     const derivedSessionState = latestSessionState;
+    const fullReplace = options.fullReplace === true || derivedSessionState === 'after';
     const currentLang = i18n.getLanguage();
     
     console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', currentSessionState, ', isSessionActive =', currentIsSessionActive);
@@ -1329,12 +1343,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
-        if (isStubInsightPayload(fetchedInsights)) {
+        if (derivedSessionState !== 'after' && isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
             console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
             return;
           }
           console.log('[ListenView] ℹ️ Initial stub insights accepted because no previous insights exist yet');
+        } else if (derivedSessionState === 'after') {
+          console.log('[ListenView] ✅ Post-meeting insights accepted without stub rejection');
         }
         
         // Log session_state metadata from insights
@@ -1344,25 +1360,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView]   - Current localStorage state:', localStorageState);
         
         console.log('[ListenView] 🔍 Insights structure:', {
-          meetingTitle: getMeetingTitle(fetchedInsights),
           prospectInfoCount: getProspectInfo(fetchedInsights).length,
           salesAnalysisCount: getSalesAnalysis(fetchedInsights).length,
           hasActions: !!fetchedInsights.actions,
           actionsCount: fetchedInsights.actions?.length,
+          followUpActionsCount: getFollowUpActions(fetchedInsights).length,
           sessionState: fetchedInsights.session_state,
           ttftMs
         });
         console.log('[ListenView] 🔍 Prospect info:', getProspectInfo(fetchedInsights));
         console.log('[ListenView] 🔍 Sales analysis:', getSalesAnalysis(fetchedInsights));
         console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
-        setInsights(fetchedInsights);
+        console.log('[ListenView] 🔍 Follow-up actions:', getFollowUpActions(fetchedInsights));
+        if (fullReplace) {
+          setInsights(fetchedInsights);
+          setInsightsHistory([fetchedInsights]);
+          setInsightsIndex(0);
+        } else {
+          setInsights(fetchedInsights);
+          setInsightsHistory((prev) => {
+            const next = [...prev, fetchedInsights];
+            setInsightsIndex(next.length - 1);
+            return next;
+          });
+        }
         lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
         lastInsightsFetchAtRef.current = Date.now();
-        setInsightsHistory((prev) => {
-          const next = [...prev, fetchedInsights];
-          setInsightsIndex(next.length - 1);
-          return next;
-        });
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
         console.warn('[ListenView] ⚠️ This could mean:');
@@ -1519,16 +1542,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             const prospectHeader = currentLang === 'de' ? 'Info about Prospect' : 'Info about Prospect';
             const salesHeader = currentLang === 'de' ? 'Sales Analyse' : 'Sales Analysis';
             const actionsHeader = currentLang === 'de' ? 'Actions' : 'Actions';
-            const meetingTitle = getMeetingTitle(displayedInsights);
+            const followUpHeader = currentLang === 'de' ? 'Follow-up Aktionen' : 'Follow-up Actions';
             const prospectInfo = getProspectInfo(displayedInsights);
             const salesAnalysis = getSalesAnalysis(displayedInsights);
             const actionLabels = getInsightActions(displayedInsights).map(action => action.label);
+            const followUpLabels = getFollowUpActions(displayedInsights).map(action => action.label);
 
-            let text = '';
-            if (meetingTitle) {
-              text += `${meetingTitle}\n\n`;
+            let text = `${prospectHeader}:\n${prospectInfo.join('\n')}\n\n${salesHeader}:\n${salesAnalysis.join('\n')}\n\n${actionsHeader}:\n${actionLabels.join('\n')}`;
+            if (followUpLabels.length > 0) {
+              text += `\n\n${followUpHeader}:\n${followUpLabels.join('\n')}`;
             }
-            text += `${prospectHeader}:\n${prospectInfo.join('\n')}\n\n${salesHeader}:\n${salesAnalysis.join('\n')}\n\n${actionsHeader}:\n${actionLabels.join('\n')}`;
             return text;
           })()
         : '';
@@ -1687,16 +1710,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             )
           ) : displayedInsights ? (
               <div style={{ padding: '0px 12px 4px 12px' }}>
-              {getMeetingTitle(displayedInsights) && (
-                <div style={{ marginBottom: '8px' }}>
-                  <h3 style={{ fontSize: '14px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.96)' }}>
-                    <span
-                      dangerouslySetInnerHTML={{ __html: renderMarkdownInline(getMeetingTitle(displayedInsights)) }}
-                    />
-                  </h3>
-                </div>
-              )}
-
               {isLoadingInsights && (
                 <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
                   {i18n.getLanguage() === 'en' ? 'Refreshing insights...' : 'Insights werden aktualisiert...'}
@@ -1792,7 +1805,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {getInsightActions(displayedInsights).map((action, idx) => (
                   <p
                     key={`action-${idx}`}
-                    onClick={() => handleInsightClick(action.label)}
+                    onClick={() => handleInsightClick(action.label, action.prompt)}
                     style={{
                       fontSize: '12px',
                       lineHeight: '1.4',
@@ -1818,6 +1831,42 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                     dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
                   />
                 ))}
+                {getFollowUpActions(displayedInsights).length > 0 && (
+                  <>
+                    <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '10px', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                      {i18n.getLanguage() === 'en' ? 'Follow-up Actions' : 'Follow-up Aktionen'}
+                    </h3>
+                    {getFollowUpActions(displayedInsights).map((action, idx) => (
+                      <p
+                        key={`followup-${idx}`}
+                        onClick={() => handleInsightClick(action.label, action.prompt)}
+                        style={{
+                          fontSize: '12px',
+                          lineHeight: '1.4',
+                          marginBottom: '3px',
+                          color: 'rgba(255, 255, 255, 0.85)',
+                          padding: '6px 10px',
+                          background: 'rgba(255, 255, 255, 0.08)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                          e.currentTarget.style.transform = 'translateX(2px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                          e.currentTarget.style.transform = 'translateX(0)';
+                        }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
+                      />
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           ) : isLoadingInsights ? (

@@ -26,6 +26,8 @@ type AskSendPayload = {
   transcriptContext?: string;
 };
 
+type AskSessionState = 'before' | 'during' | 'after';
+
 const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) => {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
@@ -37,6 +39,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [headerText, setHeaderText] = useState(i18n.t('overlay.ask.aiResponse'));
   const [responseHistory, setResponseHistory] = useState<string[]>([]);
   const [responseIndex, setResponseIndex] = useState(-1);
+  const [responseSessionState, setResponseSessionState] = useState<AskSessionState>('before');
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
@@ -51,7 +54,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
   const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
-  const stripDangerousMarkdown = useCallback((text: string) => {
+  const sanitizeLiveAskMarkdown = useCallback((text: string) => {
     if (!text) return '';
     return text
       .replace(/```[\s\S]*?```/g, '')
@@ -60,6 +63,20 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       .replace(/^\s*\d+\.\s+/gm, '')
       .replace(/`(.+?)`/gs, '$1');
   }, []);
+
+  const sanitizeRichAskMarkdown = useCallback((text: string) => {
+    if (!text) return '';
+    return text
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`(.+?)`/gs, '$1')
+      .trim();
+  }, []);
+
+  const sanitizeAskOutput = useCallback((text: string, state: AskSessionState) => {
+    return state === 'during'
+      ? sanitizeLiveAskMarkdown(text)
+      : sanitizeRichAskMarkdown(text);
+  }, [sanitizeLiveAskMarkdown, sanitizeRichAskMarkdown]);
 
   const deduplicateTranscriptEntries = useCallback((entries: AskTranscriptEntry[]): AskTranscriptEntry[] => {
     const deduped: AskTranscriptEntry[] = [];
@@ -118,7 +135,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   // SESSION STATE: Track current session state for context-aware responses
   // Values: 'before' (pre-call), 'during' (active call), 'after' (post-call)
   // Synced from EviaBar via IPC, with localStorage as backup for initial state
-  const [sessionState, setSessionState] = useState<'before' | 'during' | 'after'>(() => {
+  const [sessionState, setSessionState] = useState<AskSessionState>(() => {
     const stored = localStorage.getItem('evia_session_state');
     if (stored === 'before' || stored === 'during' || stored === 'after') {
       console.log('[AskView] 🎯 Initial session state from localStorage:', stored);
@@ -265,6 +282,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setResponse('');
       setResponseHistory([]);
       setResponseIndex(-1);
+      setResponseSessionState('before');
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
@@ -299,6 +317,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setResponse('');
       setResponseHistory([]);
       setResponseIndex(-1);
+      setResponseSessionState('before');
       setCurrentQuestion('');
       setPrompt('');
       setIsStreaming(false);
@@ -736,6 +755,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     setResponse('');
     responseBufferRef.current = '';
+    setResponseSessionState('before');
     lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
     storedContentHeightRef.current = null;  // CRITICAL: Clear stored height for new question
     setIsStreaming(true);
@@ -746,11 +766,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // CRITICAL FIX: Re-read session state from localStorage before streaming
     // EviaBar updates localStorage immediately when Listen starts, but the IPC event
     // might arrive too late (after user clicks shortcut button)
-    const currentSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
     if (currentSessionState !== sessionState) {
       console.log('[AskView] 🔄 Syncing session state from localStorage:', currentSessionState, '(was:', sessionState, ')');
       setSessionState(currentSessionState);
     }
+    setResponseSessionState(currentSessionState);
 
     console.log('[AskView] 🚀 Starting stream with prompt:', actualPrompt.substring(0, 50));
     console.log('[AskView] 🎯 Session state:', currentSessionState);
@@ -809,7 +830,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
       }
       responseBufferRef.current += d;
-      setResponse(stripDangerousMarkdown(responseBufferRef.current));
+      setResponse(sanitizeAskOutput(responseBufferRef.current, currentSessionState));
     });
     
     handle.onDone(() => {
@@ -821,7 +842,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamRef.current = null;
       console.log('[AskView] ✅ Stream completed');
 
-      const finalResponse = stripDangerousMarkdown(responseBufferRef.current).trim();
+      const finalResponse = sanitizeAskOutput(responseBufferRef.current, currentSessionState).trim();
       if (finalResponse !== responseBufferRef.current) {
         responseBufferRef.current = finalResponse;
         setResponse(finalResponse);
@@ -1046,9 +1067,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (!text) return '';
 
     try {
-      const html = marked.parse(stripDangerousMarkdown(text)) as string;
+      const html = marked.parse(sanitizeAskOutput(text, responseSessionState)) as string;
       const sanitized = DOMPurify.sanitize(html, {
-        ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'hr'],
+        ALLOWED_TAGS:
+          responseSessionState === 'during'
+            ? ['p', 'br', 'strong', 'b', 'em', 'i', 'hr']
+            : ['p', 'br', 'strong', 'b', 'em', 'i', 'hr', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
         ALLOWED_ATTR: [],
       });
       

@@ -4,6 +4,7 @@ import { BACKEND_URL } from '../config/config';
 export interface InsightActionItem {
   label: string;
   icon?: string;
+  prompt?: string;
 }
 
 export interface Insight {
@@ -17,6 +18,7 @@ export interface Insight {
   };
   actions: string[];
   action_items?: InsightActionItem[];
+  followUpActions?: InsightActionItem[];
   followUps?: string[];
   session_state?: 'before' | 'during' | 'after';
   stub?: boolean;
@@ -72,6 +74,7 @@ export async function fetchInsights({
           .map((item: any) => ({
             label: item.label.trim(),
             icon: typeof item.icon === 'string' && item.icon.trim() ? item.icon.trim() : inferIcon(item.label.trim()),
+            prompt: typeof item.prompt === 'string' && item.prompt.trim() ? item.prompt.trim() : item.label.trim(),
           }))
       : Array.isArray(data?.actions)
       ? data.actions
@@ -79,6 +82,16 @@ export async function fetchInsights({
           .map((label: string) => ({
             label: label.trim(),
             icon: inferIcon(label.trim()),
+            prompt: label.trim(),
+          }))
+      : [];
+    const followUpActions: InsightActionItem[] = Array.isArray(data?.followUpActions)
+      ? data.followUpActions
+          .filter((item: any) => item && typeof item.label === 'string' && item.label.trim())
+          .map((item: any) => ({
+            label: item.label.trim(),
+            icon: typeof item.icon === 'string' && item.icon.trim() ? item.icon.trim() : inferIcon(item.label.trim()),
+            prompt: typeof item.prompt === 'string' && item.prompt.trim() ? item.prompt.trim() : item.label.trim(),
           }))
       : [];
 
@@ -99,6 +112,7 @@ export async function fetchInsights({
       },
       actions: actionItems.map((item) => item.label),
       action_items: actionItems,
+      followUpActions,
       followUps: Array.isArray(data?.followUps) ? data.followUps.filter((item: any) => typeof item === 'string') : [],
       session_state: data?.session_state,
       stub: data?.stub === true,
@@ -132,10 +146,10 @@ export async function fetchInsights({
       const normalized = normalizeInsightPayload(data);
 
       console.log('[Insights] ✅ Received Glass format with follow-ups:', {
-        meetingTitle: normalized.meeting_title,
         prospectInfoCount: normalized.prospect_info?.length || 0,
         salesAnalysisCount: normalized.sales_analysis?.length || 0,
         actionsCount: normalized.actions?.length || 0,
+        followUpActionsCount: normalized.followUpActions?.length || 0,
         stub: normalized.stub === true,
       });
       return normalized;
