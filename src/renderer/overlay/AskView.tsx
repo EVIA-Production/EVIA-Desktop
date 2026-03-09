@@ -69,6 +69,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return text
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`(.+?)`/gs, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/(?:\n\s*)?---\s*\n\s*\[(?:Aktion|Action):[^\]\n]+\]\s*/gi, '\n\n')
+      .replace(/^\s*\[(?:Aktion|Action):[^\]\n]+\]\s*$/gim, '')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
   }, []);
 

@@ -24,7 +24,7 @@ asarUnpack:
 mac:
   icon: src/main/assets/icon-mac.png
   category: public.app-category.productivity
-  artifactName: "Taylos-mac.${ext}"
+  artifactName: "Taylos.${ext}"
   hardenedRuntime: true
   notarize: false
   entitlements: build/entitlements.mac.plist
@@ -71,4 +71,4 @@ portable:
 dmg:
   format: UDZO
   writeUpdateInfo: true
-  artifactName: "Taylos-mac.${ext}"
+  artifactName: "Taylos.${ext}"
