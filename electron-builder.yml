@@ -22,7 +22,7 @@ asarUnpack:
   - "src/main/assets/WASAPILoopback.exe"
 # 🔧 Run afterPack script to sign SystemAudioDump with entitlements
 mac:
-  icon: src/main/assets/icon.png
+  icon: src/main/assets/icon-mac.png
   category: public.app-category.productivity
   artifactName: "Taylos-mac.${ext}"
   hardenedRuntime: true

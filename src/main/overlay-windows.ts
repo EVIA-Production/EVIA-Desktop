@@ -134,9 +134,10 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   const isWindows = process.platform === 'win32'
 
   // Icon path must differ for dev vs packaged
+  const iconFile = process.platform === 'darwin' ? 'icon-mac.png' : 'icon.ico'
   const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'icon.ico')
-    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', 'icon.ico');
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', iconFile)
+    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', iconFile);
 
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
@@ -1402,23 +1403,9 @@ function stopAlwaysOnTopRefresh() {
 }
 
 app.on('ready', () => {
-  // Explicitly show and set Dock icon
+  // Show the Dock icon on macOS. The packaged app icon should come from the bundle.
   if (process.platform === 'darwin' && app.dock) {
     app.dock.show()
-    const { nativeImage } = require('electron')
-    const path = require('path')
-    const iconPath = path.join(__dirname, '../..', 'src/main/assets/icon.png')
-    try {
-      const icon = nativeImage.createFromPath(iconPath)
-      if (!icon.isEmpty()) {
-        app.dock.setIcon(icon)
-        console.log('[DOCK] ✅ Dock icon set successfully')
-      } else {
-        console.warn('[DOCK] ⚠️ Icon file is empty or invalid')
-      }
-    } catch (err) {
-      console.error('[DOCK] ❌ Failed to set Dock icon:', err)
-    }
   }
 
   registerShortcuts()
