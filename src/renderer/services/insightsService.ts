@@ -33,6 +33,102 @@ interface FetchInsightsParams {
   sessionState?: 'before' | 'during' | 'after'; // CRITICAL FIX: Add session state
 }
 
+const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
+  language === 'en'
+    ? {
+        follow_up_email: {
+          label: '📧 Follow-up Email',
+          icon: 'mail',
+          prompt: 'Write a professional follow-up email based on the conversation.',
+        },
+        follow_up_plan: {
+          label: '📞 Plan follow-up',
+          icon: 'phone',
+          prompt: 'Outline the cleanest follow-up plan with owner, date, and next step.',
+        },
+        action_items: {
+          label: '📋 Action Items',
+          icon: 'check',
+          prompt: 'List all action items and next steps from the conversation.',
+        },
+        crm_update: {
+          label: '📊 Update CRM',
+          icon: 'chart',
+          prompt: 'Draft a concise CRM update based on the conversation.',
+        },
+        summary: {
+          label: '📝 Summary',
+          icon: 'note',
+          prompt: 'Create a structured summary of the conversation.',
+        },
+      }
+    : {
+        follow_up_email: {
+          label: '📧 Follow-up E-Mail',
+          icon: 'mail',
+          prompt: 'Schreibe eine professionelle Follow-up E-Mail basierend auf dem Gespraech.',
+        },
+        follow_up_plan: {
+          label: '📞 Follow-up planen',
+          icon: 'phone',
+          prompt: 'Erstelle einen klaren Follow-up-Plan mit Verantwortlichen, Datum und naechstem Schritt.',
+        },
+        action_items: {
+          label: '📋 Action Items',
+          icon: 'check',
+          prompt: 'Liste alle Action Items und naechsten Schritte aus dem Gespraech auf.',
+        },
+        crm_update: {
+          label: '📊 CRM aktualisieren',
+          icon: 'chart',
+          prompt: 'Formuliere einen kompakten CRM-Eintrag basierend auf dem Gespraech.',
+        },
+        summary: {
+          label: '📝 Zusammenfassung',
+          icon: 'note',
+          prompt: 'Erstelle eine strukturierte Zusammenfassung des Gespraechs.',
+        },
+      };
+
+const AFTER_ACTION_ORDER = ['follow_up_email', 'follow_up_plan', 'action_items', 'crm_update', 'summary'] as const;
+
+const classifyAfterAction = (label: string): (typeof AFTER_ACTION_ORDER)[number] | null => {
+  const lowered = (label || '').trim().toLowerCase();
+  if (!lowered) return null;
+  if (
+    lowered.includes('recap') ||
+    (lowered.includes('follow') && lowered.includes('mail')) ||
+    (lowered.includes('follow') && lowered.includes('email'))
+  ) {
+    return 'follow_up_email';
+  }
+  if (lowered.includes('crm')) return 'crm_update';
+  if (lowered.includes('action item')) return 'action_items';
+  if (lowered.includes('zusammenfassung') || lowered.includes('summary')) return 'summary';
+  if (lowered.includes('follow-up') || lowered.includes('follow up') || lowered.includes('termin') || lowered.includes('plan')) {
+    return 'follow_up_plan';
+  }
+  return null;
+};
+
+const normalizePostMeetingActionItems = (
+  primary: InsightActionItem[],
+  secondary: InsightActionItem[],
+  language: string,
+): InsightActionItem[] => {
+  const canonical = getCanonicalAfterActions(language);
+  const selected = new Map<(typeof AFTER_ACTION_ORDER)[number], InsightActionItem>();
+
+  [...primary, ...secondary].forEach((item) => {
+    const key = classifyAfterAction(item?.label || '');
+    if (key && !selected.has(key)) {
+      selected.set(key, canonical[key]);
+    }
+  });
+
+  return AFTER_ACTION_ORDER.map((key) => selected.get(key) || canonical[key]);
+};
+
 export async function fetchInsights({
   chatId,
   k = 3,
@@ -58,6 +154,10 @@ export async function fetchInsights({
   };
 
   const normalizeInsightPayload = (data: any): Insight => {
+    const normalizedSessionState =
+      data?.session_state === 'before' || data?.session_state === 'after' || data?.session_state === 'during'
+        ? data.session_state
+        : sessionState;
     const summary = Array.isArray(data?.prospect_info)
       ? data.prospect_info
       : Array.isArray(data?.summary)
@@ -94,6 +194,10 @@ export async function fetchInsights({
             prompt: typeof item.prompt === 'string' && item.prompt.trim() ? item.prompt.trim() : item.label.trim(),
           }))
       : [];
+    const mergedAfterActions =
+      normalizedSessionState === 'after'
+        ? normalizePostMeetingActionItems(actionItems, followUpActions, language)
+        : actionItems;
 
     return {
       ...data,
@@ -110,11 +214,11 @@ export async function fetchInsights({
             : 'Sales Analyse',
         bullets: salesAnalysis,
       },
-      actions: actionItems.map((item) => item.label),
-      action_items: actionItems,
-      followUpActions,
+      actions: mergedAfterActions.map((item) => item.label),
+      action_items: mergedAfterActions,
+      followUpActions: normalizedSessionState === 'after' ? [] : followUpActions,
       followUps: Array.isArray(data?.followUps) ? data.followUps.filter((item: any) => typeof item === 'string') : [],
-      session_state: data?.session_state,
+      session_state: normalizedSessionState,
       stub: data?.stub === true,
     };
   };

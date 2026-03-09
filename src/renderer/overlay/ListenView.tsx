@@ -256,19 +256,59 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return [];
   };
 
-  const getInsightActions = (payload: Insight | null | undefined): InsightActionItem[] => {
-    if (!payload) return [];
-    if (Array.isArray(payload.action_items) && payload.action_items.length > 0) {
-      return payload.action_items.filter(item => item && typeof item.label === 'string' && item.label.trim());
-    }
-    return (payload.actions || [])
-      .filter(action => typeof action === 'string' && action.trim())
-      .map(action => ({ label: action.trim() }));
+  const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
+    language === 'en'
+      ? {
+          follow_up_email: { label: '📧 Follow-up Email', icon: 'mail', prompt: 'Write a professional follow-up email based on the conversation.' },
+          follow_up_plan: { label: '📞 Plan follow-up', icon: 'phone', prompt: 'Outline the cleanest follow-up plan with owner, date, and next step.' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'List all action items and next steps from the conversation.' },
+          crm_update: { label: '📊 Update CRM', icon: 'chart', prompt: 'Draft a concise CRM update based on the conversation.' },
+          summary: { label: '📝 Summary', icon: 'note', prompt: 'Create a structured summary of the conversation.' },
+        }
+      : {
+          follow_up_email: { label: '📧 Follow-up E-Mail', icon: 'mail', prompt: 'Schreibe eine professionelle Follow-up E-Mail basierend auf dem Gespraech.' },
+          follow_up_plan: { label: '📞 Follow-up planen', icon: 'phone', prompt: 'Erstelle einen klaren Follow-up-Plan mit Verantwortlichen, Datum und naechstem Schritt.' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Liste alle Action Items und naechsten Schritte aus dem Gespraech auf.' },
+          crm_update: { label: '📊 CRM aktualisieren', icon: 'chart', prompt: 'Formuliere einen kompakten CRM-Eintrag basierend auf dem Gespraech.' },
+          summary: { label: '📝 Zusammenfassung', icon: 'note', prompt: 'Erstelle eine strukturierte Zusammenfassung des Gespraechs.' },
+        };
+
+  const classifyAfterAction = (label: string): string | null => {
+    const lowered = (label || '').trim().toLowerCase();
+    if (!lowered) return null;
+    if (lowered.includes('recap') || (lowered.includes('follow') && lowered.includes('mail')) || (lowered.includes('follow') && lowered.includes('email'))) return 'follow_up_email';
+    if (lowered.includes('crm')) return 'crm_update';
+    if (lowered.includes('action item')) return 'action_items';
+    if (lowered.includes('zusammenfassung') || lowered.includes('summary')) return 'summary';
+    if (lowered.includes('follow-up') || lowered.includes('follow up') || lowered.includes('termin') || lowered.includes('plan')) return 'follow_up_plan';
+    return null;
   };
 
-  const getFollowUpActions = (payload: Insight | null | undefined): InsightActionItem[] => {
-    if (!payload || !Array.isArray(payload.followUpActions)) return [];
-    return payload.followUpActions.filter(item => item && typeof item.label === 'string' && item.label.trim());
+  const getInsightActions = (payload: Insight | null | undefined): InsightActionItem[] => {
+    if (!payload) return [];
+    const primary = Array.isArray(payload.action_items) && payload.action_items.length > 0
+      ? payload.action_items.filter(item => item && typeof item.label === 'string' && item.label.trim())
+      : (payload.actions || [])
+          .filter(action => typeof action === 'string' && action.trim())
+          .map(action => ({ label: action.trim() }));
+
+    if (payload.session_state === 'after') {
+      const canonical = getCanonicalAfterActions(i18n.getLanguage());
+      const merged = new Map<string, InsightActionItem>();
+      const followUps = Array.isArray(payload.followUpActions)
+        ? payload.followUpActions.filter(item => item && typeof item.label === 'string' && item.label.trim())
+        : [];
+
+      [...primary, ...followUps].forEach((item) => {
+        const key = classifyAfterAction(item.label);
+        if (key && !merged.has(key)) merged.set(key, canonical[key]);
+      });
+
+      return ['follow_up_email', 'follow_up_plan', 'action_items', 'crm_update', 'summary']
+        .map(key => merged.get(key) || canonical[key]);
+    }
+
+    return primary;
   };
 
   useEffect(() => {
@@ -1363,15 +1403,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           prospectInfoCount: getProspectInfo(fetchedInsights).length,
           salesAnalysisCount: getSalesAnalysis(fetchedInsights).length,
           hasActions: !!fetchedInsights.actions,
-          actionsCount: fetchedInsights.actions?.length,
-          followUpActionsCount: getFollowUpActions(fetchedInsights).length,
+          actionsCount: getInsightActions(fetchedInsights).length,
+          followUpActionsCount: 0,
           sessionState: fetchedInsights.session_state,
           ttftMs
         });
         console.log('[ListenView] 🔍 Prospect info:', getProspectInfo(fetchedInsights));
         console.log('[ListenView] 🔍 Sales analysis:', getSalesAnalysis(fetchedInsights));
-        console.log('[ListenView] 🔍 Actions:', fetchedInsights.actions);
-        console.log('[ListenView] 🔍 Follow-up actions:', getFollowUpActions(fetchedInsights));
+        console.log('[ListenView] 🔍 Actions:', getInsightActions(fetchedInsights).map(action => action.label));
         if (fullReplace) {
           setInsights(fetchedInsights);
           setInsightsHistory([fetchedInsights]);
@@ -1536,25 +1575,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             return `${speakerLabel}:\n${joinedText}`;  // No blank line after label
           }).join('\n\n');  // Blank lines between speakers
         })()
-        : displayedInsights
-        ? (() => {
-            const currentLang = i18n.getLanguage();
-            const prospectHeader = currentLang === 'de' ? 'Info about Prospect' : 'Info about Prospect';
-            const salesHeader = currentLang === 'de' ? 'Sales Analyse' : 'Sales Analysis';
-            const actionsHeader = currentLang === 'de' ? 'Actions' : 'Actions';
-            const followUpHeader = currentLang === 'de' ? 'Follow-up Aktionen' : 'Follow-up Actions';
-            const prospectInfo = getProspectInfo(displayedInsights);
-            const salesAnalysis = getSalesAnalysis(displayedInsights);
-            const actionLabels = getInsightActions(displayedInsights).map(action => action.label);
-            const followUpLabels = getFollowUpActions(displayedInsights).map(action => action.label);
+	        : displayedInsights
+	        ? (() => {
+	            const currentLang = i18n.getLanguage();
+	            const prospectHeader = currentLang === 'de' ? 'Prospect' : 'Prospect';
+	            const salesHeader = currentLang === 'de' ? 'Sales Analyse' : 'Sales Analysis';
+	            const actionsHeader = currentLang === 'de' ? 'Aktionen' : 'Actions';
+	            const prospectInfo = getProspectInfo(displayedInsights);
+	            const salesAnalysis = getSalesAnalysis(displayedInsights);
+	            const actionLabels = getInsightActions(displayedInsights).map(action => action.label);
 
-            let text = `${prospectHeader}:\n${prospectInfo.join('\n')}\n\n${salesHeader}:\n${salesAnalysis.join('\n')}\n\n${actionsHeader}:\n${actionLabels.join('\n')}`;
-            if (followUpLabels.length > 0) {
-              text += `\n\n${followUpHeader}:\n${followUpLabels.join('\n')}`;
-            }
-            return text;
-          })()
-        : '';
+	            return `${prospectHeader}:\n${prospectInfo.join('\n')}\n\n${salesHeader}:\n${salesAnalysis.join('\n')}\n\n${actionsHeader}:\n${actionLabels.join('\n')}`;
+	          })()
+	        : '';
 
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -1716,10 +1749,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 </div>
               )}
 
-              <div style={{ marginBottom: '4px' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.getLanguage() === 'en' ? 'Info about Prospect' : 'Info about Prospect'}
-                </h3>
+	              <div style={{ marginBottom: '4px' }}>
+	                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
+	                  {i18n.getLanguage() === 'en' ? 'Prospect' : 'Prospect'}
+	                </h3>
                 {getProspectInfo(displayedInsights).map((point, idx) => (
                   <p
                     key={`prospect-${idx}`}
@@ -1802,8 +1835,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
-                {getInsightActions(displayedInsights).map((action, idx) => (
-                  <p
+	                {getInsightActions(displayedInsights).map((action, idx) => (
+	                  <p
                     key={`action-${idx}`}
                     onClick={() => handleInsightClick(action.label, action.prompt)}
                     style={{
@@ -1828,46 +1861,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                       e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                       e.currentTarget.style.transform = 'translateX(0)';
                     }}
-                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
-                  />
-                ))}
-                {getFollowUpActions(displayedInsights).length > 0 && (
-                  <>
-                    <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '10px', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                      {i18n.getLanguage() === 'en' ? 'Follow-up Actions' : 'Follow-up Aktionen'}
-                    </h3>
-                    {getFollowUpActions(displayedInsights).map((action, idx) => (
-                      <p
-                        key={`followup-${idx}`}
-                        onClick={() => handleInsightClick(action.label, action.prompt)}
-                        style={{
-                          fontSize: '12px',
-                          lineHeight: '1.4',
-                          marginBottom: '3px',
-                          color: 'rgba(255, 255, 255, 0.85)',
-                          padding: '6px 10px',
-                          background: 'rgba(255, 255, 255, 0.08)',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                          e.currentTarget.style.transform = 'translateX(2px)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                          e.currentTarget.style.transform = 'translateX(0)';
-                        }}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
-                      />
-                    ))}
-                  </>
-                )}
-              </div>
+	                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(action.label) }}
+	                  />
+	                ))}
+	              </div>
             </div>
           ) : isLoadingInsights ? (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
