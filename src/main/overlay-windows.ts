@@ -704,8 +704,8 @@ function layoutChildWindows(visible: WindowVisibility) {
       const winW = askVis ? askW : listenW
       const winH = askVis ? askH : listenH
 
-      let xRel = headerCenterXRel - winW / 2
-      // FIX: Use 0 padding (same as header) to ensure identical boundaries
+      const centeredXAbs = hb.x + Math.round((hb.width - winW) / 2)
+      let xRel = centeredXAbs - screenBounds.x
       xRel = Math.max(0, Math.min(screenWidth - winW, xRel))
 
       let yPos: number

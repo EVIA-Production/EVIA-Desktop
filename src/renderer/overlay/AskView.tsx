@@ -185,11 +185,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           if (contentChanged && isStreaming) {
             // CASE 1: During streaming - measure actual component heights
             const headerEl = document.querySelector('.response-header') as HTMLElement;
-            const contentEl = document.querySelector('.markdown-content') as HTMLElement;
             const inputEl = document.querySelector('.text-input-container') as HTMLElement;
             
             const headerH = headerEl?.offsetHeight || 45;
-            const contentH = contentEl?.offsetHeight || 50;
+            const contentH = measureResponseContentHeight();
             const inputH = inputEl?.offsetHeight || 50;
             const padding = 24; // Response container padding
             
@@ -227,7 +226,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => {
       resizeObserverRef.current?.disconnect();
     };
-  }, [isStreaming, response, sessionState]);
+  }, [isStreaming, response, sessionState, measureResponseContentHeight]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -903,13 +902,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const headerEl = document.querySelector('.response-header') as HTMLElement;
-          const contentEl = document.querySelector('.markdown-content') as HTMLElement;
           const inputEl = document.querySelector('.text-input-container') as HTMLElement;
-          
-          if (!contentEl) return;
-          
+
           const headerH = headerEl?.offsetHeight || 45;
-          const contentH = contentEl.offsetHeight;
+          const contentH = measureResponseContentHeight();
           const inputH = inputEl?.offsetHeight || 50;
           const padding = 32; // Response container padding (8px top + 8px bottom + margins)
           
@@ -1033,7 +1029,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [prompt, isStreaming, language]);
+  }, [prompt, isStreaming, language, measureResponseContentHeight]);
 
   // REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
   // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
@@ -1041,11 +1037,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   // FIX (2025-12-10): Window sizing - ensures content is always visible
   // Minimum height when content exists: header(45) + padding(32) + min-content(50) + input(50) = 177px
   const MIN_CONTENT_HEIGHT = 180; // Minimum when showing response
+
+  const measureResponseContentHeight = useCallback(() => {
+    const markdownEl = document.querySelector('.markdown-content') as HTMLElement | null;
+    const responseEl = responseContainerRef.current;
+    const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
+    const responseHeight = responseEl?.scrollHeight || responseEl?.offsetHeight || 0;
+    return Math.max(markdownHeight, responseHeight, 50);
+  }, []);
   
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      const availableHeight = Math.max(700, (window.screen?.availHeight || 820) - 120);
+      const availableHeight = Math.max(700, (window.screen?.availHeight || 820) - 56);
       const clampedHeight = Math.max(58, Math.min(availableHeight, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
@@ -1062,12 +1066,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     
     // With content: measure actual component heights
     const headerEl = document.querySelector('.response-header') as HTMLElement;
-    const contentEl = document.querySelector('.markdown-content') as HTMLElement;
     const inputEl = document.querySelector('.text-input-container') as HTMLElement;
-    
-    if (contentEl) {
+    const contentH = measureResponseContentHeight();
+
+    if (contentH > 0) {
       const headerH = headerEl?.offsetHeight || 45;
-      const contentH = contentEl.offsetHeight;
       const inputH = inputEl?.offsetHeight || 50;
       const padding = 24; // Response container padding
       
@@ -1080,7 +1083,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] 📏 Manual: header=%d + content=%d + input=%d = %dpx', headerH, contentH, inputH, targetHeight);
       }
     }
-  }, [response]);
+  }, [response, measureResponseContentHeight]);
 
   // Trigger on empty response (collapse to compact bar)
   useEffect(() => {

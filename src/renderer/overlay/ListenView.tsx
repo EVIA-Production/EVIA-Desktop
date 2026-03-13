@@ -780,7 +780,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         isPartial = !isFinal;
         const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
         if (rawUtterance !== undefined && rawUtterance !== null) {
-          utteranceId = String(rawUtterance);
+          const parsedUtteranceId = String(rawUtterance);
+          utteranceId = parsedUtteranceId === '0' ? undefined : parsedUtteranceId;
         }
         
         // TURN_COMPLETE can arrive before/alongside is_final and previously caused
@@ -975,31 +976,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 return newMessages;
               }
 
-              if (
-                recentTs === 0 ||
-                Math.abs(messageTimestamp - recentTs) <= 2500
-              ) {
-                console.log('[ListenView] ♻️ REPLACING active speaker partial chain at index', recentSameSpeakerPartialIdx);
-                console.log('  ├─ OLD:', recentPartial.text.substring(0, 50));
-                console.log('  └─ NEW:', text.substring(0, 50));
-                newMessages[recentSameSpeakerPartialIdx] = {
-                  ...recentPartial,
-                  text,
-                  speaker,
-                  isFinal: false,
-                  isPartial: true,
-                  timestamp: messageTimestamp,
-                  utteranceId: normalizedUtteranceId ?? recentPartial.utteranceId,
-                };
-                didMutateRows = true;
-                if (recentSameSpeakerPartialIndices.length > 1) {
-                  const keepIdx = recentSameSpeakerPartialIdx;
-                  newMessages = newMessages.filter((item, idx) =>
-                    item.speaker !== speaker || !item.isPartial || item.isFinal || idx === keepIdx
-                  );
-                }
-                return newMessages;
-              }
             }
 
             // No compatible partial found, append a new partial at the end.
@@ -1104,33 +1080,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               normalizedUtteranceId,
             );
           } else {
-            const recentSameSpeakerPartialIndices = getRecentSpeakerPartialIndices(newMessages, speaker, messageTimestamp);
-            const fallbackPartialIdx = recentSameSpeakerPartialIndices.length > 0
-              ? recentSameSpeakerPartialIndices[recentSameSpeakerPartialIndices.length - 1]
-              : -1;
-            if (fallbackPartialIdx !== -1) {
-              console.log('[ListenView] ✅ FREEZING most recent speaker partial to FINAL at index', fallbackPartialIdx, '(fallback)');
-              newMessages[fallbackPartialIdx] = {
-                ...newMessages[fallbackPartialIdx],
-                text,
-                speaker,
-                isFinal: true,
-                isPartial: false,
-                timestamp: messageTimestamp,
-                utteranceId: normalizedUtteranceId ?? newMessages[fallbackPartialIdx].utteranceId,
-              };
-              acceptedFinal = true;
-              didMutateRows = true;
-              newMessages = pruneCompetingSpeakerPartials(
-                newMessages,
-                speaker,
-                fallbackPartialIdx,
-                text,
-                messageTimestamp,
-                normalizedUtteranceId,
-              );
-            } else {
-            // No partial found: append a new final entry (never merge into older finals)
+            // No compatible partial found: append a new final entry instead of freezing
+            // the newest same-speaker partial. Freezing the newest branch caused transcript
+            // bleeding when Deepgram emitted divergent partial chains for the same speaker.
               const recentFinals = newMessages
                 .filter(item => item.speaker === speaker && item.isFinal && !item.isPartial)
                 .slice(-10);
@@ -1153,7 +1105,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 utteranceId: normalizedUtteranceId,
               });
               acceptedFinal = true;
-            }
           }
 
           if (normalizedUtteranceId) {
