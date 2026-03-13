@@ -640,7 +640,7 @@ function layoutChildWindows(visible: WindowVisibility) {
     const askWin = askVis ? createChildWindow('ask') : null
     const listenWin = listenVis ? createChildWindow('listen') : null
 
-    const askW = askVis && askWin ? WINDOW_DATA.ask.width : 0
+    const askW = askVis && askWin ? Math.max(WINDOW_DATA.ask.width, askWin.getBounds().width) : 0
 
     // CRITICAL FIX: Preserve Ask window's current height when it has content
     // This prevents the "zap" when moving with arrow keys
@@ -654,8 +654,13 @@ function layoutChildWindows(visible: WindowVisibility) {
       askH = currentHeight > WINDOW_DATA.ask.height ? currentHeight : WINDOW_DATA.ask.height
     }
 
-    const listenW = listenVis && listenWin ? WINDOW_DATA.listen.width : 0
-    const listenH = listenVis && listenWin ? WINDOW_DATA.listen.height : 0
+    let listenW = 0
+    let listenH = 0
+    if (listenVis && listenWin) {
+      const currentBounds = listenWin.getBounds()
+      listenW = currentBounds.width > 0 ? currentBounds.width : WINDOW_DATA.listen.width
+      listenH = currentBounds.height > 0 ? currentBounds.height : WINDOW_DATA.listen.height
+    }
 
     if (askVis && listenVis) {
       // Both windows: horizontal stack (listen left, ask right)

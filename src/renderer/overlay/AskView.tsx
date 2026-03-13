@@ -1045,8 +1045,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const requestWindowResize = (targetHeight: number) => {
     const eviaApi = (window as any).evia;
     if (eviaApi?.windows?.adjustAskHeight) {
-      // Clamp: min 58px (compact/empty), max 700px (Glass limit)
-      const clampedHeight = Math.max(58, Math.min(700, targetHeight));
+      const availableHeight = Math.max(700, (window.screen?.availHeight || 820) - 120);
+      const clampedHeight = Math.max(58, Math.min(availableHeight, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
   };

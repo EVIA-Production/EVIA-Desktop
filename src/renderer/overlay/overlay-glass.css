@@ -1787,18 +1787,17 @@ textarea:focus-visible,
   flex: 1;
   /* 🔧 FIX (2025-12-10): Reduced vertical padding (8px instead of 16px) */
   padding: 8px 24px;
-  /* FIX: No overflow scroll when content fits - window expands instead */
-  overflow-y: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   /* FIX (2025-12-10): Larger font for better visibility */
   font-size: 15px;
   line-height: 1.6;
   background: transparent;
   min-height: 0;
-  /* FIX (2025-12-10): Center text vertically using flexbox */
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: stretch;
   position: relative;
   color: rgba(255, 255, 255, 0.9);
 }
