@@ -629,9 +629,48 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
   return clamped
 }
 
+function windowHasUsableScreenPresence(win: BrowserWindow | null | undefined): boolean {
+  if (!win || win.isDestroyed() || !win.isVisible()) return false
+  try {
+    const bounds = win.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const work = display.workArea
+    const overlapWidth = Math.max(
+      0,
+      Math.min(bounds.x + bounds.width, work.x + work.width) - Math.max(bounds.x, work.x)
+    )
+    const overlapHeight = Math.max(
+      0,
+      Math.min(bounds.y + bounds.height, work.y + work.height) - Math.max(bounds.y, work.y)
+    )
+    return overlapWidth >= 40 && overlapHeight >= 40
+  } catch {
+    return false
+  }
+}
+
 function isWindowActuallyVisible(name: FeatureName): boolean {
   const win = childWindows.get(name)
-  return !!(win && !win.isDestroyed() && win.isVisible())
+  return windowHasUsableScreenPresence(win)
+}
+
+function revealWindow(win: BrowserWindow, name: FeatureName) {
+  const clampedBounds = clampBounds(win.getBounds())
+  win.setBounds(clampedBounds)
+  win.setOpacity(1)
+  win.setIgnoreMouseEvents(false)
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+
+  // showInactive is less brittle on macOS transparent panels, but Ask still
+  // needs focus so the input can receive keystrokes immediately.
+  win.showInactive()
+  if (!win.isVisible()) {
+    win.show()
+  }
+  if (name === 'ask') {
+    win.focus()
+  }
 }
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
@@ -935,23 +974,25 @@ function forceShowWindow(name: FeatureName, visibility?: WindowVisibility) {
   const targetVisibility = visibility ?? { ...getVisibility(), [name]: true }
   layoutChildWindows(targetVisibility)
 
-  win.setOpacity(1)
-  win.setIgnoreMouseEvents(false)
-  win.setAlwaysOnTop(true, 'screen-saver')
-
-  if (name === 'ask') {
-    // macOS regression fix: Ask must use an explicit show() path to become visible reliably.
-    win.show()
-    win.focus()
-  } else if (!win.isVisible()) {
-    win.showInactive()
-  }
+  revealWindow(win, name)
 
   raiseOverlayStack(win)
 
   if (targetVisibility) {
     scheduleRelayout(targetVisibility, 32, `${name}-shown`)
     scheduleRelayout(targetVisibility, 120, `${name}-shown`)
+    scheduleRelayout(targetVisibility, 260, `${name}-shown`)
+  }
+
+  if (name === 'ask') {
+    setTimeout(() => {
+      if (!windowHasUsableScreenPresence(win)) {
+        console.warn('[overlay-windows] Ask not visibly present after initial reveal, retrying show path')
+        layoutChildWindows(targetVisibility)
+        revealWindow(win, name)
+        raiseOverlayStack(win)
+      }
+    }, 80)
   }
 }
 
@@ -968,15 +1009,11 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
     // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
     // Other windows animate ONLY if not already visible
     if (name === 'settings') {
-      win.show() // Instant show for settings
+      revealWindow(win, name)
       win.moveTop()
-      win.setAlwaysOnTop(true, 'screen-saver')
     } else if (name === 'ask') {
-      // Ask visibility regressed on macOS with showInactive()/animation-only flow.
-      win.show()
-      win.focus()
+      revealWindow(win, name)
       win.moveTop()
-      win.setAlwaysOnTop(true, 'screen-saver')
     } else {
       if (!isCurrentlyVisible) {
         animateShow(win) // Only animate if window was hidden
@@ -1038,6 +1075,12 @@ function updateWindows(visibility: WindowVisibility) {
 
 function getVisibility(): WindowVisibility {
   const result = { ...(persistedState.visible ?? {}) }
+  ;(['listen', 'ask', 'settings', 'shortcuts'] as FeatureName[]).forEach((name) => {
+    const win = childWindows.get(name)
+    if (win && !win.isDestroyed()) {
+      result[name] = windowHasUsableScreenPresence(win)
+    }
+  })
   console.log(`[overlay-windows] getVisibility() returning:`, result)
   return result
 }
@@ -2217,6 +2260,14 @@ ipcMain.on('language-changed', (_event, newLanguage: string) => {
       console.log(`[Main] ✅ Sent language-changed to ${name} window`)
     }
   })
+
+  // The header width changes asynchronously after the translated labels render.
+  // Re-run layout a few times so single-window centering settles correctly even
+  // when the width update lands after the IPC broadcast.
+  const vis = getVisibility()
+  scheduleRelayout(vis, 50, 'language-change')
+  scheduleRelayout(vis, 180, 'language-change')
+  scheduleRelayout(vis, 360, 'language-change')
 })
 
 function getHeaderWindow(): BrowserWindow | null {
