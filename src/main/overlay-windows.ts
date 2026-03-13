@@ -350,6 +350,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       try {
         const vis = getVisibility()
         layoutChildWindows(vis)
+        scheduleRelayout(vis, 32, 'header-resize')
+        scheduleRelayout(vis, 120, 'header-resize')
       } catch (e) {
         console.warn('[overlay-windows] Failed to re-layout after header resize:', e)
       }
@@ -432,6 +434,29 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       query: { view: name },
     })
   }
+
+  const restoreVisibilityIfNeeded = (reason: string) => {
+    try {
+      const vis = getVisibility()
+      if (!vis[name]) return
+      console.log(`[overlay-windows] 🔁 Restoring ${name} visibility after ${reason}`)
+      forceShowWindow(name, vis)
+    } catch (error) {
+      console.warn(`[overlay-windows] Failed restoring ${name} visibility after ${reason}`, error)
+    }
+  }
+
+  win.once('ready-to-show', () => {
+    if (name === 'ask') {
+      restoreVisibilityIfNeeded('ready-to-show')
+    }
+  })
+
+  win.webContents.once('did-finish-load', () => {
+    if (name === 'ask') {
+      restoreVisibilityIfNeeded('did-finish-load')
+    }
+  })
 
   win.on('closed', () => {
     childWindows.delete(name)
@@ -604,6 +629,11 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
   return clamped
 }
 
+function isWindowActuallyVisible(name: FeatureName): boolean {
+  const win = childWindows.get(name)
+  return !!(win && !win.isDestroyed() && win.isVisible())
+}
+
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
   const header = getOrCreateHeaderWindow()
@@ -704,8 +734,7 @@ function layoutChildWindows(visible: WindowVisibility) {
       const winW = askVis ? askW : listenW
       const winH = askVis ? askH : listenH
 
-      const centeredXAbs = hb.x + Math.round((hb.width - winW) / 2)
-      let xRel = centeredXAbs - screenBounds.x
+      let xRel = headerCenterXRel - (winW / 2)
       xRel = Math.max(0, Math.min(screenWidth - winW, xRel))
 
       let yPos: number
@@ -864,6 +893,68 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
   tick()
 }
 
+function scheduleRelayout(visibility: WindowVisibility, delayMs: number, reason: string) {
+  setTimeout(() => {
+    try {
+      layoutChildWindows(visibility)
+      console.log(`[overlay-windows] 🔁 Delayed relayout (${reason}) after ${delayMs}ms`, visibility)
+    } catch (error) {
+      console.warn(`[overlay-windows] Failed delayed relayout (${reason})`, error)
+    }
+  }, delayMs)
+}
+
+function raiseOverlayStack(focusWindow?: BrowserWindow | null) {
+  try {
+    const listenWin = childWindows.get('listen')
+    const askWin = childWindows.get('ask')
+
+    if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
+      listenWin.setAlwaysOnTop(true, 'screen-saver')
+      listenWin.moveTop()
+    }
+    if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
+      askWin.setAlwaysOnTop(true, 'screen-saver')
+      askWin.moveTop()
+    }
+    if (focusWindow && !focusWindow.isDestroyed()) {
+      focusWindow.setAlwaysOnTop(true, 'screen-saver')
+      focusWindow.moveTop()
+    }
+    headerWindow?.setAlwaysOnTop(true, 'screen-saver')
+    headerWindow?.moveTop()
+  } catch (error) {
+    console.warn('[overlay-windows] Failed to raise overlay stack', error)
+  }
+}
+
+function forceShowWindow(name: FeatureName, visibility?: WindowVisibility) {
+  const win = createChildWindow(name)
+  if (!win || win.isDestroyed()) return
+
+  const targetVisibility = visibility ?? { ...getVisibility(), [name]: true }
+  layoutChildWindows(targetVisibility)
+
+  win.setOpacity(1)
+  win.setIgnoreMouseEvents(false)
+  win.setAlwaysOnTop(true, 'screen-saver')
+
+  if (name === 'ask') {
+    // macOS regression fix: Ask must use an explicit show() path to become visible reliably.
+    win.show()
+    win.focus()
+  } else if (!win.isVisible()) {
+    win.showInactive()
+  }
+
+  raiseOverlayStack(win)
+
+  if (targetVisibility) {
+    scheduleRelayout(targetVisibility, 32, `${name}-shown`)
+    scheduleRelayout(targetVisibility, 120, `${name}-shown`)
+  }
+}
+
 function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   const win = createChildWindow(name)
   // Glass parity: ALL windows are interactive (windowManager.js:287)
@@ -873,10 +964,17 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
 
   if (shouldShow) {
     win.setIgnoreMouseEvents(false) // All windows interactive
+    win.setOpacity(1)
     // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
     // Other windows animate ONLY if not already visible
     if (name === 'settings') {
       win.show() // Instant show for settings
+      win.moveTop()
+      win.setAlwaysOnTop(true, 'screen-saver')
+    } else if (name === 'ask') {
+      // Ask visibility regressed on macOS with showInactive()/animation-only flow.
+      win.show()
+      win.focus()
       win.moveTop()
       win.setAlwaysOnTop(true, 'screen-saver')
     } else {
@@ -934,6 +1032,8 @@ function updateWindows(visibility: WindowVisibility) {
     headerWindow?.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
     headerWindow?.moveTop() // Header always on top
   } catch { }
+
+  scheduleRelayout(visibility, 32, 'updateWindows')
 }
 
 function getVisibility(): WindowVisibility {
@@ -944,17 +1044,16 @@ function getVisibility(): WindowVisibility {
 
 function toggleWindow(name: FeatureName) {
   const vis = getVisibility()
-  const current = !!vis[name]
 
   // FIX #34: CRITICAL - Only toggle the requested window, don't spread persisted state
   // Problem: getVisibility() returns persisted state from disk (e.g. listen:true from previous session)
   // Solution: Explicitly build newVis with ONLY currently active windows + the toggled window
 
   if (name === 'ask') {
+    const current = isWindowActuallyVisible('ask') || (!childWindows.has('ask') && !!vis.ask)
     // FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
     // Check actual current visibility to avoid state leak from disk
-    const listenWin = childWindows.get('listen')
-    const isListenCurrentlyVisible = listenWin && !listenWin.isDestroyed() && listenWin.isVisible()
+    const isListenCurrentlyVisible = isWindowActuallyVisible('listen')
 
     const newVis: WindowVisibility = {
       ask: !current,
@@ -966,19 +1065,16 @@ function toggleWindow(name: FeatureName) {
     console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
     updateWindows(newVis)
 
-    // CONSERVATIVE FIX: Focus Ask window when showing
     if (!current) {  // If we're showing the Ask window (toggled from hidden to shown)
-      const askWin = childWindows.get('ask')
-      if (askWin && !askWin.isDestroyed()) {
-        askWin.focus()
-        console.log(`[overlay-windows] ✅ Ask window focused after toggle`)
-      }
+      forceShowWindow('ask', newVis)
+      console.log(`[overlay-windows] ✅ Ask window force-shown after toggle`)
     }
 
     return newVis.ask
   }
 
   // For other windows (listen, settings, shortcuts), use spread to preserve ask state
+  const current = isWindowActuallyVisible(name) || (!childWindows.has(name) && !!vis[name])
   const newVis = { ...vis, [name]: !current }
   updateWindows(newVis)
   return newVis[name]
@@ -1167,7 +1263,7 @@ function openAskWindow() {
   // FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
   // FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
-  const askVisible = !!vis.ask
+  const askVisible = isWindowActuallyVisible('ask') || (!childWindows.has('ask') && !!vis.ask)
 
   if (askVisible) {
     // Ask is open, close it WITHOUT affecting Listen
@@ -1175,9 +1271,16 @@ function openAskWindow() {
     console.log('[overlay-windows] Cmd+Enter: Closing Ask only, preserving Listen:', vis.listen)
     updateWindows(newVis)
   } else {
-    // Ask is closed, open it (this will close other windows as per normal behavior)
-    console.log('[overlay-windows] 🚨 Opening Ask window via toggleWindow')
-    toggleWindow('ask')
+    const isListenCurrentlyVisible = isWindowActuallyVisible('listen')
+    const newVis: WindowVisibility = {
+      ask: true,
+      listen: isListenCurrentlyVisible,
+      settings: false,
+      shortcuts: false,
+    }
+    console.log('[overlay-windows] 🚨 Opening Ask window via explicit show path')
+    updateWindows(newVis)
+    forceShowWindow('ask', newVis)
   }
 }
 
@@ -1472,11 +1575,8 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
   layoutChildWindows(actualVis)
 
   if (win && !win.isDestroyed()) {
-    win.show()
-    win.setAlwaysOnTop(true, 'screen-saver')
-
+    forceShowWindow(name, actualVis)
     if (name === 'ask') {
-      win.focus()
       console.log(`[overlay-windows] ✅ Ask window focused for input auto-focus`)
     }
   }
@@ -1492,17 +1592,14 @@ ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
       console.log(`[overlay-windows] 📺 Header was hidden, showing it`)
     }
 
-    // Move child window to top first, then header above it
-    if (win && !win.isDestroyed()) {
-      win.moveTop()
-      console.log(`[overlay-windows] 📊 Child ${name} moved to top`)
-    }
-    header.moveTop()
+    raiseOverlayStack(win)
     console.log(`[overlay-windows] ✅ Header moved to top after showing ${name} (header above child)`)
   }
 
   // Save the ACTUAL visibility state
   saveState({ visible: actualVis })
+  scheduleRelayout(actualVis, 32, `ensureShown-${name}`)
+  scheduleRelayout(actualVis, 120, `ensureShown-${name}`)
   console.log(`[overlay-windows] ensureShown complete for ${name}`)
   return { ok: true }
 })
@@ -1758,7 +1855,9 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
     const vis = getVisibility();
     if (!vis.ask || vis.settings) {
       console.log('[Main] 🔧 Opening Ask window, closing settings');
-      updateWindows({ ...vis, ask: true, settings: false });
+      const nextVis = { ...vis, ask: true, settings: false };
+      updateWindows(nextVis);
+      forceShowWindow('ask', nextVis);
     }
 
     // FIX #24: Wait for window to be FULLY ready before sending prompt
