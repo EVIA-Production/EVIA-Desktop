@@ -839,13 +839,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           rows: typeof newMessages,
           spk: number | null,
           candidateUtteranceId: string | undefined,
-          incomingText: string
+          incomingText: string,
+          incomingTs: number
         ) => {
           let bestCompatibleIdx = -1;
           for (let i = rows.length - 1; i >= 0; i--) {
             const item = rows[i];
             if (item.speaker !== spk) continue;
             if (!item.isPartial || item.isFinal) continue;
+            const itemTs = item.timestamp ?? 0;
+            if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
             if (
               candidateUtteranceId &&
               item.utteranceId === candidateUtteranceId &&
@@ -911,7 +914,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           lastPartialUpdate.current[speakerKey] = now;
           // -----------------------------------------------------------------
 
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text, messageTimestamp);
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
             const existing = newMessages[targetIdx];
@@ -1074,7 +1077,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             }
           }
 
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text, messageTimestamp);
           if (targetIdx !== -1) {
             // Freeze existing partial in place as final
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
