@@ -47,6 +47,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseContainerRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const restartStreamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);  // UI IMPROVEMENT: Auto-focus input
   const lastResponseRef = useRef<string>('');  // UI IMPROVEMENT: Track when content actually changes
   const storedContentHeightRef = useRef<number | null>(null);  // CRITICAL: Store content-based height to restore after arrow key movement
@@ -107,6 +108,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
   const liveTranscriptOverrideRef = useRef<string | null>(null);
+  const startStreamRef = useRef<((captureScreenshot?: boolean, overridePrompt?: string) => Promise<void>) | null>(null);
+  const focusInputWithRetryRef = useRef<(() => void) | null>(null);
+  const cancelActiveStreamRef = useRef<((reason: string) => void) | null>(null);
 
   useEffect(() => {
     responseHistoryRef.current = responseHistory;
@@ -269,15 +273,27 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       
       setPrompt(incomingPrompt);
       setShowTextInput(true);
-      // Auto-submit after state updates (next tick)
-      setTimeout(() => {
-        startStream(false, incomingPrompt);
-        // FIX: Focus input AFTER stream starts so user can ask follow-up questions
-        // Wait for window to be visible and expanded before focusing
-        setTimeout(() => {
-          focusInputWithRetry();
-        }, 100);
-      }, 50);
+
+      const queueReplacementStart = (delayMs: number) => {
+        if (restartStreamTimeoutRef.current) {
+          clearTimeout(restartStreamTimeoutRef.current);
+        }
+        restartStreamTimeoutRef.current = setTimeout(() => {
+          restartStreamTimeoutRef.current = null;
+          startStreamRef.current?.(false, incomingPrompt);
+          setTimeout(() => {
+            focusInputWithRetryRef.current?.();
+          }, 100);
+        }, delayMs);
+      };
+
+      if (streamRef.current) {
+        cancelActiveStreamRef.current?.('new suggestion requested');
+        queueReplacementStart(250);
+        return;
+      }
+
+      queueReplacementStart(50);
     };
 
     // FIX #27: Clear response when session FULLY closes (Fertig pressed, not just Stopp)
@@ -294,29 +310,24 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       ttftLoggedRef.current = false;
       setErrorToast(null);
       liveTranscriptOverrideRef.current = null;
+      if (restartStreamTimeoutRef.current) {
+        clearTimeout(restartStreamTimeoutRef.current);
+        restartStreamTimeoutRef.current = null;
+      }
       // Window will be hidden by EviaBar, no need to resize
     };
 
     // DESKTOP SENTINEL: Abort streaming if language toggle occurs
     const handleAbortStream = () => {
       console.log('[AskView] 🛑 Received abort-ask-stream - stopping stream');
-      if (streamRef.current?.abort) {
-        streamRef.current.abort();
-        streamRef.current = null;
-      }
-      setIsStreaming(false);
-      setIsLoadingFirstToken(false);
+      cancelActiveStreamRef.current?.('ipc abort-ask-stream');
       console.log('[AskView] ✅ Stream aborted due to language toggle');
     };
 
     // FIX: Clear session on language change (clears question, response, etc.)
     const handleClearSession = () => {
       console.log('[AskView] 🧹 Received clear-session - clearing all state (language change or session end)');
-      // Abort any active stream first
-      if (streamRef.current?.abort) {
-        streamRef.current.abort();
-        streamRef.current = null;
-      }
+      cancelActiveStreamRef.current?.('clear session');
       // Clear all state
       setResponse('');
       setResponseHistory([]);
@@ -365,11 +376,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
       // UI language will update automatically when window reopens or on next backend request
       
-      // Abort any active stream first
-      if (streamRef.current?.abort) {
-        streamRef.current.abort();
-        streamRef.current = null;
-      }
+      cancelActiveStreamRef.current?.('language changed');
       // Clear all state (same as clear-session)
       setResponse('');
       setResponseHistory([]);
@@ -439,6 +446,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     console.log('[AskView] ✅ IPC listeners registered (send-and-submit, session:closed, abort-ask-stream, clear-session, session-state-changed, language-changed, debug-log)');
 
     return () => {
+      if (restartStreamTimeoutRef.current) {
+        clearTimeout(restartStreamTimeoutRef.current);
+        restartStreamTimeoutRef.current = null;
+      }
       eviaIpc.off('ask:send-and-submit', handleSendAndSubmit);
       eviaIpc.off('session:closed', handleSessionClosed);
       eviaIpc.off('abort-ask-stream', handleAbortStream);
@@ -593,14 +604,39 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (lastPromptRef.current) {
       setPrompt(lastPromptRef.current);
       setErrorToast(null);
-      setTimeout(() => startStream(), 100);
+      if (restartStreamTimeoutRef.current) {
+        clearTimeout(restartStreamTimeoutRef.current);
+      }
+      restartStreamTimeoutRef.current = setTimeout(() => {
+        restartStreamTimeoutRef.current = null;
+        startStreamRef.current?.();
+      }, 100);
     }
   };
+
+  const cancelActiveStream = useCallback((reason: string) => {
+    if (restartStreamTimeoutRef.current) {
+      clearTimeout(restartStreamTimeoutRef.current);
+      restartStreamTimeoutRef.current = null;
+    }
+    if (streamRef.current?.abort) {
+      console.log('[AskView] 🛑 Cancelling active stream:', reason);
+      try {
+        streamRef.current.abort();
+      } catch {}
+    }
+    streamRef.current = null;
+    setIsStreaming(false);
+    setIsLoadingFirstToken(false);
+    setHeaderText(i18n.t('overlay.ask.aiResponse'));
+    ttftLoggedRef.current = false;
+    streamStartTime.current = null;
+  }, []);
 
   const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
-    if (!actualPrompt.trim() || isStreaming) return;
+    if (!actualPrompt.trim() || streamRef.current) return;
     
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
@@ -795,6 +831,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     streamRef.current = handle;
 
     handle.onDelta((d) => {
+      if (streamRef.current !== handle) return;
       // CRITICAL FIX #2: Detect backend error messages and show friendly error
       // Backend yields "Error generating suggestion: <error>" on failures
       if (d.includes('Error generating suggestion:')) {
@@ -818,7 +855,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         handle.abort();
         setIsStreaming(false);
         setIsLoadingFirstToken(false);
-        streamRef.current = null;
+        if (streamRef.current === handle) {
+          streamRef.current = null;
+        }
         return; // Don't add error text to response
       }
       
@@ -838,6 +877,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
     
     handle.onDone(() => {
+      if (streamRef.current !== handle) return;
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse')); // FIX: Ensure header updates when stream completes
@@ -895,6 +935,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
     
     handle.onError((e: any) => {
+      if (streamRef.current !== handle) return;
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       streamRef.current = null;
@@ -920,21 +961,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setPrompt('');
   };
 
+  useEffect(() => {
+    startStreamRef.current = startStream;
+    focusInputWithRetryRef.current = focusInputWithRetry;
+    cancelActiveStreamRef.current = cancelActiveStream;
+  }, [startStream, focusInputWithRetry, cancelActiveStream]);
+
   const onAsk = async (e: React.FormEvent) => {
     e.preventDefault();
     startStream();
   };
 
   const onAbort = () => {
-    try {
-      streamRef.current?.abort();
-    } catch {}
-    setIsStreaming(false);
-    setIsLoadingFirstToken(false);
-    streamRef.current = null;
-    setHeaderText(i18n.t('overlay.ask.aiResponse'));
-    ttftLoggedRef.current = false;
-    streamStartTime.current = null;
+    cancelActiveStream('user abort');
   };
 
   // Glass parity: Copy entire response
