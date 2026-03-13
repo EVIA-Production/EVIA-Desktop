@@ -146,15 +146,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return false;
   };
 
-  const shouldReplaceShortDivergentPartial = (existingText: string, incomingText: string) => {
-    if (areCompatiblePartialTexts(existingText, incomingText)) return false;
-    const existingWords = getWordTokens(existingText);
-    const incomingWords = getWordTokens(incomingText);
-    return (
-      existingWords.length <= 2 &&
-      incomingWords.length <= 6 &&
-      normalizeTranscriptText(existingText).length <= 18
-    );
+  const chooseBestFinalText = (existingText: string, incomingText: string) => {
+    if (!existingText) return incomingText;
+    if (!incomingText) return existingText;
+    if (!areCompatiblePartialTexts(existingText, incomingText)) return incomingText;
+    return existingText.length >= incomingText.length ? existingText : incomingText;
   };
 
   const getRecentSpeakerPartialIndices = (
@@ -830,7 +826,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         } catch (err) {
           console.warn('[ListenView] DIAG logging failed', err);
         }
-        const normalizedUtteranceId = utteranceId ?? undefined;
+        const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
         const normalizedIncomingText = normalizeTranscriptText(text);
         const now = messageTimestamp;
         let newMessages = [...prev];
@@ -843,25 +839,38 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           incomingText: string,
           incomingTs: number
         ) => {
-          let bestCompatibleIdx = -1;
+          const reliableUtteranceId = candidateUtteranceId && candidateUtteranceId !== '0'
+            ? candidateUtteranceId
+            : undefined;
+          let latestSameSpeakerPartialIdx = -1;
           for (let i = rows.length - 1; i >= 0; i--) {
             const item = rows[i];
             if (item.speaker !== spk) continue;
             if (!item.isPartial || item.isFinal) continue;
             const itemTs = item.timestamp ?? 0;
             if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
+            if (latestSameSpeakerPartialIdx === -1) {
+              latestSameSpeakerPartialIdx = i;
+            }
             if (
-              candidateUtteranceId &&
-              item.utteranceId === candidateUtteranceId &&
+              reliableUtteranceId &&
+              item.utteranceId === reliableUtteranceId &&
               areCompatiblePartialTexts(item.text || '', incomingText)
             ) {
               return i;
             }
-            if (bestCompatibleIdx === -1 && areCompatiblePartialTexts(item.text || '', incomingText)) {
-              bestCompatibleIdx = i;
+            if (!reliableUtteranceId) {
+              return areCompatiblePartialTexts(item.text || '', incomingText) ? i : -1;
             }
           }
-          return bestCompatibleIdx;
+          if (
+            reliableUtteranceId &&
+            latestSameSpeakerPartialIdx !== -1 &&
+            areCompatiblePartialTexts(rows[latestSameSpeakerPartialIdx].text || '', incomingText)
+          ) {
+            return latestSameSpeakerPartialIdx;
+          }
+          return -1;
         };
 
         const removeMicEchoEntries = (rows: typeof newMessages, referenceText: string, ts: number) =>
@@ -947,37 +956,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               newMessages.push(currentPartial);
             }
           } else {
-            const recentSameSpeakerPartialIndices = getRecentSpeakerPartialIndices(newMessages, speaker, messageTimestamp);
-            const recentSameSpeakerPartialIdx = recentSameSpeakerPartialIndices.length > 0
-              ? recentSameSpeakerPartialIndices[recentSameSpeakerPartialIndices.length - 1]
-              : -1;
-
-            if (recentSameSpeakerPartialIdx !== -1) {
-              const recentPartial = newMessages[recentSameSpeakerPartialIdx];
-              const recentTs = recentPartial.timestamp ?? 0;
-              if (
-                recentTs > 0 &&
-                Math.abs(messageTimestamp - recentTs) <= 2500 &&
-                shouldReplaceShortDivergentPartial(recentPartial.text || '', text)
-              ) {
-                console.log('[ListenView] ♻️ REPLACING short divergent partial at index', recentSameSpeakerPartialIdx);
-                console.log('  ├─ OLD:', recentPartial.text.substring(0, 50));
-                console.log('  └─ NEW:', text.substring(0, 50));
-                newMessages[recentSameSpeakerPartialIdx] = {
-                  ...recentPartial,
-                  text,
-                  speaker,
-                  isFinal: false,
-                  isPartial: true,
-                  timestamp: messageTimestamp,
-                  utteranceId: normalizedUtteranceId,
-                };
-                didMutateRows = true;
-                return newMessages;
-              }
-
-            }
-
             // No compatible partial found, append a new partial at the end.
             console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
             console.log('  └─ NEW:', text.substring(0, 50));
@@ -1056,13 +1034,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text, messageTimestamp);
           if (targetIdx !== -1) {
             // Freeze existing partial in place as final
+            const resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', text);
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
-            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  └─ NEW:', resolvedFinalText.substring(0, 50));
             console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
             console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text,
+              text: resolvedFinalText,
               speaker,
               isFinal: true,
               isPartial: false,
@@ -1075,7 +1054,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               newMessages,
               speaker,
               targetIdx,
-              text,
+              resolvedFinalText,
               messageTimestamp,
               normalizedUtteranceId,
             );
