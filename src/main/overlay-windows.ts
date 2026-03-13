@@ -88,6 +88,18 @@ try {
   if (fs.existsSync(persistFile)) {
     const data = fs.readFileSync(persistFile, 'utf8')
     persistedState = JSON.parse(data) as PersistedState
+    // Do not trust persisted overlay visibility across launches. Old ask/listen
+    // flags were causing layout to behave as if Ask was open when the window was
+    // not actually present on screen.
+    if (persistedState.visible) {
+      persistedState.visible = {
+        ...persistedState.visible,
+        ask: false,
+        listen: false,
+        settings: false,
+        shortcuts: false,
+      }
+    }
   }
 } catch (error) {
   console.warn('[overlay] Failed to load persisted state', error)
@@ -437,10 +449,10 @@ function createChildWindow(name: FeatureName): BrowserWindow {
 
   const restoreVisibilityIfNeeded = (reason: string) => {
     try {
-      const vis = getVisibility()
-      if (!vis[name]) return
+      const shouldRestore = !!persistedState.visible?.[name]
+      if (!shouldRestore) return
       console.log(`[overlay-windows] 🔁 Restoring ${name} visibility after ${reason}`)
-      forceShowWindow(name, vis)
+      forceShowWindow(name, { ...getVisibility(), [name]: true })
     } catch (error) {
       console.warn(`[overlay-windows] Failed restoring ${name} visibility after ${reason}`, error)
     }
@@ -1074,10 +1086,10 @@ function updateWindows(visibility: WindowVisibility) {
 }
 
 function getVisibility(): WindowVisibility {
-  const result = { ...(persistedState.visible ?? {}) }
+  const result: WindowVisibility = {}
   ;(['listen', 'ask', 'settings', 'shortcuts'] as FeatureName[]).forEach((name) => {
     const win = childWindows.get(name)
-    if (win && !win.isDestroyed()) {
+    if (win && !win.isDestroyed() && windowHasUsableScreenPresence(win)) {
       result[name] = windowHasUsableScreenPresence(win)
     }
   })
@@ -1093,7 +1105,7 @@ function toggleWindow(name: FeatureName) {
   // Solution: Explicitly build newVis with ONLY currently active windows + the toggled window
 
   if (name === 'ask') {
-    const current = isWindowActuallyVisible('ask') || (!childWindows.has('ask') && !!vis.ask)
+    const current = isWindowActuallyVisible('ask')
     // FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
     // Check actual current visibility to avoid state leak from disk
     const isListenCurrentlyVisible = isWindowActuallyVisible('listen')
@@ -1117,7 +1129,7 @@ function toggleWindow(name: FeatureName) {
   }
 
   // For other windows (listen, settings, shortcuts), use spread to preserve ask state
-  const current = isWindowActuallyVisible(name) || (!childWindows.has(name) && !!vis[name])
+  const current = isWindowActuallyVisible(name)
   const newVis = { ...vis, [name]: !current }
   updateWindows(newVis)
   return newVis[name]
@@ -1306,7 +1318,7 @@ function openAskWindow() {
   // FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
   // FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
-  const askVisible = isWindowActuallyVisible('ask') || (!childWindows.has('ask') && !!vis.ask)
+  const askVisible = isWindowActuallyVisible('ask')
 
   if (askVisible) {
     // Ask is open, close it WITHOUT affecting Listen
