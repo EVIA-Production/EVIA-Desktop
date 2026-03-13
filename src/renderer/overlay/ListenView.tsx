@@ -65,6 +65,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [insightsHistory, setInsightsHistory] = useState<Insight[]>([]);
   const [insightsIndex, setInsightsIndex] = useState(-1);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [insightsRefreshPending, setInsightsRefreshPending] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
   const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
@@ -155,6 +156,41 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       normalizeTranscriptText(existingText).length <= 18
     );
   };
+
+  const getRecentSpeakerPartialIndices = (
+    rows: TranscriptLine[],
+    speaker: number | null,
+    nowTs: number,
+    windowMs = 4000
+  ) => rows
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) =>
+      item.speaker === speaker &&
+      item.isPartial &&
+      !item.isFinal &&
+      (
+        !item.timestamp ||
+        Math.abs(nowTs - item.timestamp) <= windowMs
+      )
+    )
+    .map(({ idx }) => idx);
+
+  const pruneCompetingSpeakerPartials = (
+    rows: TranscriptLine[],
+    speaker: number | null,
+    keepIdx: number,
+    finalizedText: string,
+    nowTs: number,
+    utteranceId?: string
+  ) => rows.filter((item, idx) => {
+    if (idx === keepIdx) return true;
+    if (item.speaker !== speaker || !item.isPartial || item.isFinal) return true;
+    const itemTs = item.timestamp ?? 0;
+    if (itemTs > nowTs + 250) return true;
+    if (utteranceId && item.utteranceId && item.utteranceId === utteranceId) return false;
+    if (itemTs > 0 && Math.abs(nowTs - itemTs) > 4000) return true;
+    return !areCompatiblePartialTexts(item.text || '', finalizedText);
+  });
 
   const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) => {
     const lines: string[] = [];
@@ -642,6 +678,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
+        setInsightsRefreshPending(false);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(true);
@@ -700,6 +737,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
+        setInsightsRefreshPending(false);
 
         console.log('[ListenView] 🔄 Auto-switching to Insights view...');
         setViewMode('insights');
@@ -856,7 +894,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           // -----------------------------------------------------------------
           // THROTTLE PARTIAL UPDATES (prevent flicker)
           // -----------------------------------------------------------------
-          const speakerKey = `${speaker ?? 'unknown'}`;
+          const speakerKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId ?? 'active'}`;
           const now = Date.now();
           const lastUpdate = lastPartialUpdate.current[speakerKey] || 0;
           
@@ -905,10 +943,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               newMessages.push(currentPartial);
             }
           } else {
-            const recentSameSpeakerPartialIdx = [...newMessages]
-              .map((item, idx) => ({ item, idx }))
-              .reverse()
-              .find(({ item }) => item.speaker === speaker && item.isPartial && !item.isFinal)?.idx ?? -1;
+            const recentSameSpeakerPartialIndices = getRecentSpeakerPartialIndices(newMessages, speaker, messageTimestamp);
+            const recentSameSpeakerPartialIdx = recentSameSpeakerPartialIndices.length > 0
+              ? recentSameSpeakerPartialIndices[recentSameSpeakerPartialIndices.length - 1]
+              : -1;
 
             if (recentSameSpeakerPartialIdx !== -1) {
               const recentPartial = newMessages[recentSameSpeakerPartialIdx];
@@ -931,6 +969,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   utteranceId: normalizedUtteranceId,
                 };
                 didMutateRows = true;
+                return newMessages;
+              }
+
+              if (
+                recentTs === 0 ||
+                Math.abs(messageTimestamp - recentTs) <= 2500
+              ) {
+                console.log('[ListenView] ♻️ REPLACING active speaker partial chain at index', recentSameSpeakerPartialIdx);
+                console.log('  ├─ OLD:', recentPartial.text.substring(0, 50));
+                console.log('  └─ NEW:', text.substring(0, 50));
+                newMessages[recentSameSpeakerPartialIdx] = {
+                  ...recentPartial,
+                  text,
+                  speaker,
+                  isFinal: false,
+                  isPartial: true,
+                  timestamp: messageTimestamp,
+                  utteranceId: normalizedUtteranceId ?? recentPartial.utteranceId,
+                };
+                didMutateRows = true;
+                if (recentSameSpeakerPartialIndices.length > 1) {
+                  const keepIdx = recentSameSpeakerPartialIdx;
+                  newMessages = newMessages.filter((item, idx) =>
+                    item.speaker !== speaker || !item.isPartial || item.isFinal || idx === keepIdx
+                  );
+                }
                 return newMessages;
               }
             }
@@ -1028,30 +1092,65 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             };
             acceptedFinal = true;
             didMutateRows = true;
-          } else {
-            // No partial found: append a new final entry (never merge into older finals)
-            const recentFinals = newMessages
-              .filter(item => item.speaker === speaker && item.isFinal && !item.isPartial)
-              .slice(-10);
-            const isDuplicateRecentFinal = recentFinals.some(item => isNearDuplicateText(item.text, text));
-            if (isDuplicateRecentFinal) {
-              console.log('[ListenView] 🚫 Skipping duplicate FINAL near recent same-speaker finals');
-              return didMutateRows ? newMessages : prev;
-            }
-
-            console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
-            console.log('  └─ NEW:', text.substring(0, 50));
-            console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- appending new final bubble');
-            console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
-            appendFinalBeforeTrailingPartials(newMessages, {
-              text,
+            newMessages = pruneCompetingSpeakerPartials(
+              newMessages,
               speaker,
-              isFinal: true,
-              isPartial: false,
-              timestamp: messageTimestamp,
-              utteranceId: normalizedUtteranceId,
-            });
-            acceptedFinal = true;
+              targetIdx,
+              text,
+              messageTimestamp,
+              normalizedUtteranceId,
+            );
+          } else {
+            const recentSameSpeakerPartialIndices = getRecentSpeakerPartialIndices(newMessages, speaker, messageTimestamp);
+            const fallbackPartialIdx = recentSameSpeakerPartialIndices.length > 0
+              ? recentSameSpeakerPartialIndices[recentSameSpeakerPartialIndices.length - 1]
+              : -1;
+            if (fallbackPartialIdx !== -1) {
+              console.log('[ListenView] ✅ FREEZING most recent speaker partial to FINAL at index', fallbackPartialIdx, '(fallback)');
+              newMessages[fallbackPartialIdx] = {
+                ...newMessages[fallbackPartialIdx],
+                text,
+                speaker,
+                isFinal: true,
+                isPartial: false,
+                timestamp: messageTimestamp,
+                utteranceId: normalizedUtteranceId ?? newMessages[fallbackPartialIdx].utteranceId,
+              };
+              acceptedFinal = true;
+              didMutateRows = true;
+              newMessages = pruneCompetingSpeakerPartials(
+                newMessages,
+                speaker,
+                fallbackPartialIdx,
+                text,
+                messageTimestamp,
+                normalizedUtteranceId,
+              );
+            } else {
+            // No partial found: append a new final entry (never merge into older finals)
+              const recentFinals = newMessages
+                .filter(item => item.speaker === speaker && item.isFinal && !item.isPartial)
+                .slice(-10);
+              const isDuplicateRecentFinal = recentFinals.some(item => isNearDuplicateText(item.text, text));
+              if (isDuplicateRecentFinal) {
+                console.log('[ListenView] 🚫 Skipping duplicate FINAL near recent same-speaker finals');
+                return didMutateRows ? newMessages : prev;
+              }
+
+              console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
+              console.log('  └─ NEW:', text.substring(0, 50));
+              console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- appending new final bubble');
+              console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
+              appendFinalBeforeTrailingPartials(newMessages, {
+                text,
+                speaker,
+                isFinal: true,
+                isPartial: false,
+                timestamp: messageTimestamp,
+                utteranceId: normalizedUtteranceId,
+              });
+              acceptedFinal = true;
+            }
           }
 
           if (normalizedUtteranceId) {
@@ -1089,6 +1188,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
+        setInsightsRefreshPending(false);
         setViewMode('transcript');
         setElapsedTime('00:00');
         setIsSessionActive(false);
@@ -1108,6 +1208,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
+        setInsightsRefreshPending(false);
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
         lastInsightsFetchAtRef.current = 0;
@@ -1130,6 +1231,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setInsights(null);
           setInsightsHistory([]);
           setInsightsIndex(-1);
+          setInsightsRefreshPending(false);
           setIsSessionActive(true);
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
@@ -1139,6 +1241,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setInsights(null);
           setInsightsHistory([]);
           setInsightsIndex(-1);
+          setInsightsRefreshPending(false);
           setViewMode('insights');
           setTimeout(() => {
             fetchInsightsNowRef.current({ fullReplace: true });
@@ -1149,6 +1252,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setInsights(null);
           setInsightsHistory([]);
           setInsightsIndex(-1);
+          setInsightsRefreshPending(false);
           setViewMode('transcript');
           setIsSessionActive(false);
           finalTranscriptCountRef.current = 0;
@@ -1294,6 +1398,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const RETRY_DELAYS = [0, 300, 700]; // Exponential: 0ms, 300ms, 700ms
     
     setIsLoadingInsights(true);
+    setInsightsRefreshPending(false);
     const ttftStart = Date.now();
     
     // Get auth credentials once
@@ -1385,13 +1490,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ✅ Glass insights received!');
         if (derivedSessionState !== 'after' && isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
-            console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
+            console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state with refresh warning');
+            setInsightsRefreshPending(true);
             return;
           }
           console.log('[ListenView] ℹ️ Initial stub insights accepted because no previous insights exist yet');
         } else if (derivedSessionState === 'after') {
           console.log('[ListenView] ✅ Post-meeting insights accepted without stub rejection');
         }
+        setInsightsRefreshPending(false);
         
         // Log session_state metadata from insights
         console.log('[ListenView] 🎯 INSIGHT METADATA:');
@@ -1438,6 +1545,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Show user-friendly error message instead of infinite loading
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
+      setInsightsRefreshPending(false);
     } finally {
       setIsLoadingInsights(false);
     }
@@ -1746,6 +1854,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               {isLoadingInsights && (
                 <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
                   {i18n.getLanguage() === 'en' ? 'Refreshing insights...' : 'Insights werden aktualisiert...'}
+                </div>
+              )}
+              {!isLoadingInsights && insightsRefreshPending && (
+                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
+                  {i18n.getLanguage() === 'en' ? 'Waiting for fresher transcript data...' : 'Warte auf frischere Transkript-Daten...'}
                 </div>
               )}
 
