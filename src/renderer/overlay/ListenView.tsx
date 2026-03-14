@@ -92,6 +92,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
+  const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
   const lastInsightsFetchCountRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
   const periodicInsightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -128,21 +129,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const incoming = normalizeTranscriptText(incomingText || '');
     if (!existing || !incoming) return false;
     if (existing === incoming) return true;
-    if (existing.length >= 8 && incoming.length >= 8 && (existing.includes(incoming) || incoming.includes(existing))) {
+    if (existing.length >= 8 && incoming.length >= 8 && (existing.startsWith(incoming) || incoming.startsWith(existing))) {
       return true;
     }
     const sharedPrefixWords = getSharedPrefixWordCount(existing, incoming);
     if (sharedPrefixWords >= 2) return true;
-    const existingWords = getWordTokens(existing);
-    const incomingWords = getWordTokens(incoming);
-    if (
-      existingWords.length > 0 &&
-      incomingWords.length > 0 &&
-      existingWords[0] === incomingWords[0] &&
-      Math.min(existingWords.length, incomingWords.length) <= 4
-    ) {
-      return true;
-    }
     return false;
   };
 
@@ -151,6 +142,71 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (!incomingText) return existingText;
     if (!areCompatiblePartialTexts(existingText, incomingText)) return incomingText;
     return existingText.length >= incomingText.length ? existingText : incomingText;
+  };
+
+  const prunePendingTurnCompletions = (nowTs: number) => {
+    pendingTurnCompleteRef.current = pendingTurnCompleteRef.current.filter(item => nowTs - item.timestamp <= 5000);
+  };
+
+  const storePendingTurnComplete = (
+    speaker: number | null,
+    utteranceId: string | undefined,
+    text: string,
+    timestamp: number
+  ) => {
+    if (!text.trim()) return;
+    prunePendingTurnCompletions(timestamp);
+    const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+    const replacementIdx = pendingTurnCompleteRef.current.findIndex(item =>
+      item.speaker === speaker &&
+      (
+        (normalizedUtteranceId && item.utteranceId === normalizedUtteranceId) ||
+        (!normalizedUtteranceId && Math.abs(timestamp - item.timestamp) <= 1200)
+      )
+    );
+    const nextEntry = { speaker, utteranceId: normalizedUtteranceId, text, timestamp };
+    if (replacementIdx >= 0) {
+      pendingTurnCompleteRef.current[replacementIdx] = nextEntry;
+    } else {
+      pendingTurnCompleteRef.current.push(nextEntry);
+    }
+  };
+
+  const consumePendingTurnComplete = (
+    speaker: number | null,
+    utteranceId: string | undefined,
+    finalText: string,
+    timestamp: number
+  ) => {
+    prunePendingTurnCompletions(timestamp);
+    const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+    let bestIdx = -1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (let idx = 0; idx < pendingTurnCompleteRef.current.length; idx += 1) {
+      const entry = pendingTurnCompleteRef.current[idx];
+      if (entry.speaker !== speaker) continue;
+      if (Math.abs(timestamp - entry.timestamp) > 5000) continue;
+      if (!areCompatiblePartialTexts(entry.text, finalText)) continue;
+      if (normalizedUtteranceId && entry.utteranceId && entry.utteranceId !== normalizedUtteranceId) continue;
+
+      let score = 0;
+      if (normalizedUtteranceId && entry.utteranceId === normalizedUtteranceId) {
+        score += 1000;
+      }
+      score += getSharedPrefixWordCount(entry.text, finalText) * 25;
+      score -= Math.abs(timestamp - entry.timestamp) / 100;
+      score -= Math.abs(entry.text.length - finalText.length) / 20;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    }
+
+    if (bestIdx === -1) return undefined;
+    const [best] = pendingTurnCompleteRef.current.splice(bestIdx, 1);
+    return chooseBestFinalText(best.text, finalText);
   };
 
   const getRecentSpeakerPartialIndices = (
@@ -291,18 +347,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
     language === 'en'
       ? {
-          follow_up_email: { label: '📧 Follow-up Email', icon: 'mail', prompt: 'Write a professional follow-up email based on the conversation.' },
-          follow_up_plan: { label: '📞 Plan follow-up', icon: 'phone', prompt: 'Outline the cleanest follow-up plan with owner, date, and next step.' },
-          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'List all action items and next steps from the conversation.' },
-          crm_update: { label: '📊 Update CRM', icon: 'chart', prompt: 'Draft a concise CRM update based on the conversation.' },
-          summary: { label: '📝 Summary', icon: 'note', prompt: 'Create a structured summary of the conversation.' },
+          follow_up_email: { label: '📧 Follow-up Email', icon: 'mail', prompt: 'Write ONLY a send-ready follow-up email based on the meeting. No CRM, no summary, no action items.' },
+          follow_up_plan: { label: '📞 Plan follow-up', icon: 'phone', prompt: 'Create ONLY a follow-up plan with goal, next contact, owner, date, and risks. No email, no CRM, no summary.' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'List ONLY the explicit action items, commitments, and next steps from the meeting. No email, no CRM, no summary.' },
+          crm_update: { label: '📊 Update CRM', icon: 'chart', prompt: 'Create ONLY a CRM update in field format from the meeting. No email, no summary.' },
+          summary: { label: '📝 Summary', icon: 'note', prompt: 'Create ONLY a compact meeting summary with key outcome and next step. No CRM, no email, no action items.' },
         }
       : {
-          follow_up_email: { label: '📧 Follow-up E-Mail', icon: 'mail', prompt: 'Schreibe eine professionelle Follow-up E-Mail basierend auf dem Gespraech.' },
-          follow_up_plan: { label: '📞 Follow-up planen', icon: 'phone', prompt: 'Erstelle einen klaren Follow-up-Plan mit Verantwortlichen, Datum und naechstem Schritt.' },
-          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Liste alle Action Items und naechsten Schritte aus dem Gespraech auf.' },
-          crm_update: { label: '📊 CRM aktualisieren', icon: 'chart', prompt: 'Formuliere einen kompakten CRM-Eintrag basierend auf dem Gespraech.' },
-          summary: { label: '📝 Zusammenfassung', icon: 'note', prompt: 'Erstelle eine strukturierte Zusammenfassung des Gespraechs.' },
+          follow_up_email: { label: '📧 Follow-up E-Mail', icon: 'mail', prompt: 'Schreibe NUR eine versandfertige Follow-up E-Mail auf Basis des Gesprächs. Kein CRM, keine Zusammenfassung, keine Action Items.' },
+          follow_up_plan: { label: '📞 Follow-up planen', icon: 'phone', prompt: 'Erstelle NUR einen Follow-up-Plan mit Ziel, nächstem Kontakt, Verantwortlichen, Datum und Risiken. Keine E-Mail, kein CRM, keine Zusammenfassung.' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Liste NUR die expliziten Action Items, Zusagen und nächsten Schritte aus dem Gespräch auf. Keine E-Mail, kein CRM, keine Zusammenfassung.' },
+          crm_update: { label: '📊 CRM aktualisieren', icon: 'chart', prompt: 'Erstelle NUR einen CRM-Eintrag im Feldformat auf Basis des Gesprächs. Keine E-Mail, keine Zusammenfassung.' },
+          summary: { label: '📝 Zusammenfassung', icon: 'note', prompt: 'Erstelle NUR eine kompakte Gesprächszusammenfassung mit Kernergebnis und nächstem Schritt. Kein CRM, keine E-Mail, keine Action Items.' },
         };
 
   const classifyAfterAction = (label: string): string | null => {
@@ -698,6 +754,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
+        pendingTurnCompleteRef.current = [];
         
         // Enable auto-scroll at session start
         setAutoScroll(true);
@@ -710,13 +767,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setTimeout(() => {
           if (viewportRef.current) {
             viewportRef.current.scrollTop = 0; // Reset to top first
-        setTimeout(() => {
-          if (viewportRef.current) {
-            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-            console.log('[ListenView] 📜 Scrolled to bottom on session start');
           }
-        }, 50);
-          }
+          setTimeout(() => {
+            if (viewportRef.current) {
+              viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+              console.log('[ListenView] 📜 Scrolled to bottom on session start');
+            }
+          }, 50);
         }, 10);
         
         startTimer();
@@ -799,10 +856,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
 
       const messageTimestamp = Date.now();
+      const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+      if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
+        storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
+      }
+      const incomingDisplayText = isFinal
+        ? (consumePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp) || text)
+        : text;
 
       console.log('[ListenView] 📨', 
         msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
-        text.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal, 'utt:', utteranceId ?? '—'
+        incomingDisplayText.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal, 'utt:', normalizedUtteranceId ?? '—'
       );
 
       const container = viewportRef.current;
@@ -826,8 +890,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         } catch (err) {
           console.warn('[ListenView] DIAG logging failed', err);
         }
-        const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
-        const normalizedIncomingText = normalizeTranscriptText(text);
+        const normalizedIncomingText = normalizeTranscriptText(incomingDisplayText);
         const now = messageTimestamp;
         let newMessages = [...prev];
         let didMutateRows = false;
@@ -842,35 +905,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           const reliableUtteranceId = candidateUtteranceId && candidateUtteranceId !== '0'
             ? candidateUtteranceId
             : undefined;
-          let latestSameSpeakerPartialIdx = -1;
+          let bestIdx = -1;
+          let bestScore = Number.NEGATIVE_INFINITY;
           for (let i = rows.length - 1; i >= 0; i--) {
             const item = rows[i];
             if (item.speaker !== spk) continue;
             if (!item.isPartial || item.isFinal) continue;
             const itemTs = item.timestamp ?? 0;
             if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
-            if (latestSameSpeakerPartialIdx === -1) {
-              latestSameSpeakerPartialIdx = i;
+            if (!areCompatiblePartialTexts(item.text || '', incomingText)) continue;
+            if (reliableUtteranceId && item.utteranceId && item.utteranceId !== reliableUtteranceId) continue;
+
+            let score = 0;
+            if (reliableUtteranceId && item.utteranceId === reliableUtteranceId) {
+              score += 1000;
             }
-            if (
-              reliableUtteranceId &&
-              item.utteranceId === reliableUtteranceId &&
-              areCompatiblePartialTexts(item.text || '', incomingText)
-            ) {
-              return i;
+            score += getSharedPrefixWordCount(item.text || '', incomingText) * 25;
+            score -= Math.abs((item.text || '').length - incomingText.length) / 20;
+            if (itemTs > 0) {
+              score -= Math.abs(incomingTs - itemTs) / 100;
             }
-            if (!reliableUtteranceId) {
-              return areCompatiblePartialTexts(item.text || '', incomingText) ? i : -1;
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestIdx = i;
             }
           }
-          if (
-            reliableUtteranceId &&
-            latestSameSpeakerPartialIdx !== -1 &&
-            areCompatiblePartialTexts(rows[latestSameSpeakerPartialIdx].text || '', incomingText)
-          ) {
-            return latestSameSpeakerPartialIdx;
-          }
-          return -1;
+          return bestIdx;
         };
 
         const removeMicEchoEntries = (rows: typeof newMessages, referenceText: string, ts: number) =>
@@ -912,7 +973,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           const lastUpdate = lastPartialUpdate.current[speakerKey] || 0;
           
           // Always store latest text in pending buffer
-          pendingPartialUpdates.current[speakerKey] = { text, speaker, utteranceId: normalizedUtteranceId };
+          pendingPartialUpdates.current[speakerKey] = { text: incomingDisplayText, speaker, utteranceId: normalizedUtteranceId };
           
           // Check if enough time has passed since last update
           if (now - lastUpdate < PARTIAL_THROTTLE_MS) {
@@ -924,22 +985,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           lastPartialUpdate.current[speakerKey] = now;
           // -----------------------------------------------------------------
 
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text, messageTimestamp);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
             const existing = newMessages[targetIdx];
-            if (existing.text === text) {
+            if (existing.text === incomingDisplayText) {
               console.log('[ListenView] ⏭️ Skipping identical partial update for speaker', speaker, 'utt:', normalizedUtteranceId ?? '∅');
               return prev;
             }
             console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
             console.log('  ├─ OLD:', existing.text.substring(0, 50));
-            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
-              text: text,  // Just use Deepgram's text as-is!
+              text: incomingDisplayText,
               speaker,
               isFinal: false,
               isPartial: true,
@@ -947,22 +1008,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
             didMutateRows = true;
-            const hasFinalAfter = newMessages
-              .slice(targetIdx + 1)
-              .some(item => !item.isPartial);
-            if (hasFinalAfter) {
-              const currentPartial = newMessages[targetIdx];
-              newMessages.splice(targetIdx, 1);
-              newMessages.push(currentPartial);
-            }
           } else {
             // No compatible partial found, append a new partial at the end.
             console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
-            console.log('  └─ NEW:', text.substring(0, 50));
+            console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
             console.log('  ✅ REASON: No existing partial found for speaker', speaker);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
             newMessages.push({
-              text,
+              text: incomingDisplayText,
               speaker,
               isFinal: false,
               isPartial: true,
@@ -998,7 +1051,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             const textKey = `${speaker ?? 'unknown'}:${normalizedIncomingText}`;
             const seenAt = finalizedTextRef.current.get(textKey);
             if (seenAt && now - seenAt < 4000) {
-              console.log('[ListenView] 🚫 Skipping duplicate FINAL by text window:', text.substring(0, 50));
+              console.log('[ListenView] 🚫 Skipping duplicate FINAL by text window:', incomingDisplayText.substring(0, 50));
               return prev;
             }
             finalizedTextRef.current.set(textKey, now);
@@ -1011,19 +1064,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               if (item.speaker !== 0 || !item.isFinal || !item.text) return false;
               const itemTs = item.timestamp ?? 0;
               if (itemTs > 0 && Math.abs(now - itemTs) > ECHO_WINDOW_MS) return false;
-              return isNearDuplicateText(item.text, text);
+              return isNearDuplicateText(item.text, incomingDisplayText);
             });
             if (hasRecentSystemMatch) {
               const filtered = newMessages.filter(item => {
                 if (item.speaker !== 1 || !item.isPartial) return true;
                 if (normalizedUtteranceId && item.utteranceId && item.utteranceId !== normalizedUtteranceId) return true;
-                return !isNearDuplicateText(item.text || '', text);
+                return !isNearDuplicateText(item.text || '', incomingDisplayText);
               });
               console.log('[ListenView] 🚫 Dropping mic final echo (system already has same utterance)');
               return filtered.length === prev.length ? prev : filtered;
             }
           } else if (speaker === 0) {
-            const filtered = removeMicEchoEntries(newMessages, text, now);
+            const filtered = removeMicEchoEntries(newMessages, incomingDisplayText, now);
             if (filtered.length !== newMessages.length) {
               console.log('[ListenView] 🧹 Removed', newMessages.length - filtered.length, 'mic echo entries; system is authoritative');
               newMessages = filtered;
@@ -1031,10 +1084,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             }
           }
 
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, text, messageTimestamp);
+          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
           if (targetIdx !== -1) {
             // Freeze existing partial in place as final
-            const resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', text);
+            const resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', incomingDisplayText);
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
             console.log('  └─ NEW:', resolvedFinalText.substring(0, 50));
             console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
@@ -1065,18 +1118,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               const recentFinals = newMessages
                 .filter(item => item.speaker === speaker && item.isFinal && !item.isPartial)
                 .slice(-10);
-              const isDuplicateRecentFinal = recentFinals.some(item => isNearDuplicateText(item.text, text));
+              const isDuplicateRecentFinal = recentFinals.some(item => isNearDuplicateText(item.text, incomingDisplayText));
               if (isDuplicateRecentFinal) {
                 console.log('[ListenView] 🚫 Skipping duplicate FINAL near recent same-speaker finals');
                 return didMutateRows ? newMessages : prev;
               }
 
               console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
-              console.log('  └─ NEW:', text.substring(0, 50));
+              console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
               console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- appending new final bubble');
               console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
               appendFinalBeforeTrailingPartials(newMessages, {
-                text,
+                text: incomingDisplayText,
                 speaker,
                 isFinal: true,
                 isPartial: false,
@@ -1088,7 +1141,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
           if (normalizedUtteranceId) {
             const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
-            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(text));
+            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(incomingDisplayText));
             finalizedAtRef.current.set(utteranceKey, now);
           }
           if (acceptedFinal) {
@@ -1131,6 +1184,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
+        pendingTurnCompleteRef.current = [];
         stopTimer();
         console.log('[ListenView] ✅ Session cleared');
       };
@@ -1148,6 +1202,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
+        pendingTurnCompleteRef.current = [];
       };
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {

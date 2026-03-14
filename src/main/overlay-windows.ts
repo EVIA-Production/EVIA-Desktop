@@ -22,6 +22,7 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Initial size: 900x49px (used for createHeaderWindow, then dynamically adjusted)
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
+let headerVisualCenterOffset = HEADER_SIZE.width / 2
 // WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 159)
 // This is the gap between header and child windows
 const PAD = 8
@@ -688,34 +689,13 @@ function buildActualVisibilityFor(name: FeatureName): WindowVisibility {
 
 function ensureWindowShown(name: FeatureName) {
   let win = childWindows.get(name)
-  if (name === 'ask' && win && !win.isDestroyed() && !win.isVisible()) {
-    try {
-      win.destroy()
-    } catch (error) {
-      console.warn('[overlay-windows] Failed to destroy stale Ask window before reopen', error)
-    }
-    childWindows.delete('ask')
-    win = undefined
-  }
-
   if (!win || win.isDestroyed()) {
     win = createChildWindow(name)
   }
-
-  const actualVis: WindowVisibility = {
-    listen: false,
-    ask: false,
-    settings: false,
-    shortcuts: false,
-  }
-  actualVis[name] = true
-
-  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
-  if (otherName && isWindowActuallyVisible(otherName)) {
-    actualVis[otherName] = true
-  }
+  const actualVis = buildActualVisibilityFor(name)
 
   updateWindows(actualVis)
+  win = childWindows.get(name) ?? win
 
   const header = getOrCreateHeaderWindow()
   if (header && !header.isDestroyed()) {
@@ -772,9 +752,9 @@ function layoutChildWindows(visible: WindowVisibility) {
   const screenWidth = screenBounds.width  // Use SCREEN width (not workArea) for X axis
   const screenHeight = work.height        // Use workArea height for Y axis (avoid menu bar)
 
-  // FIX #9: Calculate header center more explicitly for perfect alignment
-  // Use absolute positioning first, then convert to relative coordinates
-  const headerCenterX = hb.x + (hb.width / 2)  // Absolute center X of header
+  // Hard invariant: child windows center under the header window center.
+  // Do not infer a separate "visual" center from language-dependent content.
+  const headerCenterX = hb.x + (hb.width / 2)
   const headerCenterXRel = headerCenterX - screenBounds.x  // Relative to SCREEN (not workArea)
 
   const relativeY = (hb.y - work.y) / screenHeight
@@ -1733,8 +1713,12 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   return { ok: true }
 })
 
-ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
+ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | { width: number; height: number; anchorX?: number }, height?: number, anchorX?: number) => {
   try {
+    const payload = typeof widthOrPayload === 'object'
+      ? widthOrPayload
+      : { width: widthOrPayload, height: height ?? HEADER_SIZE.height, anchorX }
+
     // Prefer to resize the BrowserWindow that sent this IPC (works for Welcome window and header)
     const senderWebContents = event?.sender
     let targetWin: BrowserWindow | null = null
@@ -1749,7 +1733,17 @@ ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
     }
 
     const bounds = targetWin.getBounds()
-    const requested = { ...bounds, width: Math.round(width), height: Math.round(height) }
+    const requestedWidth = Math.max(120, Math.round(payload.width))
+    const requestedHeight = Math.max(HEADER_SIZE.height, Math.round(payload.height))
+    const preservedCenterX = bounds.x + (bounds.width / 2)
+    const requested = {
+      ...bounds,
+      x: targetWin === getHeaderWindow()
+        ? Math.round(preservedCenterX - (requestedWidth / 2))
+        : bounds.x,
+      width: requestedWidth,
+      height: requestedHeight,
+    }
     const newBounds = clampBounds(requested)
 
     targetWin.setBounds(newBounds)
@@ -1757,6 +1751,7 @@ ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
     // Persist header bounds only when the target is the header window
     const header = getHeaderWindow()
     if (header && targetWin === header) {
+      headerVisualCenterOffset = newBounds.width / 2
       saveState({ headerBounds: newBounds })
       const vis = getVisibility()
       layoutChildWindows(vis)
@@ -1773,8 +1768,7 @@ ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
 })
 
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
-  // FIX #42: Ensure window exists and bounds are updated correctly
-  const win = createChildWindow(winName)
+  const win = childWindows.get(winName)
   if (!win || win.isDestroyed()) {
     console.error(`[IPC] ❌ adjust-window-height: Window '${winName}' not available`)
     return { ok: false, error: 'window_not_available' }
@@ -1785,11 +1779,23 @@ ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: 
     return { ok: false, error: 'invalid_height' }
   }
 
-  const currentBounds = win.getBounds()
+  let currentBounds: Electron.Rectangle
+  try {
+    currentBounds = win.getBounds()
+  } catch (error) {
+    console.error(`[IPC] ❌ adjust-window-height: Failed to read bounds for '${winName}'`, error)
+    return { ok: false, error: 'bounds_unavailable' }
+  }
+
   const newBounds = { ...currentBounds, height: Math.round(height) }
 
   console.log(`[IPC] 📏 adjust-window-height: ${winName} ${currentBounds.height}px → ${newBounds.height}px`)
-  win.setBounds(newBounds)
+  try {
+    win.setBounds(newBounds)
+  } catch (error) {
+    console.error(`[IPC] ❌ adjust-window-height: Failed to set bounds for '${winName}'`, error)
+    return { ok: false, error: 'bounds_update_failed' }
+  }
 
   // CRITICAL: Re-run layout so flipped windows (above header) keep their bottom anchor.
   // Without this, Ask grows from a stale Y and can overlap the header bar when expanded.
@@ -1928,18 +1934,30 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
     // FIX #25: Explicitly close settings when opening Ask (prevent unwanted settings popup)
     console.log('[Main] 🔧 Ensuring Ask window is really shown');
     ensureWindowShown('ask')
+    askWin = childWindows.get('ask') ?? askWin
 
     // FIX #24: Wait for window to be FULLY ready before sending prompt
     // Use did-finish-load event to ensure IPC handlers are registered
     const sendPrompt = () => {
-      if (askWin && !askWin.isDestroyed()) {
-        askWin.webContents.send('ask:send-and-submit', prompt);
+      const currentAskWin = childWindows.get('ask')
+      if (!currentAskWin || currentAskWin.isDestroyed()) {
+        console.warn('[Main] ⚠️ Ask window disappeared before prompt relay');
+        return
+      }
+      try {
+        if (currentAskWin.webContents.isDestroyed()) {
+          console.warn('[Main] ⚠️ Ask webContents destroyed before prompt relay')
+          return
+        }
+        currentAskWin.webContents.send('ask:send-and-submit', prompt);
         console.log('[Main] ✅ Prompt relayed to Ask window with auto-submit');
+      } catch (error) {
+        console.error('[Main] ❌ Failed to relay prompt to Ask window', error)
       }
     };
 
     // If window just loaded, wait for ready. Otherwise send immediately.
-    if (askWin.webContents.isLoading()) {
+    if (!askWin.webContents.isDestroyed() && askWin.webContents.isLoading()) {
       console.log('[Main] ⏳ Ask window still loading, waiting for did-finish-load...');
       askWin.webContents.once('did-finish-load', () => {
         // Extra 100ms buffer for React to mount and register IPC handlers

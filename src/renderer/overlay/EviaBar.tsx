@@ -404,13 +404,14 @@ const EviaBar: React.FC<EviaBarProps> = ({
       const contentWidth = Math.ceil(rect.width);
       // Add 2px to height to match main process initial header height (glass border: 1px top + 1px bottom)
       const contentHeight = Math.ceil(rect.height) + 2;
+      const anchorX = Math.ceil(rect.width / 2);
 
-      console.log(`[EviaBar] Content measured: ${contentWidth}px × ${contentHeight}px (w×h)`);
+      console.log(`[EviaBar] Content measured: ${contentWidth}px × ${contentHeight}px (w×h), anchor=${anchorX}px`);
 
       // Request window resize via IPC (use unified resize handler that accepts width+height)
       if (window.electron?.ipcRenderer) {
         try {
-          const success = await window.electron.ipcRenderer.invoke('win:resizeHeader', contentWidth, contentHeight);
+          const success = await window.electron.ipcRenderer.invoke('win:resizeHeader', { width: contentWidth, height: contentHeight, anchorX });
           if (success) {
             console.log('[EviaBar] Window resized to fit content (width+height)');
           }

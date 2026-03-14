@@ -217,23 +217,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             
             // Only resize if notably wrong (>30px off) - prevents jitter
             if (delta > 30) {
+              storedContentHeightRef.current = targetHeight;
               requestWindowResize(targetHeight);
               console.log('[AskView] 📏 Live (streaming): header=%d + content=%d + input=%d + pad=%d = %dpx', 
                 headerH, contentH, inputH, padding, targetHeight);
             }
-          } else if (
-            storedContentHeightRef.current &&
-            Math.abs(current - storedContentHeightRef.current) > 5
-          ) {
-            // Between sessions ('before') we intentionally keep compact height and
-            // must not restore stale expanded heights from the previous call.
-            if (sessionState === 'before' && !response && !isStreaming) {
-              return;
-            }
-            // CASE 2: Content stable but height wrong (external resize like arrow keys)
-            console.warn('[AskView] ⚠️ Height mismatch detected, restoring: %dpx → %dpx', 
-              current, storedContentHeightRef.current);
-            requestWindowResize(storedContentHeightRef.current);
           }
         }
         
@@ -329,6 +317,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       ttftLoggedRef.current = false;
       setErrorToast(null);
       liveTranscriptOverrideRef.current = null;
+      lastResponseRef.current = '';
+      storedContentHeightRef.current = 58;
       if (restartStreamTimeoutRef.current) {
         clearTimeout(restartStreamTimeoutRef.current);
         restartStreamTimeoutRef.current = null;
@@ -360,7 +350,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setErrorToast(null);
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';  // Clear resize tracking
-      storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
+      storedContentHeightRef.current = 58;
       liveTranscriptOverrideRef.current = null;
       console.log('[AskView] ✅ Session cleared');
     };
@@ -383,7 +373,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setIsStreaming(false);
         setIsLoadingFirstToken(false);
         lastResponseRef.current = '';
-        storedContentHeightRef.current = null;
+        storedContentHeightRef.current = 58;
       }
     };
 
@@ -405,7 +395,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       lastResponseRef.current = '';
-      storedContentHeightRef.current = null;  // Clear stored height for fresh recalculation
+      storedContentHeightRef.current = 58;
       liveTranscriptOverrideRef.current = null;
 
       // Force a fresh chat after language switch so follow-up suggestions
@@ -816,7 +806,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     responseBufferRef.current = '';
     setResponseSessionState('before');
     lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
-    storedContentHeightRef.current = null;  // CRITICAL: Clear stored height for new question
+    storedContentHeightRef.current = 58;
+    requestWindowResize(58);
     setIsStreaming(true);
     setTtftMs(null);
     ttftLoggedRef.current = false;
@@ -939,6 +930,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             console.log('[AskView] 📏 FINAL: header=%d + content=%d + input=%d + pad=%d = %dpx (was %dpx)', 
               headerH, contentH, inputH, padding, targetHeight, current);
           } else {
+            storedContentHeightRef.current = targetHeight;
             console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
           }
           
@@ -1058,6 +1050,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const triggerManualResize = useCallback(() => {
     // Empty state: compact ask bar
     if (!response || response.trim() === '') {
+      storedContentHeightRef.current = 58;
       requestWindowResize(58);
       console.log('[AskView] 📏 Manual resize: compact ask bar (58px)');
       return;
@@ -1078,8 +1071,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const delta = Math.abs(targetHeight - current);
       
       if (delta > 3) {
+        storedContentHeightRef.current = targetHeight;
         requestWindowResize(targetHeight);
         console.log('[AskView] 📏 Manual: header=%d + content=%d + input=%d = %dpx', headerH, contentH, inputH, targetHeight);
+      } else {
+        storedContentHeightRef.current = targetHeight;
       }
     }
   }, [response, measureResponseContentHeight]);
@@ -1092,12 +1088,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // ResizeObserver handles non-empty states automatically
   }, [response, triggerManualResize]);
 
-  // FIX #41: On visibility change, give ResizeObserver a nudge
+  // After streaming completes, shrink or grow Ask exactly to the settled content.
+  useEffect(() => {
+    if (isStreaming) return;
+    const rafId = requestAnimationFrame(() => triggerManualResize());
+    return () => cancelAnimationFrame(rafId);
+  }, [response, isStreaming, triggerManualResize]);
+
+  // Give a single resize nudge when the Ask window becomes visible again.
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         console.log('[AskView] 📏 Window became visible, triggering manual resize');
-        setTimeout(triggerManualResize, 100);
+        requestAnimationFrame(() => triggerManualResize());
       }
     };
 

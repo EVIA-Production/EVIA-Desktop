@@ -39,54 +39,54 @@ const getCanonicalAfterActions = (language: string): Record<string, InsightActio
         follow_up_email: {
           label: '📧 Follow-up Email',
           icon: 'mail',
-          prompt: 'Write a professional follow-up email based on the conversation.',
+          prompt: 'Write ONLY a send-ready follow-up email based on the meeting. No CRM, no summary, no action items.',
         },
         follow_up_plan: {
           label: '📞 Plan follow-up',
           icon: 'phone',
-          prompt: 'Outline the cleanest follow-up plan with owner, date, and next step.',
+          prompt: 'Create ONLY a follow-up plan with goal, next contact, owner, date, and risks. No email, no CRM, no summary.',
         },
         action_items: {
           label: '📋 Action Items',
           icon: 'check',
-          prompt: 'List all action items and next steps from the conversation.',
+          prompt: 'List ONLY the explicit action items, commitments, and next steps from the meeting. No email, no CRM, no summary.',
         },
         crm_update: {
           label: '📊 Update CRM',
           icon: 'chart',
-          prompt: 'Draft a concise CRM update based on the conversation.',
+          prompt: 'Create ONLY a CRM update in field format from the meeting. No email, no summary.',
         },
         summary: {
           label: '📝 Summary',
           icon: 'note',
-          prompt: 'Create a structured summary of the conversation.',
+          prompt: 'Create ONLY a compact meeting summary with key outcome and next step. No CRM, no email, no action items.',
         },
       }
     : {
         follow_up_email: {
           label: '📧 Follow-up E-Mail',
           icon: 'mail',
-          prompt: 'Schreibe eine professionelle Follow-up E-Mail basierend auf dem Gespraech.',
+          prompt: 'Schreibe NUR eine versandfertige Follow-up E-Mail auf Basis des Gesprächs. Kein CRM, keine Zusammenfassung, keine Action Items.',
         },
         follow_up_plan: {
           label: '📞 Follow-up planen',
           icon: 'phone',
-          prompt: 'Erstelle einen klaren Follow-up-Plan mit Verantwortlichen, Datum und naechstem Schritt.',
+          prompt: 'Erstelle NUR einen Follow-up-Plan mit Ziel, nächstem Kontakt, Verantwortlichen, Datum und Risiken. Keine E-Mail, kein CRM, keine Zusammenfassung.',
         },
         action_items: {
           label: '📋 Action Items',
           icon: 'check',
-          prompt: 'Liste alle Action Items und naechsten Schritte aus dem Gespraech auf.',
+          prompt: 'Liste NUR die expliziten Action Items, Zusagen und nächsten Schritte aus dem Gespräch auf. Keine E-Mail, kein CRM, keine Zusammenfassung.',
         },
         crm_update: {
           label: '📊 CRM aktualisieren',
           icon: 'chart',
-          prompt: 'Formuliere einen kompakten CRM-Eintrag basierend auf dem Gespraech.',
+          prompt: 'Erstelle NUR einen CRM-Eintrag im Feldformat auf Basis des Gesprächs. Keine E-Mail, keine Zusammenfassung.',
         },
         summary: {
           label: '📝 Zusammenfassung',
           icon: 'note',
-          prompt: 'Erstelle eine strukturierte Zusammenfassung des Gespraechs.',
+          prompt: 'Erstelle NUR eine kompakte Gesprächszusammenfassung mit Kernergebnis und nächstem Schritt. Kein CRM, keine E-Mail, keine Action Items.',
         },
       };
 
