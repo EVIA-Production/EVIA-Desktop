@@ -1783,8 +1783,8 @@ textarea:focus-visible,
 
 /* Response Container */
 .response-container {
-  /* FIX (2025-12-10): flex: 1 to fill space between header and input */
-  flex: 1;
+  /* Size to actual content so short answers collapse instead of filling spare space. */
+  flex: 0 1 auto;
   /* 🔧 FIX (2025-12-10): Reduced vertical padding (8px instead of 16px) */
   padding: 8px 24px;
   overflow-y: auto;
@@ -1798,6 +1798,7 @@ textarea:focus-visible,
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
+  align-self: stretch;
   position: relative;
   color: rgba(255, 255, 255, 0.9);
 }
@@ -1884,6 +1885,7 @@ textarea:focus-visible,
   user-select: text;
   cursor: text;
   width: 100%; /* 🔧 FIX: Full width for proper text display */
+  flex: 0 0 auto;
   text-align: left;
 }
 

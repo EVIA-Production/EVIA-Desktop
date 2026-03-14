@@ -347,18 +347,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
     language === 'en'
       ? {
-          follow_up_email: { label: '📧 Follow-up Email', icon: 'mail', prompt: 'Write ONLY a send-ready follow-up email based on the meeting. No CRM, no summary, no action items.' },
-          follow_up_plan: { label: '📞 Plan follow-up', icon: 'phone', prompt: 'Create ONLY a follow-up plan with goal, next contact, owner, date, and risks. No email, no CRM, no summary.' },
-          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'List ONLY the explicit action items, commitments, and next steps from the meeting. No email, no CRM, no summary.' },
-          crm_update: { label: '📊 Update CRM', icon: 'chart', prompt: 'Create ONLY a CRM update in field format from the meeting. No email, no summary.' },
-          summary: { label: '📝 Summary', icon: 'note', prompt: 'Create ONLY a compact meeting summary with key outcome and next step. No CRM, no email, no action items.' },
+          follow_up_email: { label: '📧 Follow-up Email', icon: 'mail', prompt: 'Follow-up Email' },
+          follow_up_plan: { label: '📞 Plan follow-up', icon: 'phone', prompt: 'Plan follow-up' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Action Items' },
+          crm_update: { label: '📊 Update CRM', icon: 'chart', prompt: 'Update CRM' },
+          summary: { label: '📝 Summary', icon: 'note', prompt: 'Summary' },
         }
       : {
-          follow_up_email: { label: '📧 Follow-up E-Mail', icon: 'mail', prompt: 'Schreibe NUR eine versandfertige Follow-up E-Mail auf Basis des Gesprächs. Kein CRM, keine Zusammenfassung, keine Action Items.' },
-          follow_up_plan: { label: '📞 Follow-up planen', icon: 'phone', prompt: 'Erstelle NUR einen Follow-up-Plan mit Ziel, nächstem Kontakt, Verantwortlichen, Datum und Risiken. Keine E-Mail, kein CRM, keine Zusammenfassung.' },
-          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Liste NUR die expliziten Action Items, Zusagen und nächsten Schritte aus dem Gespräch auf. Keine E-Mail, kein CRM, keine Zusammenfassung.' },
-          crm_update: { label: '📊 CRM aktualisieren', icon: 'chart', prompt: 'Erstelle NUR einen CRM-Eintrag im Feldformat auf Basis des Gesprächs. Keine E-Mail, keine Zusammenfassung.' },
-          summary: { label: '📝 Zusammenfassung', icon: 'note', prompt: 'Erstelle NUR eine kompakte Gesprächszusammenfassung mit Kernergebnis und nächstem Schritt. Kein CRM, keine E-Mail, keine Action Items.' },
+          follow_up_email: { label: '📧 Follow-up E-Mail', icon: 'mail', prompt: 'Follow-up E-Mail' },
+          follow_up_plan: { label: '📞 Follow-up planen', icon: 'phone', prompt: 'Follow-up planen' },
+          action_items: { label: '📋 Action Items', icon: 'check', prompt: 'Action Items' },
+          crm_update: { label: '📊 CRM aktualisieren', icon: 'chart', prompt: 'CRM aktualisieren' },
+          summary: { label: '📝 Zusammenfassung', icon: 'note', prompt: 'Zusammenfassung' },
         };
 
   const classifyAfterAction = (label: string): string | null => {

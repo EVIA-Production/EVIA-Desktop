@@ -752,9 +752,13 @@ function layoutChildWindows(visible: WindowVisibility) {
   const screenWidth = screenBounds.width  // Use SCREEN width (not workArea) for X axis
   const screenHeight = work.height        // Use workArea height for Y axis (avoid menu bar)
 
-  // Hard invariant: child windows center under the header window center.
-  // Do not infer a separate "visual" center from language-dependent content.
-  const headerCenterX = hb.x + (hb.width / 2)
+  // Hard invariant: child windows center under the bar's visual center.
+  // The renderer sends anchorX for the actual visible pill content; German text
+  // makes the window box and the visual center diverge slightly.
+  const headerAnchorX = Number.isFinite(headerVisualCenterOffset)
+    ? Math.max(0, Math.min(hb.width, headerVisualCenterOffset))
+    : hb.width / 2
+  const headerCenterX = hb.x + headerAnchorX
   const headerCenterXRel = headerCenterX - screenBounds.x  // Relative to SCREEN (not workArea)
 
   const relativeY = (hb.y - work.y) / screenHeight
@@ -1751,7 +1755,9 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | { width: num
     // Persist header bounds only when the target is the header window
     const header = getHeaderWindow()
     if (header && targetWin === header) {
-      headerVisualCenterOffset = newBounds.width / 2
+      headerVisualCenterOffset = Number.isFinite(payload.anchorX)
+        ? Math.max(0, Math.min(newBounds.width, Math.round(payload.anchorX as number)))
+        : newBounds.width / 2
       saveState({ headerBounds: newBounds })
       const vis = getVisibility()
       layoutChildWindows(vis)

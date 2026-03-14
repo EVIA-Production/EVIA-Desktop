@@ -145,10 +145,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   const measureResponseContentHeight = useCallback(() => {
     const markdownEl = document.querySelector('.markdown-content') as HTMLElement | null;
-    const responseEl = responseContainerRef.current;
+    const loadingEl = document.querySelector('.loading-dots') as HTMLElement | null;
+    const abortButtonEl = document.querySelector('.abort-button') as HTMLElement | null;
     const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
-    const responseHeight = responseEl?.scrollHeight || responseEl?.offsetHeight || 0;
-    return Math.max(markdownHeight, responseHeight, 50);
+    const loadingHeight = loadingEl?.scrollHeight || loadingEl?.offsetHeight || 0;
+    const abortHeight = abortButtonEl?.offsetHeight || 0;
+    return Math.max(markdownHeight + abortHeight, loadingHeight, 50);
   }, []);
 
   const requestWindowResize = useCallback((targetHeight: number) => {
