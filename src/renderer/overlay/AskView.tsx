@@ -140,6 +140,26 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     });
   }, []);
 
+  // Keep sizing helpers above any hook dependency arrays that reference them.
+  const MIN_CONTENT_HEIGHT = 180;
+
+  const measureResponseContentHeight = useCallback(() => {
+    const markdownEl = document.querySelector('.markdown-content') as HTMLElement | null;
+    const responseEl = responseContainerRef.current;
+    const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
+    const responseHeight = responseEl?.scrollHeight || responseEl?.offsetHeight || 0;
+    return Math.max(markdownHeight, responseHeight, 50);
+  }, []);
+
+  const requestWindowResize = useCallback((targetHeight: number) => {
+    const eviaApi = (window as any).evia;
+    if (eviaApi?.windows?.adjustAskHeight) {
+      const availableHeight = Math.max(700, (window.screen?.availHeight || 820) - 56);
+      const clampedHeight = Math.max(58, Math.min(availableHeight, targetHeight));
+      eviaApi.windows.adjustAskHeight(clampedHeight);
+    }
+  }, []);
+
   // SESSION STATE: Track current session state for context-aware responses
   // Values: 'before' (pre-call), 'during' (active call), 'after' (post-call)
   // Synced from EviaBar via IPC, with localStorage as backup for initial state
@@ -1033,27 +1053,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   // REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
   // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
-
-  // FIX (2025-12-10): Window sizing - ensures content is always visible
-  // Minimum height when content exists: header(45) + padding(32) + min-content(50) + input(50) = 177px
-  const MIN_CONTENT_HEIGHT = 180; // Minimum when showing response
-
-  const measureResponseContentHeight = useCallback(() => {
-    const markdownEl = document.querySelector('.markdown-content') as HTMLElement | null;
-    const responseEl = responseContainerRef.current;
-    const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
-    const responseHeight = responseEl?.scrollHeight || responseEl?.offsetHeight || 0;
-    return Math.max(markdownHeight, responseHeight, 50);
-  }, []);
-  
-  const requestWindowResize = (targetHeight: number) => {
-    const eviaApi = (window as any).evia;
-    if (eviaApi?.windows?.adjustAskHeight) {
-      const availableHeight = Math.max(700, (window.screen?.availHeight || 820) - 56);
-      const clampedHeight = Math.max(58, Math.min(availableHeight, targetHeight));
-      eviaApi.windows.adjustAskHeight(clampedHeight);
-    }
-  };
 
   // FIX (2025-12-10): Resize to fit content - measure components
   const triggerManualResize = useCallback(() => {
