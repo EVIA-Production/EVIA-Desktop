@@ -447,29 +447,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     })
   }
 
-  const restoreVisibilityIfNeeded = (reason: string) => {
-    try {
-      const shouldRestore = !!persistedState.visible?.[name]
-      if (!shouldRestore) return
-      console.log(`[overlay-windows] 🔁 Restoring ${name} visibility after ${reason}`)
-      forceShowWindow(name, { ...getVisibility(), [name]: true })
-    } catch (error) {
-      console.warn(`[overlay-windows] Failed restoring ${name} visibility after ${reason}`, error)
-    }
-  }
-
-  win.once('ready-to-show', () => {
-    if (name === 'ask') {
-      restoreVisibilityIfNeeded('ready-to-show')
-    }
-  })
-
-  win.webContents.once('did-finish-load', () => {
-    if (name === 'ask') {
-      restoreVisibilityIfNeeded('did-finish-load')
-    }
-  })
-
   win.on('closed', () => {
     childWindows.delete(name)
   })
@@ -663,7 +640,7 @@ function windowHasUsableScreenPresence(win: BrowserWindow | null | undefined): b
 
 function isWindowActuallyVisible(name: FeatureName): boolean {
   const win = childWindows.get(name)
-  return windowHasUsableScreenPresence(win)
+  return !!(win && !win.isDestroyed() && win.isVisible())
 }
 
 function revealWindow(win: BrowserWindow, name: FeatureName) {
@@ -711,16 +688,34 @@ function buildActualVisibilityFor(name: FeatureName): WindowVisibility {
 
 function ensureWindowShown(name: FeatureName) {
   let win = childWindows.get(name)
+  if (name === 'ask' && win && !win.isDestroyed() && !win.isVisible()) {
+    try {
+      win.destroy()
+    } catch (error) {
+      console.warn('[overlay-windows] Failed to destroy stale Ask window before reopen', error)
+    }
+    childWindows.delete('ask')
+    win = undefined
+  }
+
   if (!win || win.isDestroyed()) {
     win = createChildWindow(name)
   }
 
-  const actualVis = buildActualVisibilityFor(name)
-  layoutChildWindows(actualVis)
-
-  if (win && !win.isDestroyed()) {
-    forceShowWindow(name, actualVis)
+  const actualVis: WindowVisibility = {
+    listen: false,
+    ask: false,
+    settings: false,
+    shortcuts: false,
   }
+  actualVis[name] = true
+
+  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
+  if (otherName && isWindowActuallyVisible(otherName)) {
+    actualVis[otherName] = true
+  }
+
+  updateWindows(actualVis)
 
   const header = getOrCreateHeaderWindow()
   if (header && !header.isDestroyed()) {
@@ -728,12 +723,36 @@ function ensureWindowShown(name: FeatureName) {
     if (!header.isVisible()) {
       header.show()
     }
-    raiseOverlayStack(win)
   }
 
-  saveState({ visible: actualVis })
-  scheduleRelayout(actualVis, 32, `ensureShown-${name}`)
-  scheduleRelayout(actualVis, 120, `ensureShown-${name}`)
+  if (name === 'ask') {
+    const askWin = childWindows.get('ask')
+    if (askWin && !askWin.isDestroyed()) {
+      const bounds = clampBounds(askWin.getBounds())
+      askWin.setBounds(bounds)
+      askWin.setOpacity(1)
+      askWin.setIgnoreMouseEvents(false)
+      askWin.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+      askWin.setAlwaysOnTop(true, 'screen-saver')
+      askWin.show()
+      askWin.focus()
+      askWin.webContents.focus()
+      askWin.moveTop()
+      header.moveTop()
+
+      setTimeout(() => {
+        if (askWin.isDestroyed()) return
+        askWin.setBounds(clampBounds(askWin.getBounds()))
+        askWin.setOpacity(1)
+        askWin.show()
+        askWin.focus()
+        askWin.webContents.focus()
+        askWin.moveTop()
+        header.moveTop()
+      }, 80)
+    }
+  }
+
   return { ok: true, visibility: actualVis }
 }
 
@@ -1076,7 +1095,15 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
       revealWindow(win, name)
       win.moveTop()
     } else if (name === 'ask') {
-      revealWindow(win, name)
+      const clampedBounds = clampBounds(win.getBounds())
+      win.setBounds(clampedBounds)
+      win.setOpacity(1)
+      win.setIgnoreMouseEvents(false)
+      win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.show()
+      win.focus()
+      win.webContents.focus()
       win.moveTop()
     } else {
       if (!isCurrentlyVisible) {
@@ -1141,8 +1168,8 @@ function getVisibility(): WindowVisibility {
   const result: WindowVisibility = {}
   ;(['listen', 'ask', 'settings', 'shortcuts'] as FeatureName[]).forEach((name) => {
     const win = childWindows.get(name)
-    if (win && !win.isDestroyed() && windowHasUsableScreenPresence(win)) {
-      result[name] = windowHasUsableScreenPresence(win)
+    if (win && !win.isDestroyed() && win.isVisible()) {
+      result[name] = true
     }
   })
   console.log(`[overlay-windows] getVisibility() returning:`, result)
@@ -1731,6 +1758,10 @@ ipcMain.handle('win:resizeHeader', (event, width: number, height: number) => {
     const header = getHeaderWindow()
     if (header && targetWin === header) {
       saveState({ headerBounds: newBounds })
+      const vis = getVisibility()
+      layoutChildWindows(vis)
+      scheduleRelayout(vis, 32, 'win:resizeHeader')
+      scheduleRelayout(vis, 120, 'win:resizeHeader')
     }
 
     console.log(`[overlay-windows] win:resizeHeader applied to ${targetWin.getTitle() || 'window'}:`, newBounds)
