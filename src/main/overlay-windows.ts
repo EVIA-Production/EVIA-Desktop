@@ -676,13 +676,65 @@ function revealWindow(win: BrowserWindow, name: FeatureName) {
 
   // showInactive is less brittle on macOS transparent panels, but Ask still
   // needs focus so the input can receive keystrokes immediately.
-  win.showInactive()
-  if (!win.isVisible()) {
-    win.show()
-  }
   if (name === 'ask') {
+    win.show()
     win.focus()
+  } else {
+    win.showInactive()
+    if (!win.isVisible()) {
+      win.show()
+    }
   }
+}
+
+function buildActualVisibilityFor(name: FeatureName): WindowVisibility {
+  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
+  const actualVis: WindowVisibility = {
+    listen: false,
+    ask: false,
+    settings: false,
+    shortcuts: false,
+  }
+
+  actualVis[name] = true
+
+  if (otherName) {
+    const otherWin = childWindows.get(otherName)
+    const isOtherActuallyVisible = !!(otherWin && !otherWin.isDestroyed() && windowHasUsableScreenPresence(otherWin))
+    if (isOtherActuallyVisible) {
+      actualVis[otherName] = true
+    }
+  }
+
+  return actualVis
+}
+
+function ensureWindowShown(name: FeatureName) {
+  let win = childWindows.get(name)
+  if (!win || win.isDestroyed()) {
+    win = createChildWindow(name)
+  }
+
+  const actualVis = buildActualVisibilityFor(name)
+  layoutChildWindows(actualVis)
+
+  if (win && !win.isDestroyed()) {
+    forceShowWindow(name, actualVis)
+  }
+
+  const header = getOrCreateHeaderWindow()
+  if (header && !header.isDestroyed()) {
+    header.setAlwaysOnTop(true, 'screen-saver')
+    if (!header.isVisible()) {
+      header.show()
+    }
+    raiseOverlayStack(win)
+  }
+
+  saveState({ visible: actualVis })
+  scheduleRelayout(actualVis, 32, `ensureShown-${name}`)
+  scheduleRelayout(actualVis, 120, `ensureShown-${name}`)
+  return { ok: true, visibility: actualVis }
 }
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
@@ -1118,11 +1170,12 @@ function toggleWindow(name: FeatureName) {
     }
 
     console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
-    updateWindows(newVis)
 
     if (!current) {  // If we're showing the Ask window (toggled from hidden to shown)
-      forceShowWindow('ask', newVis)
+      ensureWindowShown('ask')
       console.log(`[overlay-windows] ✅ Ask window force-shown after toggle`)
+    } else {
+      updateWindows(newVis)
     }
 
     return newVis.ask
@@ -1326,16 +1379,8 @@ function openAskWindow() {
     console.log('[overlay-windows] Cmd+Enter: Closing Ask only, preserving Listen:', vis.listen)
     updateWindows(newVis)
   } else {
-    const isListenCurrentlyVisible = isWindowActuallyVisible('listen')
-    const newVis: WindowVisibility = {
-      ask: true,
-      listen: isListenCurrentlyVisible,
-      settings: false,
-      shortcuts: false,
-    }
     console.log('[overlay-windows] 🚨 Opening Ask window via explicit show path')
-    updateWindows(newVis)
-    forceShowWindow('ask', newVis)
+    ensureWindowShown('ask')
   }
 }
 
@@ -1587,76 +1632,19 @@ app.on('will-quit', () => {
 })
 
 ipcMain.handle('win:show', (_event, name: FeatureName) => {
+  if (name === 'ask' && !isWindowActuallyVisible('ask')) {
+    ensureWindowShown('ask')
+    return { ok: true, toggled: 'shown' }
+  }
   const next = toggleWindow(name)
   return { ok: true, toggled: next ? 'shown' : 'hidden' }
 })
 
 ipcMain.handle('win:ensureShown', (_event, name: FeatureName) => {
   console.log(`[overlay-windows] 🚨 win:ensureShown called for ${name}`)
-
-  // checks isOtherWinVisible by calling win.isVisible()
-  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
-
-  // Build visibility based on ACTUAL state, not saved state
-  const actualVis: WindowVisibility = {
-    listen: false,
-    ask: false,
-    settings: false,
-    shortcuts: false,
-  }
-
-  // Set the window we're showing
-  actualVis[name] = true
-
-  // Check if the OTHER window (ask/listen) is ACTUALLY visible
-  if (otherName) {
-    const otherWin = childWindows.get(otherName)
-    const isOtherActuallyVisible = otherWin && !otherWin.isDestroyed() && otherWin.isVisible()
-    console.log(`[overlay-windows] 🔍 Checking ${otherName}: exists=${!!otherWin}, destroyed=${otherWin?.isDestroyed()}, visible=${otherWin?.isVisible()} → actuallyVisible=${isOtherActuallyVisible}`)
-    if (isOtherActuallyVisible) {
-      actualVis[otherName] = true
-    }
-  }
-
-  console.log(`[overlay-windows] 📊 ACTUAL visibility for layout:`, actualVis)
-
-  // Create window if needed
-  let win = childWindows.get(name)
-  if (!win || win.isDestroyed()) {
-    win = createChildWindow(name)
-  }
-
-  // Layout based on ACTUAL visibility
-  layoutChildWindows(actualVis)
-
-  if (win && !win.isDestroyed()) {
-    forceShowWindow(name, actualVis)
-    if (name === 'ask') {
-      console.log(`[overlay-windows] ✅ Ask window focused for input auto-focus`)
-    }
-  }
-
-  // Due to parent-child relationship, must call moveTop() in correct order:
-  // 1. Child window first (so it's on top of other windows)
-  // 2. Header second (so it's above its children)
-  const header = getOrCreateHeaderWindow()
-  if (header && !header.isDestroyed()) {
-    header.setAlwaysOnTop(true, 'screen-saver')
-    if (!header.isVisible()) {
-      header.show()
-      console.log(`[overlay-windows] 📺 Header was hidden, showing it`)
-    }
-
-    raiseOverlayStack(win)
-    console.log(`[overlay-windows] ✅ Header moved to top after showing ${name} (header above child)`)
-  }
-
-  // Save the ACTUAL visibility state
-  saveState({ visible: actualVis })
-  scheduleRelayout(actualVis, 32, `ensureShown-${name}`)
-  scheduleRelayout(actualVis, 120, `ensureShown-${name}`)
+  const result = ensureWindowShown(name)
   console.log(`[overlay-windows] ensureShown complete for ${name}`)
-  return { ok: true }
+  return result
 })
 
 ipcMain.handle('win:hide', (_event, name: FeatureName) => {
@@ -1907,13 +1895,8 @@ ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; ses
 
   if (askWin && !askWin.isDestroyed()) {
     // FIX #25: Explicitly close settings when opening Ask (prevent unwanted settings popup)
-    const vis = getVisibility();
-    if (!vis.ask || vis.settings) {
-      console.log('[Main] 🔧 Opening Ask window, closing settings');
-      const nextVis = { ...vis, ask: true, settings: false };
-      updateWindows(nextVis);
-      forceShowWindow('ask', nextVis);
-    }
+    console.log('[Main] 🔧 Ensuring Ask window is really shown');
+    ensureWindowShown('ask')
 
     // FIX #24: Wait for window to be FULLY ready before sending prompt
     // Use did-finish-load event to ensure IPC handlers are registered
