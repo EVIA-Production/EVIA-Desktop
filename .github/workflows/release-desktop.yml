@@ -45,6 +45,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate release version is publishable
+        if: github.event_name == 'workflow_dispatch' && inputs.split_publish != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+
+          if RELEASE_JSON="$(gh release view "$TAG" --json isDraft,publishedAt,tagName 2>/dev/null)"; then
+            IS_DRAFT="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("isDraft") else "false")')"
+            PUBLISHED_AT="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
+            if [[ "$IS_DRAFT" != "true" && -n "$PUBLISHED_AT" ]]; then
+              echo "::error::Release $TAG is already published. Bump package.json version before triggering Desktop Release again."
+              exit 1
+            fi
+          fi
+
       - name: Validate macOS signing certificate secret
         if: matrix.os == 'macos-latest'
         shell: bash
