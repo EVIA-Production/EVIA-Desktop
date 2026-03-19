@@ -141,17 +141,30 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   }, []);
 
   // Keep sizing helpers above any hook dependency arrays that reference them.
-  const MIN_CONTENT_HEIGHT = 180;
+  const MIN_ASK_BAR_HEIGHT = 58;
 
   const measureResponseContentHeight = useCallback(() => {
-    const markdownEl = document.querySelector('.markdown-content') as HTMLElement | null;
-    const loadingEl = document.querySelector('.loading-dots') as HTMLElement | null;
-    const abortButtonEl = document.querySelector('.abort-button') as HTMLElement | null;
+    const container = responseContainerRef.current;
+    if (!container || container.classList.contains('hidden')) return 0;
+    const hasRenderedText = Boolean(responseBufferRef.current.trim()) || Boolean(response.trim());
+    if (!hasRenderedText && isLoadingFirstToken) return 0;
+    const markdownEl = container.querySelector('.markdown-content') as HTMLElement | null;
+    const loadingEl = container.querySelector('.loading-dots') as HTMLElement | null;
+    const abortButtonEl = container.querySelector('.abort-button') as HTMLElement | null;
     const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
     const loadingHeight = loadingEl?.scrollHeight || loadingEl?.offsetHeight || 0;
     const abortHeight = abortButtonEl?.offsetHeight || 0;
-    return Math.max(markdownHeight + abortHeight, loadingHeight, 50);
-  }, []);
+    return Math.ceil(Math.max(markdownHeight + abortHeight, loadingHeight, 0));
+  }, [response, isLoadingFirstToken]);
+
+  const measureTargetWindowHeight = useCallback(() => {
+    const headerEl = document.querySelector('.response-header:not(.hidden)') as HTMLElement | null;
+    const inputEl = document.querySelector('.text-input-container:not(.hidden)') as HTMLElement | null;
+    const headerH = headerEl?.offsetHeight || 0;
+    const contentH = measureResponseContentHeight();
+    const inputH = inputEl?.offsetHeight || 0;
+    return Math.max(MIN_ASK_BAR_HEIGHT, Math.ceil(headerH + contentH + inputH + 2));
+  }, [measureResponseContentHeight]);
 
   const requestWindowResize = useCallback((targetHeight: number) => {
     const eviaApi = (window as any).evia;
@@ -204,25 +217,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           const current = window.innerHeight;
           const contentChanged = isStreaming || response !== lastResponseRef.current;
           
-          if (contentChanged && isStreaming) {
-            // CASE 1: During streaming - measure actual component heights
-            const headerEl = document.querySelector('.response-header') as HTMLElement;
-            const inputEl = document.querySelector('.text-input-container') as HTMLElement;
-            
-            const headerH = headerEl?.offsetHeight || 45;
-            const contentH = measureResponseContentHeight();
-            const inputH = inputEl?.offsetHeight || 50;
-            const padding = 24; // Response container padding
-            
-            const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
+          const hasLiveText = Boolean(responseBufferRef.current.trim());
+          if (contentChanged && isStreaming && hasLiveText) {
+            const targetHeight = measureTargetWindowHeight();
             const delta = Math.abs(targetHeight - current);
             
-            // Only resize if notably wrong (>30px off) - prevents jitter
-            if (delta > 30) {
+            if (delta > 12) {
               storedContentHeightRef.current = targetHeight;
               requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 Live (streaming): header=%d + content=%d + input=%d + pad=%d = %dpx', 
-                headerH, contentH, inputH, padding, targetHeight);
+              console.log('[AskView] 📏 Live (streaming): target=%dpx', targetHeight);
             }
           }
         }
@@ -236,7 +239,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return () => {
       resizeObserverRef.current?.disconnect();
     };
-  }, [isStreaming, response, sessionState, measureResponseContentHeight]);
+  }, [isStreaming, response, sessionState, measureTargetWindowHeight]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -804,12 +807,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     if (onSubmitPrompt) onSubmitPrompt(prompt);
 
+    const preserveExpandedHeight = Boolean((response || lastResponseRef.current || '').trim());
+    const nextHeight = preserveExpandedHeight
+      ? Math.max(window.innerHeight, MIN_ASK_BAR_HEIGHT)
+      : MIN_ASK_BAR_HEIGHT;
+
     setResponse('');
     responseBufferRef.current = '';
     setResponseSessionState('before');
     lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
-    storedContentHeightRef.current = 58;
-    requestWindowResize(58);
+    storedContentHeightRef.current = nextHeight;
+    requestWindowResize(nextHeight);
     setIsStreaming(true);
     setTtftMs(null);
     ttftLoggedRef.current = false;
@@ -911,26 +919,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         });
       }
       
-      // FIX (2025-12-10): Final measurement - calculate from components
+      // Final measurement from the actual visible DOM. The loading animation must not inflate the window.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const headerEl = document.querySelector('.response-header') as HTMLElement;
-          const inputEl = document.querySelector('.text-input-container') as HTMLElement;
-
-          const headerH = headerEl?.offsetHeight || 45;
-          const contentH = measureResponseContentHeight();
-          const inputH = inputEl?.offsetHeight || 50;
-          const padding = 32; // Response container padding (8px top + 8px bottom + margins)
-          
-          const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
+          const targetHeight = measureTargetWindowHeight();
           const current = window.innerHeight;
           const delta = Math.abs(targetHeight - current);
           
           if (delta > 3) {
             storedContentHeightRef.current = targetHeight;
             requestWindowResize(targetHeight);
-            console.log('[AskView] 📏 FINAL: header=%d + content=%d + input=%d + pad=%d = %dpx (was %dpx)', 
-              headerH, contentH, inputH, padding, targetHeight, current);
+            console.log('[AskView] 📏 FINAL: target=%dpx (was %dpx)', targetHeight, current);
           } else {
             storedContentHeightRef.current = targetHeight;
             console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
@@ -1043,52 +1042,47 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [prompt, isStreaming, language, measureResponseContentHeight]);
+  }, [prompt, isStreaming, language, measureTargetWindowHeight]);
 
   // REMOVED: Old two-step IPC pattern useEffect (was lines 350-389)
   // Now using ONLY single-step 'ask:send-and-submit' (lines 85-106) for Glass parity
 
   // FIX (2025-12-10): Resize to fit content - measure components
   const triggerManualResize = useCallback(() => {
+    if (isLoadingFirstToken) {
+      const preservedHeight = Math.max(MIN_ASK_BAR_HEIGHT, storedContentHeightRef.current || MIN_ASK_BAR_HEIGHT);
+      requestWindowResize(preservedHeight);
+      return;
+    }
+
     // Empty state: compact ask bar
     if (!response || response.trim() === '') {
-      storedContentHeightRef.current = 58;
-      requestWindowResize(58);
-      console.log('[AskView] 📏 Manual resize: compact ask bar (58px)');
+      storedContentHeightRef.current = MIN_ASK_BAR_HEIGHT;
+      requestWindowResize(MIN_ASK_BAR_HEIGHT);
+      console.log('[AskView] 📏 Manual resize: compact ask bar (%dpx)', MIN_ASK_BAR_HEIGHT);
       return;
     }
     
-    // With content: measure actual component heights
-    const headerEl = document.querySelector('.response-header') as HTMLElement;
-    const inputEl = document.querySelector('.text-input-container') as HTMLElement;
-    const contentH = measureResponseContentHeight();
-
-    if (contentH > 0) {
-      const headerH = headerEl?.offsetHeight || 45;
-      const inputH = inputEl?.offsetHeight || 50;
-      const padding = 24; // Response container padding
-      
-      const targetHeight = Math.max(MIN_CONTENT_HEIGHT, headerH + contentH + inputH + padding);
-      const current = window.innerHeight;
-      const delta = Math.abs(targetHeight - current);
-      
-      if (delta > 3) {
-        storedContentHeightRef.current = targetHeight;
-        requestWindowResize(targetHeight);
-        console.log('[AskView] 📏 Manual: header=%d + content=%d + input=%d = %dpx', headerH, contentH, inputH, targetHeight);
-      } else {
-        storedContentHeightRef.current = targetHeight;
-      }
+    const targetHeight = measureTargetWindowHeight();
+    const current = window.innerHeight;
+    const delta = Math.abs(targetHeight - current);
+    
+    if (delta > 3) {
+      storedContentHeightRef.current = targetHeight;
+      requestWindowResize(targetHeight);
+      console.log('[AskView] 📏 Manual: target=%dpx', targetHeight);
+    } else {
+      storedContentHeightRef.current = targetHeight;
     }
-  }, [response, measureResponseContentHeight]);
+  }, [response, isLoadingFirstToken, measureTargetWindowHeight, requestWindowResize]);
 
   // Trigger on empty response (collapse to compact bar)
   useEffect(() => {
-    if (!response || response.trim() === '') {
+    if ((!response || response.trim() === '') && !isLoadingFirstToken) {
       triggerManualResize();
     }
     // ResizeObserver handles non-empty states automatically
-  }, [response, triggerManualResize]);
+  }, [response, isLoadingFirstToken, triggerManualResize]);
 
   // After streaming completes, shrink or grow Ask exactly to the settled content.
   useEffect(() => {
@@ -1153,11 +1147,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return question.substring(0, maxLength) + '...';
   };
 
-  const hasResponse = isLoadingFirstToken || response || isStreaming;
-  
-  // GLASS PARITY (2025-12-10): Don't return early for loading state
-  // Glass shows full component with header ("Thinking...") + loading dots in response area + input field
-  // Removed the minimal loading bar that caused "cut off" appearance
+  const hasExpandedHeight = (storedContentHeightRef.current || MIN_ASK_BAR_HEIGHT) > MIN_ASK_BAR_HEIGHT;
+  const hasResponse = Boolean(response) || (isStreaming && (!isLoadingFirstToken || hasExpandedHeight));
 
   return (
     <div className="ask-container">

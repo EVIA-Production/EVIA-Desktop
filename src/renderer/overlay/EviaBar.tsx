@@ -404,7 +404,18 @@ const EviaBar: React.FC<EviaBarProps> = ({
       const contentWidth = Math.ceil(rect.width);
       // Add 2px to height to match main process initial header height (glass border: 1px top + 1px bottom)
       const contentHeight = Math.ceil(rect.height) + 2;
-      const anchorX = Math.ceil(rect.width / 2);
+      const directChildren = Array.from(headerRef.current.children) as HTMLElement[];
+      const visibleChildren = directChildren.filter((child) => {
+        const childRect = child.getBoundingClientRect();
+        return childRect.width > 0 && childRect.height > 0;
+      });
+      const anchorX = visibleChildren.length
+        ? Math.ceil(
+            ((Math.min(...visibleChildren.map((child) => child.getBoundingClientRect().left))
+              + Math.max(...visibleChildren.map((child) => child.getBoundingClientRect().right))) / 2)
+            - rect.left,
+          )
+        : Math.ceil(rect.width / 2);
 
       console.log(`[EviaBar] Content measured: ${contentWidth}px × ${contentHeight}px (w×h), anchor=${anchorX}px`);
 

@@ -489,7 +489,7 @@ textarea:focus-visible,
   width: 100%;
   box-sizing: border-box;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
 }
 
 .bar-left-text {
@@ -620,7 +620,7 @@ textarea:focus-visible,
 
 
 .assistant-container .glass-scroll::-webkit-scrollbar-track {
-  background: var(--glass-border-light);
+  background: transparent;
   border-radius: 3px;
   margin: 4px 0;
 }
@@ -638,7 +638,7 @@ textarea:focus-visible,
 
 .assistant-container .glass-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--glass-border-light);
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* Bubble styling specific to ListenView */
@@ -1786,7 +1786,7 @@ textarea:focus-visible,
   /* Size to actual content so short answers collapse instead of filling spare space. */
   flex: 0 1 auto;
   /* 🔧 FIX (2025-12-10): Reduced vertical padding (8px instead of 16px) */
-  padding: 8px 24px;
+  padding: 8px 24px 4px;
   overflow-y: auto;
   overflow-x: hidden;
   /* FIX (2025-12-10): Larger font for better visibility */
@@ -1813,7 +1813,7 @@ textarea:focus-visible,
 }
 
 .response-container::-webkit-scrollbar-track {
-  background: var(--glass-border-light);
+  background: transparent;
   border-radius: 3px;
 }
 
@@ -1826,6 +1826,11 @@ textarea:focus-visible,
   background: var(--scrollbar-thumb-hover);
 }
 
+.response-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 /* Loading Animation */
 /* WINDOWS FIX (2025-12-05): Add extra bottom padding to ensure rounded corners are visible */
 /* On Windows, transparent windows sometimes clip content at exact boundaries */
@@ -1834,9 +1839,8 @@ textarea:focus-visible,
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 40px;
-  padding-bottom: 48px;  /* Extra bottom padding for Windows rounded corner visibility */
-  min-height: 80px;  /* Ensure minimum height for loading state */
+  padding: 18px 24px;
+  min-height: 24px;
 }
 
 .loading-dot {
