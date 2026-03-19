@@ -489,7 +489,7 @@ textarea:focus-visible,
   width: 100%;
   box-sizing: border-box;
   flex-shrink: 0;
-  border-bottom: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .bar-left-text {
@@ -1809,26 +1809,26 @@ textarea:focus-visible,
 
 /* Custom scrollbar */
 .response-container::-webkit-scrollbar {
-  width: 6px;
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .response-container::-webkit-scrollbar-track {
   background: transparent;
-  border-radius: 3px;
 }
 
 .response-container::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 3px;
+  background: transparent;
 }
 
 .response-container::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
+  background: transparent;
 }
 
 .response-container {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 /* Loading Animation */
