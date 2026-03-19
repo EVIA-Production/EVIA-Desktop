@@ -40,6 +40,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [responseHistory, setResponseHistory] = useState<string[]>([]);
   const [responseIndex, setResponseIndex] = useState(-1);
   const [responseSessionState, setResponseSessionState] = useState<AskSessionState>('before');
+  const [responseNeedsScroll, setResponseNeedsScroll] = useState(false);
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
   const streamStartTime = useRef<number | null>(null);
@@ -148,13 +149,18 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (!container || container.classList.contains('hidden')) return 0;
     const hasRenderedText = Boolean(responseBufferRef.current.trim()) || Boolean(response.trim());
     if (!hasRenderedText && isLoadingFirstToken) return 0;
+    const style = window.getComputedStyle(container);
+    const paddingTop = parseFloat(style.paddingTop || '0') || 0;
+    const paddingBottom = parseFloat(style.paddingBottom || '0') || 0;
     const markdownEl = container.querySelector('.markdown-content') as HTMLElement | null;
     const loadingEl = container.querySelector('.loading-dots') as HTMLElement | null;
     const abortButtonEl = container.querySelector('.abort-button') as HTMLElement | null;
+    const emptyStateEl = container.querySelector('.empty-state') as HTMLElement | null;
     const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
     const loadingHeight = loadingEl?.scrollHeight || loadingEl?.offsetHeight || 0;
     const abortHeight = abortButtonEl?.offsetHeight || 0;
-    return Math.ceil(Math.max(markdownHeight + abortHeight, loadingHeight, 0));
+    const emptyHeight = emptyStateEl?.scrollHeight || emptyStateEl?.offsetHeight || 0;
+    return Math.ceil(Math.max(markdownHeight + abortHeight, loadingHeight, emptyHeight, 0) + paddingTop + paddingBottom);
   }, [response, isLoadingFirstToken]);
 
   const measureTargetWindowHeight = useCallback(() => {
@@ -173,6 +179,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const clampedHeight = Math.max(58, Math.min(availableHeight, targetHeight));
       eviaApi.windows.adjustAskHeight(clampedHeight);
     }
+  }, []);
+
+  const updateResponseOverflowState = useCallback(() => {
+    const container = responseContainerRef.current;
+    if (!container || container.classList.contains('hidden')) {
+      setResponseNeedsScroll(false);
+      return;
+    }
+
+    const needsScroll = (container.scrollHeight - container.clientHeight) > 2;
+    setResponseNeedsScroll(prev => (prev === needsScroll ? prev : needsScroll));
   }, []);
 
   // SESSION STATE: Track current session state for context-aware responses
@@ -247,6 +264,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       responseContainerRef.current.scrollTop = responseContainerRef.current.scrollHeight;
     }
   }, [response, isStreaming]);
+
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      updateResponseOverflowState();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [response, isStreaming, isLoadingFirstToken, updateResponseOverflowState]);
 
   // UI IMPROVEMENT: Update lastResponseRef when streaming completes
   // This allows ResizeObserver to know when content has actually changed vs just window moving
@@ -934,6 +958,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             storedContentHeightRef.current = targetHeight;
             console.log('[AskView] ✅ Size correct, no adjustment needed:', current, 'px');
           }
+
+          requestAnimationFrame(() => updateResponseOverflowState());
           
           // UX IMPROVEMENT: Auto-focus input after response completes
           // Allows users to ask follow-up questions without clicking back into field
@@ -1074,7 +1100,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     } else {
       storedContentHeightRef.current = targetHeight;
     }
-  }, [response, isLoadingFirstToken, measureTargetWindowHeight, requestWindowResize]);
+    requestAnimationFrame(() => updateResponseOverflowState());
+  }, [response, isLoadingFirstToken, measureTargetWindowHeight, requestWindowResize, updateResponseOverflowState]);
 
   // Trigger on empty response (collapse to compact bar)
   useEffect(() => {
@@ -1096,7 +1123,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         console.log('[AskView] 📏 Window became visible, triggering manual resize');
-        requestAnimationFrame(() => triggerManualResize());
+        requestAnimationFrame(() => {
+          triggerManualResize();
+          updateResponseOverflowState();
+        });
       }
     };
 
@@ -1214,7 +1244,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
       {/* Glass parity: Response Container with markdown */}
       <div 
-        className={`response-container ${!hasResponse ? 'hidden' : ''}`}
+        className={`response-container ${!hasResponse ? 'hidden' : ''} ${responseNeedsScroll ? 'scrollable' : 'centered'}`}
         ref={responseContainerRef}
         id="responseContainer"
       >

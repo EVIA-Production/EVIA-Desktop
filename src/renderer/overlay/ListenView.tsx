@@ -129,11 +129,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const incoming = normalizeTranscriptText(incomingText || '');
     if (!existing || !incoming) return false;
     if (existing === incoming) return true;
-    if (existing.length >= 8 && incoming.length >= 8 && (existing.startsWith(incoming) || incoming.startsWith(existing))) {
+    if (existing.length >= 12 && incoming.length >= 12 && (existing.startsWith(incoming) || incoming.startsWith(existing))) {
       return true;
     }
     const sharedPrefixWords = getSharedPrefixWordCount(existing, incoming);
-    if (sharedPrefixWords >= 2) return true;
+    if (sharedPrefixWords >= 3) return true;
     return false;
   };
 
@@ -156,7 +156,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   ) => {
     if (!text.trim()) return;
     prunePendingTurnCompletions(timestamp);
-    const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+    const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
     const replacementIdx = pendingTurnCompleteRef.current.findIndex(item =>
       item.speaker === speaker &&
       (
@@ -179,7 +179,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     timestamp: number
   ) => {
     prunePendingTurnCompletions(timestamp);
-    const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+    const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
     let bestIdx = -1;
     let bestScore = Number.NEGATIVE_INFINITY;
 
@@ -833,8 +833,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         isPartial = !isFinal;
         const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
         if (rawUtterance !== undefined && rawUtterance !== null) {
-          const parsedUtteranceId = String(rawUtterance);
-          utteranceId = parsedUtteranceId === '0' ? undefined : parsedUtteranceId;
+          utteranceId = String(rawUtterance);
         }
         
         // TURN_COMPLETE can arrive before/alongside is_final and previously caused
@@ -856,7 +855,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
 
       const messageTimestamp = Date.now();
-      const normalizedUtteranceId = utteranceId && utteranceId !== '0' ? utteranceId : undefined;
+      const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
       if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
         storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
       }
@@ -902,8 +901,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           incomingText: string,
           incomingTs: number
         ) => {
-          const reliableUtteranceId = candidateUtteranceId && candidateUtteranceId !== '0'
-            ? candidateUtteranceId
+          const reliableUtteranceId = candidateUtteranceId !== undefined
+            ? String(candidateUtteranceId)
             : undefined;
           let bestIdx = -1;
           let bestScore = Number.NEGATIVE_INFINITY;
