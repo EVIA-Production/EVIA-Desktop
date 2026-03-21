@@ -50,7 +50,7 @@ win:
     - target: nsis
       # portable removed for public releases - NSIS installer + auto-update is the clean path
   icon: build/icon.ico
-  artifactName: "Taylos-Setup-${version}.${ext}"
+  artifactName: "Taylos.${ext}"
   forceCodeSigning: true
   signAndEditExecutable: true
   signtoolOptions:
