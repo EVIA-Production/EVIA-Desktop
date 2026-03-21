@@ -52,16 +52,12 @@ win:
   icon: build/icon.ico
   artifactName: "Taylos-Setup-${version}.${ext}"
   forceCodeSigning: false
-<<<<<<< HEAD
   signAndEditExecutable: true
   # Certum code signing (electron-builder v26 schema)
   signtoolOptions:
     # certificateSubjectName: "Benedict Kroetz"  # Optional explicit match if needed
     publisherName:
       - "Benedict Kroetz"
-=======
-  signAndEditExecutable: false  # Disabled due to symlink error - use rcedit for icon
->>>>>>> 7cc8b66 (build(win): switch to nsis installer + windows signing/update settings)
 
 nsis:
   oneClick: false
