@@ -98,12 +98,12 @@ function writeUpdaterAudit(patch: Partial<UpdaterAuditState>): UpdaterAuditState
 
 function showUpdateAppliedConfirmation(fromVersion: string | undefined, toVersion: string) {
   const detail = fromVersion && fromVersion !== toVersion
-    ? `Updated from ${fromVersion} to ${toVersion}.`
-    : `Updated to ${toVersion}.`
+    ? `Taylos restarted successfully and is now on version ${toVersion}.`
+    : `Taylos is now on version ${toVersion}.`
 
   if (Notification.isSupported()) {
     new Notification({
-      title: 'Taylos updated',
+      title: 'Update complete',
       body: detail,
     }).show()
     return
@@ -111,8 +111,8 @@ function showUpdateAppliedConfirmation(fromVersion: string | undefined, toVersio
 
   dialog.showMessageBox({
     type: 'info',
-    title: 'Taylos updated',
-    message: `Taylos is now running ${toVersion}.`,
+    title: 'Update complete',
+    message: 'Taylos is ready to use.',
     detail,
     buttons: ['OK'],
     defaultId: 0,
@@ -267,9 +267,9 @@ function registerAutoUpdater() {
     dialog.showMessageBox({
       type: 'info',
       title: 'Update ready',
-      message: `Version ${info.version} has been downloaded.`,
-      detail: 'Restart now to install?',
-      buttons: ['Restart now', 'Later'],
+      message: 'The latest Taylos update is ready.',
+      detail: `Restart now to install version ${info.version}. Taylos will reopen automatically in a few seconds.`,
+      buttons: ['Update & Restart', 'Later'],
       defaultId: 0,
       cancelId: 1,
     }).then((res) => {
