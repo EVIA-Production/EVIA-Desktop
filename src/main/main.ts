@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Notification } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
@@ -96,31 +96,6 @@ function writeUpdaterAudit(patch: Partial<UpdaterAuditState>): UpdaterAuditState
   return nextState
 }
 
-function showUpdateAppliedConfirmation(fromVersion: string | undefined, toVersion: string) {
-  const detail = fromVersion && fromVersion !== toVersion
-    ? `Taylos restarted successfully and is now on version ${toVersion}.`
-    : `Taylos is now on version ${toVersion}.`
-
-  if (Notification.isSupported()) {
-    new Notification({
-      title: 'Update complete',
-      body: detail,
-    }).show()
-    return
-  }
-
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Update complete',
-    message: 'Taylos is ready to use.',
-    detail,
-    buttons: ['OK'],
-    defaultId: 0,
-  }).catch((err) => {
-    console.error('[Updater] Failed to show update confirmation:', err)
-  })
-}
-
 function finalizeAppliedUpdateOnLaunch() {
   const currentVersion = app.getVersion()
   const audit = readUpdaterAudit()
@@ -142,7 +117,6 @@ function finalizeAppliedUpdateOnLaunch() {
       pendingInstallRecordedAt: undefined,
     })
     console.log(`[Updater] ✅ Update applied successfully: ${fromVersion ?? 'unknown'} -> ${currentVersion}`)
-    setTimeout(() => showUpdateAppliedConfirmation(fromVersion, currentVersion), 1500)
     return
   }
 
@@ -264,12 +238,13 @@ function registerAutoUpdater() {
       pendingInstallVersion: info.version,
       pendingInstallRecordedAt: new Date().toISOString(),
     });
+    const isGerman = app.getLocale().toLowerCase().startsWith('de')
     dialog.showMessageBox({
       type: 'info',
-      title: 'Update ready',
-      message: 'The latest Taylos update is ready.',
-      detail: `Restart now to install version ${info.version}. Taylos will reopen automatically in a few seconds.`,
-      buttons: ['Update & Restart', 'Later'],
+      title: 'Taylos',
+      message: isGerman ? 'Ein neues Update ist bereit.' : 'A new update is ready.',
+      detail: isGerman ? 'Taylos öffnet sich danach automatisch wieder.' : 'Taylos will reopen automatically.',
+      buttons: isGerman ? ['Neu starten', 'Später'] : ['Restart', 'Later'],
       defaultId: 0,
       cancelId: 1,
     }).then((res) => {
