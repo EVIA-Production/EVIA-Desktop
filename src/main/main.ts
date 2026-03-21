@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Notification } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
 import os from 'os'
@@ -68,6 +68,97 @@ function getBackendHttpBase(): string {
   return 'http://localhost:8000';
 }
 
+type UpdaterAuditState = {
+  lastLaunchedVersion?: string
+  pendingInstallVersion?: string
+  pendingInstallRecordedAt?: string
+  lastAppliedVersion?: string
+  lastAppliedFromVersion?: string
+  lastAppliedAt?: string
+}
+
+function getUpdaterAuditPath(): string {
+  return path.join(app.getPath('userData'), 'updater-audit.json')
+}
+
+function readUpdaterAudit(): UpdaterAuditState {
+  try {
+    const raw = fs.readFileSync(getUpdaterAuditPath(), 'utf8')
+    return JSON.parse(raw) as UpdaterAuditState
+  } catch {
+    return {}
+  }
+}
+
+function writeUpdaterAudit(patch: Partial<UpdaterAuditState>): UpdaterAuditState {
+  const nextState: UpdaterAuditState = { ...readUpdaterAudit(), ...patch }
+  fs.writeFileSync(getUpdaterAuditPath(), JSON.stringify(nextState, null, 2))
+  return nextState
+}
+
+function showUpdateAppliedConfirmation(fromVersion: string | undefined, toVersion: string) {
+  const detail = fromVersion && fromVersion !== toVersion
+    ? `Updated from ${fromVersion} to ${toVersion}.`
+    : `Updated to ${toVersion}.`
+
+  if (Notification.isSupported()) {
+    new Notification({
+      title: 'Taylos updated',
+      body: detail,
+    }).show()
+    return
+  }
+
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Taylos updated',
+    message: `Taylos is now running ${toVersion}.`,
+    detail,
+    buttons: ['OK'],
+    defaultId: 0,
+  }).catch((err) => {
+    console.error('[Updater] Failed to show update confirmation:', err)
+  })
+}
+
+function finalizeAppliedUpdateOnLaunch() {
+  const currentVersion = app.getVersion()
+  const audit = readUpdaterAudit()
+  const previousVersion = audit.lastLaunchedVersion
+  const pendingVersion = audit.pendingInstallVersion
+
+  const appliedPendingUpdate = pendingVersion === currentVersion && previousVersion !== currentVersion
+
+  if (appliedPendingUpdate) {
+    const fromVersion = previousVersion && previousVersion !== currentVersion
+      ? previousVersion
+      : audit.lastAppliedVersion
+    writeUpdaterAudit({
+      lastLaunchedVersion: currentVersion,
+      lastAppliedVersion: currentVersion,
+      lastAppliedFromVersion: fromVersion,
+      lastAppliedAt: new Date().toISOString(),
+      pendingInstallVersion: undefined,
+      pendingInstallRecordedAt: undefined,
+    })
+    console.log(`[Updater] ✅ Update applied successfully: ${fromVersion ?? 'unknown'} -> ${currentVersion}`)
+    setTimeout(() => showUpdateAppliedConfirmation(fromVersion, currentVersion), 1500)
+    return
+  }
+
+  if (pendingVersion) {
+    console.log(`[Updater] ℹ️ Pending downloaded update state detected for ${pendingVersion}; current app version is ${currentVersion}`)
+  }
+
+  if (previousVersion !== currentVersion) {
+    console.log(`[Updater] Launching app version ${currentVersion} (previous launch: ${previousVersion ?? 'none'})`)
+  }
+
+  writeUpdaterAudit({
+    lastLaunchedVersion: currentVersion,
+  })
+}
+
 // Windows platform warning + normal boot
 async function boot() {
   // Set AppUserModelId for Windows taskbar - must be before whenReady
@@ -76,6 +167,7 @@ async function boot() {
   }
   
   await app.whenReady();
+  finalizeAppliedUpdateOnLaunch();
   registerAutoUpdater();
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
@@ -168,6 +260,10 @@ function registerAutoUpdater() {
 
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] Update downloaded:', info.version);
+    writeUpdaterAudit({
+      pendingInstallVersion: info.version,
+      pendingInstallRecordedAt: new Date().toISOString(),
+    });
     dialog.showMessageBox({
       type: 'info',
       title: 'Update ready',
@@ -453,6 +549,14 @@ ipcMain.handle('updater:check-now', async () => {
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+});
+
+ipcMain.handle('updater:get-status', async () => {
+  return {
+    success: true,
+    currentVersion: app.getVersion(),
+    audit: readUpdaterAudit(),
+  };
 });
 
 // Shell API: Open external URLs/apps
