@@ -20,7 +20,7 @@ files:
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
   - "src/main/assets/WASAPILoopback.exe"
-# 🔧 Run afterPack script to sign SystemAudioDump with entitlements
+# Run afterPack script to sign SystemAudioDump with entitlements
 mac:
   icon: src/main/assets/icon-mac.png
   category: public.app-category.productivity
@@ -48,16 +48,17 @@ mac:
 win:
   target:
     - target: nsis
-    - target: portable
+      # portable removed for public releases - NSIS installer + auto-update is the clean path
   icon: build/icon.ico
   artifactName: "Taylos-Setup-${version}.${ext}"
-  forceCodeSigning: false
+  forceCodeSigning: true
   signAndEditExecutable: true
-  # Certum code signing (electron-builder v26 schema)
   signtoolOptions:
-    # certificateSubjectName: "Benedict Kroetz"  # Optional explicit match if needed
     publisherName:
       - "Benedict Kroetz"
+    certificateSha1: "DADDA45A4EB8CF72E6E9A85A86554D3DA1A811D6"
+    signingHashAlgorithms:
+      - sha256
 
 nsis:
   oneClick: false
