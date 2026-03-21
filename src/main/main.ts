@@ -264,7 +264,7 @@ function registerAutoUpdater() {
     autoUpdater.checkForUpdates().catch((err) => {
       console.error('[Updater] Periodic check failed:', err);
     });
-  }, 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
 }
 
 app.on('window-all-closed', () => {
