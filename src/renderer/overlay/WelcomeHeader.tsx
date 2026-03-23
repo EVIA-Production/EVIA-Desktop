@@ -81,11 +81,13 @@ const WelcomeHeader: React.FC = () => {
         console.log('[WelcomeHeader] ✅ Shell API available, opening browser...');
         await (window as any).evia.shell.openExternal(loginUrl);
         console.log('[WelcomeHeader] ✅ Browser opened successfully');
-        
-        // WINDOWS FIX (2025-12-05): Close welcome window on ALL platforms after opening browser
-        // Previously only closed on Mac, but Windows users also expect the window to close
-        console.log("[WelcomeHeader] 🔒 Closing welcome window");
-        window.close();
+
+        if (isMac) {
+          console.log('[WelcomeHeader] 🔒 Closing welcome window on macOS');
+          window.close();
+        } else {
+          console.log('[WelcomeHeader] 🪟 Keeping welcome window open on Windows until auth callback returns');
+        }
       } else {
         console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
         // Fallback: Try window.open (may be blocked by browser)

@@ -12,13 +12,49 @@ import { headerController } from './header-controller';
 import { startSubscriptionMonitor, stopSubscriptionMonitor } from './subscription-monitor';
 
 let pendingDeepLink: string | null = null;
+const PRIMARY_DEEP_LINK_SCHEME = 'taylos';
+const LEGACY_DEEP_LINK_SCHEME = 'evia';
+
+function extractDeepLinkFromArgList(args: string[]): string | null {
+  const raw = args.find(
+    (arg) =>
+      typeof arg === 'string' &&
+      (arg.includes(`${PRIMARY_DEEP_LINK_SCHEME}://`) || arg.includes(`${LEGACY_DEEP_LINK_SCHEME}://`)),
+  );
+
+  return raw ? String(raw).trim().replace(/^"+|"+$/g, '') : null;
+}
+
+function normalizeDeepLink(url: string): string {
+  if (url.startsWith(`${LEGACY_DEEP_LINK_SCHEME}://`)) {
+    return `${PRIMARY_DEEP_LINK_SCHEME}://${url.slice(`${LEGACY_DEEP_LINK_SCHEME}://`.length)}`;
+  }
+
+  return url;
+}
+
+function isAuthCallbackDeepLink(url: string): boolean {
+  return normalizeDeepLink(url).startsWith(`${PRIMARY_DEEP_LINK_SCHEME}://auth-callback`);
+}
+
+function isLaunchDeepLink(url: string): boolean {
+  return normalizeDeepLink(url).startsWith(`${PRIMARY_DEEP_LINK_SCHEME}://launch`);
+}
+
+function registerProtocolClient(scheme: string): boolean {
+  if (process.defaultApp && process.argv.length >= 2) {
+    return app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])]);
+  }
+
+  return app.setAsDefaultProtocolClient(scheme);
+}
 
 if (process.platform === "win32") {
   // Capture possible deeplink in initial argv (may be quoted)
   try {
-    const rawStartup = process.argv.find((a) => typeof a === "string" && a.includes("taylos://"));
+    const rawStartup = extractDeepLinkFromArgList(process.argv);
     if (rawStartup) {
-      pendingDeepLink = String(rawStartup).trim().replace(/^"+|"+$/g, "");
+      pendingDeepLink = normalizeDeepLink(rawStartup);
       console.log("[Protocol] 🔗 Detected cold-start deep link (pending):", pendingDeepLink);
     }
   } catch (e) {
@@ -33,16 +69,16 @@ if (process.platform === "win32") {
   } else {
     app.on('second-instance', (_event, argv) => {
       console.log('[Protocol] second-instance argv:', argv);
-      const raw = argv.find((a) => typeof a === 'string' && a.includes('taylos://'));
+      const raw = extractDeepLinkFromArgList(argv);
       if (raw) {
-        const url = String(raw).trim().replace(/^"+|"+$/g, '');
+        const url = normalizeDeepLink(raw);
         console.log('[Protocol] second-instance found url:', url);
         // If app is ready, handle immediately, otherwise queue
         if (app.isReady()) {
           try {
-            if (url.startsWith('taylos://auth-callback')) {
+            if (isAuthCallbackDeepLink(url)) {
               handleAuthCallback(url);
-            } else if (url.startsWith('taylos://launch')) {
+            } else if (isLaunchDeepLink(url)) {
               handleLaunchRequest(url);
             }
           } catch (err) {
@@ -155,9 +191,9 @@ async function boot() {
 
   // Windows: Handle deep link on cold launch
   if (process.platform === "win32" && pendingDeepLink) {
-    if (pendingDeepLink.startsWith('taylos://auth-callback')) {
-    handleAuthCallback(pendingDeepLink);
-    } else if (pendingDeepLink.startsWith('taylos://launch')) {
+    if (isAuthCallbackDeepLink(pendingDeepLink)) {
+      handleAuthCallback(pendingDeepLink);
+    } else if (isLaunchDeepLink(pendingDeepLink)) {
       handleLaunchRequest(pendingDeepLink);
     }
   }
@@ -411,6 +447,7 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
     if (!res.ok) throw new Error('Login failed');
     const data = await res.json();
     await keytar.setPassword('taylos', 'token', data.access_token);
+    broadcastAuthTokenChanged(data.access_token);
     return {success: true};
   } catch (err: unknown) {
     return {success: false, error: (err as Error).message};
@@ -476,6 +513,7 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
 ipcMain.handle('auth:logout', async () => {
   try {
     await headerController.handleLogout();
+    broadcastAuthTokenChanged(null);
     console.log('[Auth] ✅ Logged out via HeaderController');
     return { success: true };
   } catch (err: unknown) {
@@ -780,35 +818,62 @@ ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
 // Register taylos:// protocol for deep linking (auth callback from web)
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('evia', process.execPath, [process.argv[1]]);
-  }
-} else {
-  app.setAsDefaultProtocolClient('evia');
-}
-if (process.env.NODE_ENV === 'development' && process.platform === 'win32') {
-  app.setAsDefaultProtocolClient('evia', process.execPath, [path.resolve(process.argv[1])]);
-  console.log('[Protocol] 🔧 Dev taylos:// handler re-registered');
-}
-console.log('[Protocol] ✅ Registered taylos:// protocol');
+const primaryProtocolRegistered = registerProtocolClient(PRIMARY_DEEP_LINK_SCHEME);
+const legacyProtocolRegistered = registerProtocolClient(LEGACY_DEEP_LINK_SCHEME);
+console.log(`[Protocol] ✅ Registered ${PRIMARY_DEEP_LINK_SCHEME}:// protocol:`, primaryProtocolRegistered);
+console.log(`[Protocol] ✅ Registered ${LEGACY_DEEP_LINK_SCHEME}:// compatibility alias:`, legacyProtocolRegistered);
 
 // macOS: Handle taylos:// URLs when app is already running
 app.on('open-url', (event, url) => {
   event.preventDefault();
   console.log('[Protocol] 🔗 macOS open-url:', url);
-  
-  if (url.startsWith('taylos://auth-callback')) {
-    handleAuthCallback(url);
-  } else if (url.startsWith('taylos://launch')) {
-    handleLaunchRequest(url);
+
+  const normalizedUrl = normalizeDeepLink(url);
+  if (normalizedUrl !== url) {
+    console.log('[Protocol] 🔄 Normalized legacy deep link:', normalizedUrl);
+  }
+
+  if (isAuthCallbackDeepLink(normalizedUrl)) {
+    handleAuthCallback(normalizedUrl);
+  } else if (isLaunchDeepLink(normalizedUrl)) {
+    handleLaunchRequest(normalizedUrl);
   }
 });
+
+function broadcastAuthTokenChanged(token: string | null) {
+  const payload = { token, authenticated: !!token };
+
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win || win.isDestroyed()) return;
+
+    try {
+      win.webContents.send('auth-token-changed', payload);
+    } catch (error) {
+      console.warn('[Auth] Failed to broadcast auth-token-changed to window:', error);
+    }
+  });
+}
+
+function focusPrimaryDesktopWindow() {
+  const headerWindow = getHeaderWindow();
+  if (headerWindow && !headerWindow.isDestroyed()) {
+    forceFocus(headerWindow);
+    return;
+  }
+
+  const fallbackWindow = BrowserWindow.getAllWindows().find(
+    (win) => !win.isDestroyed() && win.getTitle() !== 'Taylos Anchor',
+  );
+  if (fallbackWindow) {
+    forceFocus(fallbackWindow);
+  }
+}
 
 // Handle auth callback from Frontend (Phase 4: HeaderController integration)
 async function handleAuthCallback(url: string) {
   try {
-    const urlObj = new URL(url);
+    const normalizedUrl = normalizeDeepLink(url);
+    const urlObj = new URL(normalizedUrl);
     const token = urlObj.searchParams.get('token');
     const error = urlObj.searchParams.get('error');
     
@@ -822,6 +887,7 @@ async function handleAuthCallback(url: string) {
     if (token) {
       console.log('[Auth] ✅ Received token, delegating to HeaderController');
       await headerController.handleAuthCallback(token);
+      broadcastAuthTokenChanged(token);
     }
   } catch (err) {
     console.error('[Auth] ❌ Callback parsing failed:', err);
@@ -877,11 +943,12 @@ function forceFocus(win: BrowserWindow) {
 // Handle launch request from Frontend (Task 3: SSO)
 async function handleLaunchRequest(url: string) {
   try {
+    const normalizedUrl = normalizeDeepLink(url);
     console.log('[Launch] ========== LAUNCH REQUEST ==========');
-    console.log('[Launch] 🚀 URL:', url);
+    console.log('[Launch] 🚀 URL:', normalizedUrl);
     console.log('[Launch] 📍 Platform:', process.platform);
     
-    const urlObj = new URL(url);
+    const urlObj = new URL(normalizedUrl);
     const token = urlObj.searchParams.get('token');
     
     // Check if Desktop is already authenticated
@@ -905,50 +972,22 @@ async function handleLaunchRequest(url: string) {
     });
     
     if (token) {
-      if (isAlreadyAuthenticated) {
-        console.log('[Launch] ✅ Already authenticated, updating token silently and bringing to front');
-        try {
-          // NOTE: Using 'token' key (not 'auth_token') to match rest of codebase
-          await keytar.setPassword('taylos', 'token', token);
-          console.log('[Launch] 🔑 Token updated in keytar');
-        } catch (err) {
-          console.error('[Launch] ⚠️ Failed to update token (non-fatal):', err);
-        }
-        
-        // Bring app to front with force
-        const headerWindow = getHeaderWindow();
-        console.log('[Launch] 🎯 Header window found:', !!headerWindow);
-        
-        if (headerWindow && !headerWindow.isDestroyed()) {
-          console.log('[Launch] 📊 Header window BEFORE focus:');
-          console.log('[Launch]   - isVisible:', headerWindow.isVisible());
-          console.log('[Launch]   - isAlwaysOnTop:', headerWindow.isAlwaysOnTop());
-          console.log('[Launch]   - visibleOnAllWorkspaces:', headerWindow.isVisibleOnAllWorkspaces());
-          
-          forceFocus(headerWindow);
-          
-          console.log('[Launch] 📊 Header window AFTER focus:');
-          console.log('[Launch]   - isVisible:', headerWindow.isVisible());
-          console.log('[Launch]   - isAlwaysOnTop:', headerWindow.isAlwaysOnTop());
-          console.log('[Launch] ✅ Brought authenticated app to front (forced)');
-        } else {
-          console.log('[Launch] ⚠️ Header window not found, app may need restart');
-        }
-      } else {
-        console.log('[Launch] 🔑 Not authenticated yet, triggering full auth flow');
-        await headerController.handleAuthCallback(token);
-        // Ensure newly created windows are focused
-        setTimeout(() => {
-          const wins = BrowserWindow.getAllWindows();
-          if (wins.length > 0) forceFocus(wins[0]);
-        }, 500);
-      }
+      console.log(
+        isAlreadyAuthenticated
+          ? '[Launch] ✅ Already authenticated, refreshing token and restoring desktop windows'
+          : '[Launch] 🔑 Not authenticated yet, triggering full auth flow',
+      );
+
+      await headerController.handleAuthCallback(token);
+      broadcastAuthTokenChanged(token);
+
+      // Ensure newly created or restored windows are focused
+      setTimeout(() => {
+        focusPrimaryDesktopWindow();
+      }, 500);
     } else {
       console.log('[Launch] 📱 No token, bringing app to front if running');
-      const mainWindow = BrowserWindow.getAllWindows()[0];
-      if (mainWindow) {
-        forceFocus(mainWindow);
-      }
+      focusPrimaryDesktopWindow();
     }
     console.log('[Launch] ========== LAUNCH DONE ==========');
   } catch (err) {

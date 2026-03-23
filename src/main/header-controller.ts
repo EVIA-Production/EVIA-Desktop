@@ -226,10 +226,8 @@ export class HeaderController {
   private async transitionTo(newState: AppState) {
     console.log(`[HeaderController] State transition: ${this.currentState} → ${newState}`);
     
-    // Close all windows first (not all in Windows)
-    if (process.platform == "darwin"){
-      closeWelcomeWindow();
-    }
+    // Close transient windows before opening the next state window.
+    closeWelcomeWindow();
     closePermissionWindow();
     closeSubscriptionWindow();
     
@@ -280,7 +278,10 @@ export class HeaderController {
           createHeaderWindow();
           console.log('[HeaderController] ✅ createHeaderWindow() returned');
         } else {
-          console.log('[HeaderController] ℹ️ Header already exists, not creating');
+          console.log('[HeaderController] ℹ️ Header already exists, ensuring it is visible');
+          existingHeader.showInactive();
+          existingHeader.moveTop();
+          existingHeader.focus();
         }
         break;
         
@@ -322,10 +323,8 @@ export class HeaderController {
       clearSubscriptionCache();
       console.log('[HeaderController] 💳 Subscription cache cleared');
       
-      // Close welcome window if open (only on Mac)
-      if (process.platform == "darwin"){
-        closeWelcomeWindow();
-      }
+      // Close the welcome window if it is still open while auth finishes.
+      closeWelcomeWindow();
       
       // Re-evaluate state (should transition to subscription_required, permissions, or ready)
       const data = await this.getStateData();

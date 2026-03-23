@@ -74,7 +74,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         setIsLoggedIn(false);
       }
     };
+
     fetchAccountInfo();
+
+    const eviaIpc = (window as any).evia?.ipc;
+    const handleAuthChanged = () => {
+      void fetchAccountInfo();
+    };
+
+    eviaIpc?.on?.('auth-token-changed', handleAuthChanged);
+    window.addEventListener('focus', handleAuthChanged);
+
+    return () => {
+      eviaIpc?.off?.('auth-token-changed', handleAuthChanged);
+      window.removeEventListener('focus', handleAuthChanged);
+    };
   }, []);
 
   // FIX ISSUE #2: Load auto-update setting on mount
@@ -102,6 +116,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const token = await eviaAuth?.getToken?.();
         if (!token) {
           console.warn('[SettingsView] No token available, skipping preset fetch');
+          setPresets([]);
+          setSelectedPreset(null);
           return;
         }
 
@@ -134,6 +150,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     };
 
     fetchPresets();
+
+    const eviaIpc = (window as any).evia?.ipc;
+    const handleAuthChanged = () => {
+      void fetchPresets();
+    };
+
+    eviaIpc?.on?.('auth-token-changed', handleAuthChanged);
+
+    return () => {
+      eviaIpc?.off?.('auth-token-changed', handleAuthChanged);
+    };
   }, []); // Run once on mount
 
   // Handlers
@@ -409,6 +436,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const isWindowsPlatform = Boolean((window as any)?.platformInfo?.isWindows);
         const modKey = isWindowsPlatform ? 'Ctrl' : '⌘';
         const shiftKey = isWindowsPlatform ? 'Shift' : '⇧';
+        const toggleKey = isWindowsPlatform ? 'Space' : '\\';
         
         return (
       <div className="shortcuts-section">
@@ -416,7 +444,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           <span className="shortcut-name">{t('shortcutShowHide')}</span>
           <div className="shortcut-keys">
                 <span className="cmd-key">{modKey}</span>
-            <span className="shortcut-key">\</span>
+            <span className="shortcut-key">{toggleKey}</span>
           </div>
         </div>
         <div className="shortcut-item">

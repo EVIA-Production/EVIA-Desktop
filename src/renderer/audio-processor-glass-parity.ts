@@ -28,6 +28,17 @@ let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], 
 let debugSessionId: string = '';
 let debugFlagChecked = false;
 
+async function getActiveAuthToken(): Promise<string> {
+  try {
+    const token = await (window as any).evia?.auth?.getToken?.();
+    if (token) return token;
+  } catch (error) {
+    console.warn('[AudioCapture] Failed to read auth token from secure storage, falling back to localStorage:', error);
+  }
+
+  return localStorage.getItem('auth_token') || '';
+}
+
 // Check debug flag (called from startCapture)
 async function checkDebugFlag() {
   if (debugFlagChecked) return; // Only check once
@@ -1457,7 +1468,7 @@ export async function startCapture(includeSystemAudio = false) {
 
       // Get backend URL and token
       const backendUrl = BACKEND_URL;
-      const token = localStorage.getItem('auth_token') || '';
+      const token = await getActiveAuthToken();
 
       // Force create new chat
       const newChatId = await getOrCreateChatId(backendUrl, token, true);
@@ -1935,7 +1946,7 @@ export async function startCaptureWithStreams(
     if (!currentChatId) {
       // chat cleared due to 403/404 -> create a new one and reconnect
       const backendUrl = BACKEND_URL;
-      const token = localStorage.getItem('auth_token') || '';
+      const token = await getActiveAuthToken();
       const newChatId = await getOrCreateChatId(backendUrl, token, true);
       console.log('[AudioCapture] Recreated chat for mic:', newChatId);
       closeWebSocketInstance(micWsInstance?.chatId || '', 'mic');
@@ -1961,7 +1972,7 @@ export async function startCaptureWithStreams(
       let sysWs = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
       if (!sysWs) {
         const backendUrl = BACKEND_URL;
-        const token = localStorage.getItem('auth_token') || '';
+        const token = await getActiveAuthToken();
         const newChatId = await getOrCreateChatId(backendUrl, token, true);
         closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
         systemWsInstance = null;
@@ -2010,7 +2021,7 @@ export async function startCaptureWithStreams(
     if (!sysWs) {
       console.warn('[AudioCapture] No valid chat_id for system audio; attempting reconnect after chat create');
       const backendUrl = BACKEND_URL;
-      const token = localStorage.getItem('auth_token') || '';
+      const token = await getActiveAuthToken();
       const newChatId = await getOrCreateChatId(backendUrl, token, true);
       closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
       systemWsInstance = null;

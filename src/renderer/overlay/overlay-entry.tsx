@@ -17,6 +17,33 @@ import { initPostHog, identifyUser } from '../services/posthogService'
 // Initialize PostHog analytics
 initPostHog()
 
+function syncAuthTokenToLocalStorage(token: string | null, reason: string) {
+  try {
+    if (token) {
+      localStorage.setItem('auth_token', token)
+      console.log(`[OverlayEntry] 🔐 Synced auth token to localStorage (${reason})`)
+      return
+    }
+
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('current_chat_id')
+    console.log(`[OverlayEntry] 🔐 Cleared auth token + chat_id from localStorage (${reason})`)
+  } catch (error) {
+    console.error('[OverlayEntry] ❌ Failed to sync auth token state:', error)
+  }
+}
+
+async function syncAuthTokenFromSecureStorage(reason: string): Promise<string | null> {
+  try {
+    const token = await (window as any).evia?.auth?.getToken?.()
+    syncAuthTokenToLocalStorage(token ?? null, reason)
+    return token ?? null
+  } catch (error) {
+    console.error('[OverlayEntry] ❌ Failed to read auth token from secure storage:', error)
+    return null
+  }
+}
+
 // Identify user from JWT token (if authenticated)
 async function identifyUserFromToken() {
   try {
@@ -46,7 +73,10 @@ async function identifyUserFromToken() {
 }
 
 // Run identification after a short delay to ensure auth API is ready
-setTimeout(identifyUserFromToken, 500);
+setTimeout(async () => {
+  await syncAuthTokenFromSecureStorage('initial-render')
+  await identifyUserFromToken()
+}, 500);
 
 const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
@@ -255,6 +285,36 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc
+    if (!eviaIpc?.on) {
+      void syncAuthTokenFromSecureStorage('mount-without-ipc-listener')
+      return
+    }
+
+    const handleAuthTokenChanged = async (payload?: { token?: string | null; authenticated?: boolean }) => {
+      if (payload && payload.authenticated === false) {
+        syncAuthTokenToLocalStorage(null, 'auth-token-changed')
+        return
+      }
+
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'token')) {
+        syncAuthTokenToLocalStorage(payload.token ?? null, 'auth-token-changed')
+      } else {
+        await syncAuthTokenFromSecureStorage('auth-token-changed-fallback')
+      }
+
+      await identifyUserFromToken()
+    }
+
+    eviaIpc.on('auth-token-changed', handleAuthTokenChanged)
+    void syncAuthTokenFromSecureStorage('mount')
+
+    return () => {
+      eviaIpc.off('auth-token-changed', handleAuthTokenChanged)
+    }
+  }, [])
+
   // UI IMPROVEMENT: Proactive authentication validation
   // Validates auth status periodically and before critical actions
   // If not authenticated, main process will hide header and show welcome window
@@ -270,8 +330,10 @@ function App() {
       try {
         const result = await eviaAuth.validate();
         if (result && !result.authenticated) {
+          syncAuthTokenToLocalStorage(null, 'validate-auth-failed')
           console.log('[OverlayEntry] ⚠️ Auth validation failed - returning to welcome');
         } else {
+          await syncAuthTokenFromSecureStorage('validate-auth-success')
           console.log('[OverlayEntry] ✅ Auth validation passed');
         }
       } catch (error) {

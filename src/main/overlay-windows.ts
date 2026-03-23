@@ -85,6 +85,62 @@ let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
 // Glass parity: Track visibility before hide (windowManager.js:227-233)
 let lastVisibleWindows = new Set<FeatureName>()
 
+function getWindowIconPath(): string {
+  const iconFile = process.platform === 'darwin' ? 'icon-mac.png' : 'icon.ico'
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', iconFile)
+    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', iconFile)
+}
+
+function shouldShowStandaloneWindowInTaskbar(): boolean {
+  return process.platform === 'win32'
+}
+
+function ensureHeaderWindowVisible(): BrowserWindow {
+  headerWindow = getOrCreateHeaderWindow()
+  headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+  headerWindow.setIgnoreMouseEvents(false)
+  headerWindow.setAlwaysOnTop(true, 'screen-saver')
+  headerWindow.showInactive()
+  headerWindow.moveTop()
+  return headerWindow
+}
+
+function getVisibleChildWindowNames(): FeatureName[] {
+  const visible: FeatureName[] = []
+
+  for (const [name, win] of childWindows) {
+    if (win && !win.isDestroyed() && win.isVisible()) {
+      visible.push(name)
+    }
+  }
+
+  return visible
+}
+
+function restoreLastVisibleChildWindows() {
+  console.log('[overlay-windows] 🔄 Restoring windows:', Array.from(lastVisibleWindows))
+
+  const vis: WindowVisibility = {}
+  for (const name of lastVisibleWindows) {
+    vis[name] = true
+  }
+
+  if (Object.keys(vis).length === 0) {
+    return
+  }
+
+  updateWindows(vis)
+
+  for (const name of lastVisibleWindows) {
+    const win = childWindows.get(name)
+    if (win && !win.isDestroyed()) {
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.moveTop()
+    }
+  }
+}
+
 try {
   if (fs.existsSync(persistFile)) {
     const data = fs.readFileSync(persistFile, 'utf8')
@@ -145,12 +201,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   // On Windows: 'toolbar' type provides more reliable always-on-top than 'panel'
   // On macOS: Keep 'panel' type for proper fullscreen floating behavior
   const isWindows = process.platform === 'win32'
-
-  // Icon path must differ for dev vs packaged
-  const iconFile = process.platform === 'darwin' ? 'icon-mac.png' : 'icon.ico'
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', iconFile)
-    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', iconFile);
+  const iconPath = getWindowIconPath()
 
   headerWindow = new BrowserWindow({
     width: HEADER_SIZE.width,
@@ -1218,6 +1269,31 @@ function handleHeaderToggle() {
 
   const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
 
+  if (process.platform === 'win32') {
+    const visibleChildWindows = getVisibleChildWindowNames()
+
+    if (visibleChildWindows.length > 0) {
+      lastVisibleWindows.clear()
+      visibleChildWindows.forEach((name) => lastVisibleWindows.add(name))
+
+      console.log('[overlay-windows] 🪟 Windows toggle: hiding child windows but keeping header visible')
+      visibleChildWindows.forEach((name) => {
+        const win = childWindows.get(name)
+        if (win && !win.isDestroyed()) {
+          win.hide()
+        }
+      })
+
+      ensureHeaderWindowVisible()
+      return
+    }
+
+    console.log('[overlay-windows] 🪟 Windows toggle: restoring last visible child windows')
+    ensureHeaderWindowVisible()
+    restoreLastVisibleChildWindows()
+    return
+  }
+
   if (headerVisible) {
     // Glass parity: Save visible windows BEFORE hiding (windowManager.js:227-240)
     lastVisibleWindows.clear()
@@ -1239,30 +1315,11 @@ function handleHeaderToggle() {
     headerWindow?.hide()
   } else {
     // Show header
-    headerWindow = getOrCreateHeaderWindow()
-    headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
-    headerWindow.setIgnoreMouseEvents(false)
-    headerWindow.setAlwaysOnTop(true, 'screen-saver')
-    headerWindow.showInactive()
+    headerWindow = ensureHeaderWindowVisible()
 
     // FIX #6: Restore ONLY previously visible windows (windowManager.js:245-249)
     // Don't restore from persisted state - only from lastVisibleWindows Set
-    console.log('[overlay-windows] 🔄 Restoring windows:', Array.from(lastVisibleWindows))
-    const vis: WindowVisibility = {}
-    for (const name of lastVisibleWindows) {
-      vis[name] = true
-    }
-    if (Object.keys(vis).length > 0) {
-      updateWindows(vis)
-      // Ensure restored windows are on top and visible
-      for (const name of lastVisibleWindows) {
-        const win = childWindows.get(name)
-        if (win && !win.isDestroyed()) {
-          win.setAlwaysOnTop(true, 'screen-saver')
-          win.moveTop()
-        }
-      }
-    }
+    restoreLastVisibleChildWindows()
   }
 }
 
@@ -1398,29 +1455,53 @@ function openAskWindow() {
 // GLASS PARITY: Default shortcuts (Glass: shortcutsService.js:59-75)
 function getDefaultShortcuts(): ShortcutConfig {
   const isMac = process.platform === 'darwin'
-  const mod = isMac ? 'Cmd' : 'Ctrl'
+
+  if (isMac) {
+    return {
+      toggleVisibility: 'Cmd+\\',
+      nextStep: 'Cmd+Enter',
+      moveUp: 'Cmd+Up',
+      moveDown: 'Cmd+Down',
+      moveLeft: 'Cmd+Left',
+      moveRight: 'Cmd+Right',
+      toggleClickThrough: 'Cmd+M',
+      previousResponse: 'Cmd+[',
+      nextResponse: 'Cmd+]',
+    }
+  }
 
   return {
-    toggleVisibility: `${mod}+\\`,
-    nextStep: `${mod}+Enter`,
-    moveUp: `${mod}+Up`,
-    moveDown: `${mod}+Down`,
-    moveLeft: `${mod}+Left`,
-    moveRight: `${mod}+Right`,
-    toggleClickThrough: `${mod}+M`,
-    previousResponse: `${mod}+[`,
-    nextResponse: `${mod}+]`,
+    toggleVisibility: 'Ctrl+Space',
+    nextStep: 'Ctrl+Enter',
+    moveUp: 'Ctrl+Up',
+    moveDown: 'Ctrl+Down',
+    moveLeft: 'Ctrl+Left',
+    moveRight: 'Ctrl+Right',
+    toggleClickThrough: 'Ctrl+M',
+    previousResponse: 'Ctrl+[',
+    nextResponse: 'Ctrl+]',
   }
 }
 
 // GLASS PARITY: Load shortcuts from persisted state or use defaults
 function loadShortcuts(): ShortcutConfig {
+  const defaults = getDefaultShortcuts()
+
   if (persistedState.shortcuts) {
     // Merge saved shortcuts with defaults (in case new shortcuts added)
-    const defaults = getDefaultShortcuts()
-    return { ...defaults, ...persistedState.shortcuts }
+    const merged = { ...defaults, ...persistedState.shortcuts }
+
+    if (
+      process.platform === 'win32' &&
+      ['Ctrl+\\', 'Control+\\', 'Cmd+\\', 'Command+\\'].includes(merged.toggleVisibility)
+    ) {
+      merged.toggleVisibility = defaults.toggleVisibility
+    }
+
+    return merged
   }
-  return getDefaultShortcuts()
+
+  return defaults
 }
 
 // GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
@@ -1549,7 +1630,12 @@ function registerShortcuts() {
     }
   }
 
+  const defaultShortcuts = getDefaultShortcuts()
+
   registerSafe(shortcuts.toggleVisibility, handleHeaderToggle)
+  if (process.platform === 'win32' && shortcuts.toggleVisibility === defaultShortcuts.toggleVisibility) {
+    registerSafe('Ctrl+\\', handleHeaderToggle)
+  }
   registerSafe(shortcuts.nextStep, handleNextStepShortcut)
 
   registerSafe(shortcuts.moveUp, nudgeUp)
@@ -2347,7 +2433,8 @@ export function createWelcomeWindow(): BrowserWindow {
     resizable: false,
     movable: true,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: !shouldShowStandaloneWindowInTaskbar(),
+    icon: getWindowIconPath(),
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000',
@@ -2474,7 +2561,8 @@ export function createPermissionWindow(): BrowserWindow {
     resizable: true,  // FIX: Allow resizing for DevTools console access
     movable: true,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: !shouldShowStandaloneWindowInTaskbar(),
+    icon: getWindowIconPath(),
     focusable: true,
     hasShadow: false,
     backgroundColor: '#00000000',
@@ -2625,7 +2713,8 @@ export function createSubscriptionWindow(): BrowserWindow {
     resizable: false,
     movable: true,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: !shouldShowStandaloneWindowInTaskbar(),
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
