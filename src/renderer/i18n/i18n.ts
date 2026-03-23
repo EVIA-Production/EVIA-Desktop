@@ -5,11 +5,29 @@ type Language = 'en' | 'de';
 type Translations = typeof enTranslations;
 
 class I18n {
-  private currentLanguage: Language = 'de'; // Default to German per Glass parity
+  private currentLanguage: Language = 'en';
   private translations: Record<Language, Translations> = {
     en: enTranslations,
     de: deTranslations,
   };
+
+  private detectInitialLanguage(): Language {
+    const stored = localStorage.getItem('evia_language') as Language | null;
+    if (stored === 'en' || stored === 'de') {
+      return stored;
+    }
+
+    const browserLanguage =
+      (typeof navigator !== 'undefined' && (navigator.language || navigator.languages?.[0])) || 'en';
+    const normalized = browserLanguage.toLowerCase();
+    if (normalized.startsWith('de')) {
+      return 'de';
+    }
+    if (normalized.startsWith('en')) {
+      return 'en';
+    }
+    return 'en';
+  }
 
   setLanguage(lang: Language): void {
     this.currentLanguage = lang;
@@ -20,6 +38,9 @@ class I18n {
     const stored = localStorage.getItem('evia_language') as Language;
     if (stored && (stored === 'en' || stored === 'de')) {
       this.currentLanguage = stored;
+    } else {
+      this.currentLanguage = this.detectInitialLanguage();
+      localStorage.setItem('evia_language', this.currentLanguage);
     }
     return this.currentLanguage;
   }
@@ -43,4 +64,3 @@ class I18n {
 
 export const i18n = new I18n();
 export default i18n;
-

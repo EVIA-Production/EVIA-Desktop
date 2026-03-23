@@ -86,6 +86,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
   const fetchInsightsNowRef = useRef<(options?: { fullReplace?: boolean }) => Promise<void>>(async () => {});
+  const afterInsightsFrozenRef = useRef(false);
+  const afterInsightsRequestPendingRef = useRef(false);
+  const viewModeRef = useRef<'transcript' | 'insights'>(viewMode);
   const transcriptsRef = useRef<TranscriptLine[]>([]);
   const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
   const isSessionActiveRef = useRef(false);
@@ -95,9 +98,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
   const lastInsightsFetchCountRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
-  const periodicInsightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const INSIGHTS_REFRESH_THRESHOLD = 3;
-  const MIN_INSIGHTS_REFRESH_INTERVAL_MS = 20_000;
   const ECHO_WINDOW_MS = 3000;
 
   const normalizeTranscriptText = (value: string) =>
@@ -412,6 +412,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, [transcripts]);
 
   useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+
+  useEffect(() => {
     const speaker0Count = transcripts.filter(t => t.speaker === 0).length;
     const speaker1Count = transcripts.filter(t => t.speaker === 1).length;
     console.log(`[Transcript] Total: ${transcripts.length}, Speaker0: ${speaker0Count}, Speaker1: ${speaker1Count}`);
@@ -530,55 +534,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     });
   }, [transcripts, sessionState]);
 
-  useEffect(() => {
-    if (!isSessionActive || isLoadingInsights) return;
-    const finalCount = finalTranscriptCountRef.current;
-    const lastFetched = lastInsightsFetchCountRef.current;
-    const now = Date.now();
-    if (
-      finalCount >= lastFetched + INSIGHTS_REFRESH_THRESHOLD &&
-      now - lastInsightsFetchAtRef.current >= MIN_INSIGHTS_REFRESH_INTERVAL_MS
-    ) {
-      lastInsightsFetchAtRef.current = now;
-      console.log(
-        `[ListenView] 🎯 Auto-insights refresh (finalCount=${finalCount}, lastFetched=${lastFetched})`
-      );
-      setTimeout(() => fetchInsightsNowRef.current(), 100);
+  const schedulePostMeetingInsightsFetch = () => {
+    if (afterInsightsFrozenRef.current || afterInsightsRequestPendingRef.current) {
+      console.log('[ListenView] ⏭️ Post-meeting insights already frozen or pending - skipping duplicate fetch');
+      return;
     }
-  }, [transcripts, isSessionActive, isLoadingInsights]);
-
-  useEffect(() => {
-    if (periodicInsightsIntervalRef.current) {
-      clearInterval(periodicInsightsIntervalRef.current);
-      periodicInsightsIntervalRef.current = null;
-    }
-    if (!isSessionActive) return;
-
-    const PERIODIC_REFRESH_MS = 20_000;
-    periodicInsightsIntervalRef.current = setInterval(() => {
-      const finalCount = finalTranscriptCountRef.current;
-      const lastFetched = lastInsightsFetchCountRef.current;
-      const now = Date.now();
-      if (
-        finalCount >= lastFetched + INSIGHTS_REFRESH_THRESHOLD &&
-        !isLoadingInsights &&
-        now - lastInsightsFetchAtRef.current >= MIN_INSIGHTS_REFRESH_INTERVAL_MS
-      ) {
-        lastInsightsFetchAtRef.current = now;
-        console.log(
-          `[ListenView] 🔄 Periodic auto-insights refresh (finals=${finalCount}, lastFetched=${lastFetched})`
-        );
-        fetchInsightsNowRef.current();
-      }
-    }, PERIODIC_REFRESH_MS);
-
-    return () => {
-      if (periodicInsightsIntervalRef.current) {
-        clearInterval(periodicInsightsIntervalRef.current);
-        periodicInsightsIntervalRef.current = null;
-      }
-    };
-  }, [isSessionActive, isLoadingInsights]);
+    afterInsightsRequestPendingRef.current = true;
+    console.log('[ListenView] ⏳ Scheduling first post-call insights fetch in 300ms...');
+    setTimeout(() => {
+      console.log('[ListenView] 🚀 Fetching first post-call insights snapshot');
+      fetchInsightsNowRef.current({ fullReplace: true });
+    }, 300);
+  };
 
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
@@ -745,6 +712,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
         lastInsightsFetchAtRef.current = 0;
+        afterInsightsFrozenRef.current = false;
+        afterInsightsRequestPendingRef.current = false;
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
         stallToastShownRef.current = false;
@@ -796,11 +765,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setViewMode('insights');
         setShowUndoButton(false);
 
-        console.log('[ListenView] ⏳ Scheduling insights fetch in 300ms...');
-        setTimeout(() => {
-          console.log('[ListenView] 🚀 Fetching post-call insights NOW');
-          fetchInsightsNowRef.current({ fullReplace: true });
-        }, 300);
+        schedulePostMeetingInsightsFetch();
 
         return;
       }
@@ -1180,6 +1145,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
         lastInsightsFetchAtRef.current = 0;
+        afterInsightsFrozenRef.current = false;
+        afterInsightsRequestPendingRef.current = false;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -1198,6 +1165,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         finalTranscriptCountRef.current = 0;
         lastInsightsFetchCountRef.current = 0;
         lastInsightsFetchAtRef.current = 0;
+        afterInsightsFrozenRef.current = false;
+        afterInsightsRequestPendingRef.current = false;
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -1223,6 +1192,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
           lastInsightsFetchAtRef.current = 0;
+          afterInsightsFrozenRef.current = false;
+          afterInsightsRequestPendingRef.current = false;
         } else if (newState === 'after') {
           setIsSessionActive(false);
           setInsights(null);
@@ -1230,9 +1201,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setInsightsIndex(-1);
           setInsightsRefreshPending(false);
           setViewMode('insights');
-          setTimeout(() => {
-            fetchInsightsNowRef.current({ fullReplace: true });
-          }, 300);
+          schedulePostMeetingInsightsFetch();
         } else if (newState === 'before') {
           (window as any).evia?.liveTranscript?.clear?.();
           setTranscripts([]);
@@ -1245,6 +1214,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
           lastInsightsFetchAtRef.current = 0;
+          afterInsightsFrozenRef.current = false;
+          afterInsightsRequestPendingRef.current = false;
         }
       };
 
@@ -1519,6 +1490,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         }
         lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
         lastInsightsFetchAtRef.current = Date.now();
+        if (derivedSessionState === 'after') {
+          afterInsightsFrozenRef.current = true;
+        }
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
         console.warn('[ListenView] ⚠️ This could mean:');
@@ -1534,6 +1508,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] 🔍 Error details:', errorMessage);
       setInsightsRefreshPending(false);
     } finally {
+      if (derivedSessionState === 'after' && !afterInsightsFrozenRef.current) {
+        afterInsightsRequestPendingRef.current = false;
+      }
       setIsLoadingInsights(false);
     }
   };
@@ -1548,8 +1525,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (!eviaIpc?.on) return;
 
     const onShortcutNextStep = () => {
+      const wasTranscript = viewModeRef.current === 'transcript';
       setViewMode('insights');
-      fetchInsightsNowRef.current();
+      if (wasTranscript && sessionStateRef.current === 'during') {
+        fetchInsightsNowRef.current();
+      }
     };
 
     const onShortcutPreviousResponse = () => {
@@ -1621,11 +1601,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setCopyState('idle');
     }
 
-    // COLD CALLING FIX: ALWAYS fetch fresh insights when toggling to insights view
-    // This ensures insights reflect the latest transcript context, critical for real-time coaching
     if (newMode === 'insights') {
-      console.log(`[ListenView] Switched to insights view - Fetching fresh insights`);
-      await fetchInsightsNow();
+      if (sessionStateRef.current === 'during') {
+        console.log('[ListenView] Switched to insights view during meeting - fetching a fresh manual snapshot');
+        await fetchInsightsNow();
+      } else {
+        console.log('[ListenView] Switched to insights view after meeting - keeping frozen snapshot');
+      }
     } else {
       console.log(`[ListenView] Switched to transcript view, no fetch needed`);
     }
