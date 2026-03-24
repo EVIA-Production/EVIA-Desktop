@@ -13,6 +13,7 @@ export type StreamAskParams = {
 
 export type StreamAskHandle = {
   onDelta: (cb: (delta: string) => void) => void
+  onReplace: (cb: (text: string) => void) => void
   onDone: (cb: () => void) => void
   onError: (cb: (err: Error) => void) => void
   abort: () => void
@@ -56,6 +57,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
   const body = JSON.stringify(payload)
 
   let deltaHandler: (delta: string) => void = () => {}
+  let replaceHandler: (text: string) => void = () => {}
   let doneHandler: () => void = () => {}
   let errorHandler: (err: Error) => void = () => {}
 
@@ -135,8 +137,14 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
               continue
             }
             const delta = typeof obj?.delta === 'string' ? obj.delta : ''
+            const replacement = obj?.replace === true && typeof obj?.text === 'string'
+              ? obj.text
+              : ''
             const doneFlag = obj?.done === true
 
+            if (replacement) {
+              try { replaceHandler(replacement) } catch {}
+            }
             if (delta) {
               try { deltaHandler(delta) } catch {}
             }
@@ -174,6 +182,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
 
   return {
     onDelta(cb) { deltaHandler = cb; return undefined as any },
+    onReplace(cb) { replaceHandler = cb; return undefined as any },
     onDone(cb) { doneHandler = cb; return undefined as any },
     onError(cb) { errorHandler = cb; return undefined as any },
     abort() { try { controller.abort() } catch {} }

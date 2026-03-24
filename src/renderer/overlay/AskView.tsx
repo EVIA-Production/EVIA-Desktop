@@ -919,6 +919,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       responseBufferRef.current += d;
       setResponse(sanitizeAskOutput(responseBufferRef.current, currentSessionState));
     });
+
+    handle.onReplace((text) => {
+      if (streamRef.current !== handle) return;
+      responseBufferRef.current = text;
+      setResponse(sanitizeAskOutput(text, currentSessionState));
+    });
     
     handle.onDone(() => {
       if (streamRef.current !== handle) return;

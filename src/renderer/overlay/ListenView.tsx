@@ -244,11 +244,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return !areCompatiblePartialTexts(item.text || '', finalizedText);
   });
 
+  const collapseDuplicatePartialsForUtterance = (
+    rows: TranscriptLine[],
+    speaker: number | null,
+    utteranceId: string | undefined,
+    keepIdx: number,
+  ) => {
+    if (!utteranceId) return rows;
+    return rows.filter((item, idx) => {
+      if (idx === keepIdx) return true;
+      if (item.speaker !== speaker) return true;
+      if (!item.isPartial || item.isFinal) return true;
+      return item.utteranceId !== utteranceId;
+    });
+  };
+
   const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) => {
+    const stableRows = rows.filter(entry => {
+      const cleaned = (entry.text || '').trim();
+      return Boolean(cleaned) && entry.isFinal === true && entry.isPartial !== true;
+    });
     const lines: string[] = [];
     let charCount = 0;
-    for (let i = rows.length - 1; i >= 0; i -= 1) {
-      const entry = rows[i];
+    for (let i = stableRows.length - 1; i >= 0; i -= 1) {
+      const entry = stableRows[i];
       const cleaned = (entry.text || '').trim();
       if (!cleaned) continue;
       const speakerLabel = entry.speaker === 1 ? 'You' : 'Prospect';
@@ -877,12 +896,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             if (!item.isPartial || item.isFinal) continue;
             const itemTs = item.timestamp ?? 0;
             if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
-            if (!areCompatiblePartialTexts(item.text || '', incomingText)) continue;
             if (reliableUtteranceId && item.utteranceId && item.utteranceId !== reliableUtteranceId) continue;
+            const sameReliableUtterance = Boolean(
+              reliableUtteranceId &&
+              item.utteranceId &&
+              item.utteranceId === reliableUtteranceId
+            );
+            if (!sameReliableUtterance && !areCompatiblePartialTexts(item.text || '', incomingText)) continue;
 
             let score = 0;
-            if (reliableUtteranceId && item.utteranceId === reliableUtteranceId) {
-              score += 1000;
+            if (sameReliableUtterance) {
+              score += 10000;
             }
             score += getSharedPrefixWordCount(item.text || '', incomingText) * 25;
             score -= Math.abs((item.text || '').length - incomingText.length) / 20;
@@ -971,6 +995,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
+            newMessages = collapseDuplicatePartialsForUtterance(
+              newMessages,
+              speaker,
+              normalizedUtteranceId,
+              targetIdx,
+            );
             didMutateRows = true;
           } else {
             // No compatible partial found, append a new partial at the end.
@@ -986,6 +1016,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
               utteranceId: normalizedUtteranceId,
             });
+            newMessages = collapseDuplicatePartialsForUtterance(
+              newMessages,
+              speaker,
+              normalizedUtteranceId,
+              newMessages.length - 1,
+            );
             didMutateRows = true;
           }
         } else if (isFinal) {
@@ -1074,6 +1110,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               resolvedFinalText,
               messageTimestamp,
               normalizedUtteranceId,
+            );
+            newMessages = collapseDuplicatePartialsForUtterance(
+              newMessages,
+              speaker,
+              normalizedUtteranceId,
+              targetIdx,
             );
           } else {
             // No compatible partial found: append a new final entry instead of freezing
