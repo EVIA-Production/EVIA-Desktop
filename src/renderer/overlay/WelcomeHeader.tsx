@@ -5,22 +5,18 @@ const WEB_APP_URL = 'https://app.taylos.ai';
 
 /**
  * WelcomeHeader Component
- * 
+ *
  * Displayed when user is not logged in.
  * Shows welcome message and login button that opens browser to Frontend.
- * 
+ *
  * Flow:
  * 1. User sees this window on first launch (no token in keytar)
- * 2. Clicks "Open Browser to Log In" button
- * 3. Browser opens to Taylos-Frontend/login?source=desktop
+ * 2. Clicks "Get Started"
+ * 3. Browser opens to Taylos frontend with ?source=desktop
  * 4. After successful login, Frontend redirects to taylos://auth-callback?token=...
- * 5. This window closes, permission window opens
- * 
- * Glass Reference: glass/src/ui/app/WelcomeHeader.js
+ * 5. This window closes and the app continues the onboarding flow
  */
-
 const WelcomeHeader: React.FC = () => {
-  const isMac = (window as any).platformInfo?.isMac || false;
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -28,12 +24,11 @@ const WelcomeHeader: React.FC = () => {
       const el = rootRef.current || document.querySelector('.welcome-container');
       if (!el) return;
 
-      // Give layout a moment to settle
       await new Promise((r) => setTimeout(r, 100));
 
       const rect = el.getBoundingClientRect();
       const contentWidth = Math.ceil(rect.width);
-      const contentHeight = Math.ceil(rect.height) + 2; // account for glass border
+      const contentHeight = Math.ceil(rect.height) + 2;
 
       console.log('[WelcomeHeader] Content measured:', contentWidth, 'x', contentHeight);
 
@@ -51,56 +46,39 @@ const WelcomeHeader: React.FC = () => {
           }
         }
       } catch (err) {
-        console.warn('[WelcomeHeader] resize request failed:', err);
+        console.warn('[WelcomeHeader] Resize request failed:', err);
       }
     };
 
     measureAndResize();
-    // Optionally re-measure on window resize
-    // window.addEventListener('resize', measureAndResize);
-    return () => {
-      // window.removeEventListener('resize', measureAndResize);
-    };
+    return () => {};
   }, []);
-  /**
-   * Opens default browser to Frontend register page for first-time users
-   * Adds ?source=desktop param so Frontend knows to redirect back via taylos://
-   */
-  const handleLogin = async () => {
-    console.log('[WelcomeHeader] 🔐 Opening browser for registration...');
-    
-    // Open register page instead of login for first-time users
-    const loginUrl = `${WEB_APP_URL}/register?source=desktop`;
-    
-    console.log('[WelcomeHeader] 🌐 Login URL:', loginUrl);
-    console.log('[WelcomeHeader] 🔍 Checking evia bridge:', (window as any).evia);
-    
-    try {
-      // Use shell API to open in external browser
-      if ((window as any).evia?.shell?.openExternal) {
-        console.log('[WelcomeHeader] ✅ Shell API available, opening browser...');
-        await (window as any).evia.shell.openExternal(loginUrl);
-        console.log('[WelcomeHeader] ✅ Browser opened successfully');
 
-        if (isMac) {
-          console.log('[WelcomeHeader] 🔒 Closing welcome window on macOS');
-          window.close();
-        } else {
-          console.log('[WelcomeHeader] 🪟 Keeping welcome window open on Windows until auth callback returns');
-        }
+  const handleLogin = async () => {
+    console.log('[WelcomeHeader] Opening browser for registration...');
+
+    const loginUrl = `${WEB_APP_URL}/register?source=desktop`;
+
+    console.log('[WelcomeHeader] Login URL:', loginUrl);
+    console.log('[WelcomeHeader] Checking evia bridge:', (window as any).evia);
+
+    try {
+      if ((window as any).evia?.shell?.openExternal) {
+        console.log('[WelcomeHeader] Shell API available, opening browser...');
+        await (window as any).evia.shell.openExternal(loginUrl);
+        console.log('[WelcomeHeader] Browser opened successfully');
+        console.log('[WelcomeHeader] Closing welcome window while browser login is in progress');
+        window.close();
       } else {
-        console.error('[WelcomeHeader] ❌ Shell API not available:', (window as any).evia);
-        // Fallback: Try window.open (may be blocked by browser)
+        console.error('[WelcomeHeader] Shell API not available:', (window as any).evia);
         window.open(loginUrl, '_blank');
+        window.close();
       }
     } catch (err) {
-      console.error('[WelcomeHeader] ❌ Failed to open browser:', err);
+      console.error('[WelcomeHeader] Failed to open browser:', err);
     }
   };
 
-  /**
-   * Opens privacy policy
-   */
   const handlePrivacyPolicy = async () => {
     console.log('[WelcomeHeader] Opening privacy policy...');
     try {
@@ -108,51 +86,45 @@ const WelcomeHeader: React.FC = () => {
         await (window as any).evia.shell.openExternal('https://taylos.ai/data-privacy');
       }
     } catch (err) {
-      console.error('[WelcomeHeader] ❌ Failed to open privacy policy:', err);
+      console.error('[WelcomeHeader] Failed to open privacy policy:', err);
     }
   };
 
-  /**
-   * Quits the application
-   */
   const handleQuit = async () => {
-    console.log('[WelcomeHeader] 🚪 Quit button clicked');
-    
+    console.log('[WelcomeHeader] Quit button clicked');
+
     try {
       if ((window as any).evia?.app?.quit) {
-        if (isMac){
+        if ((window as any).platformInfo?.isMac) {
           await (window as any).evia.app.quit();
         } else {
           window.close();
         }
       } else {
-        console.error('[WelcomeHeader] ❌ App quit API not available');
+        console.error('[WelcomeHeader] App quit API not available');
       }
     } catch (err) {
-      console.error('[WelcomeHeader] ❌ Failed to quit:', err);
+      console.error('[WelcomeHeader] Failed to quit:', err);
     }
   };
 
   return (
-    <div className="welcome-container">
-      {/* Close button (quits app) */}
-      <button 
-        className="close-button" 
+    <div className="welcome-container" ref={rootRef}>
+      <button
+        className="close-button"
         onClick={handleQuit}
         aria-label="Quit Taylos"
       >
-        ×
+        &times;
       </button>
-      
-      {/* Header Section */}
+
       <div className="header-section">
         <div className="title">Welcome to Taylos</div>
         <div className="subtitle">Your AI-powered meeting assistant</div>
       </div>
 
-      {/* FIX #13: Login button positioned in upper right (absolute) */}
-      <button 
-        className="action-button action-button-absolute" 
+      <button
+        className="action-button action-button-absolute"
         onClick={handleLogin}
         aria-label="Get Started"
       >
@@ -162,24 +134,24 @@ const WelcomeHeader: React.FC = () => {
         </div>
       </button>
 
-      {/* Login Option Card */}
       <div className="option-card">
         <div className="divider"></div>
         <div className="option-content">
           <div className="option-title">Get Started</div>
           <div className="option-description">
-            Log in to access your Taylos account<br />
-            Your conversations are securely stored<br />
+            Log in to access your Taylos account
+            <br />
+            Your conversations are securely stored
+            <br />
             Access insights and meeting notes
           </div>
         </div>
       </div>
 
-      {/* Footer with Privacy Policy */}
       <div className="footer">
-        Taylos keeps your personal data private —{' '}
-        <span 
-          className="footer-link" 
+        Taylos keeps your personal data private -{' '}
+        <span
+          className="footer-link"
           onClick={handlePrivacyPolicy}
           role="button"
           tabIndex={0}
@@ -192,11 +164,8 @@ const WelcomeHeader: React.FC = () => {
           See details
         </span>
       </div>
-
-      
     </div>
   );
 };
 
 export default WelcomeHeader;
-

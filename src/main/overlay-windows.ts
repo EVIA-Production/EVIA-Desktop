@@ -28,6 +28,7 @@ let headerVisualCenterOffset = HEADER_SIZE.width / 2
 const PAD = 8
 const ANIM_DURATION = 0 // INSTANT show/hide 
 let settingsHideTimer: NodeJS.Timeout | null = null
+let restoreChildWindowsOnHeaderRestore = false
 
 // Note: All windows load overlay.html with ?view=X query params for React routing.
 // The 'html' field is kept for documentation but not used in loadFile() calls.
@@ -101,7 +102,14 @@ function ensureHeaderWindowVisible(): BrowserWindow {
   headerWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   headerWindow.setIgnoreMouseEvents(false)
   headerWindow.setAlwaysOnTop(true, 'screen-saver')
-  headerWindow.showInactive()
+  if (headerWindow.isMinimized()) {
+    headerWindow.restore()
+  }
+  if (process.platform === 'win32') {
+    headerWindow.show()
+  } else {
+    headerWindow.showInactive()
+  }
   headerWindow.moveTop()
   return headerWindow
 }
@@ -325,6 +333,16 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   headerWindow.on('closed', () => {
     headerWindow = null
+    restoreChildWindowsOnHeaderRestore = false
+  })
+
+  headerWindow.on('restore', () => {
+    if (!restoreChildWindowsOnHeaderRestore) {
+      return
+    }
+
+    restoreChildWindowsOnHeaderRestore = false
+    restoreLastVisibleChildWindows()
   })
 
   headerWindow.once('ready-to-show', () => {
@@ -1261,18 +1279,20 @@ function handleHeaderToggle() {
   // FIX #2: Remove async/await and dynamic import to eliminate button delay
   // CRITICAL AUTH CHECK: Only allow toggle if user is authenticated and has permissions
   const currentState = headerController.getCurrentState()
+  const hasHeaderWindow = !!(headerWindow && !headerWindow.isDestroyed())
 
-  if (currentState !== 'ready') {
+  if (currentState !== 'ready' && !hasHeaderWindow) {
     console.log('[overlay-windows] ⛔ Header toggle blocked - user not ready (state:', currentState, ')')
     return // Don't allow toggle if not authenticated + permissions granted
   }
 
-  const headerVisible = headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()
+  const headerVisible = !!(headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible() && !headerWindow.isMinimized())
 
   if (process.platform === 'win32') {
     const visibleChildWindows = getVisibleChildWindowNames()
+    const hasVisibleUi = headerVisible || visibleChildWindows.length > 0
 
-    if (visibleChildWindows.length > 0) {
+    if (hasVisibleUi) {
       lastVisibleWindows.clear()
       visibleChildWindows.forEach((name) => lastVisibleWindows.add(name))
 
@@ -1284,11 +1304,15 @@ function handleHeaderToggle() {
         }
       })
 
-      ensureHeaderWindowVisible()
+      if (headerWindow && !headerWindow.isDestroyed()) {
+        restoreChildWindowsOnHeaderRestore = lastVisibleWindows.size > 0
+        headerWindow.minimize()
+      }
       return
     }
 
     console.log('[overlay-windows] 🪟 Windows toggle: restoring last visible child windows')
+    restoreChildWindowsOnHeaderRestore = false
     ensureHeaderWindowVisible()
     restoreLastVisibleChildWindows()
     return
