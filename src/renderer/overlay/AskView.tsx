@@ -936,6 +936,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setResponse(finalResponse);
       }
       if (finalResponse) {
+        console.log('[AskView] 🧠 Final suggestion content:\n%s', finalResponse);
+      }
+      if (finalResponse) {
         setResponseHistory((prev) => {
           const next = [...prev, finalResponse];
           setResponseIndex(next.length - 1);

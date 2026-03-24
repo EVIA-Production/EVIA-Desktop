@@ -46,6 +46,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
   const lastMoveTimeRef = useRef<number>(0); // Throttle mouse move events
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
+  const completeSessionInFlightRef = useRef(false);
 
   // WINDOWS FIX (2025-12-05): Get platform info inside component where it's guaranteed to be available
   const isWindowsPlatform = useMemo(() => {
@@ -538,63 +539,72 @@ const EviaBar: React.FC<EviaBarProps> = ({
       // Window remains visible for insights
     } else if (listenStatus === 'after') {
       // FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
-      console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
-      
-      // 🆕 BACKEND INTEGRATION: Call /session/complete BEFORE hiding windows
+      if (completeSessionInFlightRef.current) {
+        console.warn('[EviaBar] ⏭️ Ignoring duplicate Done press while /session/complete is already running');
+        return;
+      }
+      completeSessionInFlightRef.current = true;
       try {
-        const eviaAuth = (window as any).evia?.auth;
-        const token = await eviaAuth?.getToken?.();
-        const chatId = localStorage.getItem('current_chat_id');
-        const { BACKEND_URL: baseUrl } = await import('../config/config');
+        console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
+        
+        // 🆕 BACKEND INTEGRATION: Call /session/complete BEFORE hiding windows
+        try {
+          const eviaAuth = (window as any).evia?.auth;
+          const token = await eviaAuth?.getToken?.();
+          const chatId = localStorage.getItem('current_chat_id');
+          const { BACKEND_URL: baseUrl } = await import('../config/config');
 
-        if (token && chatId) {
-          console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
-          const response = await fetch(`${baseUrl}/session/complete`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              chat_id: Number(chatId),
-              summary: null  // Optional - can add user input later
-            })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('[EviaBar] ✅ Session completed:', data);
-            console.log(`[EviaBar] 📦 Archived ${data.transcript_count} transcripts`);
-            // Log the implementation report for debugging/metrics
-            if (data.suggestion_report) {
-              console.log('[EviaBar] 📊 SUGGESTION IMPLEMENTATION REPORT:');
-              console.log(data.suggestion_report);
+          if (token && chatId) {
+            console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
+            const response = await fetch(`${baseUrl}/session/complete`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                chat_id: Number(chatId),
+                summary: null  // Optional - can add user input later
+              })
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('[EviaBar] ✅ Session completed:', data);
+              console.log(`[EviaBar] 📦 Archived ${data.transcript_count} transcripts`);
+              // Log the implementation report for debugging/metrics
+              if (data.suggestion_report) {
+                console.log('[EviaBar] 📊 SUGGESTION IMPLEMENTATION REPORT:');
+                console.log(data.suggestion_report);
+              }
+            } else {
+              console.error('[EviaBar] ❌ Failed to complete session:', response.status, await response.text());
             }
           } else {
-            console.error('[EviaBar] ❌ Failed to complete session:', response.status, await response.text());
+            console.warn('[EviaBar] ⚠️ Cannot call /session/complete: missing token or chat_id');
           }
-        } else {
-          console.warn('[EviaBar] ⚠️ Cannot call /session/complete: missing token or chat_id');
+        } catch (error) {
+          console.error('[EviaBar] ❌ Error calling /session/complete:', error);
         }
-      } catch (error) {
-        console.error('[EviaBar] ❌ Error calling /session/complete:', error);
-      }
-      
-      await (window as any).evia?.windows?.hide?.('listen');
-      await (window as any).evia?.windows?.hide?.('ask');
-      // Broadcast session-closed event so Ask can clear its state
-      (window as any).evia?.ipc?.send?.('session:closed');
-      // Broadcast full session clear so Listen does not show previous insights/transcripts on next open.
-      (window as any).evia?.ipc?.send?.('clear-session');
+        
+        await (window as any).evia?.windows?.hide?.('listen');
+        await (window as any).evia?.windows?.hide?.('ask');
+        // Broadcast session-closed event so Ask can clear its state
+        (window as any).evia?.ipc?.send?.('session:closed');
+        // Broadcast full session clear so Listen does not show previous insights/transcripts on next open.
+        (window as any).evia?.ipc?.send?.('clear-session');
 
-      // FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
-      // This ensures each "Listen → Done" cycle creates a separate session
-      localStorage.removeItem('current_chat_id');
-      console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
-      
-      setListenStatus('before');
-      setIsListenActive(false);
-      console.log('[EviaBar] ✅ Session closed, windows hidden');
+        // FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
+        // This ensures each "Listen → Done" cycle creates a separate session
+        localStorage.removeItem('current_chat_id');
+        console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
+        
+        setListenStatus('before');
+        setIsListenActive(false);
+        console.log('[EviaBar] ✅ Session closed, windows hidden');
+      } finally {
+        completeSessionInFlightRef.current = false;
+      }
     }
   };
 
