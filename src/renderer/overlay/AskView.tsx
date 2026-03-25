@@ -37,7 +37,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [showTextInput, setShowTextInput] = useState(true);
   const [headerText, setHeaderText] = useState(i18n.t('overlay.ask.aiResponse'));
-  const [responseHistory, setResponseHistory] = useState<string[]>([]);
+  const [responseHistory, setResponseHistory] = useState<{question: string, response: string}[]>([]);
   const [responseIndex, setResponseIndex] = useState(-1);
   const [responseSessionState, setResponseSessionState] = useState<AskSessionState>('before');
   const [responseNeedsScroll, setResponseNeedsScroll] = useState(false);
@@ -53,7 +53,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const lastResponseRef = useRef<string>('');  // UI IMPROVEMENT: Track when content actually changes
   const storedContentHeightRef = useRef<number | null>(null);  // CRITICAL: Store content-based height to restore after arrow key movement
   const responseBufferRef = useRef<string>('');
-  const responseHistoryRef = useRef<string[]>([]);
+  const responseHistoryRef = useRef<{question: string, response: string}[]>([]);
   const responseIndexRef = useRef<number>(-1);
   const lastSendAndSubmitSignatureRef = useRef<string>('');
   const lastSendAndSubmitAtRef = useRef<number>(0);
@@ -66,8 +66,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       .replace(/^\s*[-*]\s+/gm, '')
       .replace(/^\s*\d+\.\s+/gm, '')
       .replace(/`(.+?)`/gs, '$1')
-      .replace(/(?:\n\s*)?---\s*\n\s*\[(?:Aktion|Action):[^\]\n]+\]\s*/gi, '\n\n')
-      .replace(/^\s*\[(?:Aktion|Action):[^\]\n]+\]\s*$/gim, '')
       .replace(/^[\s,;:.\-–—]+/, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
@@ -86,8 +84,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`(.+?)`/gs, '$1')
       .replace(/^#{1,6}\s+/gm, '')
-      .replace(/(?:\n\s*)?---\s*\n\s*\[(?:Aktion|Action):[^\]\n]+\]\s*/gi, '\n\n')
-      .replace(/^\s*\[(?:Aktion|Action):[^\]\n]+\]\s*$/gim, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }, []);
@@ -397,26 +393,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.log('[AskView] ✅ Stream aborted due to language toggle');
     };
 
-    // FIX: Clear session on language change (clears question, response, etc.)
+    // Keep pre-meeting content visible when Listen starts (before→during).
+    // Only cancel transient streaming state; response/history/question persist
+    // so the user can still see preparation help at the start of the call.
     const handleClearSession = () => {
-      console.log('[AskView] 🧹 Received clear-session - clearing all state (language change or session end)');
+      console.log('[AskView] 🧹 Received clear-session - cancelling active stream, keeping content');
       cancelActiveStreamRef.current?.('clear session');
-      // Clear all state
-      setResponse('');
-      setResponseHistory([]);
-      setResponseIndex(-1);
-      setResponseSessionState('before');
-      setCurrentQuestion('');
-      setPrompt('');
       setIsStreaming(false);
       setTtftMs(null);
       ttftLoggedRef.current = false;
       setErrorToast(null);
       setIsLoadingFirstToken(false);
-      lastResponseRef.current = '';  // Clear resize tracking
-      storedContentHeightRef.current = 58;
       liveTranscriptOverrideRef.current = null;
-      console.log('[AskView] ✅ Session cleared');
+      console.log('[AskView] ✅ Stream cancelled, content preserved');
     };
 
     // SESSION STATE: Listen for session state changes from EviaBar
@@ -482,8 +471,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const nextIdx = Math.max(0, current - 1);
       if (nextIdx === current) return;
 
+      const entry = history[nextIdx];
       setResponseIndex(nextIdx);
-      setResponse(history[nextIdx]);
+      setResponse(entry.response);
+      setCurrentQuestion(entry.question);
       setHeaderText(i18n.t('overlay.ask.aiResponse'));
     };
 
@@ -495,8 +486,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const nextIdx = Math.min(history.length - 1, current + 1);
       if (nextIdx === current) return;
 
+      const entry = history[nextIdx];
       setResponseIndex(nextIdx);
-      setResponse(history[nextIdx]);
+      setResponse(entry.response);
+      setCurrentQuestion(entry.question);
       setHeaderText(i18n.t('overlay.ask.aiResponse'));
     };
 
@@ -980,8 +973,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] 🧠 Final suggestion content:\n%s', finalResponse);
       }
       if (finalResponse) {
+        const questionSnapshot = currentQuestion;
         setResponseHistory((prev) => {
-          const next = [...prev, finalResponse];
+          const next = [...prev, { question: questionSnapshot, response: finalResponse }];
           setResponseIndex(next.length - 1);
           return next;
         });

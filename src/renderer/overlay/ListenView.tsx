@@ -1084,8 +1084,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             }
           }
 
+          // Flush any pending (throttled) partial into state before final comparison
+          const pendingKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId ?? 'active'}`;
+          const pendingPartial = pendingPartialUpdates.current[pendingKey];
+          delete pendingPartialUpdates.current[pendingKey];
+
           const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
           if (targetIdx !== -1) {
+            // Apply any throttled partial text that never made it into state
+            if (pendingPartial && pendingPartial.text && pendingPartial.text.length > (newMessages[targetIdx].text || '').length) {
+              newMessages[targetIdx] = { ...newMessages[targetIdx], text: pendingPartial.text };
+            }
             // Freeze existing partial in place as final
             const resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', incomingDisplayText);
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
