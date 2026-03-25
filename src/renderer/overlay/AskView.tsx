@@ -55,15 +55,29 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const responseBufferRef = useRef<string>('');
   const responseHistoryRef = useRef<string[]>([]);
   const responseIndexRef = useRef<number>(-1);
+  const lastSendAndSubmitSignatureRef = useRef<string>('');
+  const lastSendAndSubmitAtRef = useRef<number>(0);
   const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
   const sanitizeLiveAskMarkdown = useCallback((text: string) => {
     if (!text) return '';
-    return text
+    const cleaned = text
       .replace(/```[\s\S]*?```/g, '')
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^\s*[-*]\s+/gm, '')
       .replace(/^\s*\d+\.\s+/gm, '')
-      .replace(/`(.+?)`/gs, '$1');
+      .replace(/`(.+?)`/gs, '$1')
+      .replace(/(?:\n\s*)?---\s*\n\s*\[(?:Aktion|Action):[^\]\n]+\]\s*/gi, '\n\n')
+      .replace(/^\s*\[(?:Aktion|Action):[^\]\n]+\]\s*$/gim, '')
+      .replace(/^[\s,;:.\-–—]+/, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    if (!cleaned) return '';
+    const firstChar = cleaned.charAt(0);
+    if (firstChar >= 'a' && firstChar <= 'z') {
+      return firstChar.toUpperCase() + cleaned.slice(1);
+    }
+    return cleaned;
   }, []);
 
   const sanitizeRichAskMarkdown = useCallback((text: string) => {
@@ -295,6 +309,27 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const incomingPrompt = typeof payload === 'string' ? payload : payload.text;
       const explicitSessionState = typeof payload === 'object' ? payload.sessionState : undefined;
       const transcriptContext = typeof payload === 'object' ? payload.transcriptContext : undefined;
+      const signature = JSON.stringify([
+        incomingPrompt.trim(),
+        explicitSessionState || '',
+        transcriptContext || '',
+      ]);
+      const now = Date.now();
+
+      if (
+        signature === lastSendAndSubmitSignatureRef.current &&
+        (
+          now - lastSendAndSubmitAtRef.current < 1500 ||
+          Boolean(streamRef.current) ||
+          Boolean(restartStreamTimeoutRef.current)
+        )
+      ) {
+        console.log('[AskView] ⏭️ Ignoring duplicate send-and-submit payload');
+        return;
+      }
+
+      lastSendAndSubmitSignatureRef.current = signature;
+      lastSendAndSubmitAtRef.current = now;
       
       console.log('[AskView] 📥 Received send-and-submit via IPC:', incomingPrompt.substring(0, 50));
       
