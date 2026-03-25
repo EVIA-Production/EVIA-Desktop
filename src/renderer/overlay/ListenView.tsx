@@ -96,6 +96,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
   const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
+  const peakPartialTextRef = useRef<Map<string, string>>(new Map());
   const lastInsightsFetchCountRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
   const ECHO_WINDOW_MS = 3000;
@@ -986,6 +987,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
+
+            const peakKey = `${speaker ?? 'x'}-${normalizedUtteranceId ?? 'x'}`;
+            const currentPeak = peakPartialTextRef.current.get(peakKey) || '';
+            if (existing.text.length > currentPeak.length) {
+              peakPartialTextRef.current.set(peakKey, existing.text);
+            }
+            if (incomingDisplayText.length > (peakPartialTextRef.current.get(peakKey) || '').length) {
+              peakPartialTextRef.current.set(peakKey, incomingDisplayText);
+            }
+
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
               text: incomingDisplayText,
@@ -1095,10 +1106,41 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             if (pendingPartial && pendingPartial.text && pendingPartial.text.length > (newMessages[targetIdx].text || '').length) {
               newMessages[targetIdx] = { ...newMessages[targetIdx], text: pendingPartial.text };
             }
-            // Freeze existing partial in place as final
-            const resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', incomingDisplayText);
+            // Freeze existing partial in place as final, recovering peak text if Deepgram reset hypothesis
+            const peakKey = `${speaker ?? 'x'}-${normalizedUtteranceId ?? 'x'}`;
+            const peakText = peakPartialTextRef.current.get(peakKey) || '';
+            let resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', incomingDisplayText);
+            if (peakText && peakText.length > resolvedFinalText.length) {
+              if (areCompatiblePartialTexts(peakText, resolvedFinalText)) {
+                resolvedFinalText = peakText;
+                console.log('[ListenView] 🔄 PEAK TEXT RECOVERY: using longer peak text (' + peakText.length + ' chars vs ' + resolvedFinalText.length + ')');
+              } else {
+                const peakNorm = normalizeTranscriptText(peakText);
+                const finalNorm = normalizeTranscriptText(resolvedFinalText);
+                const peakWords = peakNorm.split(' ').filter(Boolean);
+                const finalWords = finalNorm.split(' ').filter(Boolean);
+                let overlapLen = 0;
+                for (let ov = Math.min(4, peakWords.length, finalWords.length); ov >= 1; ov--) {
+                  const peakTail = peakWords.slice(-ov).join(' ');
+                  const finalHead = finalWords.slice(0, ov).join(' ');
+                  if (peakTail === finalHead || (ov === 1 && (peakTail.startsWith(finalHead.substring(0, 3)) || finalHead.startsWith(peakTail.substring(0, 3))))) {
+                    overlapLen = ov;
+                    break;
+                  }
+                }
+                if (overlapLen > 0) {
+                  const peakOrigWords = peakText.trim().split(/\s+/);
+                  resolvedFinalText = peakOrigWords.slice(0, -overlapLen).join(' ') + ' ' + resolvedFinalText.trim();
+                  console.log('[ListenView] 🔄 PEAK MERGE: merged peak (' + peakText.length + ' chars) with final via ' + overlapLen + '-word overlap');
+                } else if (peakText.length > resolvedFinalText.length * 1.3) {
+                  resolvedFinalText = peakText.trim() + ' ' + resolvedFinalText.trim();
+                  console.log('[ListenView] 🔄 PEAK CONCAT: peak was much longer, concatenated (' + peakText.length + ' + ' + resolvedFinalText.length + ')');
+                }
+              }
+            }
+            peakPartialTextRef.current.delete(peakKey);
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
-            console.log('  └─ NEW:', resolvedFinalText.substring(0, 50));
+            console.log('  └─ NEW:', resolvedFinalText.substring(0, 80));
             console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
             console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
             newMessages[targetIdx] = {

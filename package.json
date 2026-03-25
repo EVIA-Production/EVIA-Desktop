@@ -1,8 +1,8 @@
 {
   "name": "taylos-desktop",
   "productName": "Taylos",
-  "version": "1.0.38",
-  "description": "Real-time AI sales assistant for deal closing",
+  "version": "1.0.39",
+  "description": "Real-time AI sales assistant",
   "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
   "main": "dist/main/main.js",
