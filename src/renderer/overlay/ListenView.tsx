@@ -1132,9 +1132,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   const peakOrigWords = peakText.trim().split(/\s+/);
                   resolvedFinalText = peakOrigWords.slice(0, -overlapLen).join(' ') + ' ' + resolvedFinalText.trim();
                   console.log('[ListenView] 🔄 PEAK MERGE: merged peak (' + peakText.length + ' chars) with final via ' + overlapLen + '-word overlap');
-                } else if (peakText.length > resolvedFinalText.length * 1.3) {
-                  resolvedFinalText = peakText.trim() + ' ' + resolvedFinalText.trim();
-                  console.log('[ListenView] 🔄 PEAK CONCAT: peak was much longer, concatenated (' + peakText.length + ' + ' + resolvedFinalText.length + ')');
                 }
               }
             }
