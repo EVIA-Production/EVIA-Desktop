@@ -93,6 +93,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
   const isSessionActiveRef = useRef(false);
   const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
+  const finalizedUtterances = useRef<Set<string>>(new Set());
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
   const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
@@ -798,13 +799,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       // Extract transcript text
       let text: string | undefined;
+      let source: string | undefined;
       let speaker: number | null = null;
       let isFinal = false;
       let isPartial = false;
       let utteranceId: string | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
-        const source = msg.data.source || msg._source;
+        source = msg.data.source || msg._source;
         text = msg.data.text || '';
         if (source === 'mic') {
           speaker = 1;
@@ -841,6 +843,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const messageTimestamp = Date.now();
       const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
+      const finalizedUtteranceKey = source && normalizedUtteranceId
+        ? `${source}:${normalizedUtteranceId}`
+        : undefined;
       if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
         storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
       }
@@ -954,6 +959,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
         // We display it as-is - no extraction needed!
         if (isPartial) {
+          if (normalizedUtteranceId && finalizedUtteranceKey && finalizedUtterances.current.has(finalizedUtteranceKey)) {
+            console.warn(`[ListenView] Dropping late interim for finalized utterance ${normalizedUtteranceId} from ${source}`);
+            return prev;
+          }
           // -----------------------------------------------------------------
           // THROTTLE PARTIAL UPDATES (prevent flicker)
           // -----------------------------------------------------------------
@@ -1198,6 +1207,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(incomingDisplayText));
             finalizedAtRef.current.set(utteranceKey, now);
           }
+          if (normalizedUtteranceId && finalizedUtteranceKey) {
+            finalizedUtterances.current.add(finalizedUtteranceKey);
+          }
           if (acceptedFinal) {
             finalTranscriptCountRef.current += 1;
             didMutateRows = true;
@@ -1237,6 +1249,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         lastInsightsFetchAtRef.current = 0;
         afterInsightsFrozenRef.current = false;
         afterInsightsRequestPendingRef.current = false;
+        finalizedUtterances.current.clear();
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -1257,6 +1270,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         lastInsightsFetchAtRef.current = 0;
         afterInsightsFrozenRef.current = false;
         afterInsightsRequestPendingRef.current = false;
+        finalizedUtterances.current.clear();
         finalizedUtteranceRef.current.clear();
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
@@ -1284,6 +1298,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           lastInsightsFetchAtRef.current = 0;
           afterInsightsFrozenRef.current = false;
           afterInsightsRequestPendingRef.current = false;
+          finalizedUtterances.current.clear();
         } else if (newState === 'after') {
           setIsSessionActive(false);
           setInsights(null);
@@ -1306,6 +1321,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           lastInsightsFetchAtRef.current = 0;
           afterInsightsFrozenRef.current = false;
           afterInsightsRequestPendingRef.current = false;
+          finalizedUtterances.current.clear();
         }
       };
 

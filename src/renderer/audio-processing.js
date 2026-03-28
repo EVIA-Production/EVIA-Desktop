@@ -40,21 +40,21 @@ async function initAudioProcessing() {
     
     let workletUrl;
     try {
-      workletUrl = new URL('./audio-processor.js', import.meta.url).href;
+      workletUrl = new URL('./audio-worklet.js', import.meta.url).href;
       console.log('[Audio] Attempting to load worklet from import.meta URL:', workletUrl);
       await audioContext.audioWorklet.addModule(workletUrl);
       console.log('[Audio] AudioWorklet loaded from import.meta URL');
     } catch (err) {
       console.error('[Audio] import.meta URL failed:', err);
       try {
-        workletUrl = '/audio-processor.js'; // Vite dev server path
+        workletUrl = '/audio-worklet.js'; // Vite dev server path
         console.log('[Audio] Attempting Vite dev server path:', workletUrl);
         await audioContext.audioWorklet.addModule(workletUrl);
         console.log('[Audio] AudioWorklet loaded from Vite path');
       } catch (viteErr) {
         console.error('[Audio] Vite path failed:', viteErr);
         try {
-          workletUrl = window.location.origin + '/audio-processor.js';
+          workletUrl = window.location.origin + '/audio-worklet.js';
           console.log('[Audio] Attempting origin-relative path:', workletUrl);
           await audioContext.audioWorklet.addModule(workletUrl);
           console.log('[Audio] AudioWorklet loaded from origin path');

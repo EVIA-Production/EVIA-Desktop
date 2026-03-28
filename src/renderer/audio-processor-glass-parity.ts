@@ -25,6 +25,7 @@ const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 
 // ──────────────────────────────────────────────────────────────────────────────
 let DEBUG_SAVE_AUDIO = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
+let micRawDebugBuffer: Float32Array[] = [];
 let debugSessionId: string = '';
 let debugFlagChecked = false;
 
@@ -73,7 +74,7 @@ async function checkDebugFlag() {
  * Save debug audio as WAV file
  * Converts accumulated PCM16 chunks to standard WAV format
  */
-async function saveDebugAudio(source: 'mic' | 'system', chunks: Int16Array[], sessionId: string): Promise<void> {
+async function saveDebugAudio(source: 'mic' | 'system' | 'mic-raw', chunks: Int16Array[], sessionId: string): Promise<void> {
   try {
     // Concatenate all chunks into single buffer
     const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -1015,15 +1016,19 @@ async function setupMicProcessing(stream: MediaStream) {
       const chunk = audioBuffer.splice(0, samplesPerChunk);
       let float32Chunk = new Float32Array(chunk); // Initial value (may be replaced by AEC)
 
+      if (DEBUG_SAVE_AUDIO) {
+        micRawDebugBuffer.push(new Float32Array(float32Chunk));
+      }
+
       // ──────────────────────────────────────────────────────────────────────
       // STEP 2: Apply TIME-ALIGNED AEC (Acoustic Delay Compensation)
       // ──────────────────────────────────────────────────────────────────────
       if (systemAudioBuffer.length > 0) {
         try {
-          // FIX: Use time-delayed reference for AEC
-          // The mic hears system audio from AEC_LATENCY_MS ago (acoustic delay)
-          // We must use the corresponding historical system audio chunk
-          const delayedIndex = Math.max(0, systemAudioBuffer.length - Math.ceil(AEC_LATENCY_MS / 100));
+          // System audio heard by mic is delayed by ~150-250ms (OS output buffer + room + OS input buffer).
+          // With ~100ms chunks, that's 2 chunks back. Make configurable for empirical tuning.
+          const AEC_DELAY_CHUNKS = Math.max(1, Math.round((AEC_LATENCY_MS || 200) / 100));
+          const delayedIndex = Math.max(0, systemAudioBuffer.length - 1 - AEC_DELAY_CHUNKS);
           const referenceChunk = systemAudioBuffer[delayedIndex];
           const sysF32 = base64ToFloat32Array(referenceChunk.data);
 
@@ -1278,6 +1283,7 @@ export async function startCapture(includeSystemAudio = false) {
       if (DEBUG_SAVE_AUDIO) {
         debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
         debugAudioBuffers = { mic: [], system: [] };
+        micRawDebugBuffer = [];
 
         console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
         console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');
@@ -1728,11 +1734,20 @@ export async function stopCapture(captureHandle?: any) {
     try {
       console.log('[AudioDebug] 🎙️ Saving debug audio files...');
       console.log('[AudioDebug]   - Mic chunks:', debugAudioBuffers.mic.length);
+      console.log('[AudioDebug]   - Mic raw chunks:', micRawDebugBuffer.length);
       console.log('[AudioDebug]   - System chunks:', debugAudioBuffers.system.length);
 
       // Save mic audio if any chunks captured
       if (debugAudioBuffers.mic.length > 0) {
         await saveDebugAudio('mic', debugAudioBuffers.mic, debugSessionId);
+      }
+
+      if (micRawDebugBuffer.length > 0) {
+        await saveDebugAudio(
+          'mic-raw',
+          micRawDebugBuffer.map(chunk => convertFloat32ToInt16(chunk)),
+          debugSessionId
+        );
       }
 
       // Save system audio if any chunks captured
@@ -1742,6 +1757,7 @@ export async function stopCapture(captureHandle?: any) {
 
       // Clear buffers
       debugAudioBuffers = { mic: [], system: [] };
+      micRawDebugBuffer = [];
       console.log('[AudioDebug] ✅ Debug audio files saved successfully');
     } catch (error) {
       console.error('[AudioDebug] ❌ Failed to save debug audio:', error);
@@ -1894,6 +1910,7 @@ export async function startCaptureWithStreams(
       if (DEBUG_SAVE_AUDIO) {
         debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
         debugAudioBuffers = { mic: [], system: [] };
+        micRawDebugBuffer = [];
 
         console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
         console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');
