@@ -112,6 +112,25 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     return deduped;
   }, [normalizeContextText]);
+
+  const formatTranscriptContextForLLM = useCallback((entries: AskTranscriptEntry[], maxChars = 40000) => {
+    const lines: string[] = [];
+    let charCount = 0;
+
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const entry = entries[i];
+      const cleaned = (entry.text || '').trim();
+      if (!cleaned) continue;
+      const speakerLabel = entry.speaker === 1 ? 'User' : 'Prospect';
+      const line = `${speakerLabel}: ${cleaned}`;
+      const projected = charCount + line.length + 1;
+      if (projected > maxChars) break;
+      lines.unshift(line);
+      charCount = projected;
+    }
+
+    return lines.join('\n');
+  }, []);
   
   // Taylos-specific: Error handling
   const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
@@ -795,44 +814,28 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     let transcriptContext = '';
     try {
       const explicitTranscriptContext = liveTranscriptOverrideRef.current || '';
+      const { getChatTranscripts } = await import('../services/websocketService');
+      const [transcripts, liveSnapshot] = await Promise.all([
+        getChatTranscripts(chatId, token, 200), // Last 200 turns
+        (window as any).evia?.liveTranscript?.get?.(chatId),
+      ]);
 
-      if (explicitTranscriptContext) {
-        transcriptContext = explicitTranscriptContext;
+      const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
+      const dbTranscriptContext = deduped.length > 0
+        ? formatTranscriptContextForLLM(deduped)
+        : '';
+      const liveTranscriptContext = explicitTranscriptContext || liveSnapshot?.data?.transcriptContext || '';
+
+      if (dbTranscriptContext) {
+        transcriptContext = dbTranscriptContext;
+        const lineCount = transcriptContext.split('\n').filter(Boolean).length;
+        console.log('[AskView] 📄 Using DB transcript context:', transcriptContext.length, 'chars,', lineCount, 'entries');
+      } else if (liveTranscriptContext) {
+        transcriptContext = liveTranscriptContext;
+        const lineCount = transcriptContext.split('\n').filter(Boolean).length;
+        console.log('[AskView] 📄 Falling back to live transcript snapshot:', transcriptContext.length, 'chars,', lineCount, 'entries');
       } else {
-        const { getChatTranscripts } = await import('../services/websocketService');
-        const transcripts = await getChatTranscripts(chatId, token, 200); // Last 200 turns
-        
-        if (transcripts && transcripts.length > 0) {
-          const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
-          const maxChars = 40000;
-          const lines: string[] = [];
-          let charCount = 0;
-
-          // Build from most recent backwards, then reassemble chronologically.
-          for (let i = deduped.length - 1; i >= 0; i--) {
-            const entry = deduped[i];
-            const speakerLabel = entry.speaker === 1 ? 'You' : 'Prospect';
-            const line = `${speakerLabel}: ${entry.text}`;
-            const projected = charCount + line.length + 1;
-            if (projected > maxChars) break;
-            lines.unshift(line);
-            charCount = projected;
-          }
-
-          transcriptContext = lines.join('\n');
-          
-          console.log('[AskView] 📄 Fetched transcript context:', transcriptContext.length, 'chars,', lines.length, 'entries');
-        } else {
-          const liveSnapshot = await (window as any).evia?.liveTranscript?.get?.(chatId);
-          const liveTranscriptContext = liveSnapshot?.data?.transcriptContext || '';
-          if (liveTranscriptContext) {
-            transcriptContext = liveTranscriptContext;
-            const lineCount = transcriptContext.split('\n').filter(Boolean).length;
-            console.log('[AskView] 📄 Falling back to live transcript snapshot:', transcriptContext.length, 'chars,', lineCount, 'entries');
-          } else {
-            console.log('[AskView] ℹ️ No transcript history yet');
-          }
-        }
+        console.log('[AskView] ℹ️ No transcript history yet');
       }
     } catch (e) {
       console.warn('[AskView] ⚠️ Could not fetch transcript (continuing without context):', e);

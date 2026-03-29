@@ -94,6 +94,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const isSessionActiveRef = useRef(false);
   const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
   const finalizedUtterances = useRef<Set<string>>(new Set());
+  const sourceStreamGenerationRef = useRef<Record<string, number>>({ mic: 0, system: 0 });
   const finalizedAtRef = useRef<Map<string, number>>(new Map());
   const finalizedTextRef = useRef<Map<string, number>>(new Map());
   const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
@@ -278,7 +279,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const entry = stableRows[i];
       const cleaned = (entry.text || '').trim();
       if (!cleaned) continue;
-      const speakerLabel = entry.speaker === 1 ? 'You' : 'Prospect';
+      const speakerLabel = entry.speaker === 1 ? 'User' : 'Prospect';
       const line = `${speakerLabel}: ${cleaned}`;
       const projected = charCount + line.length + 1;
       if (projected > maxChars) break;
@@ -835,6 +836,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.log('[ListenView] ✅ TURN COMPLETE signal received (awaiting is_final):', text.substring(0, 60), 'speaker:', speaker);
         }
       } else if (msg.type === 'status') {
+        source = msg.data?.source || msg._source
+          || (msg.data?.speaker === 1 ? 'mic' : msg.data?.speaker === 0 ? 'system' : undefined);
+        if (source && msg.data && typeof msg.data.dg_open === 'boolean' && msg.data.dg_open === false) {
+          sourceStreamGenerationRef.current[source] = (sourceStreamGenerationRef.current[source] ?? 0) + 1;
+          const sourceSpeaker = source === 'mic' ? 1 : source === 'system' ? 0 : null;
+
+          if (sourceSpeaker !== null) {
+            Object.keys(lastPartialUpdate.current).forEach((key) => {
+              if (key.startsWith(`${sourceSpeaker}:`)) delete lastPartialUpdate.current[key];
+            });
+            Object.keys(pendingPartialUpdates.current).forEach((key) => {
+              if (key.startsWith(`${sourceSpeaker}:`)) delete pendingPartialUpdates.current[key];
+            });
+            pendingTurnCompleteRef.current = pendingTurnCompleteRef.current.filter(item => item.speaker !== sourceSpeaker);
+            setTranscripts(prev => prev.filter(item => !(item.speaker === sourceSpeaker && item.isPartial && !item.isFinal)));
+          }
+
+          console.log(
+            '[ListenView] 🔄 Reset source generation after DG close:',
+            source,
+            '→',
+            sourceStreamGenerationRef.current[source],
+          );
+        }
         console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
         return;
       }
@@ -849,8 +874,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       const messageTimestamp = Date.now();
       const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
+      const sourceGeneration = source ? (sourceStreamGenerationRef.current[source] ?? 0) : 0;
       const finalizedUtteranceKey = source && normalizedUtteranceId
-        ? `${source}:${normalizedUtteranceId}`
+        ? `${source}:${sourceGeneration}:${normalizedUtteranceId}`
         : undefined;
       if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
         storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
@@ -1059,7 +1085,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
 
           if (normalizedUtteranceId) {
-            const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
+            const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
             const seenHash = finalizedUtteranceRef.current.get(utteranceKey);
             if (seenHash && isNearDuplicateText(seenHash, normalizedIncomingText)) {
               console.log('[ListenView] 🚫 Skipping duplicate FINAL by utterance key:', utteranceKey);
@@ -1174,7 +1200,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           }
 
           if (normalizedUtteranceId) {
-            const utteranceKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId}`;
+            const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
             finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(incomingDisplayText));
             finalizedAtRef.current.set(utteranceKey, now);
           }
@@ -1222,6 +1248,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         afterInsightsRequestPendingRef.current = false;
         finalizedUtterances.current.clear();
         finalizedUtteranceRef.current.clear();
+        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
         pendingTurnCompleteRef.current = [];
@@ -1243,6 +1270,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         afterInsightsRequestPendingRef.current = false;
         finalizedUtterances.current.clear();
         finalizedUtteranceRef.current.clear();
+        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
         pendingTurnCompleteRef.current = [];
@@ -1270,6 +1298,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           afterInsightsFrozenRef.current = false;
           afterInsightsRequestPendingRef.current = false;
           finalizedUtterances.current.clear();
+          sourceStreamGenerationRef.current = { mic: 0, system: 0 };
         } else if (newState === 'after') {
           setIsSessionActive(false);
           setInsights(null);
@@ -1293,6 +1322,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           afterInsightsFrozenRef.current = false;
           afterInsightsRequestPendingRef.current = false;
           finalizedUtterances.current.clear();
+          sourceStreamGenerationRef.current = { mic: 0, system: 0 };
         }
       };
 
@@ -1395,12 +1425,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Send to AskView via IPC for auto-submit WITH insight's original session state
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
-      const transcriptContext = buildTranscriptContextForAsk(transcriptsRef.current);
       // Send as object with text and sessionState (using insight's metadata)
       eviaIpc.send('ask:send-and-submit', { 
         text: outboundPrompt,
         sessionState: insightSessionState,
-        transcriptContext,
       });
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
