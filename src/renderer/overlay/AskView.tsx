@@ -794,15 +794,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // GLASS PARITY: Fetch transcript context for backend
     let transcriptContext = '';
     try {
-      const liveSnapshot = await (window as any).evia?.liveTranscript?.get?.(chatId);
-      const sharedTranscriptContext = liveTranscriptOverrideRef.current
-        || liveSnapshot?.data?.transcriptContext
-        || '';
+      const explicitTranscriptContext = liveTranscriptOverrideRef.current || '';
 
-      if (sharedTranscriptContext) {
-        transcriptContext = sharedTranscriptContext;
-        const lineCount = transcriptContext.split('\n').filter(Boolean).length;
-        console.log('[AskView] 📄 Using live transcript snapshot:', transcriptContext.length, 'chars,', lineCount, 'entries');
+      if (explicitTranscriptContext) {
+        transcriptContext = explicitTranscriptContext;
       } else {
         const { getChatTranscripts } = await import('../services/websocketService');
         const transcripts = await getChatTranscripts(chatId, token, 200); // Last 200 turns
@@ -828,7 +823,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           
           console.log('[AskView] 📄 Fetched transcript context:', transcriptContext.length, 'chars,', lines.length, 'entries');
         } else {
-          console.log('[AskView] ℹ️ No transcript history yet');
+          const liveSnapshot = await (window as any).evia?.liveTranscript?.get?.(chatId);
+          const liveTranscriptContext = liveSnapshot?.data?.transcriptContext || '';
+          if (liveTranscriptContext) {
+            transcriptContext = liveTranscriptContext;
+            const lineCount = transcriptContext.split('\n').filter(Boolean).length;
+            console.log('[AskView] 📄 Falling back to live transcript snapshot:', transcriptContext.length, 'chars,', lineCount, 'entries');
+          } else {
+            console.log('[AskView] ℹ️ No transcript history yet');
+          }
         }
       }
     } catch (e) {

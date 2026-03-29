@@ -139,11 +139,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return false;
   };
 
-  const chooseBestFinalText = (existingText: string, incomingText: string) => {
-    if (!existingText) return incomingText;
-    if (!incomingText) return existingText;
-    if (!areCompatiblePartialTexts(existingText, incomingText)) return incomingText;
-    return existingText.length >= incomingText.length ? existingText : incomingText;
+  const chooseBestFinalText = (deepgramFinal: string, _peakPartial: string | undefined) => {
+    // Always trust the exact Deepgram final. Peak partials are speculative and
+    // have proven to bleed next-utterance fragments into the previous final.
+    return deepgramFinal;
+  };
+
+  const logFinalMismatch = (deepgramFinal: string, uiFinal: string) => {
+    if (!import.meta.env.DEV) return;
+    if ((deepgramFinal || '').trim() !== (uiFinal || '').trim()) {
+      console.error(`[ListenView] FINAL MISMATCH — DG: "${deepgramFinal}" | UI: "${uiFinal}"`);
+    }
   };
 
   const prunePendingTurnCompletions = (nowTs: number) => {
@@ -849,9 +855,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
         storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
       }
-      const incomingDisplayText = isFinal
-        ? (consumePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp) || text)
-        : text;
+      if (isFinal) {
+        consumePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
+      }
+      const incomingDisplayText = text;
 
       console.log('[ListenView] 📨', 
         msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
@@ -997,15 +1004,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
             console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
 
-            const peakKey = `${speaker ?? 'x'}-${normalizedUtteranceId ?? 'x'}`;
-            const currentPeak = peakPartialTextRef.current.get(peakKey) || '';
-            if (existing.text.length > currentPeak.length) {
-              peakPartialTextRef.current.set(peakKey, existing.text);
-            }
-            if (incomingDisplayText.length > (peakPartialTextRef.current.get(peakKey) || '').length) {
-              peakPartialTextRef.current.set(peakKey, incomingDisplayText);
-            }
-
             newMessages[targetIdx] = {
               ...newMessages[targetIdx],
               text: incomingDisplayText,
@@ -1111,39 +1109,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
           const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
           if (targetIdx !== -1) {
-            // Apply any throttled partial text that never made it into state
-            if (pendingPartial && pendingPartial.text && pendingPartial.text.length > (newMessages[targetIdx].text || '').length) {
-              newMessages[targetIdx] = { ...newMessages[targetIdx], text: pendingPartial.text };
-            }
-            // Freeze existing partial in place as final, recovering peak text if Deepgram reset hypothesis
+            // Freeze existing partial in place as final using the exact Deepgram
+            // final. Do not recover or merge speculative partial text.
             const peakKey = `${speaker ?? 'x'}-${normalizedUtteranceId ?? 'x'}`;
-            const peakText = peakPartialTextRef.current.get(peakKey) || '';
-            let resolvedFinalText = chooseBestFinalText(newMessages[targetIdx].text || '', incomingDisplayText);
-            if (peakText && peakText.length > resolvedFinalText.length) {
-              if (areCompatiblePartialTexts(peakText, resolvedFinalText)) {
-                resolvedFinalText = peakText;
-                console.log('[ListenView] 🔄 PEAK TEXT RECOVERY: using longer peak text (' + peakText.length + ' chars vs ' + resolvedFinalText.length + ')');
-              } else {
-                const peakNorm = normalizeTranscriptText(peakText);
-                const finalNorm = normalizeTranscriptText(resolvedFinalText);
-                const peakWords = peakNorm.split(' ').filter(Boolean);
-                const finalWords = finalNorm.split(' ').filter(Boolean);
-                let overlapLen = 0;
-                for (let ov = Math.min(4, peakWords.length, finalWords.length); ov >= 1; ov--) {
-                  const peakTail = peakWords.slice(-ov).join(' ');
-                  const finalHead = finalWords.slice(0, ov).join(' ');
-                  if (peakTail === finalHead || (ov === 1 && (peakTail.startsWith(finalHead.substring(0, 3)) || finalHead.startsWith(peakTail.substring(0, 3))))) {
-                    overlapLen = ov;
-                    break;
-                  }
-                }
-                if (overlapLen > 0) {
-                  const peakOrigWords = peakText.trim().split(/\s+/);
-                  resolvedFinalText = peakOrigWords.slice(0, -overlapLen).join(' ') + ' ' + resolvedFinalText.trim();
-                  console.log('[ListenView] 🔄 PEAK MERGE: merged peak (' + peakText.length + ' chars) with final via ' + overlapLen + '-word overlap');
-                }
-              }
-            }
+            const resolvedFinalText = chooseBestFinalText(incomingDisplayText, pendingPartial?.text);
             peakPartialTextRef.current.delete(peakKey);
             console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
             console.log('  └─ NEW:', resolvedFinalText.substring(0, 80));
@@ -1158,6 +1127,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               timestamp: messageTimestamp,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
+            logFinalMismatch(text, resolvedFinalText);
             acceptedFinal = true;
             didMutateRows = true;
             newMessages = pruneCompetingSpeakerPartials(
@@ -1199,6 +1169,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 timestamp: messageTimestamp,
                 utteranceId: normalizedUtteranceId,
               });
+              logFinalMismatch(text, incomingDisplayText);
               acceptedFinal = true;
           }
 
