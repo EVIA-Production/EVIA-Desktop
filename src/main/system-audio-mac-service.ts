@@ -12,6 +12,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { app, systemPreferences, BrowserWindow } from 'electron';
+import fs from 'fs';
 import path from 'path';
 
 // Audio format constants (must match SystemAudioDump output)
@@ -162,27 +163,37 @@ export class SystemAudioMacService {
   /**
    * Get the path to SystemAudioDump binary (dev vs production)
    */
-  private getSystemAudioPath(): string {
-    const systemAudioPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'SystemAudioDump')
-      : path.join(app.getAppPath(), 'src', 'main', 'assets', 'SystemAudioDump');
+  private getSystemAudioPath(): string | null {
+    const candidates = [
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'SystemAudioDump')
+        : path.join(app.getAppPath(), 'src', 'main', 'assets', 'SystemAudioDump'),
+      path.join(app.getAppPath(), 'src', 'main', 'assets', 'SystemAudioDump'),
+      path.join(process.cwd(), 'src', 'main', 'assets', 'SystemAudioDump'),
+    ];
 
-    console.log('[SystemAudioMacService] 🔍 SystemAudioDump path:', systemAudioPath);
     console.log('[SystemAudioMacService] 🔍 app.getAppPath():', app.getAppPath());
     console.log('[SystemAudioMacService] 🔍 app.isPackaged:', app.isPackaged);
-    
-    // Verify binary exists
-    const fs = require('fs');
-    try {
-      const stats = fs.statSync(systemAudioPath);
-      console.log('[SystemAudioMacService] ✅ Binary exists, size:', stats.size, 'bytes');
-      console.log('[SystemAudioMacService] ✅ Binary permissions:', stats.mode.toString(8));
-      console.log('[SystemAudioMacService] ✅ Binary executable:', !!(stats.mode & fs.constants.S_IXUSR));
-    } catch (err: any) {
-      console.error('[SystemAudioMacService] ❌ Binary NOT found or not accessible:', err.message);
+
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      console.log('[SystemAudioMacService] 🔍 Checking SystemAudioDump path:', candidate);
+
+      try {
+        const stats = fs.statSync(candidate);
+        console.log('[SystemAudioMacService] ✅ Binary exists, size:', stats.size, 'bytes');
+        console.log('[SystemAudioMacService] ✅ Binary permissions:', stats.mode.toString(8));
+        console.log('[SystemAudioMacService] ✅ Binary executable:', !!(stats.mode & fs.constants.S_IXUSR));
+        return candidate;
+      } catch (err: any) {
+        console.warn('[SystemAudioMacService] ⚠️ Binary not usable at path:', candidate, err.message);
+      }
     }
-    
-    return systemAudioPath;
+
+    console.error('[SystemAudioMacService] ❌ SystemAudioDump binary missing in all known locations');
+    return null;
   }
 
   /**
@@ -207,17 +218,35 @@ export class SystemAudioMacService {
 
       // Step 3: Spawn SystemAudioDump binary
       const systemAudioPath = this.getSystemAudioPath();
+      if (!systemAudioPath) {
+        this.sendToRenderer('system-audio:status', 'missing-binary');
+        return { success: false, error: 'SystemAudioDump binary not found' };
+      }
       
       console.log('[SystemAudioMacService] 🚀 Spawning SystemAudioDump binary...');
       console.log('[SystemAudioMacService] 🚀 Command:', systemAudioPath);
       console.log('[SystemAudioMacService] 🚀 Args:', []);
-      
+
+      const handleProcessError = (err: any) => {
+        console.error('[SystemAudioMacService] ❌ SystemAudioDump process error:', err);
+        console.error('[SystemAudioMacService] ❌ Error name:', err.name);
+        console.error('[SystemAudioMacService] ❌ Error message:', err.message);
+        console.error('[SystemAudioMacService] ❌ Error stack:', err.stack);
+        this.sendToRenderer('system-audio:status', `error:${err.code || err.message}`);
+        this.systemAudioProc = null;
+        this.isRunning = false;
+        this.audioBuffer = Buffer.alloc(0);
+        this.stopChunkWatchdog();
+      };
+
       this.systemAudioProc = spawn(systemAudioPath, [], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      this.systemAudioProc.on('error', handleProcessError);
 
       if (!this.systemAudioProc.pid) {
         console.error('[SystemAudioMacService] ❌ Failed to start SystemAudioDump - no PID assigned');
+        this.sendToRenderer('system-audio:status', 'spawn-no-pid');
         return { success: false, error: 'Failed to spawn process - no PID' };
       }
 
@@ -288,17 +317,6 @@ export class SystemAudioMacService {
         } else if (code !== 0 && code !== null) {
           console.error('[SystemAudioMacService] ❌ Binary exited with code:', code);
         }
-      });
-
-      this.systemAudioProc.on('error', (err: any) => {
-        console.error('[SystemAudioMacService] ❌ SystemAudioDump process error:', err);
-        console.error('[SystemAudioMacService] ❌ Error name:', err.name);
-        console.error('[SystemAudioMacService] ❌ Error message:', err.message);
-        console.error('[SystemAudioMacService] ❌ Error stack:', err.stack);
-        this.systemAudioProc = null;
-        this.isRunning = false;
-        this.audioBuffer = Buffer.alloc(0);
-        this.stopChunkWatchdog();
       });
 
       return { success: true };
