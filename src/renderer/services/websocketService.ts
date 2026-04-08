@@ -102,8 +102,10 @@ export class ChatWebSocket {
   private ws: WebSocket | null = null;
   private isConnectedFlag: boolean = false;
   private lastAudioLevel: number = 0;
-  private silenceThreshold: number = 0.01;
+  private silenceThreshold: number = 0.003;
   private audioDetected: boolean = false;
+  private silentChunkStreak: number = 0;
+  private droppedSilentChunks: number = 0;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private shouldReconnect: boolean = true;
@@ -112,6 +114,7 @@ export class ChatWebSocket {
   constructor(chatId: string, source?: 'mic' | 'system') {
     this.chatId = chatId;
     this.source = source;
+    this.silenceThreshold = source === 'system' ? 0.0025 : 0.003;
     console.log('ChatWebSocket initialized with chatId:', chatId);
   }
 
@@ -272,6 +275,28 @@ export class ChatWebSocket {
     
     // Update last audio level
     this.lastAudioLevel = audioLevel;
+
+    // Silence suppression with hangover:
+    // - speech starts immediately
+    // - a short tail after speech is preserved
+    // - only sustained silence is dropped
+    // Backend/Deepgram keepalive paths keep sessions alive during silence.
+    if (hasAudio) {
+      this.silentChunkStreak = 0;
+    } else {
+      this.silentChunkStreak++;
+      const HANGOVER_SILENT_CHUNKS = 5; // ~500ms with 100ms chunks
+      if (this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
+        this.droppedSilentChunks++;
+        if (this.droppedSilentChunks % 25 === 0) {
+          console.log(
+            `[Audio Logger] Dropped ${this.droppedSilentChunks} sustained-silence chunks for ${this.source || 'unknown'} ` +
+            `(threshold=${this.silenceThreshold.toFixed(4)}, current=${audioLevel.toFixed(4)})`
+          );
+        }
+        return;
+      }
+    }
     
     // Send the data
     this.ws.send(data);

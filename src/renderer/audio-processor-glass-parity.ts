@@ -1056,7 +1056,7 @@ async function setupMicProcessing(stream: MediaStream) {
       const pcm16 = convertFloat32ToInt16(float32Chunk);
 
       // ──────────────────────────────────────────────────────────────────────
-      // STEP 4: Calculate RMS for logging (SILENCE GATE DISABLED)
+      // STEP 4: Calculate RMS for logging / downstream silence suppression
       // ──────────────────────────────────────────────────────────────────────
       let sumSquares = 0;
       for (let i = 0; i < float32Chunk.length; i++) {
@@ -1064,10 +1064,9 @@ async function setupMicProcessing(stream: MediaStream) {
       }
       const rms = Math.sqrt(sumSquares / float32Chunk.length);
 
-      // SILENCE GATE DISABLED - Causes audio cuts and maltranscription
-      // Previously: if (rms < 0.01) continue; was dropping quiet speech chunks
-      // Result: Gaps in audio → missing words in transcription
-      // Solution: Send ALL audio to Deepgram, let their VAD handle silence detection
+      // We no longer hard-drop quiet chunks here in the audio callback.
+      // Shared websocket sending now suppresses only sustained silence with a
+      // short hangover, which reduces billed silence without clipping speech.
 
       // ──────────────────────────────────────────────────────────────────────
       // STEP 5: Send to backend (pcm16 already converted above)
