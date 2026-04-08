@@ -15,7 +15,11 @@ export const FRONTEND_URL = IS_PRODUCTION
   : 'http://localhost:5173';
 
 export const WS_BASE_URL = IS_PRODUCTION
-  ? (RUNTIME_WS_BASE_URL || ENV_WS_BASE_URL || 'wss://rt.taylos.ai')
+  ? (
+      RUNTIME_WS_BASE_URL ||
+      ENV_WS_BASE_URL ||
+      'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io'
+    )
   : (RUNTIME_WS_BASE_URL || ENV_WS_BASE_URL || 'ws://localhost:8000');
 
 console.log('[Config] Environment:', IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT');
