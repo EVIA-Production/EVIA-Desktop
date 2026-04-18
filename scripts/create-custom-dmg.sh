@@ -13,7 +13,6 @@ RW_DMG="$DIST_DIR/.taylos-installer-rw.dmg"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/taylos-dmg.XXXXXX")"
 STAGE_DIR="$TEMP_DIR/stage"
 MOUNT_DIR="/Volumes/$VOLUME_NAME"
-ICON_RESOURCE_FILENAME=$'Icon\r'
 
 cleanup() {
   if mount | grep -Fq "$MOUNT_DIR"; then
@@ -64,7 +63,6 @@ mkdir -p "$STAGE_DIR/.background"
 ditto "$APP_PATH" "$STAGE_DIR/$APP_NAME.app"
 ln -s /Applications "$STAGE_DIR/Applications"
 cp "$BUILD_DIR/background.tiff" "$STAGE_DIR/.background/background.tiff"
-SetFile -a C "$STAGE_DIR"
 SetFile -a V "$STAGE_DIR/.background"
 
 STAGE_KB="$(du -sk "$STAGE_DIR" | awk '{print $1}')"
@@ -74,10 +72,9 @@ rm -f "$FINAL_DMG" "$FINAL_DMG_BASE.dmg" "$DIST_DIR/taylos.dmg.blockmap"
 
 hdiutil create \
   -quiet \
-  -srcfolder "$STAGE_DIR" \
   -volname "$VOLUME_NAME" \
   -fs HFS+ \
-  -format UDRW \
+  -type UDIF \
   -size "${SIZE_MB}m" \
   "$RW_DMG"
 
@@ -90,15 +87,8 @@ if [[ -z "$DEVICE" ]]; then
 fi
 
 sleep 1
-
-cp "$BUILD_DIR/icon.icns" "$MOUNT_DIR/.VolumeIcon.icns"
-SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns"
-SetFile -t icns "$MOUNT_DIR/.VolumeIcon.icns"
-cp "$BUILD_DIR/icon.icns" "$MOUNT_DIR/$ICON_RESOURCE_FILENAME"
-SetFile -c icnC "$MOUNT_DIR/$ICON_RESOURCE_FILENAME"
-SetFile -t icns "$MOUNT_DIR/$ICON_RESOURCE_FILENAME"
-SetFile -a C "$MOUNT_DIR"
-SetFile -a V "$MOUNT_DIR/.background" "$MOUNT_DIR/.VolumeIcon.icns" "$MOUNT_DIR/$ICON_RESOURCE_FILENAME"
+ditto "$STAGE_DIR" "$MOUNT_DIR"
+SetFile -a V "$MOUNT_DIR/.background"
 
 osascript <<APPLESCRIPT
 tell application "Finder"
@@ -131,6 +121,11 @@ tell application "Finder"
   end tell
 end tell
 APPLESCRIPT
+
+cp "$BUILD_DIR/icon.icns" "$MOUNT_DIR/.VolumeIcon.icns"
+SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns"
+SetFile -t icns "$MOUNT_DIR/.VolumeIcon.icns"
+SetFile -a C "$MOUNT_DIR"
 
 chmod -Rf go-w "$MOUNT_DIR"
 sync
