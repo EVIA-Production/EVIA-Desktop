@@ -7,6 +7,10 @@ release/
 *.log
 native/mac/SystemAudioCapture/.build/
 *.zip
+build/_reference/
+build/background.png
+build/background.tiff
+build/icon.icns
 
 # Environment files (may contain sensitive config)
 .env

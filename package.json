@@ -1,7 +1,7 @@
 {
   "name": "taylos-desktop",
   "productName": "Taylos",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "Real-time AI sales assistant",
   "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
@@ -14,7 +14,7 @@
     "dev:main": "npm run build:main && cross-env NODE_ENV=development electron .",
     "build:main": "tsc -p tsconfig.json",
     "build:renderer": "vite build",
-    "build": "tsc -p tsconfig.json && npm run build:renderer && electron-builder --publish never",
+    "build": "bash ./scripts/generate-macos-installer-assets.sh && tsc -p tsconfig.json && npm run build:renderer && electron-builder --publish never && bash ./scripts/create-custom-dmg.sh && node ./scripts/update-mac-release-metadata.js",
     "start:prod": "npm run build:main && npm run build:renderer && cross-env NODE_ENV=production electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "postinstall": "electron-builder install-app-deps",

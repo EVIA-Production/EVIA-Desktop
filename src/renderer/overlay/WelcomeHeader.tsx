@@ -83,7 +83,7 @@ const WelcomeHeader: React.FC = () => {
     console.log('[WelcomeHeader] Opening privacy policy...');
     try {
       if ((window as any).evia?.shell?.openExternal) {
-        await (window as any).evia.shell.openExternal('https://taylos.ai/data-privacy');
+        await (window as any).evia.shell.openExternal('https://taylos.ai/privacy');
       }
     } catch (err) {
       console.error('[WelcomeHeader] Failed to open privacy policy:', err);
@@ -120,7 +120,7 @@ const WelcomeHeader: React.FC = () => {
 
       <div className="header-section">
         <div className="title">Welcome to Taylos</div>
-        <div className="subtitle">Your AI-powered meeting assistant</div>
+        <div className="subtitle">AI support for live conversations</div>
       </div>
 
       <button
@@ -139,11 +139,11 @@ const WelcomeHeader: React.FC = () => {
         <div className="option-content">
           <div className="option-title">Get Started</div>
           <div className="option-description">
-            Log in to access your Taylos account
+            Sign in to access your Taylos account,
             <br />
-            Your conversations are securely stored
+            meeting transcripts, summaries,
             <br />
-            Access insights and meeting notes
+            and billing settings
           </div>
         </div>
       </div>
@@ -161,7 +161,7 @@ const WelcomeHeader: React.FC = () => {
             }
           }}
         >
-          See details
+          Privacy Policy
         </span>
       </div>
     </div>

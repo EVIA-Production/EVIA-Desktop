@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Apple HIG Icon Processor
-Converts any icon to Apple-compliant 1024x1024 with rounded corners (21.5% radius)
-Automatically detects and removes grey borders
+Converts an icon to an Apple-compliant 1024x1024 asset with rounded corners (21.5% radius)
+and optionally removes unwanted light borders from older source artwork.
 """
 import os
 import sys
@@ -117,7 +117,7 @@ if __name__ == '__main__':
     project_root = os.path.dirname(script_dir)
     
     # Default paths
-    input_icon = args.input if args.input else os.path.join(project_root, 'src/main/assets/icon3.png')
+    input_icon = args.input if args.input else os.path.join(project_root, 'src/main/assets/icon-mac.png')
     output_icon = args.output if args.output else os.path.join(project_root, 'src/main/assets/icon.png')
     crop_border = not args.no_crop
     
