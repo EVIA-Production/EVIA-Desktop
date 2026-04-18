@@ -16,7 +16,7 @@ MOUNT_DIR="/Volumes/$VOLUME_NAME"
 ICON_RESOURCE_FILENAME=$'Icon\r'
 
 cleanup() {
-  if mount | rg -q "/Volumes/${VOLUME_NAME//\//\\/}"; then
+  if mount | grep -Fq "$MOUNT_DIR"; then
     hdiutil detach "$MOUNT_DIR" -quiet || true
   fi
   rm -rf "$TEMP_DIR"

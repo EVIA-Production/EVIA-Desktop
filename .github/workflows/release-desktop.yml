@@ -162,7 +162,10 @@ jobs:
             gh release create "$TAG" --title "$TITLE" --notes "Automated desktop release"
           fi
 
-          mapfile -d '' FILES < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
+          FILES=()
+          while IFS= read -r -d '' file; do
+            FILES+=("$file")
+          done < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
           if [[ ${#FILES[@]} -eq 0 ]]; then
             echo "::error::No release files found in dist/"
             exit 1
@@ -221,7 +224,10 @@ jobs:
             gh release create "$TAG" --title "$TITLE" --notes "Automated desktop release"
           fi
 
-          mapfile -d '' FILES < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
+          FILES=()
+          while IFS= read -r -d '' file; do
+            FILES+=("$file")
+          done < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
           if [[ ${#FILES[@]} -eq 0 ]]; then
             echo "::error::No release files found in dist/"
             exit 1
