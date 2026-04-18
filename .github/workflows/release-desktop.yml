@@ -147,9 +147,30 @@ jobs:
       - name: Build and publish release artifacts
         if: github.event_name != 'workflow_dispatch' || inputs.split_publish != true
         run: |
-          npm run build:main
-          npm run build:renderer
-          npx electron-builder --mac dmg zip --universal --publish always --config.publish.provider=github --config.publish.owner="${{ github.repository_owner }}" --config.publish.repo="${{ github.event.repository.name }}" --config.publish.releaseType=release --config.publish.timeout=600000
+          set -euo pipefail
+
+          npm run build
+
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          TITLE="Taylos ${VERSION}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists - uploading with --clobber"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "Automated desktop release"
+          fi
+
+          mapfile -d '' FILES < <(find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print0)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "::error::No release files found in dist/"
+            exit 1
+          fi
+
+          printf 'Uploading %s file(s)\n' "${#FILES[@]}"
+          gh release upload "$TAG" "${FILES[@]}" --clobber
+          gh release view "$TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_BACKEND_WS_URL: ${{ vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
@@ -164,9 +185,10 @@ jobs:
       - name: Build release artifacts (split mode)
         if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true
         run: |
-          npm run build:main
-          npm run build:renderer
-          npx electron-builder --mac dmg zip --universal --publish never
+          set -euo pipefail
+
+          npm run build
+
           echo "Built artifacts:"
           ls -lah dist
         env:
