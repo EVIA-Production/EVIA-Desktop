@@ -48,7 +48,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
   const completeSessionInFlightRef = useRef(false);
 
-  // WINDOWS FIX (2025-12-05): Get platform info inside component where it's guaranteed to be available
+  // Platform info is exposed by preload; use it for correct shortcut labels before IPC loads.
+  const isMacPlatform = useMemo(() => {
+    return typeof window !== 'undefined' && (window as any)?.platformInfo?.isMac === true;
+  }, []);
   const isWindowsPlatform = useMemo(() => {
     return typeof window !== 'undefined' && (window as any)?.platformInfo?.isWindows === true;
   }, []);
@@ -56,8 +59,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
   // WINDOWS FIX (2025-12-06): Load shortcuts dynamically like Glass MainHeader.js
   // Default shortcuts for initial render (before IPC loads)
   const defaultShortcuts: ShortcutConfig = {
-    toggleVisibility: isWindowsPlatform ? 'Ctrl+Space' : 'Cmd+Space',
-    nextStep: 'Ctrl+Enter',
+    toggleVisibility: isMacPlatform ? 'Cmd+\\' : 'Ctrl+Space',
+    nextStep: isMacPlatform ? 'Cmd+Enter' : 'Ctrl+Enter',
   };
   const [shortcuts, setShortcuts] = useState<ShortcutConfig>(defaultShortcuts);
   
@@ -110,6 +113,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   // Render shortcut key with proper symbols (like Glass MainHeader.js line 578-599)
   const renderShortcutKey = (accelerator: string | undefined): React.ReactNode => {
     if (!accelerator) return null;
+    const displayGermanMacHash = isMacPlatform && language === 'de';
     
     const keyMap: { [key: string]: React.ReactNode } = isWindowsPlatform ? {
       'Cmd': 'Ctrl',
@@ -132,8 +136,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
       'Shift': '⇧',
       'Enter': '↵',
       'Space': '␣',
+      '#': '#',
       '\\': (
-        <svg viewBox="0 0 6 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width: '6px', height: '12px'}}>
+        displayGermanMacHash ? '#' : <svg viewBox="0 0 6 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{width: '6px', height: '12px'}}>
           <path d="M1.5 1.3L5.1 10.6" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       ),

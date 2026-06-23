@@ -58,9 +58,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const lastSendAndSubmitSignatureRef = useRef<string>('');
   const lastSendAndSubmitAtRef = useRef<number>(0);
   const normalizeContextText = useCallback((value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase(), []);
+  const stripUserVisibleStreamArtifacts = useCallback((value: string) => {
+    return (value || '')
+      .replace(/\s*\[(?:Fehler|Error):[^\]]+\]\.?\s*/gi, ' ')
+      .replace(/\s*(?:Was muss intern passieren, damit wir den nächsten Schritt fixieren\?|What would need to happen internally to lock the next step\?)\s*/gi, ' ')
+      .replace(/\s+([.!?])/g, '$1')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  }, []);
   const sanitizeLiveAskMarkdown = useCallback((text: string) => {
     if (!text) return '';
-    const cleaned = text
+    const cleaned = stripUserVisibleStreamArtifacts(text)
       .replace(/```[\s\S]*?```/g, '')
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^\s*[-*]\s+/gm, '')
@@ -76,17 +84,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       return firstChar.toUpperCase() + cleaned.slice(1);
     }
     return cleaned;
-  }, []);
+  }, [stripUserVisibleStreamArtifacts]);
 
   const sanitizeRichAskMarkdown = useCallback((text: string) => {
     if (!text) return '';
-    return text
+    return stripUserVisibleStreamArtifacts(text)
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`(.+?)`/gs, '$1')
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-  }, []);
+  }, [stripUserVisibleStreamArtifacts]);
 
   const sanitizeAskOutput = useCallback((text: string, state: AskSessionState) => {
     return state === 'during'
@@ -121,7 +129,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const entry = entries[i];
       const cleaned = (entry.text || '').trim();
       if (!cleaned) continue;
-      const speakerLabel = entry.speaker === 1 ? 'User' : 'Prospect';
+      const speakerLabel = entry.speaker === 1 ? 'User' : entry.speaker === 0 ? 'Prospect' : 'Unknown';
       const line = `${speakerLabel}: ${cleaned}`;
       const projected = charCount + line.length + 1;
       if (projected > maxChars) break;
@@ -937,6 +945,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           streamRef.current = null;
         }
         return; // Don't add error text to response
+      }
+      if (/\[(?:Fehler|Error):/i.test(d)) {
+        console.warn('[AskView] ⚠️ Suppressed user-visible stream error fragment');
+        return;
       }
       
       if (isLoadingFirstToken) {

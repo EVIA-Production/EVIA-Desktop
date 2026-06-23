@@ -6,6 +6,11 @@ interface ShortCutSettingsViewProps {
 }
 
 const ShortCutSettingsView: React.FC<ShortCutSettingsViewProps> = ({ onClose }) => {
+  const isMacPlatform = typeof window !== 'undefined' && (window as any)?.platformInfo?.isMac === true;
+  const isGermanLocale = typeof navigator !== 'undefined' && (navigator.language || '').toLowerCase().startsWith('de');
+  const modifierKey = isMacPlatform ? 'Cmd' : 'Ctrl';
+  const toggleKey = isMacPlatform ? (isGermanLocale ? '#' : '\\') : 'Space';
+
   return (
     <div className="shortcuts-container">
       {/* Close button - Glass parity */}
@@ -25,13 +30,13 @@ const ShortCutSettingsView: React.FC<ShortCutSettingsViewProps> = ({ onClose }) 
 
       <div className="shortcuts-list no-drag">
         <div className="shortcut-row">
-          <div className="shortcut-name">• Toggle overlay: Cmd/Ctrl + \</div>
+          <div className="shortcut-name">• Toggle overlay: {modifierKey} + {toggleKey}</div>
         </div>
         <div className="shortcut-row">
-          <div className="shortcut-name">• Open Ask: Cmd/Ctrl + Enter</div>
+          <div className="shortcut-name">• Open Ask: {modifierKey} + Enter</div>
         </div>
         <div className="shortcut-row">
-          <div className="shortcut-name">• Move overlay: Cmd/Ctrl + Arrow Keys</div>
+          <div className="shortcut-name">• Move overlay: {modifierKey} + Arrow Keys</div>
         </div>
       </div>
     </div>

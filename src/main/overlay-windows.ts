@@ -1660,6 +1660,13 @@ function registerShortcuts() {
   if (process.platform === 'win32' && shortcuts.toggleVisibility === defaultShortcuts.toggleVisibility) {
     registerSafe('Ctrl+\\', handleHeaderToggle)
   }
+  if (
+    process.platform === 'darwin' &&
+    ['Cmd+\\', 'Command+\\', 'Cmd+#', 'Command+#'].includes(shortcuts.toggleVisibility)
+  ) {
+    const alias = shortcuts.toggleVisibility.includes('#') ? 'Cmd+\\' : 'Cmd+#'
+    registerSafe(alias, handleHeaderToggle)
+  }
   registerSafe(shortcuts.nextStep, handleNextStepShortcut)
 
   registerSafe(shortcuts.moveUp, nudgeUp)

@@ -266,6 +266,8 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
 
   // WINDOWS FIX (2025-12-05): Use platform-appropriate symbol mapping
   const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
+  const isMac = Boolean((window as any)?.platformInfo?.isMac);
+  const displayGermanMacHash = isMac && currentLanguage === 'de';
 
   // Glass parity: Symbol mapping for keyboard shortcuts
   // On Windows: Show "Ctrl" text instead of ⌃ symbol (which is confusing on Windows)
@@ -304,6 +306,8 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     'Down': '↓',
     'Left': '←',
     'Right': '→',
+    '\\': displayGermanMacHash ? '#' : '\\',
+    '#': '#',
   };
 
   const renderShortcutKey = (accelerator: string) => {

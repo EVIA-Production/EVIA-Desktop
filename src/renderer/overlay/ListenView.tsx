@@ -279,7 +279,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const entry = stableRows[i];
       const cleaned = (entry.text || '').trim();
       if (!cleaned) continue;
-      const speakerLabel = entry.speaker === 1 ? 'User' : 'Prospect';
+      const speakerLabel = entry.speaker === 1 ? 'User' : entry.speaker === 0 ? 'Prospect' : 'Unknown';
       const line = `${speakerLabel}: ${cleaned}`;
       const projected = charCount + line.length + 1;
       if (projected > maxChars) break;
