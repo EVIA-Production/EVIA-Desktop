@@ -120,6 +120,7 @@ export class ChatWebSocket {
 
   async connect(attempt: number = 1): Promise<void> {
     try {
+      this.shouldReconnect = true;
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         console.warn('WebSocket already connected');
         return;
@@ -174,6 +175,7 @@ export class ChatWebSocket {
           console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
           clearTimeout(timeout);
           this.isConnectedFlag = true;
+          this.reconnectAttempts = 0;
           this.connectionChangeHandlers.forEach(h => h(true));
           this.flushQueue();
           resolve();

@@ -223,6 +223,7 @@ const MAC_SYSTEM_RESTART_COOLDOWN_MS = 12000;
 let micHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let systemHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let macSystemHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
+let macSystemHealthCheckStartedAt = 0;
 let lastMicWsActivity = Date.now();
 let lastSystemWsActivity = Date.now();
 let lastMicReconnectAttempt = 0;
@@ -305,6 +306,7 @@ function startMacSystemHealthCheck() {
   }
 
   console.log('[AudioCapture] 🍎 Starting macOS system-audio watchdog');
+  macSystemHealthCheckStartedAt = Date.now();
   macSystemHealthCheckTimer = setInterval(async () => {
     try {
       if (!isActivelyCapturing) return;
@@ -312,7 +314,10 @@ function startMacSystemHealthCheck() {
       if (!eviaApi?.systemAudio) return;
 
       const now = Date.now();
-      const timeSinceChunk = pipelineMetrics.lastSystemChunkTime ? now - pipelineMetrics.lastSystemChunkTime : Number.POSITIVE_INFINITY;
+      const hasSystemChunk = pipelineMetrics.lastSystemChunkTime > 0;
+      const timeSinceChunk = hasSystemChunk
+        ? now - pipelineMetrics.lastSystemChunkTime
+        : now - macSystemHealthCheckStartedAt;
       const timeSinceTranscript = now - lastSystemTranscriptReceivedTime;
       const helperRunning = await eviaApi.systemAudio.isRunning();
 
@@ -349,6 +354,7 @@ function stopMacSystemHealthCheck() {
   if (macSystemHealthCheckTimer) {
     clearInterval(macSystemHealthCheckTimer);
     macSystemHealthCheckTimer = null;
+    macSystemHealthCheckStartedAt = 0;
     console.log('[AudioCapture] 🍎 Stopped macOS system-audio watchdog');
   }
 }
