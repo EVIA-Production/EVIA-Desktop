@@ -105,7 +105,7 @@ export class ChatWebSocket {
   private silenceThreshold: number = 0.003;
   private audioDetected: boolean = false;
   private silentChunkStreak: number = 0;
-  private droppedSilentChunks: number = 0;
+  private sustainedSilentChunks: number = 0;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private shouldReconnect: boolean = true;
@@ -276,25 +276,21 @@ export class ChatWebSocket {
     // Update last audio level
     this.lastAudioLevel = audioLevel;
 
-    // Silence suppression with hangover:
-    // - speech starts immediately
-    // - a short tail after speech is preserved
-    // - only sustained silence is dropped
-    // Backend/Deepgram keepalive paths keep sessions alive during silence.
+    // Preserve every chunk for Deepgram. Low-RMS chunks can still contain quiet
+    // speech, so this path only logs sustained silence instead of dropping it.
     if (hasAudio) {
       this.silentChunkStreak = 0;
     } else {
       this.silentChunkStreak++;
       const HANGOVER_SILENT_CHUNKS = 5; // ~500ms with 100ms chunks
       if (this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
-        this.droppedSilentChunks++;
-        if (this.droppedSilentChunks % 25 === 0) {
+        this.sustainedSilentChunks++;
+        if (this.sustainedSilentChunks % 25 === 0) {
           console.log(
-            `[Audio Logger] Dropped ${this.droppedSilentChunks} sustained-silence chunks for ${this.source || 'unknown'} ` +
+            `[Audio Logger] Preserved ${this.sustainedSilentChunks} sustained low-level chunks for ${this.source || 'unknown'} ` +
             `(threshold=${this.silenceThreshold.toFixed(4)}, current=${audioLevel.toFixed(4)})`
           );
         }
-        return;
       }
     }
     
