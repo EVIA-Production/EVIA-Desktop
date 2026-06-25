@@ -1,0 +1,48 @@
+name: Windows Desktop Release (Self-hosted Signing)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload Taylos.exe, Taylos.exe.blockmap, and latest.yml to the matching GitHub release"
+        required: false
+        default: false
+        type: boolean
+      ws_url:
+        description: "Production websocket URL baked into the renderer"
+        required: false
+        default: "wss://rt.taylos.ai"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-desktop-release-self-hosted-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-sign-and-optionally-upload:
+    runs-on: [self-hosted, windows-signing]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: "npm"
+
+      - name: Build and verify signed Windows release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VITE_BACKEND_WS_URL: ${{ inputs.ws_url }}
+        run: |
+          $args = @()
+          if ("${{ inputs.upload }}" -eq "true") {
+            $args += "-Upload"
+          }
+          powershell -ExecutionPolicy Bypass -File .\scripts\release-windows-signed.ps1 @args
