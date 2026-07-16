@@ -8,6 +8,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "run-p dev:vite dev:electron",
+    "dev:demo": "npm run build:main && npm run build:renderer && cross-env NODE_ENV=production TAYLOS_DEMO_MODE=1 API_BASE_URL=https://api.taylos.ai ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron .",
     "dev:vite": "cross-env NODE_ENV=development vite --port=5174",
     "dev:electron": "npm run build:main && cross-env NODE_ENV=development ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron .",
     "dev:renderer": "vite",

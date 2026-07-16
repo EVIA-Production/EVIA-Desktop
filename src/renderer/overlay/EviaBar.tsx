@@ -217,7 +217,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
   // 🔄 Sync session state with backend and listen for chat changes
   useEffect(() => {
-    const syncSessionState = async () => {
+    const syncSessionState = async (normalizeDemoStartup = false) => {
       try {
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
@@ -243,6 +243,40 @@ const EviaBar: React.FC<EviaBarProps> = ({
           const data = await response.json();
           console.log('[EviaBar] ✅ Backend session status:', data.status);
 
+          if (normalizeDemoStartup && data.status !== 'before') {
+            const demoState = await (window as any).evia?.demo?.isEnabled?.();
+            if (demoState?.enabled === true) {
+              console.log('[EviaBar] 🧹 Completing stale session before local demo startup');
+              const completionResponse = await fetch(`${baseUrl}/session/complete`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  chat_id: Number(chatId),
+                  summary: null,
+                }),
+              });
+
+              if (!completionResponse.ok) {
+                console.warn(
+                  '[EviaBar] Could not complete stale demo session:',
+                  completionResponse.status,
+                  await completionResponse.text(),
+                );
+              }
+
+              localStorage.removeItem('current_chat_id');
+              localStorage.setItem('evia_session_state', 'before');
+              (window as any).evia?.ipc?.send?.('live-transcript:clear');
+              (window as any).evia?.ipc?.send?.('clear-session');
+              setListenStatus('before');
+              setIsListenActive(false);
+              return;
+            }
+          }
+
           const now = Date.now();
           const withinGrace = now - lastLocalStartMsRef.current < 2000;
           if (data.status === 'during') {
@@ -261,7 +295,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
 
     // Sync on mount
-    syncSessionState();
+    syncSessionState(true);
 
     const handleChatChanged = () => {
       console.log('[EviaBar] 💬 Chat changed - syncing session state');
@@ -502,6 +536,19 @@ const EviaBar: React.FC<EviaBarProps> = ({
     } else if (listenStatus === 'in') {
 
       console.log('[EviaBar] Stop → Done: Window stays visible');
+
+      // An insight action opens Ask and can hide Listen. During the local shoot,
+      // restore the ordinary Listen window when Stop is pressed so the standard
+      // post-call transition is visible without any additional control.
+      try {
+        const demoState = await (window as any).evia?.demo?.isEnabled?.();
+        if (demoState?.enabled === true) {
+          await (window as any).evia?.windows?.ensureShown?.('listen');
+          onViewChange?.('listen');
+        }
+      } catch (error) {
+        console.warn('[EviaBar] Could not restore Listen for local demo transition:', error);
+      }
       
       // FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
       try {

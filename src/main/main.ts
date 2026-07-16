@@ -1,3 +1,4 @@
+import './demo-bootstrap'
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
@@ -14,6 +15,9 @@ import { startSubscriptionMonitor, stopSubscriptionMonitor } from './subscriptio
 let pendingDeepLink: string | null = null;
 const PRIMARY_DEEP_LINK_SCHEME = 'taylos';
 const LEGACY_DEEP_LINK_SCHEME = 'evia';
+const isDemoMode =
+  !app.isPackaged &&
+  process.env.TAYLOS_DEMO_MODE === '1';
 
 function extractDeepLinkFromArgList(args: string[]): string | null {
   const raw = args.find(
@@ -818,10 +822,14 @@ ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string
 // header:nudge, header:open-ask) are registered in overlay-windows.ts to avoid duplicates
 
 // Register taylos:// protocol for deep linking (auth callback from web)
-const primaryProtocolRegistered = registerProtocolClient(PRIMARY_DEEP_LINK_SCHEME);
-const legacyProtocolRegistered = registerProtocolClient(LEGACY_DEEP_LINK_SCHEME);
-console.log(`[Protocol] ✅ Registered ${PRIMARY_DEEP_LINK_SCHEME}:// protocol:`, primaryProtocolRegistered);
-console.log(`[Protocol] ✅ Registered ${LEGACY_DEEP_LINK_SCHEME}:// compatibility alias:`, legacyProtocolRegistered);
+if (isDemoMode) {
+  console.log('[DemoMode] Skipping protocol registration to preserve the installed Taylos handler');
+} else {
+  const primaryProtocolRegistered = registerProtocolClient(PRIMARY_DEEP_LINK_SCHEME);
+  const legacyProtocolRegistered = registerProtocolClient(LEGACY_DEEP_LINK_SCHEME);
+  console.log(`[Protocol] ✅ Registered ${PRIMARY_DEEP_LINK_SCHEME}:// protocol:`, primaryProtocolRegistered);
+  console.log(`[Protocol] ✅ Registered ${LEGACY_DEEP_LINK_SCHEME}:// compatibility alias:`, legacyProtocolRegistered);
+}
 
 // macOS: Handle taylos:// URLs when app is already running
 app.on('open-url', (event, url) => {

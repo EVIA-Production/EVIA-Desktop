@@ -6,6 +6,7 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
+import { getDemoAskResponse } from '../demo-scenario';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -49,6 +50,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const restartStreamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const deterministicDemoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const demoModeEnabledRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);  // UI IMPROVEMENT: Auto-focus input
   const lastResponseRef = useRef<string>('');  // UI IMPROVEMENT: Track when content actually changes
   const storedContentHeightRef = useRef<number | null>(null);  // CRITICAL: Store content-based height to restore after arrow key movement
@@ -157,6 +160,26 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   useEffect(() => {
     responseIndexRef.current = responseIndex;
   }, [responseIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (window as any).evia?.demo?.isEnabled?.()
+      .then((result: { enabled?: boolean } | undefined) => {
+        if (!cancelled) demoModeEnabledRef.current = result?.enabled === true;
+      })
+      .catch((error: unknown) => {
+        console.warn('[AskView] Could not read demo mode state:', error);
+      });
+
+    return () => {
+      cancelled = true;
+      if (deterministicDemoTimerRef.current) {
+        clearTimeout(deterministicDemoTimerRef.current);
+        deterministicDemoTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // UX IMPROVEMENT: Helper function to focus input with retry (NO DELAYS - instant focus)
   const focusInputWithRetry = useCallback(() => {
@@ -392,6 +415,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     // FIX #27: Clear response when session FULLY closes (Fertig pressed, not just Stopp)
     const handleSessionClosed = () => {
+      cancelActiveStreamRef.current?.('session closed');
       console.log('[AskView] 🛑 Session closed (Fertig pressed) - clearing all state');
       setResponse('');
       setResponseHistory([]);
@@ -708,6 +732,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   const cancelActiveStream = useCallback((reason: string) => {
+    if (deterministicDemoTimerRef.current) {
+      clearTimeout(deterministicDemoTimerRef.current);
+      deterministicDemoTimerRef.current = null;
+    }
     if (restartStreamTimeoutRef.current) {
       clearTimeout(restartStreamTimeoutRef.current);
       restartStreamTimeoutRef.current = null;
@@ -729,13 +757,70 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
-    if (!actualPrompt.trim() || streamRef.current) return;
+    if (!actualPrompt.trim() || streamRef.current || deterministicDemoTimerRef.current) return;
     
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
     setErrorToast(null);
     setIsLoadingFirstToken(true);
     setHeaderText(i18n.t('overlay.ask.thinking'));
+
+    // Demo mode substitutes only explicitly scripted outcomes at the same boundary
+    // as a normal Ask request. The ordinary Ask layout and every unmatched request
+    // continue through the production backend unchanged.
+    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
+    const deterministicDemoResponse = demoModeEnabledRef.current
+      ? getDemoAskResponse(actualPrompt, currentSessionState)
+      : null;
+
+    if (deterministicDemoResponse) {
+      if (currentSessionState !== sessionState) setSessionState(currentSessionState);
+      if (onSubmitPrompt) onSubmitPrompt(actualPrompt);
+
+      const minimumThinkingHeight = 106;
+      const nextHeight = Math.max(window.innerHeight, minimumThinkingHeight);
+      const startedAt = performance.now();
+
+      setShowTextInput(true);
+      setResponse('');
+      responseBufferRef.current = '';
+      lastResponseRef.current = '';
+      setResponseSessionState(currentSessionState);
+      setIsStreaming(true);
+      setTtftMs(null);
+      storedContentHeightRef.current = nextHeight;
+      requestWindowResize(nextHeight);
+      setPrompt('');
+
+      deterministicDemoTimerRef.current = setTimeout(() => {
+        deterministicDemoTimerRef.current = null;
+        const finalResponse = sanitizeAskOutput(deterministicDemoResponse, currentSessionState).trim();
+
+        responseBufferRef.current = finalResponse;
+        lastResponseRef.current = finalResponse;
+        setResponse(finalResponse);
+        setIsLoadingFirstToken(false);
+        setIsStreaming(false);
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        setTtftMs(performance.now() - startedAt);
+        setResponseHistory((previous) => {
+          const next = [...previous, { question: actualPrompt, response: finalResponse }];
+          setResponseIndex(next.length - 1);
+          return next;
+        });
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const targetHeight = measureTargetWindowHeight();
+            storedContentHeightRef.current = targetHeight;
+            requestWindowResize(targetHeight);
+            requestAnimationFrame(() => updateResponseOverflowState());
+            setTimeout(() => focusInputWithRetry(), 300);
+          });
+        });
+      }, 150);
+      return;
+    }
     
     const baseUrl = BACKEND_URL;
     
@@ -892,7 +977,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // CRITICAL FIX: Re-read session state from localStorage before streaming
     // EviaBar updates localStorage immediately when Listen starts, but the IPC event
     // might arrive too late (after user clicks shortcut button)
-    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
     if (currentSessionState !== sessionState) {
       console.log('[AskView] 🔄 Syncing session state from localStorage:', currentSessionState, '(was:', sessionState, ')');
       setSessionState(currentSessionState);
@@ -1312,7 +1396,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           </div>
         ) : response ? (
           <>
-            <div 
+            <div
               className="markdown-content"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
             />

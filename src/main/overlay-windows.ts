@@ -6,6 +6,7 @@ import { headerController } from './header-controller'
 
 // Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
+const isDemoMode = !app.isPackaged && process.env.TAYLOS_DEMO_MODE === '1'
 const VITE_DEV_SERVER_URL = 'http://localhost:5174'
 
 export type FeatureName = 'listen' | 'ask' | 'settings' | 'shortcuts'
@@ -82,6 +83,8 @@ type LiveTranscriptSnapshot = {
 }
 
 let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
+
+ipcMain.handle('demo:is-enabled', () => ({ enabled: isDemoMode }))
 
 // Glass parity: Track visibility before hide (windowManager.js:227-233)
 let lastVisibleWindows = new Set<FeatureName>()
@@ -522,7 +525,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   })
 
   // Glass parity: Open DevTools for all child windows in development (windowManager.js:726-728, 553-555)
-  if (!app.isPackaged) {
+  if (!app.isPackaged && !isDemoMode) {
     console.log(`[overlay-windows] Opening DevTools for ${name} window`)
     win.webContents.openDevTools({ mode: 'detach' })
   }
