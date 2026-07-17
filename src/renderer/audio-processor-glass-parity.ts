@@ -450,7 +450,6 @@ let micWsInstance: any = null;
 let micAudioContext: AudioContext | null = null;
 let micAudioProcessor: ScriptProcessorNode | null = null;
 let micStream: MediaStream | null = null;
-let micWsDisconnectedLogged: boolean = false; // FIX: Prevent spam logging
 
 // System audio state  
 let systemWsInstance: any = null;
@@ -934,23 +933,22 @@ async function setupMicProcessing(stream: MediaStream) {
       // Taylos uses renderer-based WebSockets (unlike Glass which uses main process)
       const ws = ensureMicWs();
       updateWsActivity('mic');
-      // CRITICAL FIX: Verify WebSocket is actually connected before sending
-      if (ws && ws.isConnected() && ws.sendBinaryData) {
+      // sendBinaryData owns connection-aware buffering. Calling it while a
+      // reconnect is in flight preserves up to three seconds of speech.
+      if (ws?.sendBinaryData) {
         try {
           const sendResult = ws.sendBinaryData(pcm16.buffer);
-          if (sendResult !== 'sent') {
-            return;
-          }
-          // WINDOWS FIX: Track pipeline metrics
-          pipelineMetrics.micChunksSent++;
-          pipelineMetrics.lastMicChunkTime = Date.now();
+          if (sendResult === 'sent') {
+            // WINDOWS FIX: Track pipeline metrics
+            pipelineMetrics.micChunksSent++;
+            pipelineMetrics.lastMicChunkTime = Date.now();
 
-          // Log status every 100 chunks for monitoring
-          if (pipelineMetrics.micChunksSent % 100 === 0) {
-            const elapsed = (Date.now() - pipelineMetrics.sessionStart) / 1000;
-            console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
+            // Log status every 100 chunks for monitoring
+            if (pipelineMetrics.micChunksSent % 100 === 0) {
+              const elapsed = (Date.now() - pipelineMetrics.sessionStart) / 1000;
+              console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
+            }
           }
-
         } catch (error) {
           console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
           try {
@@ -959,18 +957,6 @@ async function setupMicProcessing(stream: MediaStream) {
               eviaIpc.send('debug-log', `[AudioCapture] ❌ SEND FAILED: ${error}`);
             }
           } catch { }
-        }
-      } else if (ws && !ws.isConnected()) {
-        // WebSocket exists but disconnected - log warning (avoid spam)
-        if (!micWsDisconnectedLogged) {
-          console.error('[AudioCapture] ❌ Mic WebSocket disconnected - cannot send audio data');
-          try {
-            const eviaIpc = (window as any).evia?.ipc;
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', '[AudioCapture] ❌ MIC WS DISCONNECTED!');
-            }
-          } catch { }
-          micWsDisconnectedLogged = true;
         }
       } else {
         console.error('[AudioCapture] ❌ Mic WebSocket not ready');
@@ -1014,14 +1000,17 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 
   let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
+  let lastSilenceWarningAt = 0;
 
   sysProcessor.onaudioprocess = (e) => {
     const inputData = e.inputBuffer.getChannelData(0);
 
     // Check if actually receiving audio
     const hasSound = inputData.some(sample => Math.abs(sample) > 0.01);
-    if (!hasSound) {
+    const now = Date.now();
+    if (!hasSound && DEBUG_SAVE_AUDIO && now - lastSilenceWarningAt >= 10_000) {
       console.warn('[AudioCapture] System audio data is silent!');
+      lastSilenceWarningAt = now;
     }
 
     // TypeScript compat: use Array.from instead of spread
@@ -1165,9 +1154,6 @@ export async function startCapture(includeSystemAudio = false) {
   } catch (e) {
     // Ignore if Ask window not available
   }
-
-  // FIX: Reset disconnection flag when starting new capture
-  micWsDisconnectedLogged = false;
 
   // GLASS PARITY FIX: Call getUserMedia FIRST (like Glass does at line 453)
   // This prevents the hang that was occurring when we tried to connect WebSocket before getUserMedia
@@ -1768,9 +1754,6 @@ export async function startCaptureWithStreams(
     DEBUG_SAVE_AUDIO = false;
   }
   // ═══════════════════════════════════════════════════════════════════════════════
-
-  // Reset state flags
-  micWsDisconnectedLogged = false;
 
   // Validate mic stream
   if (!providedMicStream || providedMicStream.getAudioTracks().length === 0) {

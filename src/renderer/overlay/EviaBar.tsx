@@ -291,6 +291,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
             if (isListeningRef.current || withinGrace) {
               setListenStatus('in');
             } else {
+              // A renderer restart cannot resume an old MediaStream. Reconcile a
+              // stale backend "during" state instead of showing Stop while no
+              // capture exists (which previously inverted the next button press).
               console.warn('[EviaBar] ⚠️ Backend says during but no capture exists; completing stale session');
               try {
                 const completionResponse = await fetch(`${baseUrl}/session/complete`, {
@@ -313,6 +316,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
                   );
                 }
               } catch (completionError) {
+                // Local capture truth must win even if the backend is temporarily unavailable.
                 console.warn('[EviaBar] Could not reconcile stale backend session:', completionError);
               }
 
@@ -501,6 +505,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
         setListenStatus('in');
         setIsListenActive(true);
 
+        // Lifecycle synchronization is best-effort. Capture truth owns the
+        // button state, so a transient HTTP failure cannot invert Start/Stop.
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();
@@ -557,31 +563,33 @@ const EviaBar: React.FC<EviaBarProps> = ({
           onViewChange?.('listen');
         }
 
-        // FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
-        const eviaAuth = (window as any).evia?.auth;
-        const token = await eviaAuth?.getToken?.();
-        const chatId = localStorage.getItem('current_chat_id');
-        const { BACKEND_URL: baseUrl } = await import('../config/config');
-        
-        if (token && chatId) {
-          console.log('[EviaBar] 🎯 Calling /session/pause for chat_id:', chatId);
-          const response = await fetch(`${baseUrl}/session/pause`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ chat_id: Number(chatId) })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('[EviaBar] ✅ Session paused:', data);
+        try {
+          const eviaAuth = (window as any).evia?.auth;
+          const token = await eviaAuth?.getToken?.();
+          const chatId = localStorage.getItem('current_chat_id');
+          const { BACKEND_URL: baseUrl } = await import('../config/config');
+
+          if (token && chatId) {
+            console.log('[EviaBar] 🎯 Calling /session/pause for chat_id:', chatId);
+            const response = await fetch(`${baseUrl}/session/pause`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ chat_id: Number(chatId) })
+            });
+
+            if (response.ok) {
+              console.log('[EviaBar] ✅ Session paused:', await response.json());
+            } else {
+              console.warn('[EviaBar] Session pause sync failed:', response.status, await response.text());
+            }
           } else {
-            console.error('[EviaBar] ❌ Failed to pause session:', response.status, await response.text());
+            console.warn('[EviaBar] Cannot sync /session/pause: missing token or chat_id');
           }
-        } else {
-          console.warn('[EviaBar] ⚠️ Cannot call /session/pause: missing token or chat_id');
+        } catch (syncError) {
+          console.warn('[EviaBar] Session pause sync failed:', syncError);
         }
       } catch (error) {
         console.error('[EviaBar] ❌ Error stopping listening session:', error);

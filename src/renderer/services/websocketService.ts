@@ -177,6 +177,10 @@ export class ChatWebSocket {
         this.ws.onopen = () => {
           console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
           clearTimeout(timeout);
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+          }
           this.isConnectedFlag = true;
           this.reconnectAttempts = 0;
           this.connectionChangeHandlers.forEach(h => h(true));
@@ -297,7 +301,8 @@ export class ChatWebSocket {
         this.queue.shift();
       }
 
-      if (!this.isConnectedFlag && this.shouldReconnect) {
+      const socketIsConnecting = this.ws?.readyState === WebSocket.CONNECTING;
+      if (!socketIsConnecting && !this.isConnectedFlag && this.shouldReconnect) {
         this.scheduleReconnect();
       }
       return 'queued';
@@ -350,7 +355,9 @@ export class ChatWebSocket {
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    // Audio callbacks can arrive every ~100 ms while disconnected. Preserve
+    // the first scheduled retry instead of postponing it on every chunk.
+    if (this.reconnectTimer) return;
     
     // CRITICAL FIX: Cap exponential backoff at 32 seconds + max 10 attempts
     const MAX_RECONNECT_ATTEMPTS = 10;
@@ -366,18 +373,22 @@ export class ChatWebSocket {
     console.log(`[WS] 🔄 Scheduling reconnect attempt ${this.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
     
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.reconnectAttempts++;
       console.log(`[WS] Reconnecting attempt ${this.reconnectAttempts}...`);
       this.connect().catch(err => {
         console.error('[WS] Reconnect failed:', err);
-        // scheduleReconnect will be called again by onclose handler
+        this.scheduleReconnect();
       });
     }, delay);
   }
 
   disconnect() {
     this.shouldReconnect = false;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close(1000, 'User stopped');
       this.ws = null;

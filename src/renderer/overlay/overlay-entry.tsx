@@ -455,6 +455,14 @@ function App() {
       }
     } catch (error) {
       console.error('[OverlayEntry] Error setting audio capture state:', error)
+      // startCapture mutates module-level audio resources as it progresses. If
+      // a later permission, socket, or system-audio step fails, release any
+      // resources that were already acquired before allowing another start.
+      try {
+        await stopCapture(captureHandleRef.current ?? undefined)
+      } catch (cleanupError) {
+        console.warn('[OverlayEntry] Failed to fully clean up partial audio capture:', cleanupError)
+      }
       showToast(`Audio capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
       // Reset state on error
       captureHandleRef.current = null
