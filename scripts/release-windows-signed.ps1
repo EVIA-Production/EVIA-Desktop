@@ -251,7 +251,15 @@ Invoke-Checked "node" @("-v")
 Invoke-Checked "npm" @("-v")
 Invoke-Checked "gh" @("--version")
 Invoke-Checked "gh" @("auth", "status")
-Invoke-Checked "gh" @("release", "view", $tag, "--repo", $Repo)
+& gh release view $tag --repo $Repo *> $null
+if ($LASTEXITCODE -ne 0) {
+  if ($Upload) {
+    Write-Warning "Release $tag does not exist yet; it will be created after the signed build."
+  }
+  else {
+    Write-Host "Release $tag does not exist; continuing because upload is disabled."
+  }
+}
 
 Write-Step "Certificate and private key"
 $simplySign = Get-Process | Where-Object { $_.ProcessName -match "SimplySign" } | Select-Object -First 1
@@ -291,6 +299,17 @@ Write-Host $uploadCommand
 
 if ($Upload) {
   Write-Step "Upload"
+  & gh release view $tag --repo $Repo *> $null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating release $tag from the existing tag."
+    Invoke-Checked "gh" @(
+      "release", "create", $tag,
+      "--repo", $Repo,
+      "--verify-tag",
+      "--title", "Taylos $version",
+      "--notes", "Automated desktop release"
+    )
+  }
   Invoke-Checked "gh" @("release", "upload", $tag, "dist\Taylos.exe", "dist\Taylos.exe.blockmap", "dist\latest.yml", "--repo", $Repo, "--clobber")
   Invoke-Checked "gh" @("release", "view", $tag, "--repo", $Repo)
 }
