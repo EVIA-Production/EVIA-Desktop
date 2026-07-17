@@ -4,6 +4,15 @@ type TranscriptLike = {
   text?: string
 }
 
+export const DEMO_PREP_THINKING_MS = 1000
+export const DEMO_LIVE_THINKING_MS = 400
+export const DEMO_POST_THINKING_MS = 400
+
+export type DemoAskResponse = {
+  content: string
+  delayMs: number
+}
+
 const DURING_ACTIONS: InsightActionItem[] = [
   {
     label: '💬 What should I say next?',
@@ -46,15 +55,17 @@ export const DEMO_PREP_RESPONSE = [
   '- Quantify the last winnable deal a junior rep lost.',
 ].join('\n')
 
-export const DEMO_HERO_RESPONSE =
-  'Pilots don\'t learn by crashing. They use tools to win. Ask: "What did the last deal a junior lost cost you?"'
+export const DEMO_HERO_RESPONSE = [
+  'Pilots don\'t learn by crashing. They use tools to win.',
+  'Ask: "What did the last deal a junior lost cost you?"',
+].join('\n\n')
 
 const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase()
 
 export function getDemoAskResponse(
   prompt: string,
   sessionState: 'before' | 'during' | 'after',
-): string | null {
+): DemoAskResponse | null {
   const normalized = normalize(prompt)
 
   if (
@@ -62,7 +73,7 @@ export function getDemoAskResponse(
     normalized.includes('anista') &&
     /(prepare|prep|vorbereit)/.test(normalized)
   ) {
-    return DEMO_PREP_RESPONSE
+    return { content: DEMO_PREP_RESPONSE, delayMs: DEMO_PREP_THINKING_MS }
   }
 
   if (
@@ -73,7 +84,7 @@ export function getDemoAskResponse(
       normalized.includes('was soll ich als naechstes sagen')
     )
   ) {
-    return DEMO_HERO_RESPONSE
+    return { content: DEMO_HERO_RESPONSE, delayMs: DEMO_LIVE_THINKING_MS }
   }
 
   return null
@@ -107,7 +118,6 @@ export function buildDemoInsights(
       'Your #1 rep would say: quantify the last lost deal, then contrast it with the pilot.',
       'Past-call learning: the recurring script-dependency objection and winning counter were retained.',
       'Next meeting: open with pilot results and ROI proof; the counter is loaded for the next call.',
-      'Follow-up email drafted; CRM update prepared.',
     ]
 
     return {

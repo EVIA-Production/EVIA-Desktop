@@ -212,12 +212,8 @@ if (typeof window !== 'undefined') {
 const WINDOWS_HEALTH_CHECK_INTERVAL = 5000; // Check every 5 seconds
 const STALE_THRESHOLD_MS = 15000; // Consider stale after 15 seconds
 const RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
-// WINDOWS FIX (2025-12-09): Also track TRANSCRIPT reception, not just audio sending
-// CRITICAL: Reduced from 30s to 15s for faster detection
-const TRANSCRIPT_STALE_THRESHOLD_MS = 15000; // 15 seconds without transcripts = stale
 const MAC_SYSTEM_HEALTH_CHECK_INTERVAL = 4000;
 const MAC_SYSTEM_CHUNK_STALE_MS = 7000;
-const MAC_SYSTEM_TRANSCRIPT_STALE_MS = 15000;
 const MAC_SYSTEM_RESTART_COOLDOWN_MS = 12000;
 
 let micHealthCheckTimer: ReturnType<typeof setInterval> | null = null;
@@ -227,19 +223,7 @@ let lastMicWsActivity = Date.now();
 let lastSystemWsActivity = Date.now();
 let lastMicReconnectAttempt = 0;
 let lastSystemReconnectAttempt = 0;
-// WINDOWS FIX (2025-12-09): Track transcript reception separately
-let lastTranscriptReceivedTime = Date.now();
-let lastSystemTranscriptReceivedTime = Date.now();
-let isActivelyCapturing = false; // Track if we're in an active capture session
-
-// WINDOWS FIX: Function to update transcript activity (called when transcript received)
-export function updateTranscriptActivity(source: 'mic' | 'system' = 'mic') {
-  lastTranscriptReceivedTime = Date.now();
-  if (source === 'system') {
-    lastSystemTranscriptReceivedTime = Date.now();
-  }
-  console.log('[AudioCapture] 📨 Transcript activity updated');
-}
+let isActivelyCapturing = false;
 
 async function restartMacSystemAudioPipeline(reason: string) {
   const eviaApi = (window as any).evia;
@@ -281,7 +265,6 @@ async function restartMacSystemAudioPipeline(reason: string) {
     }
 
     lastSystemWsActivity = Date.now();
-    lastSystemTranscriptReceivedTime = Date.now();
     pipelineMetrics.lastSystemChunkTime = Date.now();
 
     if (eviaIpc?.send) {
@@ -313,12 +296,11 @@ function startMacSystemHealthCheck() {
 
       const now = Date.now();
       const timeSinceChunk = pipelineMetrics.lastSystemChunkTime ? now - pipelineMetrics.lastSystemChunkTime : Number.POSITIVE_INFINITY;
-      const timeSinceTranscript = now - lastSystemTranscriptReceivedTime;
       const helperRunning = await eviaApi.systemAudio.isRunning();
 
-      if (timeSinceChunk > 5000 || timeSinceTranscript > 10000) {
+      if (timeSinceChunk > 5000) {
         console.log(
-          `[AudioCapture] 🍎 System watchdog: helper=${helperRunning} chunk=${Math.round(timeSinceChunk / 1000)}s transcript=${Math.round(timeSinceTranscript / 1000)}s`
+          `[AudioCapture] 🍎 System watchdog: helper=${helperRunning} chunk=${Math.round(timeSinceChunk / 1000)}s`
         );
       }
 
@@ -329,15 +311,6 @@ function startMacSystemHealthCheck() {
 
       if (timeSinceChunk > MAC_SYSTEM_CHUNK_STALE_MS) {
         await restartMacSystemAudioPipeline(`no-audio-chunks-${Math.round(timeSinceChunk / 1000)}s`);
-        return;
-      }
-
-      if (
-        pipelineMetrics.lastSystemChunkTime > 0 &&
-        timeSinceChunk < 5000 &&
-        timeSinceTranscript > MAC_SYSTEM_TRANSCRIPT_STALE_MS
-      ) {
-        await restartMacSystemAudioPipeline(`no-system-transcript-${Math.round(timeSinceTranscript / 1000)}s`);
       }
     } catch (error) {
       console.error('[AudioCapture] 🍎 macOS watchdog error:', error);
@@ -357,99 +330,33 @@ function stopMacSystemHealthCheck() {
  * WINDOWS FIX: Enhanced WebSocket Health Check with AUTO-RECOVERY
  * Monitors connection liveness and triggers automatic reconnect if stale
  * 
- * 2025-12-09: CRITICAL FIX - Also monitors TRANSCRIPT reception!
- * Previous bug: Only checked if audio was being SENT, not if transcripts were being RECEIVED
- * This caused stalls to go undetected when backend stopped responding
+ * Silence is valid call state. Recovery is based on raw capture activity and
+ * actual WebSocket connectivity, never on the absence of transcript text.
  */
 function startWindowsHealthCheck(wsInstance: any, source: 'mic' | 'system') {
   const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
   if (!isWindows) return; // Only run on Windows
 
-  console.log(`[AudioCapture] 🪟 Starting Windows health check for ${source} (enhanced auto-recovery + transcript monitoring)`);
+  console.log(`[AudioCapture] 🪟 Starting Windows health check for ${source}`);
 
   const timer = setInterval(async () => {
     try {
+      if (!isActivelyCapturing) return;
+
       const lastActivity = source === 'mic' ? lastMicWsActivity : lastSystemWsActivity;
       const lastReconnect = source === 'mic' ? lastMicReconnectAttempt : lastSystemReconnectAttempt;
       const timeSinceActivity = Date.now() - lastActivity;
       const timeSinceReconnect = Date.now() - lastReconnect;
+      const wsConnected = Boolean(wsInstance?.isConnected?.());
 
-      // WINDOWS FIX (2025-12-09): Also check transcript reception
-      const timeSinceTranscript = Date.now() - lastTranscriptReceivedTime;
-
-      // Log health status periodically
-      if (timeSinceActivity > 5000 || (isActivelyCapturing && timeSinceTranscript > 10000)) {
-        console.log(`[AudioCapture] 🪟 ${source.toUpperCase()} health: ${Math.round(timeSinceActivity / 1000)}s since send, ${Math.round(timeSinceTranscript / 1000)}s since transcript`);
+      if (timeSinceActivity > 5000 || !wsConnected) {
+        console.log(`[AudioCapture] 🪟 ${source.toUpperCase()} health: connected=${wsConnected}, ${Math.round(timeSinceActivity / 1000)}s since audio activity`);
       }
 
-      // WINDOWS FIX (2025-12-09): Detect transcript stall
-      // If we're actively capturing and audio is being sent but NO transcripts received for 30s
-      const transcriptStall = isActivelyCapturing &&
-        timeSinceActivity < 5000 && // Audio IS being sent
-        timeSinceTranscript > TRANSCRIPT_STALE_THRESHOLD_MS; // But no transcripts
-
-      // CRITICAL FIX: When transcript stalls, ALSO trigger reconnect!
-      if (transcriptStall && timeSinceReconnect > RECONNECT_COOLDOWN_MS) {
-        console.warn(`[AudioCapture] 🪟 🚨 TRANSCRIPT STALL DETECTED! Audio sending OK (${Math.round(timeSinceActivity / 1000)}s) but NO transcripts for ${Math.round(timeSinceTranscript / 1000)}s - RECONNECTING`);
-
-        // Update reconnect timestamp BEFORE attempting
-        if (source === 'mic') {
-          lastMicReconnectAttempt = Date.now();
-        } else {
-          lastSystemReconnectAttempt = Date.now();
-        }
-
-        // Notify UI of transcript stall
-        const eviaIpc = (window as any).evia?.ipc;
-        if (eviaIpc?.send) {
-          eviaIpc.send('debug-log', `[Recovery] 🚨 TRANSCRIPT STALL: ${Math.round(timeSinceTranscript / 1000)}s - Reconnecting ${source} WebSocket`);
-        }
-
-        // Attempt reconnection for transcript stall
-        if (wsInstance) {
-          try {
-            // Disconnect existing
-            console.log(`[AudioCapture] 🪟 Disconnecting ${source} WebSocket due to TRANSCRIPT STALL...`);
-            wsInstance.disconnect();
-
-            // Wait a moment
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // Reconnect
-            console.log(`[AudioCapture] 🪟 Reconnecting ${source} WebSocket...`);
-            await wsInstance.connect();
-
-            // Reset BOTH activity timestamps on successful reconnect
-            if (source === 'mic') {
-              lastMicWsActivity = Date.now();
-            } else {
-              lastSystemWsActivity = Date.now();
-            }
-            lastTranscriptReceivedTime = Date.now(); // Reset transcript timer too
-
-            console.log(`[AudioCapture] 🪟 ✅ ${source.toUpperCase()} WebSocket reconnected after transcript stall`);
-
-            // Notify UI
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', `[Recovery] ✅ ${source} WebSocket reconnected after transcript stall`);
-            }
-          } catch (reconnectErr) {
-            console.error(`[AudioCapture] 🪟 ❌ ${source} reconnect failed after transcript stall:`, reconnectErr);
-
-            // Notify UI of failure
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', `[Recovery] ❌ ${source} WebSocket reconnect FAILED: ${reconnectErr}`);
-            }
-          }
-        }
-
-        // Skip the regular stale check since we just handled it
-        return;
-      }
-
-      // If stale (audio not being sent) and not in cooldown, attempt reconnect
-      if (timeSinceActivity > STALE_THRESHOLD_MS && timeSinceReconnect > RECONNECT_COOLDOWN_MS) {
-        console.warn(`[AudioCapture] 🪟 ${source.toUpperCase()} WebSocket STALE (${Math.round(timeSinceActivity / 1000)}s) - INITIATING AUTO-RECOVERY`);
+      // Reconnect a disconnected socket immediately, or a socket whose raw
+      // capture pipeline has genuinely stopped producing chunks.
+      if ((!wsConnected || timeSinceActivity > STALE_THRESHOLD_MS) && timeSinceReconnect > RECONNECT_COOLDOWN_MS) {
+        console.warn(`[AudioCapture] 🪟 ${source.toUpperCase()} pipeline unhealthy (connected=${wsConnected}, audio=${Math.round(timeSinceActivity / 1000)}s) - initiating recovery`);
 
         // Update reconnect timestamp
         if (source === 'mic') {
@@ -802,9 +709,7 @@ function ensureMicWs() {
         // WINDOWS FIX: Update activity timestamp on any message
         updateWsActivity('mic');
 
-        console.log('[AudioCapture] 🔥 MIC MESSAGE RECEIVED:', msg.type, msg);
         if (eviaIpc?.send) {
-          eviaIpc.send('debug-log', `[AudioCapture] 🔥 MIC MSG: ${msg.type}`);
           // Log full error content for debugging
           if (msg.type === 'error') {
             eviaIpc.send('debug-log', `[AudioCapture] ❌ MIC ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
@@ -812,26 +717,11 @@ function ensureMicWs() {
         }
 
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
-          // WINDOWS FIX (2025-12-09): Track transcript reception for stall detection
-          if (msg.type === 'transcript_segment') {
-            updateTranscriptActivity('mic');
-          }
-
-          console.log('[AudioCapture] Forwarding MIC message to Listen window:', msg.type);
           if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', `[AudioCapture] 🔥 FORWARDING MIC ${msg.type} via IPC`);
             // Tag message with _source: 'mic' (speaker 1)
             eviaIpc.send('transcript-message', { ...msg, _source: 'mic' });
-            console.log('[AudioCapture] ✅ MIC transcript forwarded via IPC');
-            eviaIpc.send('debug-log', `[AudioCapture] ✅ MIC ${msg.type} FORWARDED to Listen window`);
           } else {
             console.error('[AudioCapture] ❌ IPC not available for forwarding');
-            eviaIpc.send('debug-log', '[AudioCapture] ❌ IPC NOT AVAILABLE!');
-          }
-        } else {
-          console.log('[AudioCapture] ⚠️ MIC message type not transcript/status, skipping:', msg.type);
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', `[AudioCapture] ⚠️ MIC MSG TYPE: ${msg.type} (not transcript/status)`);
           }
         }
       });
@@ -869,25 +759,16 @@ function ensureSystemWs(chatId?: string) {
         // WINDOWS FIX: Update activity timestamp on any message
         updateWsActivity('system');
 
-        console.log('[AudioCapture] 🟢 SYSTEM MESSAGE RECEIVED:', msg.type);
-
         // Log full error content for debugging
         if (msg.type === 'error' && eviaIpc?.send) {
           eviaIpc.send('debug-log', `[AudioCapture] ❌ SYSTEM ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
         }
 
         if (msg.type === 'transcript_segment' || msg.type === 'status') {
-          // WINDOWS FIX (2025-12-09): Track transcript reception for stall detection
-          if (msg.type === 'transcript_segment') {
-            updateTranscriptActivity('system');
-          }
-
-          console.log('[AudioCapture] Forwarding SYSTEM message to Listen window:', msg.type);
           // Forward to Listen window via IPC with source tag
           if (eviaIpc?.send) {
             // Tag message with _source: 'system' (speaker 0)
             eviaIpc.send('transcript-message', { ...msg, _source: 'system' });
-            console.log('[AudioCapture] ✅ SYSTEM transcript forwarded via IPC');
           }
         }
       });
@@ -943,23 +824,9 @@ async function setupMicProcessing(stream: MediaStream) {
   let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
 
-  // Silence gate - RMS threshold to prevent sending ambient noise
-  // WINDOWS FIX: Lowered Windows threshold from 0.013 to 0.010
-  // Higher threshold was too aggressive and blocked legitimate quiet audio
-  let SILENCE_RMS_THRESHOLD = 0.01; // default for Mac
-  try {
-    const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
-    if (isWindows) {
-      SILENCE_RMS_THRESHOLD = 0.010; // FIXED: Was 0.013, now matches Mac threshold
-      console.log('[AudioCapture] 🪟 Windows detected - using silence threshold:', SILENCE_RMS_THRESHOLD);
-    }
-  } catch { }
-  let silenceFrameCount = 0;
-
   let frameCounter = 0;
   let totalAudioLevel = 0;
   let silentFrames = 0;
-  let chunkCount = 0; // Track chunks sent for logging
 
   micProcessor.onaudioprocess = (e) => {
     // CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
@@ -1032,18 +899,13 @@ async function setupMicProcessing(stream: MediaStream) {
           const referenceChunk = systemAudioBuffer[delayedIndex];
           const sysF32 = base64ToFloat32Array(referenceChunk.data);
 
-          const now = Date.now();
-          const referenceAge = now - referenceChunk.timestamp;
-
           // Run AEC with time-aligned reference
           const originalChunk = new Float32Array(chunk);
           const aecResult = runAecSync(originalChunk, sysF32);
           float32Chunk = new Float32Array(aecResult);
 
-          // Verify AEC actually processed
-          if (float32Chunk !== originalChunk && aecMod && aecPtr) {
-            console.log(`[AEC] ✅ Time-aligned AEC applied (reference age: ${referenceAge}ms, target: ${AEC_LATENCY_MS}ms)`);
-          }
+          // Accessing the aligned reference above is sufficient validation. Do
+          // not log from the 100 ms audio callback; console capture adds jitter.
         } catch (error) {
           console.error('[AEC] ❌ AEC processing failed, using unprocessed audio:', error);
           // Fall back to unprocessed audio on AEC error
@@ -1055,21 +917,12 @@ async function setupMicProcessing(stream: MediaStream) {
       // ──────────────────────────────────────────────────────────────────────
       const pcm16 = convertFloat32ToInt16(float32Chunk);
 
-      // ──────────────────────────────────────────────────────────────────────
-      // STEP 4: Calculate RMS for logging / downstream silence suppression
-      // ──────────────────────────────────────────────────────────────────────
-      let sumSquares = 0;
-      for (let i = 0; i < float32Chunk.length; i++) {
-        sumSquares += float32Chunk[i] * float32Chunk[i];
-      }
-      const rms = Math.sqrt(sumSquares / float32Chunk.length);
-
       // We no longer hard-drop quiet chunks here in the audio callback.
       // Shared websocket sending now suppresses only sustained silence with a
       // short hangover, which reduces billed silence without clipping speech.
 
       // ──────────────────────────────────────────────────────────────────────
-      // STEP 5: Send to backend (pcm16 already converted above)
+      // STEP 4: Send to backend (pcm16 already converted above)
       // ──────────────────────────────────────────────────────────────────────
 
       // 🎙️ AUDIO DEBUG: Save chunk for later WAV export
@@ -1080,14 +933,14 @@ async function setupMicProcessing(stream: MediaStream) {
       // v1.0.0 FIX: Direct WebSocket send (no IPC routing!)
       // Taylos uses renderer-based WebSockets (unlike Glass which uses main process)
       const ws = ensureMicWs();
+      updateWsActivity('mic');
       // CRITICAL FIX: Verify WebSocket is actually connected before sending
       if (ws && ws.isConnected() && ws.sendBinaryData) {
         try {
-          ws.sendBinaryData(pcm16.buffer);
-          // WINDOWS FIX: Update activity on successful send
-          updateWsActivity('mic');
-          chunkCount++;
-
+          const sendResult = ws.sendBinaryData(pcm16.buffer);
+          if (sendResult !== 'sent') {
+            return;
+          }
           // WINDOWS FIX: Track pipeline metrics
           pipelineMetrics.micChunksSent++;
           pipelineMetrics.lastMicChunkTime = Date.now();
@@ -1098,15 +951,6 @@ async function setupMicProcessing(stream: MediaStream) {
             console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
           }
 
-          // ULTRA-CRITICAL: Log EVERY chunk send for diagnosis
-          console.log(`[AudioCapture] Sent MIC chunk #${chunkCount}: ${pcm16.byteLength} bytes (RMS: ${rms.toFixed(4)}, AEC: ${systemAudioBuffer.length > 0 ? 'YES' : 'NO'})`);
-          // Forward to Ask console
-          try {
-            const eviaIpc = (window as any).evia?.ipc;
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', `[AudioCapture] 📤 SENT MIC CHUNK #${chunkCount}: ${pcm16.byteLength} bytes, RMS: ${rms.toFixed(4)}`);
-            }
-          } catch { }
         } catch (error) {
           console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
           try {
@@ -1214,8 +1058,6 @@ function setupSystemAudioProcessing(stream: MediaStream) {
         systemAudioBuffer.shift(); // Remove oldest chunk
       }
 
-      console.log(`[AudioCapture] 🔊 System audio buffer: ${systemAudioBuffer.length}/${MAX_SYSTEM_BUFFER_SIZE} chunks`);
-
       // ──────────────────────────────────────────────────────────────────────
       // Send system audio to backend
       // ──────────────────────────────────────────────────────────────────────
@@ -1227,17 +1069,17 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 
       const chatId = localStorage.getItem('current_chat_id') || undefined;
       const ws = ensureSystemWs(chatId);
+      updateWsActivity('system');
+      pipelineMetrics.lastSystemChunkTime = Date.now();
       if (ws && ws.sendBinaryData) {
         try {
-          ws.sendBinaryData(pcm16.buffer);
-          // WINDOWS FIX: Update activity on successful send
-          updateWsActivity('system');
-
+          const sendResult = ws.sendBinaryData(pcm16.buffer);
+          if (sendResult !== 'sent') {
+            return;
+          }
           // WINDOWS FIX: Track pipeline metrics
           pipelineMetrics.systemChunksSent++;
-          pipelineMetrics.lastSystemChunkTime = Date.now();
 
-          console.log(`[AudioCapture] Sent SYSTEM chunk: ${pcm16.byteLength} bytes`);
         } catch (error) {
           console.error('[AudioCapture] Failed to send SYSTEM chunk:', error);
           pipelineMetrics.errorsEncountered++;
@@ -1302,10 +1144,7 @@ export async function startCapture(includeSystemAudio = false) {
     console.log('[AudioDebug] ═══════════════════════════════════════');
   }
 
-  // WINDOWS FIX (2025-12-09): Mark capture as active for transcript stall detection
   isActivelyCapturing = true;
-  lastTranscriptReceivedTime = Date.now(); // Reset transcript timer
-  lastSystemTranscriptReceivedTime = Date.now();
 
   // WINDOWS FIX: Reset pipeline metrics for new session
   pipelineMetrics.sessionStart = Date.now();
@@ -1649,6 +1488,8 @@ export async function startCapture(includeSystemAudio = false) {
           // Listen for system audio data from binary (via IPC)
           const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
             try {
+              updateWsActivity('system');
+              pipelineMetrics.lastSystemChunkTime = Date.now();
               // Convert base64 to binary
               const binaryString = atob(audioData.data);
               const bytes = new Uint8Array(binaryString.length);
@@ -1669,10 +1510,10 @@ export async function startCapture(includeSystemAudio = false) {
               const chatId = localStorage.getItem('current_chat_id') || undefined;
               const ws = ensureSystemWs(chatId);
               if (ws && ws.sendBinaryData) {
-                ws.sendBinaryData(bytes.buffer);
-                updateWsActivity('system');
-                pipelineMetrics.systemChunksSent++;
-                pipelineMetrics.lastSystemChunkTime = Date.now();
+                const sendResult = ws.sendBinaryData(bytes.buffer);
+                if (sendResult === 'sent') {
+                  pipelineMetrics.systemChunksSent++;
+                }
               }
             } catch (error) {
               console.error('[AudioCapture] Error processing system audio data:', error);
@@ -1869,8 +1710,6 @@ export async function stopCapture(captureHandle?: any) {
     // Clean up window flags
     (window as any)._systemAudioIsWindows = undefined;
     (window as any)._systemAudioUsingLoopback = undefined;
-    lastSystemTranscriptReceivedTime = Date.now();
-
     console.log('[AudioCapture] Capture stopped successfully (mic + system)');
   } catch (error) {
     console.error('[AudioCapture] Error stopping capture:', error);

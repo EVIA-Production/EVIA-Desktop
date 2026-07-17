@@ -16,6 +16,8 @@ interface WebSocketMessage {
   error?: string;
 }
 
+export type BinarySendResult = 'sent' | 'queued' | 'dropped';
+
 function getBackendHttpBase(): string {
   return BACKEND_URL.replace(/\/$/, '');
 }
@@ -26,8 +28,8 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
   // somehow i had an invalid chatid (over int32 large)
   const int32Max = 2147483647;
   if (chatId && (!Number.isInteger(Number(chatId)) || Number(chatId) > int32Max)){
-    console.log("[Chat] Removing excesively large chatID")
-    localStorage.removeItem('current_chad_id');
+    console.log("[Chat] Removing invalid chat ID")
+    localStorage.removeItem('current_chat_id');
     chatId = null;
   } else if (chatId && !forceCreate) {
     console.log('[Chat] Reusing existing chat id', chatId);
@@ -125,12 +127,14 @@ export class ChatWebSocket {
         return;
       }
       
+      this.shouldReconnect = true;
+
       // Get token from secure keytar storage (not localStorage!)
       console.log('[WS] Getting auth token from keytar...');
       const token = await (window.evia as any).auth.getToken();
       if (!token) {
         console.error('[WS] Missing auth token. Please login first.');
-        return;
+        throw new Error('Missing auth token. Please login first.');
       }
       
       // FIX: Check token validity before connecting
@@ -149,7 +153,7 @@ export class ChatWebSocket {
       const chatId = await getOrCreateChatId(backendUrl, token);
       if (!chatId) {
         console.error('[WS] Missing chat ID even after creation');
-        return;
+        throw new Error('Missing chat ID after creation');
       }
       this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
@@ -174,11 +178,13 @@ export class ChatWebSocket {
           console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
           clearTimeout(timeout);
           this.isConnectedFlag = true;
+          this.reconnectAttempts = 0;
           this.connectionChangeHandlers.forEach(h => h(true));
           this.flushQueue();
           resolve();
         };
         this.ws.onclose = (event) => {
+          clearTimeout(timeout);
           console.log(`[WS] Closed: code=${event.code} reason=${event.reason}`);
           this.isConnectedFlag = false;
           this.connectionChangeHandlers.forEach(h => h(false));
@@ -194,6 +200,7 @@ export class ChatWebSocket {
           if (this.shouldReconnect) this.scheduleReconnect();
         };
         this.ws.onerror = (ev: Event) => {
+          clearTimeout(timeout);
           console.error('[WS] Error:', ev);
           this.isConnectedFlag = false;
           const errorMsg = (ev as ErrorEvent).message || 'Unknown error';
@@ -206,16 +213,10 @@ export class ChatWebSocket {
         this.ws.onmessage = (event) => {
           try {
             let payload: any = event.data;
-            console.log('[WS Debug] Raw message received:', typeof payload, payload);
             if (typeof payload === 'string') {
               payload = JSON.parse(payload);
-              console.log('[WS Debug] Parsed payload:', payload);
             }
-            console.log('[WS Debug] Invoking', this.messageHandlers.length, 'handlers for message type:', payload?.type);
-            this.messageHandlers.forEach((h, idx) => {
-              console.log('[WS Debug] Calling handler', idx);
-              h(payload);
-            });
+            this.messageHandlers.forEach((handler) => handler(payload));
           } catch (e) {
             console.error('[WS Debug] Failed to parse/handle message:', e, 'Raw:', event.data);
           }
@@ -245,18 +246,7 @@ export class ChatWebSocket {
     }
   }
 
-  sendBinaryData(data: ArrayBuffer) {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      // WINDOWS FIX (2025-12-09): Don't just queue - try to reconnect!
-      console.warn('[WS] sendBinaryData: WebSocket not open, attempting reconnect...');
-      this.queue.push(data);
-      
-      // Trigger reconnection if not already in progress
-      if (!this.isConnectedFlag && this.shouldReconnect) {
-        this.scheduleReconnect();
-      }
-      return;
-    }
+  sendBinaryData(data: ArrayBuffer): BinarySendResult {
     // Check audio levels in the buffer to detect audio
     const int16Data = new Int16Array(data);
     const audioLevel = this.calculateAudioLevel(int16Data);
@@ -294,13 +284,28 @@ export class ChatWebSocket {
             `(threshold=${this.silenceThreshold.toFixed(4)}, current=${audioLevel.toFixed(4)})`
           );
         }
-        return;
+        return 'dropped';
       }
+    }
+
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      // Queue speech and its short trailing context, but never let sustained
+      // silence displace recoverable speech while a reconnect is in flight.
+      this.queue.push(data);
+      const MAX_QUEUED_AUDIO_FRAMES = 30; // Preserve at most ~3s of unsent audio.
+      while (this.queue.length > MAX_QUEUED_AUDIO_FRAMES) {
+        this.queue.shift();
+      }
+
+      if (!this.isConnectedFlag && this.shouldReconnect) {
+        this.scheduleReconnect();
+      }
+      return 'queued';
     }
     
     // Send the data
     this.ws.send(data);
-    console.log(`[Audio Logger] Audio data sent - Size: ${data.byteLength} bytes, Level: ${audioLevel.toFixed(4)}`);
+    return 'sent';
   }
 
   sendAudio(chunk: ArrayBuffer) {
@@ -386,7 +391,7 @@ export class ChatWebSocket {
   }
 
   private flushQueue() {
-    while (this.queue.length > 0) {
+    while (this.ws?.readyState === WebSocket.OPEN && this.queue.length > 0) {
       this.ws!.send(this.queue.shift()!);
     }
   }

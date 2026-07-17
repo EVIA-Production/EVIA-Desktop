@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
-import { startCaptureWithStreams } from '../audio-processor-glass-parity';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
 const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
@@ -11,7 +10,7 @@ interface EviaBarProps {
   currentView: 'listen' | 'ask' | 'settings' | 'shortcuts' | null;
   onViewChange: (v: 'listen' | 'ask' | 'settings' | 'shortcuts' | null) => void;
   isListening: boolean;
-  onToggleListening: () => void;
+  onSetListening: (enabled: boolean) => Promise<boolean>;
   language: 'de' | 'en';
   onToggleLanguage: () => void;
   onToggleVisibility?: () => void;
@@ -37,7 +36,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   currentView,
   onViewChange,
   isListening,
-  onToggleListening,
+  onSetListening,
   language,
   onToggleLanguage,
   onToggleVisibility,
@@ -158,11 +157,16 @@ const EviaBar: React.FC<EviaBarProps> = ({
   const startInProgressRef = useRef(false); // Prevent duplicate ScreenPicker opens on rapid clicks
   const lastLocalStartMsRef = useRef(0); // Grace period after local start to ignore 'before' resets
   const listenStatusRef = useRef<'before' | 'in' | 'after'>('before'); // Para WINDOWS
+  const isListeningRef = useRef(isListening);
 
   // For windows grace capturing correctly
   useEffect(() => {
     listenStatusRef.current = listenStatus;
   }, [listenStatus]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
 
   // SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
   // This allows AskView to send the correct session_state to backend
@@ -247,24 +251,28 @@ const EviaBar: React.FC<EviaBarProps> = ({
             const demoState = await (window as any).evia?.demo?.isEnabled?.();
             if (demoState?.enabled === true) {
               console.log('[EviaBar] 🧹 Completing stale session before local demo startup');
-              const completionResponse = await fetch(`${baseUrl}/session/complete`, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  chat_id: Number(chatId),
-                  summary: null,
-                }),
-              });
+              try {
+                const completionResponse = await fetch(`${baseUrl}/session/complete`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    chat_id: Number(chatId),
+                    summary: null,
+                  }),
+                });
 
-              if (!completionResponse.ok) {
-                console.warn(
-                  '[EviaBar] Could not complete stale demo session:',
-                  completionResponse.status,
-                  await completionResponse.text(),
-                );
+                if (!completionResponse.ok) {
+                  console.warn(
+                    '[EviaBar] Could not complete stale demo session:',
+                    completionResponse.status,
+                    await completionResponse.text(),
+                  );
+                }
+              } catch (completionError) {
+                console.warn('[EviaBar] Could not reconcile stale demo session:', completionError);
               }
 
               localStorage.removeItem('current_chat_id');
@@ -280,7 +288,41 @@ const EviaBar: React.FC<EviaBarProps> = ({
           const now = Date.now();
           const withinGrace = now - lastLocalStartMsRef.current < 2000;
           if (data.status === 'during') {
-            setListenStatus('in');
+            if (isListeningRef.current || withinGrace) {
+              setListenStatus('in');
+            } else {
+              console.warn('[EviaBar] ⚠️ Backend says during but no capture exists; completing stale session');
+              try {
+                const completionResponse = await fetch(`${baseUrl}/session/complete`, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    chat_id: Number(chatId),
+                    summary: 'Session ended after capture context was lost',
+                  }),
+                });
+
+                if (!completionResponse.ok) {
+                  console.warn(
+                    '[EviaBar] Could not complete stale session:',
+                    completionResponse.status,
+                    await completionResponse.text(),
+                  );
+                }
+              } catch (completionError) {
+                console.warn('[EviaBar] Could not reconcile stale backend session:', completionError);
+              }
+
+              localStorage.removeItem('current_chat_id');
+              localStorage.setItem('evia_session_state', 'before');
+              (window as any).evia?.ipc?.send?.('live-transcript:clear');
+              (window as any).evia?.ipc?.send?.('clear-session');
+              setListenStatus('before');
+              setIsListenActive(false);
+            }
           } else if (data.status === 'after') {
             setListenStatus('after');
           } else if (!(withinGrace && listenStatusRef.current === 'in')) {
@@ -378,60 +420,6 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, [listenStatus]);
 
-  // WINDOWS FIX: Handle audio recovery triggers from ListenView (Windows only)
-  // CRITICAL: We DON'T restart the full audio pipeline - that would reset transcripts!
-  // Instead, just restart the WASAPI helper via IPC to the main process
-  useEffect(() => {
-    // Only register this handler on Windows to avoid any impact on macOS
-    const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
-    if (!isWindows) return;
-    
-    const handleRecoveryTrigger = async () => {
-      console.log('[EviaBar] 🔄 Audio recovery triggered (Windows) - WASAPI restart only, NOT full pipeline');
-      
-      // Only recover if we're actively listening
-      if (listenStatusRef.current !== 'in') {
-        console.log('[EviaBar] Ignoring recovery - not in listening state');
-        return;
-      }
-      
-      try {
-        // CRITICAL FIX: Only restart WASAPI helper, NOT the full audio pipeline
-        // This preserves WebSocket connections and transcript state
-        console.log('[EviaBar] Requesting WASAPI restart via IPC (preserving transcripts)...');
-        
-        // Request WASAPI restart from main process - this will NOT affect mic capture or WebSocket
-        if (window.electron?.ipcRenderer) {
-          await window.electron.ipcRenderer.invoke('system-audio-windows:restart');
-          console.log('[EviaBar] ✅ WASAPI restart requested');
-        }
-        
-        // Notify ListenView of recovery (but NOT recording_started which would reset transcripts)
-        const eviaIpc = (window as any).evia?.ipc;
-        if (eviaIpc?.send) {
-          eviaIpc.send('transcript-message', { 
-            type: 'status', 
-            data: { message: 'Audio reconnected', recovered: true }
-          });
-        }
-        
-        console.log('[EviaBar] Audio recovery completed (WASAPI only)');
-      } catch (err) {
-        console.error('[EviaBar] Audio recovery failed:', err);
-      }
-    };
-    
-    const eviaIpc = (window as any).evia?.ipc;
-    if (eviaIpc?.on) {
-      eviaIpc.on('audio:trigger-recovery', handleRecoveryTrigger);
-      return () => {
-        if (eviaIpc.off) {
-          eviaIpc.off('audio:trigger-recovery', handleRecoveryTrigger);
-        }
-      };
-    }
-  }, []);
-
   // Dynamic window sizing: measure content and resize window to fit
   useEffect(() => {
     const measureAndResize = async () => {
@@ -484,74 +472,92 @@ const EviaBar: React.FC<EviaBarProps> = ({
     // Done → Listen: Hide window
     
     console.log(`[EviaBar] handleListenClick - current status: ${listenStatus}`);
+
+    if (startInProgressRef.current) {
+      console.warn('[EviaBar] ⏭️ Ignoring duplicate Listen transition');
+      return;
+    }
     
     if (listenStatus === 'before') {
+      startInProgressRef.current = true;
       console.log('[EviaBar] Listen → Stop: Showing listen window');
-
-      // Hard reset stale per-session UI before showing Listen again.
-      // Prevents previous-session insights/transcripts from flashing for a frame.
-      (window as any).evia?.ipc?.send?.('clear-session');
-      console.log('[EviaBar] 🧹 Sent clear-session before opening Listen');
-
-      await (window as any).evia?.windows?.ensureShown?.('listen');
-      onViewChange?.('listen');
-
-      // Sync session state BEFORE React state updates (prevents race in ListenView)
-      localStorage.setItem('evia_session_state', 'during');
-      console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "during" (BEFORE React state)');
-
-      setListenStatus('in');
-      setIsListenActive(true);
-      onToggleListening();
-
-      // Backend: /session/start
       try {
-        const eviaAuth = (window as any).evia?.auth;
-        const token = await eviaAuth?.getToken?.();
-        const chatId = localStorage.getItem('current_chat_id');
-        const { BACKEND_URL: baseUrl } = await import('../config/config');
-        if (token && chatId) {
-          console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
-          const response = await fetch(`${baseUrl}/session/start`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ chat_id: Number(chatId) })
-          });
-          if (response.ok) {
-            const data = await response.json();
-            console.log('[EviaBar] ✅ Session started:', data);
-          } else {
-            console.error('[EviaBar] ❌ Failed to start session:', response.status, await response.text());
+        // Hard reset stale per-session UI before showing Listen again.
+        (window as any).evia?.ipc?.send?.('clear-session');
+        console.log('[EviaBar] 🧹 Sent clear-session before opening Listen');
+
+        await (window as any).evia?.windows?.ensureShown?.('listen');
+        onViewChange?.('listen');
+
+        const captureStarted = await onSetListening(true);
+        if (!captureStarted) {
+          setListenStatus('before');
+          setIsListenActive(false);
+          return;
         }
-        } else {
-          console.warn('[EviaBar] ⚠️ Cannot call /session/start: missing token or chat_id');
+
+        lastLocalStartMsRef.current = Date.now();
+        localStorage.setItem('evia_session_state', 'during');
+        setListenStatus('in');
+        setIsListenActive(true);
+
+        try {
+          const eviaAuth = (window as any).evia?.auth;
+          const token = await eviaAuth?.getToken?.();
+          const chatId = localStorage.getItem('current_chat_id');
+          const { BACKEND_URL: baseUrl } = await import('../config/config');
+          if (token && chatId) {
+            console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
+            const response = await fetch(`${baseUrl}/session/start`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ chat_id: Number(chatId) })
+            });
+            if (response.ok) {
+              console.log('[EviaBar] ✅ Session started:', await response.json());
+            } else {
+              console.warn('[EviaBar] Session start sync failed:', response.status, await response.text());
+            }
+          } else {
+            console.warn('[EviaBar] Cannot sync /session/start: missing token or chat_id');
+          }
+        } catch (syncError) {
+          console.warn('[EviaBar] Session start sync failed:', syncError);
         }
       } catch (error) {
-        console.error('[EviaBar] ❌ Error calling /session/start:', error);
+        console.error('[EviaBar] ❌ Error starting listening session:', error);
+        await onSetListening(false);
+        localStorage.setItem('evia_session_state', 'before');
+        setListenStatus('before');
+        setIsListenActive(false);
+      } finally {
+        startInProgressRef.current = false;
       }
 
     } else if (listenStatus === 'in') {
-
+      startInProgressRef.current = true;
       console.log('[EviaBar] Stop → Done: Window stays visible');
-
-      // An insight action opens Ask and can hide Listen. During the local shoot,
-      // restore the ordinary Listen window when Stop is pressed so the standard
-      // post-call transition is visible without any additional control.
       try {
+        const captureStopped = await onSetListening(false);
+        if (!captureStopped) return;
+
+        localStorage.setItem('evia_session_state', 'after');
+        setListenStatus('after');
+        setIsListenActive(false);
+
+        // An insight action opens Ask and can hide Listen. During the local shoot,
+        // restore the ordinary Listen window when Stop is pressed so the standard
+        // post-call transition is visible without any additional control.
         const demoState = await (window as any).evia?.demo?.isEnabled?.();
         if (demoState?.enabled === true) {
           await (window as any).evia?.windows?.ensureShown?.('listen');
           onViewChange?.('listen');
         }
-      } catch (error) {
-        console.warn('[EviaBar] Could not restore Listen for local demo transition:', error);
-      }
-      
-      // FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
-      try {
+
+        // FORCE SESSION LIFECYCLE: Call /session/pause when "Stop" pressed
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
@@ -578,16 +584,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
           console.warn('[EviaBar] ⚠️ Cannot call /session/pause: missing token or chat_id');
         }
       } catch (error) {
-        console.error('[EviaBar] ❌ Error calling /session/pause:', error);
+        console.error('[EviaBar] ❌ Error stopping listening session:', error);
+      } finally {
+        startInProgressRef.current = false;
       }
-      
-      // CRITICAL FIX: Update localStorage SYNCHRONOUSLY **BEFORE** React state update
-      localStorage.setItem('evia_session_state', 'after');
-      console.log('[EviaBar] 🔥 SYNC UPDATE: localStorage.evia_session_state = "after" (BEFORE React state)');
-      
-      setListenStatus('after');
-      setIsListenActive(false);
-      onToggleListening();
       // Window remains visible for insights
     } else if (listenStatus === 'after') {
       // FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows

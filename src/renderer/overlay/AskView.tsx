@@ -794,7 +794,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
       deterministicDemoTimerRef.current = setTimeout(() => {
         deterministicDemoTimerRef.current = null;
-        const finalResponse = sanitizeAskOutput(deterministicDemoResponse, currentSessionState).trim();
+        const finalResponse = sanitizeAskOutput(deterministicDemoResponse.content, currentSessionState).trim();
 
         responseBufferRef.current = finalResponse;
         lastResponseRef.current = finalResponse;
@@ -818,7 +818,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             setTimeout(() => focusInputWithRetry(), 300);
           });
         });
-      }, 150);
+      }, deterministicDemoResponse.delayMs);
       return;
     }
     

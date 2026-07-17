@@ -32,14 +32,16 @@ Use Taylos exactly as a user would. No terminal interaction is required after la
 1. Confirm the header reads `Listen`, not `Stop` or `Done`.
 2. Open Ask through the ordinary Ask control.
 3. Enter `Prepare me for my call with Anista.` and submit normally.
-4. Record the standard Ask result. The ordinary Ask input remains visible below it.
+4. The ordinary thinking state remains visible for 1 second, then the standard Ask result appears. The ordinary Ask input remains visible below it.
 5. Press `Listen` normally and begin the real call with Anton.
 6. Open Insights using the ordinary Transcript/Insights toggle.
 7. Record the standard Insights view: `Insights` title, Transcript toggle, Prospect bullets, Sales Analysis bullets, and Next Actions.
 8. After Anton gives the skill-dependency objection, click `What should I say next?` in Next Actions.
-9. Record the standard Ask response after its 150 ms thinking state:
+9. Record the standard Ask response after its 400 ms thinking state:
 
-   `Pilots don't learn by crashing. They use tools to win. Ask: "What did the last deal a junior lost cost you?"`
+   `Pilots don't learn by crashing. They use tools to win.`
+
+   `Ask: "What did the last deal a junior lost cost you?"`
 
 10. Deliver that line. Anton quantifies the lost deal and says the skill must live in the rep's head rather than on the screen.
 11. Return to the ordinary Insights view. The transcript drives these ordinary Sales Analysis bullets:
@@ -48,8 +50,8 @@ Use Taylos exactly as a user would. No terminal interaction is required after la
    - `Close: 2-week pilot | 10 reps.`
 
 12. Press `Stop` normally. If Ask was visible, the local demo restores the ordinary Listen window automatically.
-13. Wait about 450 ms. Post-call Insights replace the live view automatically and begin at the top.
-14. Record Prospect, Sales Analysis, and all five standard actions: Follow-up Email, Plan follow-up, Action Items, Update CRM, and Summary.
+13. Wait about 400 ms. Post-call Insights replace the live view automatically and begin at the top.
+14. Record Prospect, Sales Analysis, and all five post-call actions: Follow-up Email, Plan follow-up, Action Items, Update CRM, and Summary.
 15. Press `Done` only after the post-call shot is complete.
 
 ## Deterministic Outcomes
@@ -76,14 +78,13 @@ Use Taylos exactly as a user would. No terminal interaction is required after la
 - Key moment and exact rep line.
 - Best-rep comparison.
 - Prior-call learning and next-call injection.
-- Follow-up email drafted and CRM update prepared.
 - Five ordinary post-call actions.
 
 ## Truth Boundary
 
 The product performs real capture, real transcription, and real speaker separation during the shoot. Authored demo outcomes are intentionally deterministic for recording reliability.
 
-`CRM update prepared` means the update content is ready. It does not claim that this local demo wrote to an external CRM.
+The `Update CRM` action is authored demo content. It does not claim that this local demo writes to an external CRM.
 
 ## Preflight Gate
 

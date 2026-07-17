@@ -6,7 +6,7 @@ import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { buildDemoInsights } from '../demo-scenario';
+import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from '../demo-scenario';
 
 declare global {
   interface Window {
@@ -78,14 +78,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
-  const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false); 
   const finalTranscriptCountRef = useRef(0); 
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
-  const stallToastShownRef = useRef(false);
-  const hasActivePartialRef = useRef(false);
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
   const fetchInsightsNowRef = useRef<(options?: { fullReplace?: boolean }) => Promise<void>>(async () => {});
@@ -499,74 +496,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }
   };
 
-  // Sync autoScroll state with ref
-  useEffect(() => {
-    // Watchdog: if session is active but no transcript messages arrive for WATCHDOG_MS, warn the user
-    // FIX: Only run watchdog when in transcript view (not insights view)
-    const WATCHDOG_MS = 8000; // consider stall if >8s without transcript while session active
-    const CHECK_INTERVAL = 3000;
-
-    const checkFn = () => {
-      // CRITICAL: Don't show warnings when viewing insights (no transcription happening)
-      if (!isSessionActive || viewMode !== 'transcript') return;
-      
-      const last = lastMessageAtRef.current;
-      if (!last) {
-        // No messages received yet - might still be initializing
-        console.log('[ListenView] ⏳ Waiting for first transcript message...');
-        return;
-      }
-      
-      // Only check if we have an active partial (someone was speaking)
-      if (!hasActivePartialRef.current) {
-        return;
-      }
-      
-      const since = Date.now() - last;
-      
-      if (since > WATCHDOG_MS) {
-        console.warn(`[ListenView] 🚨 Transcript stall detected: ${Math.round(since/1000)}s since last message`);
-        
-        // First occurrence: show warning
-        if (!stallToastShownRef.current) {
-          showToast(i18n.t('overlay.listen.transcriptStalled') || 'Transcription stalled - reconnecting...', 'warning');
-          stallToastShownRef.current = true;
-        }
-        
-        // WINDOWS FIX: Trigger auto-recovery via IPC (Windows only to avoid affecting macOS)
-        const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
-        if (isWindows) {
-          const eviaIpc = (window as any).evia?.ipc;
-          if (eviaIpc?.send) {
-            console.log('[ListenView] 🔄 Triggering audio recovery via IPC (Windows)...');
-            eviaIpc.send('audio:trigger-recovery');
-          }
-        }
-        
-        // Reset the timestamp to avoid rapid-fire recovery attempts
-        lastMessageAtRef.current = Date.now();
-      }
-    };
-
-    watchdogIntervalRef.current = setInterval(checkFn, CHECK_INTERVAL);
-    return () => {
-      if (watchdogIntervalRef.current) clearInterval(watchdogIntervalRef.current);
-      watchdogIntervalRef.current = null;
-    };
-  }, [isSessionActive, viewMode]);
-
   // Keep autoScrollRef in sync with state without causing re-renders
   useEffect(() => {
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
-
-  useEffect(() => {
-    const hasPartial = transcripts.some(t => t.isPartial);
-    hasActivePartialRef.current = hasPartial;
-    if (!hasPartial) {
-      stallToastShownRef.current = false;
-    }
-  }, [transcripts]);
 
   useEffect(() => {
     const chatId = Number(localStorage.getItem('current_chat_id') || '0');
@@ -733,7 +666,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Diagnostics: update last received timestamp and count
       messageCountRef.current += 1;
       lastMessageAtRef.current = Date.now();
-      stallToastShownRef.current = false;
       if (messageCountRef.current % 10 === 0) {
         console.log(`[ListenView] 📈 Received ${messageCountRef.current} transcript messages so far. Last at ${new Date(lastMessageAtRef.current).toISOString()}`);
       }
@@ -767,8 +699,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         afterInsightsRequestPendingRef.current = false;
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
-        stallToastShownRef.current = false;
-        hasActivePartialRef.current = false;
         lastPartialUpdate.current = {};
         pendingPartialUpdates.current = {};
         finalizedUtteranceRef.current.clear();
@@ -1480,7 +1410,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (demoModeEnabledRef.current && (latestSessionState === 'during' || latestSessionState === 'after')) {
       setIsLoadingInsights(true);
       setInsightsRefreshPending(false);
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        latestSessionState === 'after' ? DEMO_POST_THINKING_MS : DEMO_LIVE_THINKING_MS,
+      ));
 
       const deterministicInsights = buildDemoInsights(latestSessionState, currentTranscripts);
       setInsights(deterministicInsights);
@@ -1700,7 +1633,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsIndex(next.length - 1);
         return next;
       });
-    }, 150);
+    }, DEMO_LIVE_THINKING_MS);
 
     return () => {
       if (demoInsightTimerRef.current) {

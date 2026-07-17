@@ -186,11 +186,15 @@ async function boot() {
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
   // This ensures status detection works even if other subsystems hang
-  try {
-    console.log('[Main] 🌉 Starting Desktop Bridge...');
-    desktopBridge.start();
-  } catch (err) {
-    console.error('[Main] ❌ Failed to start desktop bridge:', err);
+  if (isDemoMode) {
+    console.log('[DemoMode] Skipping Desktop Bridge to avoid colliding with installed Taylos');
+  } else {
+    try {
+      console.log('[Main] 🌉 Starting Desktop Bridge...');
+      desktopBridge.start();
+    } catch (err) {
+      console.error('[Main] ❌ Failed to start desktop bridge:', err);
+    }
   }
 
   // Windows: Handle deep link on cold launch
