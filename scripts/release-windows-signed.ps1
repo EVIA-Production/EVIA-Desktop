@@ -29,6 +29,27 @@ function Invoke-Checked {
   }
 }
 
+function Test-GitHubRelease {
+  param(
+    [Parameter(Mandatory = $true)][string]$Tag,
+    [Parameter(Mandatory = $true)][string]$Repository
+  )
+
+  # A missing release is expected during a pre-publish dry run. PowerShell 5.1
+  # otherwise promotes gh's stderr to a terminating NativeCommandError.
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    & gh release view $Tag --repo $Repository 1>$null 2>$null
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  return $exitCode -eq 0
+}
+
 function Find-SignTool {
   $fromPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
   if ($fromPath) {
@@ -251,8 +272,8 @@ Invoke-Checked "node" @("-v")
 Invoke-Checked "npm" @("-v")
 Invoke-Checked "gh" @("--version")
 Invoke-Checked "gh" @("auth", "status")
-& gh release view $tag --repo $Repo *> $null
-if ($LASTEXITCODE -ne 0) {
+$releaseExists = Test-GitHubRelease -Tag $tag -Repository $Repo
+if (!$releaseExists) {
   if ($Upload) {
     Write-Warning "Release $tag does not exist yet; it will be created after the signed build."
   }
@@ -299,8 +320,7 @@ Write-Host $uploadCommand
 
 if ($Upload) {
   Write-Step "Upload"
-  & gh release view $tag --repo $Repo *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if (!(Test-GitHubRelease -Tag $tag -Repository $Repo)) {
     Write-Host "Creating release $tag from the existing tag."
     Invoke-Checked "gh" @(
       "release", "create", $tag,
