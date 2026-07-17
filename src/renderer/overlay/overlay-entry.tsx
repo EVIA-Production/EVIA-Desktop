@@ -364,12 +364,17 @@ function App() {
   }, [])
 
   const toggleLanguage = () => {
-    handleToggleLanguage(captureHandleRef, isCapturing, setIsCapturing)
+    handleToggleLanguage(captureHandleRef, Boolean(captureHandleRef.current), setIsCapturing)
   }
 
-  const handleToggleListening = async () => {
+  const handleSetListening = async (enabled: boolean): Promise<boolean> => {
     try {
-      if (!isCapturing) {
+      if (enabled) {
+        if (captureHandleRef.current) {
+          setIsCapturing(true)
+          return true
+        }
+
         console.log('[OverlayEntry] 🔐 Validating auth before starting session...');
         const eviaAuth = (window as any).evia?.auth;
         if (eviaAuth?.validate) {
@@ -377,7 +382,7 @@ function App() {
           if (!authResult || !authResult.authenticated) {
             console.error('[OverlayEntry] ❌ Auth validation failed - cannot start session');
             showToast('Please login to start recording', 'error');
-            return;
+            return false;
           }
           console.log('[OverlayEntry] ✅ Auth validated - proceeding with session start');
         }
@@ -394,7 +399,7 @@ function App() {
           console.error('[OverlayEntry] ❌ No auth token found - user must login first')
           console.error('[OverlayEntry] Run this in DevTools: await window.evia.auth.login("admin", "your-password")')
           showToast('No authentication token found', 'error');
-          return
+          return false
         }
         
         console.log('[OverlayEntry] ✅ Got auth token (length:', token.length, 'chars)')
@@ -421,12 +426,19 @@ function App() {
         } catch (error) {
           console.error('[OverlayEntry] Failed to send recording_started:', error);
         }
+        return true
       } else {
+        const activeHandle = captureHandleRef.current
+        if (!activeHandle) {
+          setIsCapturing(false)
+          return true
+        }
+
         // Stop capture
         console.log('[OverlayEntry] Stopping audio capture...')
-        await stopCapture(captureHandleRef.current)
         captureHandleRef.current = null
         setIsCapturing(false)
+        await stopCapture(activeHandle)
         console.log('[OverlayEntry] Audio capture stopped successfully')
         
         // FIX: Notify Listen window to stop timer
@@ -439,13 +451,15 @@ function App() {
         } catch (error) {
           console.error('[OverlayEntry] Failed to send recording_stopped:', error);
         }
+        return true
       }
     } catch (error) {
-      console.error('[OverlayEntry] Error toggling audio capture:', error)
+      console.error('[OverlayEntry] Error setting audio capture state:', error)
       showToast(`Audio capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
       // Reset state on error
       captureHandleRef.current = null
       setIsCapturing(false)
+      return false
     }
   }
 
@@ -459,7 +473,7 @@ function App() {
             currentView={null}
             onViewChange={() => {}}
             isListening={isCapturing}
-            onToggleListening={handleToggleListening}
+            onSetListening={handleSetListening}
             language={language}
             onToggleLanguage={toggleLanguage}
           />
@@ -504,7 +518,7 @@ function App() {
           currentView={null}
           onViewChange={() => {}}
           isListening={false}
-          onToggleListening={() => {}}
+          onSetListening={async () => true}
           language={language}
           onToggleLanguage={toggleLanguage}
         />
