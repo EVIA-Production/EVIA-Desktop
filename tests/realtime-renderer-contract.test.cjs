@@ -194,6 +194,9 @@ test('during-call Ask prefers live context before database history', () => {
 
 test('stub insights are rejected in every lifecycle state', () => {
   assert.match(listenSource, /if \(isStubInsightPayload\(fetchedInsights\)\)/);
+  assert.match(listenSource, /const receivedStub = isStubInsightPayload\(fetchedInsights\)/);
+  assert.match(listenSource, /derivedSessionState !== 'after' && !liveProspectSpeechAvailable/);
+  assert.match(listenSource, /waitingForProspectSpeech/);
   assert.doesNotMatch(listenSource, /derivedSessionState !== 'after' && isStubInsightPayload/);
   assert.doesNotMatch(listenSource, /Post-meeting insights accepted without stub rejection/);
 });

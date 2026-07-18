@@ -20,6 +20,7 @@
       "reconnecting": "Reconnecting audio...",
       "reconnected": "Audio reconnected",
       "waitingForSpeech": "Waiting for speech...",
+      "waitingForProspectSpeech": "Waiting for prospect speech...",
       "presetContextUnavailable": "This conversation's preset context is unavailable. Listening continues, but preset-based AI is paused.",
       "noInsightsYet": "No insights yet",
       "listening": "Taylos is listening",

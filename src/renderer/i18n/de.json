@@ -20,6 +20,7 @@
       "reconnecting": "Audio wird neu verbunden...",
       "reconnected": "Audio wiederhergestellt",
       "waitingForSpeech": "Auf Sprache warten...",
+      "waitingForProspectSpeech": "Warte auf eine Prospect-Aussage...",
       "presetContextUnavailable": "Der Vorlagenkontext für dieses Gespräch ist nicht verfügbar. Taylos hört weiter zu, pausiert aber vorlagenbasierte KI.",
       "noInsightsYet": "Noch keine Erkenntnisse",
       "listening": "Taylos hört zu",

@@ -373,6 +373,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return [];
   };
 
+  const hasGroundedProspectSpeech = (entries: TranscriptLine[]) =>
+    entries.some(entry =>
+      entry.speaker === 0 &&
+      !entry.isPartial &&
+      Boolean(normalizeTranscriptText(entry.text || ''))
+    );
+
   const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
     language === 'en'
       ? {
@@ -1498,6 +1505,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const localStorageState = latestSessionState; // For logging purposes
     const derivedSessionState = latestSessionState;
     const currentLang = i18n.getLanguage();
+    const liveProspectSpeechAvailable = hasGroundedProspectSpeech(currentTranscripts);
     
     console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', currentSessionState, ', isSessionActive =', currentIsSessionActive);
     
@@ -1532,26 +1540,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           sessionState: derivedSessionState
         });
         
-        // Check if we got actual insights (not stub "no transcripts" message)
-        const probeLines = getProspectInfo(fetchedInsights);
-        const hasTranscripts = probeLines.length > 0 &&
-          probeLines[0] !== "Keine Transkripte vorhanden für Analyse" &&
-          probeLines[0] !== "No transcripts available for analysis";
-        
-        if (hasTranscripts) {
+        const receivedStub = isStubInsightPayload(fetchedInsights);
+
+        if (!receivedStub) {
           const ttftMs = Date.now() - ttftStart;
-          console.log(`[ListenView] ✅ Success on attempt #${attempt + 1}! Got insights with transcripts in ${ttftMs}ms`);
+          console.log(`[ListenView] ✅ Success on attempt #${attempt + 1}! Got grounded insights in ${ttftMs}ms`);
           break; // Success - exit retry loop
+        } else if (derivedSessionState !== 'after' && !liveProspectSpeechAvailable) {
+          console.log('[ListenView] 🛡️ Safe live stub: waiting for final prospect speech before generating insights');
+          break;
         } else {
-          console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: No transcripts yet (stub message received)`);
+          console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: Stub received despite available insight context`);
           if (attempt < MAX_RETRIES - 1) {
             console.log(`[ListenView] 🔄 Will retry in ${RETRY_DELAYS[attempt + 1]}ms...`);
-            // CRITICAL: DON'T set stub insights - keep showing loading spinner
             fetchedInsights = null;
           } else {
-            // CRITICAL: Even on max retries, DON'T show stub - keep null/loading
-            console.log('[ListenView] ⏭️ Max retries reached, NO transcripts yet - keeping loading state');
-            fetchedInsights = null;
+            console.log('[ListenView] ⏭️ Max retries reached; preserving the safe backend stub');
           }
         }
       }
@@ -1569,8 +1573,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             setInsightsRefreshPending(true);
             return;
           }
-          console.log('[ListenView] 🚫 Stub-like insights detected before any valid insight; keeping loading state');
-          setInsightsRefreshPending(true);
+          console.log('[ListenView] 🛡️ Stub-like insights detected before any valid insight; showing the safe waiting state');
+          setInsightsRefreshPending(false);
           return;
         }
         setInsightsRefreshPending(false);
@@ -2101,6 +2105,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           ) : isLoadingInsights ? (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               Loading insights...
+            </div>
+          ) : sessionState === 'during' && !hasGroundedProspectSpeech(transcripts) ? (
+            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              {i18n.t('overlay.listen.waitingForProspectSpeech')}
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
