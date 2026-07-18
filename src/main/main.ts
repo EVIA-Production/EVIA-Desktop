@@ -637,6 +637,7 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
 // Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
+    await stopPhysicalCapture('logout');
     captureSessionController.reset('logout');
     await headerController.handleLogout();
     broadcastAuthTokenChanged(null);
@@ -786,6 +787,79 @@ function broadcastCaptureSession(snapshot: CaptureSessionSnapshot, previous?: Ca
   });
 }
 
+let captureStopRequestSequence = 0;
+const pendingCaptureStopRequests = new Map<
+  string,
+  { webContentsId: number; resolve: () => void; timeout: NodeJS.Timeout }
+>();
+
+async function requestHeaderCaptureStop(
+  reason: CaptureTransitionReason,
+  generation: number,
+): Promise<void> {
+  const header = getHeaderWindow();
+  if (!header || header.isDestroyed() || header.webContents.isDestroyed()) return;
+
+  const requestId = `${Date.now()}-${++captureStopRequestSequence}`;
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      const pending = pendingCaptureStopRequests.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        pendingCaptureStopRequests.delete(requestId);
+      }
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      console.warn('[CaptureSession] Renderer force-stop acknowledgement timed out', {
+        reason,
+        generation,
+      });
+      finish();
+    }, 2_000);
+
+    pendingCaptureStopRequests.set(requestId, {
+      webContentsId: header.webContents.id,
+      resolve: finish,
+      timeout,
+    });
+    header.webContents.send('capture-session:force-stop', {
+      requestId,
+      reason,
+      generation,
+    });
+  });
+}
+
+async function stopPhysicalCapture(reason: CaptureTransitionReason): Promise<void> {
+  const snapshot = captureSessionController.getSnapshot();
+  if (snapshot.state === 'idle') return;
+
+  // The header renderer owns microphone streams, audio contexts, and capture
+  // sockets. Native helpers can outlive that renderer, so stop both ownership
+  // layers before the controller is allowed to publish idle.
+  const [, macResult, windowsResult] = await Promise.all([
+    requestHeaderCaptureStop(reason, snapshot.generation),
+    systemAudioMacService.stop(),
+    systemAudioWindowsService.stop(),
+  ]);
+  const failures = [
+    macResult.success ? null : `macOS: ${macResult.error ?? 'unknown error'}`,
+    windowsResult.success ? null : `Windows: ${windowsResult.error ?? 'unknown error'}`,
+  ].filter(Boolean);
+
+  if (failures.length > 0) {
+    throw new Error(`Could not stop native capture (${failures.join('; ')})`);
+  }
+}
+
+async function reconcileNoPhysicalCapture(
+  reason: CaptureTransitionReason = 'capture_context_lost',
+) {
+  await stopPhysicalCapture(reason);
+  return captureSessionController.reconcileNoCapture(reason);
+}
+
 captureSessionController.subscribe((current, previous) => {
   broadcastCaptureSession(current, previous);
 });
@@ -803,8 +877,16 @@ ipcMain.handle('capture-session:fail-stop', (_event, generation: number, errorCo
   captureSessionController.failStop(generation, errorCode));
 ipcMain.handle('capture-session:complete', (_event, generation: number) =>
   captureSessionController.complete(generation));
+ipcMain.handle('capture-session:force-stop-complete', (event, requestId: string) => {
+  const pending = pendingCaptureStopRequests.get(requestId);
+  if (!pending || pending.webContentsId !== event.sender.id) {
+    return { accepted: false };
+  }
+  pending.resolve();
+  return { accepted: true };
+});
 ipcMain.handle('capture-session:reconcile-no-capture', (_event, reason?: CaptureTransitionReason) =>
-  captureSessionController.reconcileNoCapture(reason));
+  reconcileNoPhysicalCapture(reason));
 
 // Reject the former renderer-owned lifecycle channel. Keeping the listener
 // makes outdated renderers observable without allowing them to recreate split
