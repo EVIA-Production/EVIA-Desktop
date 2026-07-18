@@ -611,6 +611,15 @@ const EviaBar: React.FC<EviaBarProps> = ({
         await captureApi.confirmStopped(generation);
         setIsListenActive(false);
 
+        // The shoot follows the production interaction model: Stop ends the
+        // capture and returns to the existing Listen/Insights surface. Keep
+        // this deterministic reveal isolated from every packaged build.
+        const demoState = await (window as any).evia?.demo?.isEnabled?.();
+        if (demoState?.enabled) {
+          await (window as any).evia?.windows?.ensureShown?.('listen');
+          onViewChange?.('listen');
+        }
+
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();

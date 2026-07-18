@@ -1,3 +1,4 @@
+import './demo-bootstrap'
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow } from './overlay-windows'
@@ -20,7 +21,9 @@ let pendingDeepLink: string | null = null;
 let deepLinkHandlingReady = false;
 const PRIMARY_DEEP_LINK_SCHEME = 'taylos';
 const LEGACY_DEEP_LINK_SCHEME = 'evia';
+const isDemoMode = !app.isPackaged && process.env.TAYLOS_DEMO_MODE === '1';
 const IS_ISOLATED_HARNESS =
+  isDemoMode ||
   process.env.TAYLOS_E2E === '1' ||
   (process.env.NODE_ENV === 'development' && process.env.TAYLOS_GLASS_COMPARE === '1');
 
@@ -232,8 +235,12 @@ async function boot() {
     return
   }
 
-  finalizeAppliedUpdateOnLaunch();
-  registerAutoUpdater();
+  if (!isDemoMode) {
+    finalizeAppliedUpdateOnLaunch();
+    registerAutoUpdater();
+  } else {
+    console.log('[DemoMode] Updater disabled for isolated local demo');
+  }
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
   // This ensures status detection works even if other subsystems hang

@@ -21,6 +21,7 @@ import {
 
 // Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
+const isDemoMode = !app.isPackaged && process.env.TAYLOS_DEMO_MODE === '1'
 const VITE_DEV_SERVER_URL = 'http://localhost:5174'
 
 function loadRendererView(
@@ -127,6 +128,8 @@ type LiveTranscriptSnapshot = {
 }
 
 let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
+
+ipcMain.handle('demo:is-enabled', () => ({ enabled: isDemoMode }))
 
 // Desired visibility is independent from transient BrowserWindow visibility.
 // macOS/Windows may hide child windows with their parent; that must not erase

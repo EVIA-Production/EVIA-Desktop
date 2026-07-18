@@ -6,6 +6,7 @@ import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from '../demo-scenario';
 
 declare global {
   interface Window {
@@ -72,6 +73,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
+  const demoModeEnabledRef = useRef(false);
+  const demoInsightTimerRef = useRef<NodeJS.Timeout | null>(null);
   const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
@@ -454,6 +457,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     isSessionActiveRef.current = isSessionActive;
   }, [isSessionActive]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void window.evia?.demo?.isEnabled?.()
+      .then((result) => {
+        if (!cancelled) demoModeEnabledRef.current = result?.enabled === true;
+      })
+      .catch((error: unknown) => {
+        console.warn('[ListenView] Could not read demo mode state:', error);
+      });
+
+    return () => {
+      cancelled = true;
+      if (demoInsightTimerRef.current) {
+        clearTimeout(demoInsightTimerRef.current);
+        demoInsightTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Render markdown inline (for bold, italics, etc. in Insights)
   const renderMarkdownInline = (text: string): string => {
@@ -1390,7 +1413,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   // Extract insights fetching to reusable function
   const fetchInsightsNow = async (options: { fullReplace?: boolean } = {}) => {
-    if (isLoadingInsights) return; // Prevent duplicate fetches
+    const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+    const isDeterministicPostCall = demoModeEnabledRef.current && latestSessionState === 'after';
+    if (isLoadingInsights && !isDeterministicPostCall) return; // Prevent duplicate fetches
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
     const currentIsSessionActive = isSessionActiveRef.current;
@@ -1401,6 +1426,43 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Final transcript count (ref):', finalTranscriptCountRef.current);
     console.log('[ListenView] 🔍 Session state:', currentSessionState);
     console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
+
+    const fullReplace = options.fullReplace === true || latestSessionState === 'after';
+
+    if (demoModeEnabledRef.current && (latestSessionState === 'during' || latestSessionState === 'after')) {
+      setIsLoadingInsights(true);
+      setInsightsRefreshPending(false);
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        latestSessionState === 'after' ? DEMO_POST_THINKING_MS : DEMO_LIVE_THINKING_MS,
+      ));
+
+      const deterministicInsights = buildDemoInsights(latestSessionState, currentTranscripts);
+      setInsights(deterministicInsights);
+      if (fullReplace) {
+        setInsightsHistory([deterministicInsights]);
+        setInsightsIndex(0);
+      } else {
+        setInsightsHistory((previous) => {
+          const next = [...previous, deterministicInsights];
+          setInsightsIndex(next.length - 1);
+          return next;
+        });
+      }
+      lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
+      lastInsightsFetchAtRef.current = Date.now();
+      if (latestSessionState === 'after') {
+        afterInsightsFrozenRef.current = true;
+        afterInsightsRequestPendingRef.current = false;
+      }
+      setIsLoadingInsights(false);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (viewportRef.current) viewportRef.current.scrollTop = 0;
+        });
+      });
+      return;
+    }
 
     // Keep current insights visible while refreshing. Only replace on successful fetch.
 
@@ -1433,10 +1495,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // ALWAYS use latest session state from localStorage (truth source)
     // Don't derive from isSessionActive - it can be stale!
     // EviaBar updates localStorage IMMEDIATELY when Stopp is pressed → listenStatus = 'after'
-    const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
     const localStorageState = latestSessionState; // For logging purposes
     const derivedSessionState = latestSessionState;
-    const fullReplace = options.fullReplace === true || derivedSessionState === 'after';
     const currentLang = i18n.getLanguage();
     
     console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', currentSessionState, ', isSessionActive =', currentIsSessionActive);
@@ -1575,6 +1635,35 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     fetchInsightsNowRef.current = fetchInsightsNow;
   }, [fetchInsightsNow]);
+
+  useEffect(() => {
+    if (!demoModeEnabledRef.current || sessionState !== 'during' || viewMode !== 'insights') return;
+
+    if (demoInsightTimerRef.current) clearTimeout(demoInsightTimerRef.current);
+    demoInsightTimerRef.current = setTimeout(() => {
+      demoInsightTimerRef.current = null;
+      const deterministicInsights = buildDemoInsights('during', transcriptsRef.current);
+      setInsights(deterministicInsights);
+      setInsightsRefreshPending(false);
+      setInsightsHistory((previous) => {
+        if (previous.length === 0) {
+          setInsightsIndex(0);
+          return [deterministicInsights];
+        }
+        const next = [...previous];
+        next[next.length - 1] = deterministicInsights;
+        setInsightsIndex(next.length - 1);
+        return next;
+      });
+    }, DEMO_LIVE_THINKING_MS);
+
+    return () => {
+      if (demoInsightTimerRef.current) {
+        clearTimeout(demoInsightTimerRef.current);
+        demoInsightTimerRef.current = null;
+      }
+    };
+  }, [transcripts, sessionState, viewMode]);
 
 
   useEffect(() => {

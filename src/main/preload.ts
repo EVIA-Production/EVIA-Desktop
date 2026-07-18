@@ -40,6 +40,9 @@ const listenerMap = new Map<string, Map<any, any>>();
 
 contextBridge.exposeInMainWorld('evia', {
   createWs,
+  demo: {
+    isEnabled: () => ipcRenderer.invoke('demo:is-enabled'),
+  },
   // Audio debug flag check (synchronous invoke)
   checkDebugFlag: () => ipcRenderer.invoke('audio-debug:check-flag'),
   getAudioDiagnosticConfig: () => ipcRenderer.invoke('audio-debug:get-config'),

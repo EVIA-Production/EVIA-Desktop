@@ -31,6 +31,9 @@ interface PrefsBridge {
 
 interface EviaBridge {
   createWs: (url: string) => WebSocketWrapper;
+  demo: {
+    isEnabled: () => Promise<{ enabled: boolean }>;
+  };
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;
   openSystemPreferences: (section: 'screen' | 'mic') => void;
