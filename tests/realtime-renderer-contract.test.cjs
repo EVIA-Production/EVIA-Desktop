@@ -234,6 +234,7 @@ test('child-window DevTools require explicit opt-in', () => {
 
 test('settings follows the live three-dot right edge', () => {
   assert.match(overlayWindowsSource, /headerSettingsAnchorOffset/);
+  assert.match(overlayWindowsSource, /const SETTINGS_POPOVER_RIGHT_NUDGE = 22/);
   assert.match(overlayWindowsSource, /positionPopoverFromRightAnchor/);
   assert.match(overlayWindowsSource, /settingsAnchorRight = hb\.x \+ anchorOffset \+ SETTINGS_POPOVER_RIGHT_NUDGE/);
 });
@@ -250,6 +251,7 @@ test('desktop presets use the authenticated main-process bridge', () => {
 test('the bar retains a bottom native drag strip without making controls draggable', () => {
   assert.match(barSource, /evia-bar-bottom-drag-region/);
   assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*-webkit-app-region:\s*drag/);
+  assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*height:\s*10px/);
   assert.match(overlayGlassSource, /\.evia-main-header button,[\s\S]*-webkit-app-region:\s*no-drag/);
 });
 

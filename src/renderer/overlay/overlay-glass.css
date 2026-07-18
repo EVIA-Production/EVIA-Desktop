@@ -287,10 +287,10 @@ textarea:focus-visible,
 /* A dedicated lower strip preserves the old bar's easy drag target. */
 .evia-bar-bottom-drag-region {
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  right: 8px;
   bottom: 0;
-  height: 7px;
+  height: 10px;
   z-index: 4;
   -webkit-app-region: drag;
   cursor: move;

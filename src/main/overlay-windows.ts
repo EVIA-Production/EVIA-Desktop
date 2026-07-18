@@ -64,7 +64,7 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 const HEADER_SIZE = { width: 900, height: 49 }
 let headerVisualCenterOffset = HEADER_SIZE.width / 2
 let headerSettingsAnchorOffset = HEADER_SIZE.width - 18
-const SETTINGS_POPOVER_RIGHT_NUDGE = 12
+const SETTINGS_POPOVER_RIGHT_NUDGE = 22
 // WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 159)
 // This is the gap between header and child windows
 const PAD = 8
