@@ -260,6 +260,44 @@ function App() {
   const [isCapturing, setIsCapturing] = useState(false)
   const captureHandleRef = useRef<any>(null)
 
+  // Main-process reconciliation (language changes, renderer recovery, logout)
+  // must stop the physical resources owned by the header renderer before the
+  // public lifecycle can become idle.
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc
+    if (!eviaIpc?.on) return
+
+    let stopInProgress: Promise<void> | null = null
+    const handleForceStop = (request?: { requestId?: string }) => {
+      if (!stopInProgress) {
+        stopInProgress = (async () => {
+          try {
+            // stopCapture also cleans module-level resources acquired before a
+            // capture handle is returned, so call it even when the ref is empty.
+            await stopCapture(captureHandleRef.current ?? undefined)
+          } finally {
+            captureHandleRef.current = null
+            setIsCapturing(false)
+            eviaIpc.send?.('transcript-message', { type: 'recording_stopped' })
+          }
+        })().finally(() => {
+          stopInProgress = null
+        })
+      }
+
+      if (request?.requestId) {
+        void stopInProgress.then(() =>
+          (window as any).evia?.captureSession?.completeForceStop?.(request.requestId),
+        )
+      }
+    }
+
+    eviaIpc.on('capture-session:force-stop', handleForceStop)
+    return () => {
+      eviaIpc.off?.('capture-session:force-stop', handleForceStop)
+    }
+  }, [])
+
   // REACTIVE I18N: Listen for language changes (local window event)
   useEffect(() => {
     const handleLanguageChange = (event: Event) => {

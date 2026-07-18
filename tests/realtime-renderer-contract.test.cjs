@@ -145,6 +145,38 @@ test('language changes stop physical capture through the canonical lifecycle', (
   );
 });
 
+test('capture reconciliation tears down renderer and native capture before idle', () => {
+  const forceStopBlock = mainSource
+    .split('async function stopPhysicalCapture', 2)[1]
+    .split('async function reconcileNoPhysicalCapture', 1)[0];
+  const reconcileBlock = mainSource
+    .split('async function reconcileNoPhysicalCapture', 2)[1]
+    .split('captureSessionController.subscribe', 1)[0];
+
+  assert.ok(forceStopBlock, 'main process physical capture shutdown must exist');
+  assert.match(mainSource, /webContents\.send\('capture-session:force-stop'/);
+  assert.match(forceStopBlock, /requestHeaderCaptureStop\(reason, snapshot\.generation\)/);
+  assert.match(forceStopBlock, /systemAudioMacService\.stop\(\)/);
+  assert.match(forceStopBlock, /systemAudioWindowsService\.stop\(\)/);
+  assert.ok(reconcileBlock, 'physical shutdown must wrap lifecycle reconciliation');
+  assert.ok(
+    reconcileBlock.indexOf('await stopPhysicalCapture(reason)') <
+      reconcileBlock.indexOf('captureSessionController.reconcileNoCapture(reason)'),
+    'capture resources must stop before idle is published',
+  );
+  assert.match(mainSource, /await stopPhysicalCapture\('logout'\)/);
+  assert.match(mainSource, /ipcMain\.handle\('capture-session:force-stop-complete'/);
+  assert.match(preloadSource, /completeForceStop: \(requestId: string\)/);
+
+  const rendererForceStopBlock = overlayEntrySource
+    .split("eviaIpc.on('capture-session:force-stop'", 1)[0]
+    .split('const handleForceStop =', 2)[1];
+  assert.ok(rendererForceStopBlock, 'header renderer must handle forced capture shutdown');
+  assert.match(rendererForceStopBlock, /await stopCapture\(captureHandleRef\.current \?\? undefined\)/);
+  assert.match(rendererForceStopBlock, /captureHandleRef\.current = null/);
+  assert.match(rendererForceStopBlock, /completeForceStop\?\.\(request\.requestId\)/);
+});
+
 test('capture shutdown cleans resources before optional debug export', () => {
   const stopBlock = audioSource.split('export async function stopCapture', 2)[1];
   assert.ok(stopBlock, 'capture shutdown should exist');
