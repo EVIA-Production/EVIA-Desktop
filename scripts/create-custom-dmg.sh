@@ -9,17 +9,54 @@ APP_NAME="Taylos"
 VOLUME_NAME="Taylos Installer"
 FINAL_DMG="$DIST_DIR/taylos.dmg"
 FINAL_DMG_BASE="${FINAL_DMG%.dmg}"
-RW_DMG="$DIST_DIR/.taylos-installer-rw.dmg"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/taylos-dmg.XXXXXX")"
 STAGE_DIR="$TEMP_DIR/stage"
+RW_DMG="$TEMP_DIR/taylos-installer-rw.dmg"
 MOUNT_DIR="/Volumes/$VOLUME_NAME"
+
+run_with_retry() {
+  local description="$1"
+  shift
+  local attempt
+  local output
+  local status
+
+  for attempt in 1 2 3 4 5; do
+    set +e
+    output="$("$@" 2>&1)"
+    status=$?
+    set -e
+
+    if [[ $status -eq 0 ]]; then
+      printf '%s' "$output"
+      return 0
+    fi
+
+    echo "$description failed (attempt $attempt/5, exit $status)." >&2
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output" >&2
+    fi
+    sleep $((attempt * 2))
+  done
+
+  echo "$description failed after 5 attempts." >&2
+  return "$status"
+}
+
+detach_stale_volume() {
+  if mount | grep -Fq "$MOUNT_DIR"; then
+    echo "Detaching stale installer volume at $MOUNT_DIR"
+    run_with_retry \
+      "Detach stale installer volume" \
+      hdiutil detach "$MOUNT_DIR" -force >/dev/null
+  fi
+}
 
 cleanup() {
   if mount | grep -Fq "$MOUNT_DIR"; then
-    hdiutil detach "$MOUNT_DIR" -quiet || true
+    hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
   fi
   rm -rf "$TEMP_DIR"
-  rm -f "$RW_DMG"
 }
 
 trap cleanup EXIT
@@ -69,16 +106,22 @@ STAGE_KB="$(du -sk "$STAGE_DIR" | awk '{print $1}')"
 SIZE_MB="$(( (STAGE_KB + 1024 - 1) / 1024 + 64 ))"
 
 rm -f "$FINAL_DMG" "$FINAL_DMG_BASE.dmg" "$DIST_DIR/taylos.dmg.blockmap"
+detach_stale_volume
 
-hdiutil create \
-  -quiet \
+echo "Creating writable installer image (${SIZE_MB} MB)"
+run_with_retry \
+  "Create writable installer image" \
+  hdiutil create \
   -volname "$VOLUME_NAME" \
   -fs HFS+ \
   -type UDIF \
   -size "${SIZE_MB}m" \
-  "$RW_DMG"
+  "$RW_DMG" >/dev/null
 
-ATTACH_OUTPUT="$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG")"
+echo "Attaching writable installer image"
+ATTACH_OUTPUT="$(run_with_retry \
+  "Attach writable installer image" \
+  hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG")"
 DEVICE="$(printf '%s\n' "$ATTACH_OUTPUT" | awk '/^\/dev\// {print $1; exit}')"
 
 if [[ -z "$DEVICE" ]]; then
@@ -129,9 +172,14 @@ SetFile -a C "$MOUNT_DIR"
 
 chmod -Rf go-w "$MOUNT_DIR"
 sync
-hdiutil detach "$DEVICE" -quiet
+run_with_retry \
+  "Detach customized installer image" \
+  hdiutil detach "$DEVICE" >/dev/null
 
-hdiutil convert "$RW_DMG" -quiet -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG_BASE"
+echo "Compressing customized installer image"
+run_with_retry \
+  "Compress customized installer image" \
+  hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG_BASE" >/dev/null
 
 if [[ ! -f "$FINAL_DMG" ]]; then
   echo "Custom DMG conversion did not produce $FINAL_DMG" >&2
