@@ -571,12 +571,52 @@ ipcMain.handle('presets:activate', async (_event, presetId: unknown) => {
       },
     });
 
+    if (response.ok) {
+      const activation: unknown = await response.json();
+      return { ok: true, status: response.status, activation };
+    }
+
+    // Production versions predating the atomic activation endpoint activate a
+    // preset through the regular update route. Keep this fallback until every
+    // backend deployment exposes POST /prompts/{id}/activate.
+    if (response.status === 404) {
+      const legacyResponse = await fetch(`${getBackendHttpBase()}/prompts/${normalizedId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_active: true }),
+      });
+
+      if (!legacyResponse.ok) {
+        return { ok: false, status: legacyResponse.status, error: 'preset_activation_failed' };
+      }
+
+      const prompt = await legacyResponse.json() as Record<string, unknown>;
+      return {
+        ok: true,
+        status: legacyResponse.status,
+        activation: {
+          prompt,
+          context: {
+            preset_id: Number(normalizedId),
+            preset_name: typeof prompt.name === 'string' ? prompt.name : '',
+            version: `legacy-${typeof prompt.updated_at === 'string' ? prompt.updated_at : normalizedId}`,
+            content_sha256: '',
+            updated_at: typeof prompt.updated_at === 'string' ? prompt.updated_at : null,
+            language: typeof prompt.language === 'string' ? prompt.language : 'en',
+            cache_synced: true,
+            compatibility_mode: 'legacy_put',
+          },
+        },
+      };
+    }
+
     if (!response.ok) {
       return { ok: false, status: response.status, error: 'preset_activation_failed' };
     }
-
-    const activation: unknown = await response.json();
-    return { ok: true, status: response.status, activation };
   } catch (error) {
     console.error('[Presets] Failed to activate preset:', (error as Error).message);
     return { ok: false, status: 503, error: 'preset_service_unavailable' };

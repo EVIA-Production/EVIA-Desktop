@@ -15,7 +15,6 @@ import {
 import {
   centerWindowGroupX,
   centerWindowX,
-  positionPopoverFromRightAnchor,
   resizeRectKeepingVisualAnchor,
 } from './window-anchor-geometry'
 
@@ -63,8 +62,9 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
 let headerVisualCenterOffset = HEADER_SIZE.width / 2
-let headerSettingsAnchorOffset = HEADER_SIZE.width - 18
-const SETTINGS_POPOVER_RIGHT_NUDGE = 22
+// Preserve the compact pre-redesign placement: the popover begins 70px left
+// of the live bar's right edge, so its upper-left corner sits below the menu.
+const SETTINGS_LEFT_FROM_BAR_RIGHT = 70
 // WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 159)
 // This is the gap between header and child windows
 const PAD = 8
@@ -297,7 +297,6 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   if (restoreBounds) {
     headerWindow.setBounds(restoreBounds)
     headerVisualCenterOffset = restoreBounds.width / 2
-    headerSettingsAnchorOffset = Math.max(0, restoreBounds.width - 18)
   } else {
     const { workArea } = screen.getPrimaryDisplay()
     const x = Math.round(workArea.x + (workArea.width - HEADER_SIZE.width) / 2)
@@ -995,24 +994,23 @@ function layoutChildWindows(visible: WindowVisibility) {
     }
   }
 
-  // Align the popover's right edge to the live three-dot control. This matches
-  // the original compact placement and follows every language/state resize.
+  // Restore the pre-redesign placement relative to the currently rendered bar.
+  // This intentionally follows the bar bounds rather than cached button geometry.
   if (visible.settings) {
     createChildWindow('settings')
     const settingsW = WINDOW_DATA.settings.width  // 240px
     const settingsH = WINDOW_DATA.settings.height
-
-    const gap = 5
-    const anchorOffset = Math.max(0, Math.min(hb.width, headerSettingsAnchorOffset))
-    const settingsAnchorRight = hb.x + anchorOffset + SETTINGS_POPOVER_RIGHT_NUDGE
-    layout.settings = positionPopoverFromRightAnchor(
-      settingsAnchorRight,
-      hb.y + hb.height,
-      { width: settingsW, height: settingsH },
-      work,
-      gap,
-    )
-    console.log(`[layoutChildWindows] Settings follows live control edge ${settingsAnchorRight}:`, layout.settings)
+    const requestedX = hb.x + hb.width - SETTINGS_LEFT_FROM_BAR_RIGHT
+    const requestedY = hb.y + hb.height + 5
+    const x = Math.max(work.x + 10, Math.min(work.x + work.width - settingsW - 10, requestedX))
+    const y = Math.max(work.y + 10, Math.min(work.y + work.height - settingsH - 10, requestedY))
+    layout.settings = {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: settingsW,
+      height: settingsH,
+    }
+    console.log('[layoutChildWindows] Settings follows live bar-right placement:', layout.settings)
   }
 
   // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
@@ -2014,9 +2012,6 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
     // Persist header bounds only when the target is the header window
     if (isHeader) {
       headerVisualCenterOffset = Math.max(0, Math.min(actualBounds.width, nextAnchorX))
-      headerSettingsAnchorOffset = Number.isFinite(payload.settingsAnchorX)
-        ? Math.max(0, Math.min(actualBounds.width, payload.settingsAnchorX as number))
-        : Math.max(0, actualBounds.width - 18)
       saveState({ headerBounds: actualBounds })
       const vis = getVisibility()
       layoutChildWindows(vis)
@@ -2406,11 +2401,6 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     settingsHideTimer = null
   }
 
-  if (Number.isFinite(buttonX)) {
-    const hb = getOrCreateHeaderWindow().getBounds()
-    headerSettingsAnchorOffset = Math.max(0, Math.min(hb.width, buttonX as number))
-  }
-
   // ATOMIC FIX STEP 2: Use layoutChildWindows() for correct positioning
   // Old hardcoded logic was wrong - always placed below, never flipped, wrong alignment
 
@@ -2444,7 +2434,7 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     const header = getOrCreateHeaderWindow()
     const hb = header.getBounds()
     console.log('[overlay-windows] 📍 Header bounds:', hb)
-    console.log('[overlay-windows] 📐 Settings relative to header: x_offset=${finalBounds.x - hb.x}, y_offset=${finalBounds.y - hb.y}')
+    console.log(`[overlay-windows] 📐 Settings relative to header: x_offset=${finalBounds.x - hb.x}, y_offset=${finalBounds.y - hb.y}`)
   }
 
   // Update state

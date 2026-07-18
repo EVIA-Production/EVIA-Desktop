@@ -232,11 +232,11 @@ test('child-window DevTools require explicit opt-in', () => {
   assert.match(overlayWindowsSource, /TAYLOS_OPEN_DEVTOOLS === '1'/);
 });
 
-test('settings follows the live three-dot right edge', () => {
-  assert.match(overlayWindowsSource, /headerSettingsAnchorOffset/);
-  assert.match(overlayWindowsSource, /const SETTINGS_POPOVER_RIGHT_NUDGE = 22/);
-  assert.match(overlayWindowsSource, /positionPopoverFromRightAnchor/);
-  assert.match(overlayWindowsSource, /settingsAnchorRight = hb\.x \+ anchorOffset \+ SETTINGS_POPOVER_RIGHT_NUDGE/);
+test('settings restores the compact placement relative to the live bar right edge', () => {
+  assert.match(overlayWindowsSource, /const SETTINGS_LEFT_FROM_BAR_RIGHT = 70/);
+  assert.match(overlayWindowsSource, /requestedX = hb\.x \+ hb\.width - SETTINGS_LEFT_FROM_BAR_RIGHT/);
+  assert.match(overlayWindowsSource, /requestedY = hb\.y \+ hb\.height \+ 5/);
+  assert.doesNotMatch(overlayWindowsSource, /headerSettingsAnchorOffset/);
 });
 
 test('desktop presets use the authenticated main-process bridge', () => {
@@ -246,12 +246,18 @@ test('desktop presets use the authenticated main-process bridge', () => {
   assert.match(preloadSource, /activate: \(presetId: number \| string\) => ipcRenderer\.invoke\('presets:activate', presetId\)/);
   assert.match(settingsSource, /evia\?\.presets/);
   assert.doesNotMatch(settingsSource, /fetch\(`\$\{BACKEND_URL\}\/prompts/);
+  assert.match(mainSource, /method: 'PUT'/);
+  assert.match(mainSource, /JSON\.stringify\(\{ is_active: true \}\)/);
+  assert.match(mainSource, /compatibility_mode: 'legacy_put'/);
 });
 
-test('the bar retains a bottom native drag strip without making controls draggable', () => {
+test('the bar retains an explicit bottom drag strip without making controls draggable', () => {
   assert.match(barSource, /evia-bar-bottom-drag-region/);
-  assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*-webkit-app-region:\s*drag/);
+  assert.match(barSource, /handleBottomDragPointerDown/);
+  assert.match(barSource, /moveHeaderTo/);
+  assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*-webkit-app-region:\s*no-drag/);
   assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*height:\s*10px/);
+  assert.match(overlayGlassSource, /\.evia-bar-bottom-drag-region[\s\S]*cursor:\s*default/);
   assert.match(overlayGlassSource, /\.evia-main-header button,[\s\S]*-webkit-app-region:\s*no-drag/);
 });
 

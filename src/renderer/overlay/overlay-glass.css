@@ -255,7 +255,7 @@ textarea:focus-visible,
 /*  Make entire header draggable on Windows */
 .evia-main-header.windows-drag {
   -webkit-app-region: drag;
-  cursor: move;
+  cursor: default;
 }
 
 /* Ensure interactive elements stay clickable when header is draggable */
@@ -292,8 +292,9 @@ textarea:focus-visible,
   bottom: 0;
   height: 10px;
   z-index: 4;
-  -webkit-app-region: drag;
-  cursor: move;
+  -webkit-app-region: no-drag;
+  touch-action: none;
+  cursor: default;
 }
 
 /* Shared gradient border overlay for components using ::after */

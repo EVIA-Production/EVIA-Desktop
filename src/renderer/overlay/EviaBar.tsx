@@ -79,6 +79,41 @@ const EviaBar: React.FC<EviaBarProps> = ({
     return typeof window !== 'undefined' && (window as any)?.platformInfo?.isWindows === true;
   }, []);
 
+  const handleBottomDragPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragState.current = {
+      startX: event.screenX,
+      startY: event.screenY,
+      initialX: window.screenX,
+      initialY: window.screenY,
+    };
+    lastMoveTimeRef.current = 0;
+  };
+
+  const handleBottomDragPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (!drag) return;
+
+    const now = performance.now();
+    if (now - lastMoveTimeRef.current < 16) return;
+    lastMoveTimeRef.current = now;
+
+    void (window as any).evia?.windows?.moveHeaderTo?.(
+      Math.round(drag.initialX + event.screenX - drag.startX),
+      Math.round(drag.initialY + event.screenY - drag.startY),
+    );
+  };
+
+  const stopBottomDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragState.current = null;
+  };
+
   // WINDOWS FIX (2025-12-06): Load shortcuts dynamically like Glass MainHeader.js
   // Default shortcuts for initial render (before IPC loads)
   const defaultShortcuts: ShortcutConfig = {
@@ -850,7 +885,14 @@ const EviaBar: React.FC<EviaBarProps> = ({
         </svg>
       </button>
 
-      <div className="evia-bar-bottom-drag-region" aria-hidden="true" />
+      <div
+        className="evia-bar-bottom-drag-region"
+        aria-hidden="true"
+        onPointerDown={handleBottomDragPointerDown}
+        onPointerMove={handleBottomDragPointerMove}
+        onPointerUp={stopBottomDrag}
+        onPointerCancel={stopBottomDrag}
+      />
 
     </div>
   );
