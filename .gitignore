@@ -6,6 +6,7 @@ out/
 release/
 *.log
 native/mac/SystemAudioCapture/.build/
+native/macos-liquid-glass/build/
 *.zip
 build/_reference/
 build/background.png

@@ -42,7 +42,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // -----------------------------------------------------------------------
   // PARTIAL THROTTLING: Prevent UI flicker from too-frequent updates
   // -----------------------------------------------------------------------
-  const PARTIAL_THROTTLE_MS = 300; // Update partials at most every 300ms
+  const PARTIAL_THROTTLE_MS = 100; // Match the 100ms audio cadence without redundant paints
   const lastPartialUpdate = useRef<Record<string, number>>({});
   const pendingPartialUpdates = useRef<Record<string, {text: string, speaker: number | null, utteranceId?: string}>>({});
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
@@ -66,6 +66,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [insightsIndex, setInsightsIndex] = useState(-1);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsRefreshPending, setInsightsRefreshPending] = useState(false);
+  const [presetContextWarning, setPresetContextWarning] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
   const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
@@ -667,6 +668,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setCopiedView(null);
         setShowUndoButton(false);
         setIsLoadingInsights(false);
+        setPresetContextWarning(false);
         
         // Reset refs
         finalTranscriptCountRef.current = 0;
@@ -704,6 +706,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         }, 10);
         
         startTimer();
+        return;
+      }
+
+      if (msg.type === 'context_status') {
+        const contextAvailable = msg.data?.available !== false;
+        setPresetContextWarning(!contextAvailable);
+        if (!contextAvailable) {
+          console.warn('[ListenView] Bound preset context is unavailable; preset-dependent AI is paused for this conversation');
+        }
         return;
       }
 
@@ -792,6 +803,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         }
         console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
         return;
+      }
+
+      const trace = msg.data?.trace;
+      if (trace && typeof trace === 'object') {
+        const providerReceivedAtMs = Number(trace.provider_received_at_ms || 0);
+        if (providerReceivedAtMs > 0) {
+          console.log(
+            `[ListenView][Trace] source=${source || 'unknown'} final=${isFinal} ` +
+            `provider-to-render=${Math.max(0, Date.now() - providerReceivedAtMs)}ms`
+          );
+        }
       }
 
       if (!text) return;
@@ -1481,15 +1503,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
-        if (derivedSessionState !== 'after' && isStubInsightPayload(fetchedInsights)) {
+        if (isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
             console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state with refresh warning');
             setInsightsRefreshPending(true);
             return;
           }
-          console.log('[ListenView] ℹ️ Initial stub insights accepted because no previous insights exist yet');
-        } else if (derivedSessionState === 'after') {
-          console.log('[ListenView] ✅ Post-meeting insights accepted without stub rejection');
+          console.log('[ListenView] 🚫 Stub-like insights detected before any valid insight; keeping loading state');
+          setInsightsRefreshPending(true);
+          return;
         }
         setInsightsRefreshPending(false);
         
@@ -1736,8 +1758,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   return (
     <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
       {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
-      <div className="assistant-container">
-        <div className="top-bar">
+      <div className="top-bar">
           <div className="bar-left-text">
             <span className={`bar-left-text-content ${isHovering ? 'slide-in' : ''}`}>
               {displayText}
@@ -1806,6 +1827,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           </div>
         </div>
         <div className="glass-scroll" ref={viewportRef}>
+          {presetContextWarning && (
+            <div className="listen-context-warning" role="status">
+              {i18n.t('overlay.listen.presetContextUnavailable')}
+            </div>
+          )}
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
               transcripts.map((line, i) => {
@@ -1992,7 +2018,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               {i18n.t('overlay.listen.noInsightsYet')}
             </div>
           )}
-        </div>
       </div>
     </div>
   );

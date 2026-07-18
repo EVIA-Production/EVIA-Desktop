@@ -16,9 +16,21 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import WelcomeHeader from './WelcomeHeader';
 import '../overlay/overlay-glass.css';
+import '../overlay/liquid-glass.css';
 
 console.log('[WelcomeEntry] 🔍 Welcome entry point executing');
 console.log('[WelcomeEntry] 🔍 URL:', window.location.href);
+
+const params = new URLSearchParams(window.location.search);
+document.documentElement.dataset.material = params.get('material') || 'custom';
+document.documentElement.dataset.surface = params.get('surface') || 'modal';
+document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false';
+window.addEventListener('focus', () => {
+  document.documentElement.dataset.windowActive = 'true';
+});
+window.addEventListener('blur', () => {
+  document.documentElement.dataset.windowActive = 'false';
+});
 
 const rootEl = document.getElementById('welcome-root');
 
@@ -29,4 +41,3 @@ if (rootEl) {
 } else {
   console.error('[WelcomeEntry] ❌ Root element #welcome-root not found');
 }
-

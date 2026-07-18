@@ -21,9 +21,13 @@ const SAMPLE_RATE = 24000; // Hz
 const BYTES_PER_SAMPLE = 2; // int16
 const CHANNELS = 2; // stereo
 const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION; // 4800 bytes
+const CAPTURE_READY_MARKER = 'Capturing system audio';
+const CAPTURE_READY_TIMEOUT_MS = 8000;
 
 export class SystemAudioMacService {
   private systemAudioProc: ChildProcess | null = null;
+  private initialOrphanCleanup: Promise<void> | null = null;
+  private didInitialOrphanCleanup = false;
   private audioBuffer: Buffer = Buffer.alloc(0);
   private isRunning: boolean = false;
   private chunkWatchdog: NodeJS.Timeout | null = null;
@@ -72,6 +76,51 @@ export class SystemAudioMacService {
         resolve();
       }, 2000);
     });
+  }
+
+  /**
+   * Remove a helper left behind by a previous crashed Taylos process once per
+   * app lifetime. Re-running a process-name-wide pkill on every Listen/Stop
+   * cycle adds latency and can terminate another active Taylos instance.
+   */
+  private async ensureInitialOrphanCleanup(): Promise<void> {
+    if (this.didInitialOrphanCleanup) return;
+    if (!this.initialOrphanCleanup) {
+      this.initialOrphanCleanup = this.killExistingSystemAudioDump().then(() => {
+        this.didInitialOrphanCleanup = true;
+      });
+    }
+    await this.initialOrphanCleanup;
+  }
+
+  private async terminateOwnedProcess(proc: ChildProcess): Promise<void> {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+
+    const waitForExit = (timeoutMs: number): Promise<boolean> => new Promise((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        proc.off('close', onClose);
+        proc.off('error', onError);
+        resolve(exited);
+      };
+      const onClose = () => finish(true);
+      const onError = () => finish(true);
+      const timeout = setTimeout(() => finish(false), timeoutMs);
+      proc.once('close', onClose);
+      proc.once('error', onError);
+    });
+
+    const gracefulExit = waitForExit(500);
+    proc.kill('SIGTERM');
+    if (await gracefulExit) return;
+
+    console.warn('[SystemAudioMacService] Helper did not exit after SIGTERM; sending SIGKILL');
+    const forcedExit = waitForExit(500);
+    proc.kill('SIGKILL');
+    await forcedExit;
   }
 
   /**
@@ -200,7 +249,7 @@ export class SystemAudioMacService {
    * Start capturing system audio via SystemAudioDump binary
    * Returns: Promise<{ success: boolean, error?: string }>
    */
-  public async start(): Promise<{ success: boolean; error?: string }> {
+  public async start(): Promise<{ success: boolean; error?: string; readyInMs?: number }> {
     if (process.platform !== 'darwin') {
       return { success: false, error: 'System audio capture only available on macOS' };
     }
@@ -210,8 +259,9 @@ export class SystemAudioMacService {
     }
 
     try {
-      // Step 1: Kill any existing processes
-      await this.killExistingSystemAudioDump();
+      // Step 1: Clean up a helper left by a previous crashed app once. Normal
+      // session shutdown targets the exact child process owned by this service.
+      await this.ensureInitialOrphanCleanup();
 
       // Step 2: Check/request screen recording permission
       await this.checkAndRequestPermission();
@@ -227,37 +277,76 @@ export class SystemAudioMacService {
       console.log('[SystemAudioMacService] 🚀 Command:', systemAudioPath);
       console.log('[SystemAudioMacService] 🚀 Args:', []);
 
+      const captureStartupStartedAt = Date.now();
+      let captureReadySettled = false;
+      let captureReadyTimeout: NodeJS.Timeout | null = null;
+      let resolveCaptureReady!: (readyInMs: number) => void;
+      let rejectCaptureReady!: (error: Error) => void;
+
+      const captureReadyPromise = new Promise<number>((resolve, reject) => {
+        resolveCaptureReady = resolve;
+        rejectCaptureReady = reject;
+      });
+
+      const markCaptureReady = () => {
+        if (captureReadySettled) return;
+        captureReadySettled = true;
+        if (captureReadyTimeout) {
+          clearTimeout(captureReadyTimeout);
+          captureReadyTimeout = null;
+        }
+        const readyInMs = Date.now() - captureStartupStartedAt;
+        console.log(`[SystemAudioMacService] ✅ Native capture ready after ${readyInMs}ms`);
+        this.sendToRenderer('system-audio:status', `ready:${readyInMs}`);
+        resolveCaptureReady(readyInMs);
+      };
+
+      const failCaptureReady = (error: Error) => {
+        if (captureReadySettled) return;
+        captureReadySettled = true;
+        if (captureReadyTimeout) {
+          clearTimeout(captureReadyTimeout);
+          captureReadyTimeout = null;
+        }
+        rejectCaptureReady(error);
+      };
+
+      let spawnedProc: ChildProcess;
       const handleProcessError = (err: any) => {
         console.error('[SystemAudioMacService] ❌ SystemAudioDump process error:', err);
         console.error('[SystemAudioMacService] ❌ Error name:', err.name);
         console.error('[SystemAudioMacService] ❌ Error message:', err.message);
         console.error('[SystemAudioMacService] ❌ Error stack:', err.stack);
         this.sendToRenderer('system-audio:status', `error:${err.code || err.message}`);
-        this.systemAudioProc = null;
-        this.isRunning = false;
-        this.audioBuffer = Buffer.alloc(0);
-        this.stopChunkWatchdog();
+        if (this.systemAudioProc === spawnedProc) {
+          this.systemAudioProc = null;
+          this.isRunning = false;
+          this.audioBuffer = Buffer.alloc(0);
+          this.stopChunkWatchdog();
+        }
+        failCaptureReady(new Error(`SystemAudioDump process error: ${err.code || err.message}`));
       };
 
-      this.systemAudioProc = spawn(systemAudioPath, [], {
+      spawnedProc = spawn(systemAudioPath, [], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      this.systemAudioProc.on('error', handleProcessError);
+      this.systemAudioProc = spawnedProc;
+      spawnedProc.on('error', handleProcessError);
 
-      if (!this.systemAudioProc.pid) {
+      if (!spawnedProc.pid) {
         console.error('[SystemAudioMacService] ❌ Failed to start SystemAudioDump - no PID assigned');
         this.sendToRenderer('system-audio:status', 'spawn-no-pid');
         return { success: false, error: 'Failed to spawn process - no PID' };
       }
 
-      console.log('[SystemAudioMacService] ✅ SystemAudioDump started with PID:', this.systemAudioProc.pid);
+      console.log('[SystemAudioMacService] ✅ SystemAudioDump started with PID:', spawnedProc.pid);
       this.isRunning = true;
-      this.lastChunkAt = Date.now();
+      this.lastChunkAt = 0;
       this.chunksForwarded = 0;
-      this.startChunkWatchdog();
 
       // Step 4: Process audio data from stdout
-      this.systemAudioProc.stdout!.on('data', (data: Buffer) => {
+      spawnedProc.stdout!.on('data', (data: Buffer) => {
+        if (this.systemAudioProc !== spawnedProc || !this.isRunning) return;
         this.audioBuffer = Buffer.concat([this.audioBuffer, data]);
 
         // Process complete chunks
@@ -286,9 +375,18 @@ export class SystemAudioMacService {
       });
 
       // Step 5: Error handling
-      this.systemAudioProc.stderr!.on('data', (data: Buffer) => {
+      let stderrBuffer = '';
+      spawnedProc.stderr!.on('data', (data: Buffer) => {
         const errorMsg = data.toString().trim();
         console.error('[SystemAudioMacService] 🔴 SystemAudioDump stderr:', errorMsg);
+        stderrBuffer = `${stderrBuffer}\n${errorMsg}`.slice(-4096);
+
+        // SystemAudioDump emits this only after ScreenCaptureKit's
+        // startCapture completion handler succeeds. Process spawn alone is not
+        // recording readiness and can lose the opening words of a meeting.
+        if (stderrBuffer.includes(CAPTURE_READY_MARKER)) {
+          markCaptureReady();
+        }
         
         // Check for specific permission error
         if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
@@ -302,12 +400,15 @@ export class SystemAudioMacService {
         }
       });
 
-      this.systemAudioProc.on('close', (code) => {
+      spawnedProc.on('close', (code) => {
         console.log('[SystemAudioMacService] 🔴 SystemAudioDump process closed with code:', code);
-        this.systemAudioProc = null;
-        this.isRunning = false;
-        this.audioBuffer = Buffer.alloc(0);
-        this.stopChunkWatchdog();
+        if (this.systemAudioProc === spawnedProc) {
+          this.systemAudioProc = null;
+          this.isRunning = false;
+          this.audioBuffer = Buffer.alloc(0);
+          this.stopChunkWatchdog();
+        }
+        failCaptureReady(new Error(`SystemAudioDump closed before capture was ready (code=${code})`));
 
         if (code === 1) {
           console.error('[SystemAudioMacService] ❌ Binary exited with code 1 - PERMISSION DENIED');
@@ -319,10 +420,26 @@ export class SystemAudioMacService {
         }
       });
 
-      return { success: true };
+      captureReadyTimeout = setTimeout(() => {
+        failCaptureReady(new Error(`SystemAudioDump capture readiness timed out after ${CAPTURE_READY_TIMEOUT_MS}ms`));
+      }, CAPTURE_READY_TIMEOUT_MS);
+
+      const readyInMs = await captureReadyPromise;
+      this.startChunkWatchdog();
+      return { success: true, readyInMs };
     } catch (error: any) {
       console.error('[SystemAudioMacService] Failed to start system audio capture:', error);
+      if (this.systemAudioProc) {
+        const failedProc = this.systemAudioProc;
+        this.systemAudioProc = null;
+        await this.terminateOwnedProcess(failedProc);
+      }
       this.isRunning = false;
+      this.audioBuffer = Buffer.alloc(0);
+      this.lastChunkAt = 0;
+      this.chunksForwarded = 0;
+      this.stopChunkWatchdog();
+      this.sendToRenderer('system-audio:status', `start-failed:${error.message}`);
       return { success: false, error: error.message };
     }
   }
@@ -336,10 +453,11 @@ export class SystemAudioMacService {
       return { success: true };
     }
     try {
-      if (this.systemAudioProc) {
+      const ownedProc = this.systemAudioProc;
+      this.systemAudioProc = null;
+      if (ownedProc) {
         console.log('[SystemAudioMacService] Stopping SystemAudioDump process...');
-        this.systemAudioProc.kill();
-        this.systemAudioProc = null;
+        await this.terminateOwnedProcess(ownedProc);
       }
 
       this.isRunning = false;
@@ -347,9 +465,6 @@ export class SystemAudioMacService {
       this.lastChunkAt = 0;
       this.chunksForwarded = 0;
       this.stopChunkWatchdog();
-
-      // Also kill any orphaned processes
-      await this.killExistingSystemAudioDump();
 
       console.log('[SystemAudioMacService] ✅ System audio capture stopped');
       return { success: true };

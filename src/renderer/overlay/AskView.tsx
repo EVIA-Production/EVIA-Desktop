@@ -730,6 +730,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
     if (!actualPrompt.trim() || streamRef.current) return;
+
+    const requestStartedAt = performance.now();
+    const clientStartedAtMs = Date.now();
+    const requestId = crypto.randomUUID();
+    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
+    streamStartTime.current = requestStartedAt;
     
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
@@ -823,27 +829,32 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     try {
       const explicitTranscriptContext = liveTranscriptOverrideRef.current || '';
       const { getChatTranscripts } = await import('../services/websocketService');
-      const [transcripts, liveSnapshot] = await Promise.all([
-        getChatTranscripts(chatId, token, 200), // Last 200 turns
-        (window as any).evia?.liveTranscript?.get?.(chatId),
-      ]);
-
-      const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
-      const dbTranscriptContext = deduped.length > 0
-        ? formatTranscriptContextForLLM(deduped)
-        : '';
+      const liveSnapshot = explicitTranscriptContext
+        ? null
+        : await (window as any).evia?.liveTranscript?.get?.(chatId);
       const liveTranscriptContext = explicitTranscriptContext || liveSnapshot?.data?.transcriptContext || '';
 
-      if (dbTranscriptContext) {
-        transcriptContext = dbTranscriptContext;
-        const lineCount = transcriptContext.split('\n').filter(Boolean).length;
-        console.log('[AskView] 📄 Using DB transcript context:', transcriptContext.length, 'chars,', lineCount, 'entries');
-      } else if (liveTranscriptContext) {
+      // During a call, the renderer snapshot is the freshest source and avoids
+      // a blocking database round trip on the user-visible response path.
+      if (currentSessionState === 'during' && liveTranscriptContext) {
         transcriptContext = liveTranscriptContext;
         const lineCount = transcriptContext.split('\n').filter(Boolean).length;
-        console.log('[AskView] 📄 Falling back to live transcript snapshot:', transcriptContext.length, 'chars,', lineCount, 'entries');
+        console.log('[AskView] 📄 Using live transcript context:', transcriptContext.length, 'chars,', lineCount, 'entries');
       } else {
-        console.log('[AskView] ℹ️ No transcript history yet');
+        const transcripts = await getChatTranscripts(chatId, token, 200);
+        const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
+        const dbTranscriptContext = deduped.length > 0
+          ? formatTranscriptContextForLLM(deduped)
+          : '';
+
+        transcriptContext = currentSessionState === 'after'
+          ? (liveTranscriptContext || dbTranscriptContext)
+          : (dbTranscriptContext || liveTranscriptContext);
+        console.log(
+          transcriptContext
+            ? `[AskView] 📄 Using ${transcriptContext === liveTranscriptContext ? 'live' : 'DB'} transcript context: ${transcriptContext.length} chars`
+            : '[AskView] ℹ️ No transcript history yet'
+        );
       }
     } catch (e) {
       console.warn('[AskView] ⚠️ Could not fetch transcript (continuing without context):', e);
@@ -887,12 +898,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setIsStreaming(true);
     setTtftMs(null);
     ttftLoggedRef.current = false;
-    streamStartTime.current = performance.now();
+    console.log('[AskView] Context preparation:', (performance.now() - requestStartedAt).toFixed(0), 'ms');
 
     // CRITICAL FIX: Re-read session state from localStorage before streaming
     // EviaBar updates localStorage immediately when Listen starts, but the IPC event
     // might arrive too late (after user clicks shortcut button)
-    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
     if (currentSessionState !== sessionState) {
       console.log('[AskView] 🔄 Syncing session state from localStorage:', currentSessionState, '(was:', sessionState, ')');
       setSessionState(currentSessionState);
@@ -912,7 +922,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       language, 
       sessionState: currentSessionState,  // CRITICAL: Use freshly synced session state
       token, 
-      screenshotRef 
+      screenshotRef,
+      requestId,
+      clientStartedAtMs,
     });
     streamRef.current = handle;
 
@@ -960,7 +972,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         const ttft = performance.now() - streamStartTime.current;
         setTtftMs(ttft);
         ttftLoggedRef.current = true;
-        console.log('[AskView] ⚡ TTFT:', ttft.toFixed(0), 'ms');
+        console.log('[AskView] ⚡ Click-to-first-visible-token:', ttft.toFixed(0), 'ms');
       }
       responseBufferRef.current += d;
       setResponse(sanitizeAskOutput(responseBufferRef.current, currentSessionState));

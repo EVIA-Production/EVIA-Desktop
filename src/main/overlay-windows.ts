@@ -3,10 +3,49 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { headerController } from './header-controller'
+import { OverlayVisibilityController } from './overlay-visibility-controller'
+import {
+  applyWindowMaterial,
+  getRequestedMaterialMode,
+  materialQuery,
+  materialWindowOptions,
+  type MaterialMode,
+  type MaterialSurface,
+} from './window-material'
+import {
+  centerWindowGroupX,
+  centerWindowX,
+  positionPopoverFromRightAnchor,
+  resizeRectKeepingVisualAnchor,
+} from './window-anchor-geometry'
 
 // Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
 const VITE_DEV_SERVER_URL = 'http://localhost:5174'
+
+function loadRendererView(
+  win: BrowserWindow,
+  entry: 'overlay' | 'welcome',
+  surface: MaterialSurface,
+  view?: string,
+  mode: MaterialMode = getRequestedMaterialMode(surface),
+) {
+  const query = {
+    ...(view ? { view } : {}),
+    ...materialQuery(surface, mode),
+  }
+
+  if (isDev) {
+    const page = entry === 'overlay' ? 'overlay.html' : 'welcome.html'
+    const params = new URLSearchParams(query)
+    const url = `${VITE_DEV_SERVER_URL}/${page}?${params.toString()}`
+    console.log(`[overlay-windows] Loading ${entry}${view ? `:${view}` : ''}:`, url)
+    return win.loadURL(url)
+  }
+
+  const page = entry === 'overlay' ? 'overlay.html' : 'welcome.html'
+  return win.loadFile(path.join(__dirname, `../renderer/${page}`), { query })
+}
 
 export type FeatureName = 'listen' | 'ask' | 'settings' | 'shortcuts'
 
@@ -23,12 +62,17 @@ const childWindows: Map<FeatureName, BrowserWindow> = new Map()
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
 let headerVisualCenterOffset = HEADER_SIZE.width / 2
+let headerSettingsAnchorOffset = HEADER_SIZE.width - 18
+const SETTINGS_POPOVER_RIGHT_NUDGE = 12
 // WINDOWS FIX (2025-12-05): Use PAD=8 exactly like Glass (windowLayoutManager.js line 159)
 // This is the gap between header and child windows
 const PAD = 8
 const ANIM_DURATION = 0 // INSTANT show/hide 
 let settingsHideTimer: NodeJS.Timeout | null = null
 let restoreChildWindowsOnHeaderRestore = false
+let isAppQuitting = false
+let relayoutEpoch = 0
+const relayoutTimers = new Set<NodeJS.Timeout>()
 
 // Note: All windows load overlay.html with ?view=X query params for React routing.
 // The 'html' field is kept for documentation but not used in loadFile() calls.
@@ -68,6 +112,7 @@ type ShortcutConfig = {
 
 type PersistedState = {
   headerBounds?: Electron.Rectangle
+  shortcutsBounds?: Electron.Rectangle
   visible?: WindowVisibility
   autoUpdate?: boolean  // User preference for automatic updates
   shortcuts?: ShortcutConfig  // User-customized keyboard shortcuts
@@ -83,8 +128,10 @@ type LiveTranscriptSnapshot = {
 
 let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
 
-// Glass parity: Track visibility before hide (windowManager.js:227-233)
-let lastVisibleWindows = new Set<FeatureName>()
+// Desired visibility is independent from transient BrowserWindow visibility.
+// macOS/Windows may hide child windows with their parent; that must not erase
+// which windows Show/Hide is expected to restore.
+const overlayVisibility = new OverlayVisibilityController()
 
 function getWindowIconPath(): string {
   const iconFile = process.platform === 'darwin' ? 'icon-mac.png' : 'icon.ico'
@@ -127,12 +174,8 @@ function getVisibleChildWindowNames(): FeatureName[] {
 }
 
 function restoreLastVisibleChildWindows() {
-  console.log('[overlay-windows] 🔄 Restoring windows:', Array.from(lastVisibleWindows))
-
-  const vis: WindowVisibility = {}
-  for (const name of lastVisibleWindows) {
-    vis[name] = true
-  }
+  const vis = overlayVisibility.getDesiredVisibility()
+  console.log('[overlay-windows] 🔄 Restoring desired windows:', Object.keys(vis))
 
   if (Object.keys(vis).length === 0) {
     return
@@ -140,7 +183,7 @@ function restoreLastVisibleChildWindows() {
 
   updateWindows(vis)
 
-  for (const name of lastVisibleWindows) {
+  for (const name of overlayVisibility.getDesiredNames()) {
     const win = childWindows.get(name)
     if (win && !win.isDestroyed()) {
       win.setAlwaysOnTop(true, 'screen-saver')
@@ -216,7 +259,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     height: HEADER_SIZE.height,
     show: false,
     frame: false,
-    transparent: true,
+    ...materialWindowOptions('overlay'),
     resizable: false,
     movable: true,
     type: process.platform === 'darwin' ? 'panel' : undefined, // macOS: panel, Windows: normal window for taskbar
@@ -225,8 +268,6 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     icon: iconPath,
     hiddenInMissionControl: true, // Glass parity: Hide from Mission Control
     focusable: true,
-    hasShadow: false,
-    backgroundColor: '#00000000', // Fully transparent
     title: 'Taylos',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -240,6 +281,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     },
   })
 
+  applyWindowMaterial(headerWindow, 'overlay')
+
   // headerWindow.webContents.openDevTools({ mode: 'detach' }); // Disabled for production testing
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
@@ -250,6 +293,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   const restoreBounds = persistedState.headerBounds
   if (restoreBounds) {
     headerWindow.setBounds(restoreBounds)
+    headerVisualCenterOffset = restoreBounds.width / 2
+    headerSettingsAnchorOffset = Math.max(0, restoreBounds.width - 18)
   } else {
     const { workArea } = screen.getPrimaryDisplay()
     const x = Math.round(workArea.x + (workArea.width - HEADER_SIZE.width) / 2)
@@ -285,15 +330,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
   headerWindow.setIgnoreMouseEvents(false)
 
-  // Load from Vite dev server in development, built files in production
-  if (isDev) {
-    headerWindow.loadURL(`${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
-    console.log('[overlay-windows] 🔧 Header loading from Vite dev server:', `${VITE_DEV_SERVER_URL}/overlay.html?view=header`)
-  } else {
-    headerWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-      query: { view: 'header' },
-    })
-  }
+  void loadRendererView(headerWindow, 'overlay', 'overlay', 'header')
 
   headerWindow.on('moved', () => {
     const b = headerWindow?.getBounds()
@@ -342,6 +379,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     }
 
     restoreChildWindowsOnHeaderRestore = false
+    overlayVisibility.showUi()
     restoreLastVisibleChildWindows()
   })
 
@@ -411,19 +449,22 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
       console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
 
-      // GLASS PARITY FIX: Re-center header horizontally when width changes
-      const { workArea } = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
-      const newX = Math.round(workArea.x + (workArea.width - newWidth) / 2)
-
-      headerWindow.setBounds({
-        x: newX,
+      // Compatibility path for older renderers. Preserve the live bar center;
+      // never snap it back to the display center when its label changes.
+      const currentVisualCenter = bounds.x + headerVisualCenterOffset
+      const unclampedBounds = {
+        x: Math.round(currentVisualCenter - newWidth / 2),
         y: bounds.y,
         width: newWidth,
-        height: bounds.height
-      })
+        height: bounds.height,
+      }
+      const nextBounds = clampBounds(unclampedBounds)
+
+      headerWindow.setBounds(nextBounds)
 
       // Update persisted bounds
       const newBounds = headerWindow.getBounds()
+      headerVisualCenterOffset = newBounds.width / 2
       saveState({ headerBounds: newBounds })
 
       // NEW: Immediately re-layout child windows so Ask/Listen track the header
@@ -432,8 +473,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       try {
         const vis = getVisibility()
         layoutChildWindows(vis)
-        scheduleRelayout(vis, 32, 'header-resize')
-        scheduleRelayout(vis, 120, 'header-resize')
+        scheduleRelayout(16, 'header-resize')
       } catch (e) {
         console.warn('[overlay-windows] Failed to re-layout after header resize:', e)
       }
@@ -459,6 +499,11 @@ function createChildWindow(name: FeatureName): BrowserWindow {
 
   // Glass parity: Shortcuts window is independent (no parent) and movable (windowManager.js:560-568)
   const isShortcuts = name === 'shortcuts'
+  const surface: MaterialSurface = name === 'settings'
+    ? 'popover'
+    : name === 'shortcuts'
+      ? 'utility'
+      : 'content'
 
   // WINDOWS FIX (2025-12-05): Use different window type on Windows for better always-on-top behavior
   const isWindows = process.platform === 'win32'
@@ -467,7 +512,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     parent: isShortcuts ? undefined : parent, // Shortcuts has no parent so it can be moved
     show: false,
     frame: false,
-    transparent: true,
+    ...materialWindowOptions(surface),
     resizable: false,
     movable: isShortcuts, // Only shortcuts window is movable
     minimizable: false,
@@ -479,8 +524,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     modal: false,
     width: def.width,
     height: def.height,
-    hasShadow: false,
-    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -491,6 +534,8 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       devTools: true, // Glass parity: Always enable DevTools, will only open in dev mode
     },
   })
+
+  applyWindowMaterial(win, surface)
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
   if (process.platform === 'darwin') {
@@ -506,23 +551,42 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Glass parity: All windows are interactive by default (windowManager.js:287)
   win.setIgnoreMouseEvents(false)
 
-  // Load from Vite dev server in development, built files in production
-  if (isDev) {
-    const url = `${VITE_DEV_SERVER_URL}/overlay.html?view=${name}`
-    win.loadURL(url)
-    console.log(`[overlay-windows] 🔧 ${name} window loading from Vite dev server:`, url)
-  } else {
-    win.loadFile(path.join(__dirname, '../renderer/overlay.html'), {
-      query: { view: name },
-    })
-  }
+  void loadRendererView(win, 'overlay', surface, name)
 
   win.on('closed', () => {
     childWindows.delete(name)
   })
 
-  // Glass parity: Open DevTools for all child windows in development (windowManager.js:726-728, 553-555)
-  if (!app.isPackaged) {
+  // Parent/desktop transitions can transiently hide a child BrowserWindow on
+  // macOS and Windows. Desired visibility remains the authority; only repair
+  // Listen/Ask when the user did not intentionally hide or close the UI.
+  if (name === 'listen' || name === 'ask') {
+    win.on('hide', () => {
+      if (
+        isAppQuitting ||
+        overlayVisibility.isUiHidden() ||
+        !overlayVisibility.isDesired(name)
+      ) {
+        return
+      }
+
+      setTimeout(() => {
+        if (
+          isAppQuitting ||
+          overlayVisibility.isUiHidden() ||
+          !overlayVisibility.isDesired(name) ||
+          windowHasUsableScreenPresence(childWindows.get(name))
+        ) {
+          return
+        }
+        console.warn(`[overlay-windows] Repairing transiently hidden desired ${name} window`)
+        restoreLastVisibleChildWindows()
+      }, 0)
+    })
+  }
+
+  // Keep development overlays unobstructed unless DevTools were explicitly requested.
+  if (!app.isPackaged && process.env.TAYLOS_OPEN_DEVTOOLS === '1') {
     console.log(`[overlay-windows] Opening DevTools for ${name} window`)
     win.webContents.openDevTools({ mode: 'detach' })
   }
@@ -531,6 +595,14 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Cmd+Option+I (macOS) or F12 (all platforms)
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
+      if (input.key === 'Escape' && (name === 'settings' || name === 'shortcuts')) {
+        event.preventDefault()
+        win.hide()
+        overlayVisibility.hide(name)
+        saveState({ visible: overlayVisibility.getDesiredVisibility() })
+        return
+      }
+
       // Cmd+Option+I on macOS
       if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
         event.preventDefault()
@@ -561,6 +633,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         event.preventDefault()
         win.setBounds(clamped)
       }
+    })
+    win.on('moved', () => {
+      if (!win.isDestroyed()) saveState({ shortcutsBounds: win.getBounds() })
     })
   }
 
@@ -614,8 +689,8 @@ function createChildWindow(name: FeatureName): BrowserWindow {
             if (win && !win.isDestroyed()) {
               win.hide()
             }
-            const vis = getVisibility()
-            saveState({ visible: { ...vis, settings: false } })
+            overlayVisibility.hide('settings')
+            saveState({ visible: overlayVisibility.getDesiredVisibility() })
             settingsHideTimer = null
           }, 200)
         }
@@ -630,6 +705,18 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         cursorPollInterval = null
       }
       wasInsideSettings = false
+    })
+
+    // A context-menu-style popover dismisses when interaction moves elsewhere.
+    // Hover-only opening does not focus the popover, so this only fires after a
+    // user has interacted with it and subsequently clicks outside.
+    win.on('blur', () => {
+      setTimeout(() => {
+        if (win.isDestroyed() || !win.isVisible() || win.webContents.isDevToolsFocused()) return
+        win.hide()
+        overlayVisibility.hide('settings')
+        saveState({ visible: overlayVisibility.getDesiredVisibility() })
+      }, 0)
     })
   }
 
@@ -734,26 +821,16 @@ function revealWindow(win: BrowserWindow, name: FeatureName) {
   }
 }
 
-function buildActualVisibilityFor(name: FeatureName): WindowVisibility {
-  const otherName = name === 'listen' ? 'ask' : (name === 'ask' ? 'listen' : null)
-  const actualVis: WindowVisibility = {
-    listen: false,
-    ask: false,
-    settings: false,
-    shortcuts: false,
+function buildDesiredVisibilityFor(name: FeatureName): WindowVisibility {
+  const desired = overlayVisibility.getDesiredVisibility()
+  const next: WindowVisibility = { ...desired, [name]: true }
+
+  if (name === 'listen' || name === 'ask') {
+    next.settings = false
+    next.shortcuts = false
   }
 
-  actualVis[name] = true
-
-  if (otherName) {
-    const otherWin = childWindows.get(otherName)
-    const isOtherActuallyVisible = !!(otherWin && !otherWin.isDestroyed() && windowHasUsableScreenPresence(otherWin))
-    if (isOtherActuallyVisible) {
-      actualVis[otherName] = true
-    }
-  }
-
-  return actualVis
+  return next
 }
 
 function ensureWindowShown(name: FeatureName) {
@@ -761,9 +838,9 @@ function ensureWindowShown(name: FeatureName) {
   if (!win || win.isDestroyed()) {
     win = createChildWindow(name)
   }
-  const actualVis = buildActualVisibilityFor(name)
+  const desiredVis = buildDesiredVisibilityFor(name)
 
-  updateWindows(actualVis)
+  updateWindows(desiredVis)
   win = childWindows.get(name) ?? win
 
   const header = getOrCreateHeaderWindow()
@@ -791,6 +868,7 @@ function ensureWindowShown(name: FeatureName) {
 
       setTimeout(() => {
         if (askWin.isDestroyed()) return
+        if (!overlayVisibility.isDesired('ask')) return
         askWin.setBounds(clampBounds(askWin.getBounds()))
         askWin.setOpacity(1)
         askWin.show()
@@ -802,7 +880,7 @@ function ensureWindowShown(name: FeatureName) {
     }
   }
 
-  return { ok: true, visibility: actualVis }
+  return { ok: true, visibility: desiredVis }
 }
 
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
@@ -870,22 +948,13 @@ function layoutChildWindows(visible: WindowVisibility) {
     if (askVis && listenVis) {
       // Both windows: horizontal stack (listen left, ask right)
       // FIX: Center the ENTIRE group (listen + gap + ask) under header
-      const totalWidth = listenW + PAD_LOCAL + askW
-      const groupCenterXRel = headerCenterXRel - totalWidth / 2
-
-      let listenXRel = groupCenterXRel
-      let askXRel = listenXRel + listenW + PAD_LOCAL
-
-      // FIX: Use 0 padding (same as header) to ensure identical boundaries
-      // Child windows should reach exact screen edges like header does
-      if (listenXRel < 0) {
-        listenXRel = 0
-        askXRel = listenXRel + listenW + PAD_LOCAL
-      }
-      if (askXRel + askW > screenWidth) {
-        askXRel = screenWidth - askW
-        listenXRel = askXRel - listenW - PAD_LOCAL
-      }
+      const [listenXRel, askXRel] = centerWindowGroupX(
+        headerCenterXRel,
+        [listenW, askW],
+        PAD_LOCAL,
+        0,
+        screenWidth,
+      )
 
       if (isAbovePreferred) {
         const windowBottomAbs = hb.y - PAD_LOCAL
@@ -909,8 +978,7 @@ function layoutChildWindows(visible: WindowVisibility) {
       const winW = askVis ? askW : listenW
       const winH = askVis ? askH : listenH
 
-      let xRel = headerCenterXRel - (winW / 2)
-      xRel = Math.max(0, Math.min(screenWidth - winW, xRel))
+      const xRel = centerWindowX(headerCenterXRel, winW, 0, screenWidth)
 
       let yPos: number
       if (isAbovePreferred) {
@@ -924,38 +992,38 @@ function layoutChildWindows(visible: WindowVisibility) {
     }
   }
 
-  // Handle Settings window
-  // GLASS PARITY: Position settings window (windowLayoutManager.js:71-94)
-  // Align settings' RIGHT edge with header's right edge (+ button padding 170px)
+  // Align the popover's right edge to the live three-dot control. This matches
+  // the original compact placement and follows every language/state resize.
   if (visible.settings) {
-    const settingsWin = createChildWindow('settings')
+    createChildWindow('settings')
     const settingsW = WINDOW_DATA.settings.width  // 240px
-    const settingsH = WINDOW_DATA.settings.height // 388px
+    const settingsH = WINDOW_DATA.settings.height
 
-    const PAD = 5  // Glass uses 5px gap
-    const buttonPadding = 170  // Glass positions settings relative to button (170px from right)
-
-    // Glass formula: x = headerBounds.x + headerBounds.width - settingsBounds.width + buttonPadding
-    const x = hb.x + hb.width - settingsW + buttonPadding
-    const y = hb.y + hb.height + PAD
-
-    // Clamp to screen (Glass uses 10px margin)
-    const clampedX = Math.max(work.x + 10, Math.min(work.x + work.width - settingsW - 10, x))
-    const clampedY = Math.max(work.y + 10, Math.min(work.y + work.height - settingsH - 10, y))
-
-    layout.settings = { x: Math.round(clampedX), y: Math.round(clampedY), width: settingsW, height: settingsH }
-    console.log(`[layoutChildWindows] 📐 Settings (Glass parity): x=${Math.round(clampedX)}, y=${Math.round(clampedY)}, buttonPadding=${buttonPadding}`)
+    const gap = 5
+    const anchorOffset = Math.max(0, Math.min(hb.width, headerSettingsAnchorOffset))
+    const settingsAnchorRight = hb.x + anchorOffset + SETTINGS_POPOVER_RIGHT_NUDGE
+    layout.settings = positionPopoverFromRightAnchor(
+      settingsAnchorRight,
+      hb.y + hb.height,
+      { width: settingsW, height: settingsH },
+      work,
+      gap,
+    )
+    console.log(`[layoutChildWindows] Settings follows live control edge ${settingsAnchorRight}:`, layout.settings)
   }
 
   // Handle Shortcuts window (Glass: calculateShortcutSettingsWindowPosition)
   // Position to the right of settings if settings is visible, otherwise center at header
   if (visible.shortcuts) {
-    const shortcutsWin = createChildWindow('shortcuts')
+    createChildWindow('shortcuts')
     const shortcutsW = WINDOW_DATA.shortcuts.width
     const shortcutsH = WINDOW_DATA.shortcuts.height
 
     let x, y
-    if (visible.settings && layout.settings) {
+    if (persistedState.shortcutsBounds) {
+      x = persistedState.shortcutsBounds.x
+      y = persistedState.shortcutsBounds.y
+    } else if (visible.settings && layout.settings) {
       // FIX: Position to the right of settings window (Glass parity)
       x = layout.settings.x + layout.settings.width + PAD
       y = layout.settings.y
@@ -965,10 +1033,12 @@ function layoutChildWindows(visible: WindowVisibility) {
       y = hb.y
     }
 
-    // Clamp to screen
-    x = Math.max(work.x, Math.min(x, work.x + work.width - shortcutsW))
-
-    layout.shortcuts = { x: Math.round(x), y: Math.round(y), width: shortcutsW, height: shortcutsH }
+    layout.shortcuts = clampBounds({
+      x: Math.round(x),
+      y: Math.round(y),
+      width: shortcutsW,
+      height: shortcutsH,
+    })
   }
 
   // Apply layout
@@ -1068,15 +1138,26 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
   tick()
 }
 
-function scheduleRelayout(visibility: WindowVisibility, delayMs: number, reason: string) {
-  setTimeout(() => {
+function invalidateScheduledRelayouts() {
+  relayoutEpoch += 1
+  for (const timer of relayoutTimers) clearTimeout(timer)
+  relayoutTimers.clear()
+}
+
+function scheduleRelayout(delayMs: number, reason: string) {
+  const scheduledEpoch = relayoutEpoch
+  const timer = setTimeout(() => {
+    relayoutTimers.delete(timer)
+    if (scheduledEpoch !== relayoutEpoch) return
     try {
-      layoutChildWindows(visibility)
-      console.log(`[overlay-windows] 🔁 Delayed relayout (${reason}) after ${delayMs}ms`, visibility)
+      const currentVisibility = overlayVisibility.getDesiredVisibility()
+      layoutChildWindows(currentVisibility)
+      console.log(`[overlay-windows] 🔁 Delayed relayout (${reason}) after ${delayMs}ms`, currentVisibility)
     } catch (error) {
       console.warn(`[overlay-windows] Failed delayed relayout (${reason})`, error)
     }
   }, delayMs)
+  relayoutTimers.add(timer)
 }
 
 function raiseOverlayStack(focusWindow?: BrowserWindow | null) {
@@ -1114,17 +1195,14 @@ function forceShowWindow(name: FeatureName, visibility?: WindowVisibility) {
 
   raiseOverlayStack(win)
 
-  if (targetVisibility) {
-    scheduleRelayout(targetVisibility, 32, `${name}-shown`)
-    scheduleRelayout(targetVisibility, 120, `${name}-shown`)
-    scheduleRelayout(targetVisibility, 260, `${name}-shown`)
-  }
+  scheduleRelayout(32, `${name}-shown`)
 
   if (name === 'ask') {
     setTimeout(() => {
       if (!windowHasUsableScreenPresence(win)) {
         console.warn('[overlay-windows] Ask not visibly present after initial reveal, retrying show path')
-        layoutChildWindows(targetVisibility)
+        if (!overlayVisibility.isDesired(name)) return
+        layoutChildWindows(overlayVisibility.getDesiredVisibility())
         revealWindow(win, name)
         raiseOverlayStack(win)
       }
@@ -1181,16 +1259,19 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
 }
 
 function updateWindows(visibility: WindowVisibility) {
-  layoutChildWindows(visibility)
-  saveState({ visible: visibility })
+  overlayVisibility.set(visibility)
+  invalidateScheduledRelayouts()
+  const currentVisibility = overlayVisibility.getDesiredVisibility()
+  layoutChildWindows(currentVisibility)
+  saveState({ visible: currentVisibility })
 
   // Glass parity: Process ALL windows, not just visible ones (windowManager.js:260-400)
   // This ensures windows get hidden when removed from visibility object
   const allWindows: [FeatureName, boolean][] = [
-    ['listen', visibility.listen ?? false],
-    ['ask', visibility.ask ?? false],
-    ['settings', visibility.settings ?? false],
-    ['shortcuts', visibility.shortcuts ?? false],
+    ['listen', currentVisibility.listen ?? false],
+    ['ask', currentVisibility.ask ?? false],
+    ['settings', currentVisibility.settings ?? false],
+    ['shortcuts', currentVisibility.shortcuts ?? false],
   ]
 
   // Sort by z-index (ascending) so higher z-index windows are moved to top last
@@ -1214,19 +1295,13 @@ function updateWindows(visibility: WindowVisibility) {
     headerWindow?.moveTop() // Header always on top
   } catch { }
 
-  scheduleRelayout(visibility, 32, 'updateWindows')
+  scheduleRelayout(16, 'updateWindows')
 }
 
 function getVisibility(): WindowVisibility {
-  const result: WindowVisibility = {}
-  ;(['listen', 'ask', 'settings', 'shortcuts'] as FeatureName[]).forEach((name) => {
-    const win = childWindows.get(name)
-    if (win && !win.isDestroyed() && win.isVisible()) {
-      result[name] = true
-    }
-  })
-  console.log(`[overlay-windows] getVisibility() returning:`, result)
-  return result
+  const desired = overlayVisibility.getDesiredVisibility()
+  console.log('[overlay-windows] getVisibility() returning desired state:', desired)
+  return desired
 }
 
 function toggleWindow(name: FeatureName) {
@@ -1237,19 +1312,17 @@ function toggleWindow(name: FeatureName) {
   // Solution: Explicitly build newVis with ONLY currently active windows + the toggled window
 
   if (name === 'ask') {
-    const current = isWindowActuallyVisible('ask')
-    // FIX: When toggling Ask, preserve Listen if it's currently visible (not persisted state)
-    // Check actual current visibility to avoid state leak from disk
-    const isListenCurrentlyVisible = isWindowActuallyVisible('listen')
+    const current = Boolean(vis.ask)
+    const isListenDesired = Boolean(vis.listen)
 
     const newVis: WindowVisibility = {
       ask: !current,
       settings: false,  // Always close settings
-      listen: isListenCurrentlyVisible,  // Preserve Listen if visible
+      listen: isListenDesired,
       shortcuts: false, // Always close shortcuts
     }
 
-    console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenCurrentlyVisible}`)
+    console.log(`[overlay-windows] toggleWindow('ask'): ask=${!current}, preserving listen=${isListenDesired}`)
 
     if (!current) {  // If we're showing the Ask window (toggled from hidden to shown)
       ensureWindowShown('ask')
@@ -1262,7 +1335,7 @@ function toggleWindow(name: FeatureName) {
   }
 
   // For other windows (listen, settings, shortcuts), use spread to preserve ask state
-  const current = isWindowActuallyVisible(name)
+  const current = Boolean(vis[name])
   const newVis = { ...vis, [name]: !current }
   updateWindows(newVis)
   return newVis[name]
@@ -1293,8 +1366,7 @@ function handleHeaderToggle() {
     const hasVisibleUi = headerVisible || visibleChildWindows.length > 0
 
     if (hasVisibleUi) {
-      lastVisibleWindows.clear()
-      visibleChildWindows.forEach((name) => lastVisibleWindows.add(name))
+      overlayVisibility.hideUi()
 
       console.log('[overlay-windows] 🪟 Windows toggle: hiding child windows but keeping header visible')
       visibleChildWindows.forEach((name) => {
@@ -1305,7 +1377,7 @@ function handleHeaderToggle() {
       })
 
       if (headerWindow && !headerWindow.isDestroyed()) {
-        restoreChildWindowsOnHeaderRestore = lastVisibleWindows.size > 0
+        restoreChildWindowsOnHeaderRestore = overlayVisibility.getDesiredNames().length > 0
         headerWindow.minimize()
       }
       return
@@ -1313,22 +1385,17 @@ function handleHeaderToggle() {
 
     console.log('[overlay-windows] 🪟 Windows toggle: restoring last visible child windows')
     restoreChildWindowsOnHeaderRestore = false
+    overlayVisibility.showUi()
     ensureHeaderWindowVisible()
     restoreLastVisibleChildWindows()
     return
   }
 
   if (headerVisible) {
-    // Glass parity: Save visible windows BEFORE hiding (windowManager.js:227-240)
-    lastVisibleWindows.clear()
-    for (const [name, win] of childWindows) {
-      if (win && !win.isDestroyed() && win.isVisible()) {
-        lastVisibleWindows.add(name)
-      }
-    }
+    overlayVisibility.hideUi()
 
     // Hide all child windows
-    for (const name of lastVisibleWindows) {
+    for (const name of getVisibleChildWindowNames()) {
       const win = childWindows.get(name)
       if (win && !win.isDestroyed()) {
         win.hide()
@@ -1339,10 +1406,10 @@ function handleHeaderToggle() {
     headerWindow?.hide()
   } else {
     // Show header
+    overlayVisibility.showUi()
     headerWindow = ensureHeaderWindowVisible()
 
-    // FIX #6: Restore ONLY previously visible windows (windowManager.js:245-249)
-    // Don't restore from persisted state - only from lastVisibleWindows Set
+    // Restore only the explicit desired snapshot, never persisted launch state.
     restoreLastVisibleChildWindows()
   }
 }
@@ -1463,7 +1530,7 @@ function openAskWindow() {
   // FIX #42: Make Cmd+Enter TOGGLE Ask window (not just open)
   // FIX: When closing Ask, don't close Listen (preserve Listen's state)
   const vis = getVisibility()
-  const askVisible = isWindowActuallyVisible('ask')
+  const askVisible = Boolean(vis.ask)
 
   if (askVisible) {
     // Ask is open, close it WITHOUT affecting Listen
@@ -1528,10 +1595,23 @@ function loadShortcuts(): ShortcutConfig {
   return defaults
 }
 
+// Only the primary, ready product process may own global shortcuts. Electron
+// still emits will-quit when a duplicate or isolated harness exits before
+// ready, but calling globalShortcut from that path throws synchronously.
+let ownsRegisteredShortcuts = false
+
 // GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
 function registerShortcuts() {
-  // Unregister all first (Glass does this)
-  globalShortcut.unregisterAll()
+  if (!app.isReady() || isAppQuitting) {
+    console.log('[Shortcuts] App is not ready; skipping registration')
+    return
+  }
+
+  // Re-registration is safe only after this process has acquired ownership.
+  if (ownsRegisteredShortcuts) {
+    globalShortcut.unregisterAll()
+    ownsRegisteredShortcuts = false
+  }
 
   const shortcuts = loadShortcuts()
   const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
@@ -1635,6 +1715,22 @@ function registerShortcuts() {
     // Convert Cmd to Ctrl on Windows
     const platformAccelerator = convertAcceleratorForPlatform(accelerator)
 
+    // Electron normalizes Cmd+# as Cmd+Shift+3 on US key semantics, even on a
+    // German keyboard. Registering it therefore steals macOS screenshots. The
+    // complete system screenshot family must always remain owned by macOS.
+    const normalizedMacAccelerator = platformAccelerator
+      .replace(/^Command\+/, 'Cmd+')
+      .replace('Cmd+#', 'Cmd+Shift+3')
+    const reservedMacAccelerators = new Set([
+      'Cmd+Shift+3',
+      'Cmd+Shift+4',
+      'Cmd+Shift+5',
+    ])
+    if (process.platform === 'darwin' && reservedMacAccelerators.has(normalizedMacAccelerator)) {
+      console.warn(`[Shortcuts] Reserved macOS system shortcut ignored: ${platformAccelerator}`)
+      return
+    }
+
     // WINDOWS FIX: Validate before attempting registration
     if (!isValidAccelerator(platformAccelerator)) {
       console.warn(`[Shortcuts] Invalid accelerator format: "${platformAccelerator}" (from "${accelerator}") - skipping registration`)
@@ -1647,6 +1743,7 @@ function registerShortcuts() {
       if (!success) {
         console.warn(`[Shortcuts] Failed to register: ${platformAccelerator}`)
       } else {
+        ownsRegisteredShortcuts = true
         console.log(`[Shortcuts] ✅ Registered: ${platformAccelerator}`)
       }
     } catch (error) {
@@ -1659,13 +1756,6 @@ function registerShortcuts() {
   registerSafe(shortcuts.toggleVisibility, handleHeaderToggle)
   if (process.platform === 'win32' && shortcuts.toggleVisibility === defaultShortcuts.toggleVisibility) {
     registerSafe('Ctrl+\\', handleHeaderToggle)
-  }
-  if (
-    process.platform === 'darwin' &&
-    ['Cmd+\\', 'Command+\\', 'Cmd+#', 'Command+#'].includes(shortcuts.toggleVisibility)
-  ) {
-    const alias = shortcuts.toggleVisibility.includes('#') ? 'Cmd+\\' : 'Cmd+#'
-    registerSafe(alias, handleHeaderToggle)
   }
   registerSafe(shortcuts.nextStep, handleNextStepShortcut)
 
@@ -1682,13 +1772,43 @@ function registerShortcuts() {
 }
 
 function unregisterShortcuts() {
-  globalShortcut.unregisterAll()
+  // A duplicate process can enter will-quit before Electron reaches ready.
+  // Electron also reports not-ready again while final shutdown is underway.
+  // In both cases it owns shortcut cleanup and globalShortcut must not be used.
+  if (!ownsRegisteredShortcuts || !app.isReady()) {
+    ownsRegisteredShortcuts = false
+    return
+  }
+
+  try {
+    globalShortcut.unregisterAll()
+  } catch (error) {
+    // Cleanup must never turn an otherwise clean exit into an uncaught crash.
+    console.warn('[Shortcuts] Failed to unregister during shutdown:', error)
+  } finally {
+    ownsRegisteredShortcuts = false
+  }
 }
 
 app.on('browser-window-focus', () => {
   headerWindow?.setAlwaysOnTop(true, 'screen-saver')
   for (const win of childWindows.values()) {
     win.setAlwaysOnTop(true, 'screen-saver')
+  }
+
+  // Repair an OS-hidden child only when it is still desired and the whole UI
+  // has not been intentionally hidden by the user.
+  if (
+    headerWindow &&
+    !headerWindow.isDestroyed() &&
+    headerWindow.isVisible() &&
+    !headerWindow.isMinimized() &&
+    !overlayVisibility.isUiHidden()
+  ) {
+    const missingDesiredWindow = overlayVisibility.getDesiredNames()
+      .filter((name) => name === 'listen' || name === 'ask')
+      .some((name) => !windowHasUsableScreenPresence(childWindows.get(name)))
+    if (missingDesiredWindow) restoreLastVisibleChildWindows()
   }
 })
 
@@ -1744,7 +1864,9 @@ app.on('ready', () => {
     app.dock.show()
   }
 
-  registerShortcuts()
+  // The material comparison is an isolated approval harness, not a product
+  // session. It must never capture or replace the user's production shortcuts.
+  if (process.env.TAYLOS_GLASS_COMPARE !== '1') registerShortcuts()
 
   // WINDOWS FIX (2025-12-05): Start the always-on-top refresh interval on Windows
   startAlwaysOnTopRefresh();
@@ -1752,6 +1874,10 @@ app.on('ready', () => {
   // DON'T create header automatically - let header-controller manage the flow
   // header-controller.initialize() will show Welcome → Permissions → Header
   // Child windows appear on demand (Listen button, Ask command, etc.)
+})
+
+app.on('before-quit', () => {
+  isAppQuitting = true
 })
 
 app.on('will-quit', () => {
@@ -1834,7 +1960,12 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   return { ok: true }
 })
 
-ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | { width: number; height: number; anchorX?: number }, height?: number, anchorX?: number) => {
+ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
+  width: number
+  height: number
+  anchorX?: number
+  settingsAnchorX?: number
+}, height?: number, anchorX?: number) => {
   try {
     const payload = typeof widthOrPayload === 'object'
       ? widthOrPayload
@@ -1856,34 +1987,41 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | { width: num
     const bounds = targetWin.getBounds()
     const requestedWidth = Math.max(120, Math.round(payload.width))
     const requestedHeight = Math.max(HEADER_SIZE.height, Math.round(payload.height))
-    const preservedCenterX = bounds.x + (bounds.width / 2)
-    const requested = {
-      ...bounds,
-      x: targetWin === getHeaderWindow()
-        ? Math.round(preservedCenterX - (requestedWidth / 2))
-        : bounds.x,
-      width: requestedWidth,
-      height: requestedHeight,
-    }
+    const header = getHeaderWindow()
+    const isHeader = Boolean(header && targetWin === header)
+    const currentAnchorX = isHeader && Number.isFinite(headerVisualCenterOffset)
+      ? headerVisualCenterOffset
+      : bounds.width / 2
+    const nextAnchorX = Number.isFinite(payload.anchorX)
+      ? Math.max(0, Math.min(requestedWidth, payload.anchorX as number))
+      : requestedWidth / 2
+    const requested = isHeader
+      ? resizeRectKeepingVisualAnchor(
+        bounds,
+        { width: requestedWidth, height: requestedHeight },
+        currentAnchorX,
+        nextAnchorX,
+      )
+      : { ...bounds, width: requestedWidth, height: requestedHeight }
     const newBounds = clampBounds(requested)
 
     targetWin.setBounds(newBounds)
+    const actualBounds = targetWin.getBounds()
 
     // Persist header bounds only when the target is the header window
-    const header = getHeaderWindow()
-    if (header && targetWin === header) {
-      headerVisualCenterOffset = Number.isFinite(payload.anchorX)
-        ? Math.max(0, Math.min(newBounds.width, Math.round(payload.anchorX as number)))
-        : newBounds.width / 2
-      saveState({ headerBounds: newBounds })
+    if (isHeader) {
+      headerVisualCenterOffset = Math.max(0, Math.min(actualBounds.width, nextAnchorX))
+      headerSettingsAnchorOffset = Number.isFinite(payload.settingsAnchorX)
+        ? Math.max(0, Math.min(actualBounds.width, payload.settingsAnchorX as number))
+        : Math.max(0, actualBounds.width - 18)
+      saveState({ headerBounds: actualBounds })
       const vis = getVisibility()
       layoutChildWindows(vis)
-      scheduleRelayout(vis, 32, 'win:resizeHeader')
-      scheduleRelayout(vis, 120, 'win:resizeHeader')
+      scheduleRelayout(16, 'win:resizeHeader')
     }
 
-    console.log(`[overlay-windows] win:resizeHeader applied to ${targetWin.getTitle() || 'window'}:`, newBounds)
-    return { ok: true }
+    console.log(`[overlay-windows] win:resizeHeader applied to ${targetWin.getTitle() || 'window'}:`, actualBounds)
+    return { ok: true, bounds: actualBounds }
   } catch (err) {
     console.warn('[overlay-windows] win:resizeHeader failed:', err)
     return { ok: false, error: String(err) }
@@ -2265,12 +2403,17 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     settingsHideTimer = null
   }
 
+  if (Number.isFinite(buttonX)) {
+    const hb = getOrCreateHeaderWindow().getBounds()
+    headerSettingsAnchorOffset = Math.max(0, Math.min(hb.width, buttonX as number))
+  }
+
   // ATOMIC FIX STEP 2: Use layoutChildWindows() for correct positioning
   // Old hardcoded logic was wrong - always placed below, never flipped, wrong alignment
 
   // Get current visibility and add settings
-  const vis = getVisibility()
-  const newVis = { ...vis, settings: true }
+  overlayVisibility.show('settings')
+  const newVis = overlayVisibility.getDesiredVisibility()
 
   // Calculate correct position using space-aware, flip-aware, alignment-aware logic
   console.log('[overlay-windows] 🔄 Calling layoutChildWindows for settings positioning')
@@ -2302,7 +2445,7 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
   }
 
   // Update state
-  saveState({ visible: newVis })
+  saveState({ visible: overlayVisibility.getDesiredVisibility() })
   console.log('[overlay-windows] show-settings-window: COMPLETE')
 })
 
@@ -2334,9 +2477,8 @@ ipcMain.on('hide-settings-window', () => {
     if (settingsWin && !settingsWin.isDestroyed()) {
       settingsWin.hide()
     }
-    const vis = getVisibility()
-    const newVis = { ...vis, settings: false }
-    saveState({ visible: newVis })
+    overlayVisibility.hide('settings')
+    saveState({ visible: overlayVisibility.getDesiredVisibility() })
     settingsHideTimer = null
   }, 200) // Glass parity: 200ms delay
 })
@@ -2428,13 +2570,9 @@ ipcMain.on('language-changed', (_event, newLanguage: string) => {
     }
   })
 
-  // The header width changes asynchronously after the translated labels render.
-  // Re-run layout a few times so single-window centering settles correctly even
-  // when the width update lands after the IPC broadcast.
-  const vis = getVisibility()
-  scheduleRelayout(vis, 50, 'language-change')
-  scheduleRelayout(vis, 180, 'language-change')
-  scheduleRelayout(vis, 360, 'language-change')
+  // ResizeObserver in EviaBar reports the translated bar's actual rendered
+  // geometry. Its resize IPC is the sole authority for dependent placement;
+  // speculative timers here replay stale dimensions and visibly lag the bar.
 })
 
 function getHeaderWindow(): BrowserWindow | null {
@@ -2448,28 +2586,22 @@ function getAllChildWindows(): BrowserWindow[] {
 // Welcome Window (Phase 2: Auth Flow)
 // Shown when user is not logged in (no token in keytar)
 let welcomeWindow: BrowserWindow | null = null
+let welcomeComparisonWindows: BrowserWindow[] = []
 
-export function createWelcomeWindow(): BrowserWindow {
-  if (welcomeWindow && !welcomeWindow.isDestroyed()) {
-    welcomeWindow.show()
-    return welcomeWindow
-  }
-
-  welcomeWindow = new BrowserWindow({
+function createWelcomeBrowserWindow(mode: MaterialMode): BrowserWindow {
+  const win = new BrowserWindow({
     width: 400,
-    height: 380, // Increased from 340 to prevent button overlap
+    height: 380,
     show: false,
     frame: false,
-    transparent: true,
+    ...materialWindowOptions('modal'),
     resizable: false,
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: !shouldShowStandaloneWindowInTaskbar(),
     icon: getWindowIconPath(),
     focusable: true,
-    hasShadow: false,
-    backgroundColor: '#00000000',
-    title: 'Welcome to Taylos',
+    title: `Taylos Glass Prototype (${mode})`,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -2477,9 +2609,69 @@ export function createWelcomeWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: true, // ENABLE in production for debugging
+      devTools: true,
     },
   })
+
+  // Register visibility handlers before navigation. A warm dev server can
+  // finish loading before callers have a chance to subscribe to ready-to-show.
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show()
+  })
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) win.show()
+  })
+
+  applyWindowMaterial(win, 'modal', mode)
+  if (process.platform === 'darwin') win.setWindowButtonVisibility(false)
+  void loadRendererView(win, 'welcome', 'modal', undefined, mode)
+  return win
+}
+
+/** Development-only, side-by-side material approval harness. */
+export function createWelcomeMaterialComparison(): BrowserWindow[] {
+  if (!isDev || process.env.TAYLOS_GLASS_COMPARE !== '1') return []
+
+  welcomeComparisonWindows = welcomeComparisonWindows.filter(win => !win.isDestroyed())
+  if (welcomeComparisonWindows.length === 2) {
+    welcomeComparisonWindows.forEach(win => win.show())
+    return welcomeComparisonWindows
+  }
+
+  const display = screen.getPrimaryDisplay()
+  const { workArea } = display
+  const gap = 28
+  const width = 400
+  const height = 380
+  const totalWidth = width * 2 + gap
+  const startX = Math.round(workArea.x + (workArea.width - totalWidth) / 2)
+  const y = Math.round(workArea.y + (workArea.height - height) / 2)
+  const native = createWelcomeBrowserWindow('native')
+  const custom = createWelcomeBrowserWindow('custom')
+  native.setBounds({ x: startX, y, width, height })
+  custom.setBounds({ x: startX + width + gap, y, width, height })
+
+  for (const win of [native, custom]) {
+    win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.once('closed', () => {
+      welcomeComparisonWindows = welcomeComparisonWindows.filter(candidate => candidate !== win)
+    })
+  }
+
+  welcomeComparisonWindows = [native, custom]
+  console.log('[overlay-windows] Glass comparison ready: native=left, custom=right')
+  return welcomeComparisonWindows
+}
+
+export function createWelcomeWindow(): BrowserWindow {
+  if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+    welcomeWindow.show()
+    return welcomeWindow
+  }
+
+  welcomeWindow = createWelcomeBrowserWindow(getRequestedMaterialMode('modal'))
+  welcomeWindow.setTitle('Welcome to Taylos')
 
   // Hide window buttons on macOS
   if (process.platform === 'darwin') {
@@ -2494,14 +2686,6 @@ export function createWelcomeWindow(): BrowserWindow {
 
   welcomeWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   welcomeWindow.setAlwaysOnTop(true, 'screen-saver')
-
-  // Load welcome.html (separate entry point from overlay.html)
-  if (isDev) {
-    welcomeWindow.loadURL(`${VITE_DEV_SERVER_URL}/welcome.html`)
-    console.log('[overlay-windows] 🔧 Welcome loading from Vite:', `${VITE_DEV_SERVER_URL}/welcome.html`)
-  } else {
-    welcomeWindow.loadFile(path.join(__dirname, '../renderer/welcome.html'))
-  }
 
   // PRODUCTION DEVTOOLS: Add keyboard shortcuts
   welcomeWindow.webContents.on('before-input-event', (event, input) => {
@@ -2555,8 +2739,7 @@ export function createWelcomeWindow(): BrowserWindow {
     welcomeWindow = null
   })
 
-  welcomeWindow.once('ready-to-show', () => {
-    welcomeWindow?.show()
+  welcomeWindow.webContents.once('did-finish-load', () => {
     console.log('[overlay-windows] ✅ Welcome window shown')
   })
 
@@ -2588,15 +2771,13 @@ export function createPermissionWindow(): BrowserWindow {
     minHeight: 235, // Keep original compact height
     show: false,
     frame: false,
-    transparent: true,
+    ...materialWindowOptions('modal'),
     resizable: true,  // FIX: Allow resizing for DevTools console access
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: !shouldShowStandaloneWindowInTaskbar(),
     icon: getWindowIconPath(),
     focusable: true,
-    hasShadow: false,
-    backgroundColor: '#00000000',
     title: 'Taylos Permissions',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -2622,13 +2803,18 @@ export function createPermissionWindow(): BrowserWindow {
 
   permissionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   permissionWindow.setAlwaysOnTop(true, 'screen-saver')
+  applyWindowMaterial(permissionWindow, 'modal')
 
   // Load permission.html (separate entry point from overlay.html)
+  const permissionQuery = new URLSearchParams(materialQuery('modal'))
   if (isDev) {
-    permissionWindow.loadURL(`${VITE_DEV_SERVER_URL}/permission.html`)
-    console.log('[overlay-windows] 🔧 Permission loading from Vite:', `${VITE_DEV_SERVER_URL}/permission.html`)
+    const permissionUrl = `${VITE_DEV_SERVER_URL}/permission.html?${permissionQuery.toString()}`
+    permissionWindow.loadURL(permissionUrl)
+    console.log('[overlay-windows] 🔧 Permission loading from Vite:', permissionUrl)
   } else {
-    permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'))
+    permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'), {
+      query: materialQuery('modal'),
+    })
   }
 
   // PRODUCTION DEVTOOLS: Add keyboard shortcuts
@@ -2740,7 +2926,7 @@ export function createSubscriptionWindow(): BrowserWindow {
     height: 340,
     show: false,
     frame: false,
-    transparent: true,
+    ...materialWindowOptions('modal'),
     resizable: false,
     movable: true,
     alwaysOnTop: true,
@@ -2759,13 +2945,10 @@ export function createSubscriptionWindow(): BrowserWindow {
   const x = Math.round((screenWidth - 400) / 2)
   const y = Math.round((screenHeight - 340) / 2)
   subscriptionWindow.setPosition(x, y)
+  applyWindowMaterial(subscriptionWindow, 'modal')
 
   // Load subscription required view
-  const htmlPath = isDev
-    ? `${VITE_DEV_SERVER_URL}/overlay.html?view=subscription`
-    : `file://${path.join(__dirname, '../renderer/overlay.html')}?view=subscription`
-
-  subscriptionWindow.loadURL(htmlPath)
+  void loadRendererView(subscriptionWindow, 'overlay', 'modal', 'subscription')
   subscriptionWindow.once('ready-to-show', () => {
     subscriptionWindow?.show()
   })

@@ -24,10 +24,46 @@ const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 
 //   rm ~/Desktop/Taylos_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
 let DEBUG_SAVE_AUDIO = false;
+let DEBUG_DISABLE_CUSTOM_AEC = false;
+let DEBUG_DISABLE_BROWSER_PROCESSING = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
 let micRawDebugBuffer: Float32Array[] = [];
 let debugSessionId: string = '';
 let debugFlagChecked = false;
+
+type AudioDiagnosticConfig = {
+  saveAudio: boolean;
+  disableCustomAec: boolean;
+  disableBrowserProcessing: boolean;
+};
+
+async function loadAudioDiagnosticConfig(): Promise<AudioDiagnosticConfig> {
+  const evia = (window as any).evia;
+  const config = evia?.getAudioDiagnosticConfig
+    ? await evia.getAudioDiagnosticConfig()
+    : {
+        saveAudio: Boolean(await evia?.checkDebugFlag?.()),
+        disableCustomAec: false,
+        disableBrowserProcessing: false,
+      };
+
+  DEBUG_SAVE_AUDIO = config?.saveAudio === true;
+  DEBUG_DISABLE_CUSTOM_AEC = config?.disableCustomAec === true;
+  DEBUG_DISABLE_BROWSER_PROCESSING = config?.disableBrowserProcessing === true;
+  debugFlagChecked = true;
+
+  console.log('[AudioDiagnostic] Capture mode:', {
+    saveAudio: DEBUG_SAVE_AUDIO,
+    customAec: DEBUG_DISABLE_CUSTOM_AEC ? 'bypassed' : 'enabled',
+    browserProcessing: DEBUG_DISABLE_BROWSER_PROCESSING ? 'bypassed' : 'enabled',
+  });
+
+  return {
+    saveAudio: DEBUG_SAVE_AUDIO,
+    disableCustomAec: DEBUG_DISABLE_CUSTOM_AEC,
+    disableBrowserProcessing: DEBUG_DISABLE_BROWSER_PROCESSING,
+  };
+}
 
 async function getActiveAuthToken(): Promise<string> {
   try {
@@ -54,8 +90,8 @@ async function checkDebugFlag() {
       return;
     }
 
-    const enabled = await evia.checkDebugFlag();
-    DEBUG_SAVE_AUDIO = enabled === true;
+    const config = await loadAudioDiagnosticConfig();
+    const enabled = config.saveAudio;
 
     if (DEBUG_SAVE_AUDIO) {
       console.log('[AudioDebug] ✅ 🎙️ Audio debug recording ENABLED');
@@ -224,6 +260,7 @@ let lastSystemWsActivity = Date.now();
 let lastMicReconnectAttempt = 0;
 let lastSystemReconnectAttempt = 0;
 let isActivelyCapturing = false;
+let macSystemCaptureStartedAt = 0;
 
 async function restartMacSystemAudioPipeline(reason: string) {
   const eviaApi = (window as any).evia;
@@ -265,7 +302,8 @@ async function restartMacSystemAudioPipeline(reason: string) {
     }
 
     lastSystemWsActivity = Date.now();
-    pipelineMetrics.lastSystemChunkTime = Date.now();
+    macSystemCaptureStartedAt = Date.now();
+    pipelineMetrics.lastSystemChunkTime = 0;
 
     if (eviaIpc?.send) {
       eviaIpc.send('debug-log', `[Recovery] ✅ macOS system audio restarted: ${reason}`);
@@ -295,7 +333,10 @@ function startMacSystemHealthCheck() {
       if (!eviaApi?.systemAudio) return;
 
       const now = Date.now();
-      const timeSinceChunk = pipelineMetrics.lastSystemChunkTime ? now - pipelineMetrics.lastSystemChunkTime : Number.POSITIVE_INFINITY;
+      const hasReceivedChunk = pipelineMetrics.lastSystemChunkTime > 0;
+      const timeSinceChunk = hasReceivedChunk
+        ? now - pipelineMetrics.lastSystemChunkTime
+        : now - macSystemCaptureStartedAt;
       const helperRunning = await eviaApi.systemAudio.isRunning();
 
       if (timeSinceChunk > 5000) {
@@ -309,8 +350,11 @@ function startMacSystemHealthCheck() {
         return;
       }
 
-      if (timeSinceChunk > MAC_SYSTEM_CHUNK_STALE_MS) {
-        await restartMacSystemAudioPipeline(`no-audio-chunks-${Math.round(timeSinceChunk / 1000)}s`);
+      if (macSystemCaptureStartedAt > 0 && timeSinceChunk > MAC_SYSTEM_CHUNK_STALE_MS) {
+        const reason = hasReceivedChunk
+          ? `stale-audio-chunks-${Math.round(timeSinceChunk / 1000)}s`
+          : `no-first-audio-chunk-${Math.round(timeSinceChunk / 1000)}s`;
+        await restartMacSystemAudioPipeline(reason);
       }
     } catch (error) {
       console.error('[AudioCapture] 🍎 macOS watchdog error:', error);
@@ -715,7 +759,7 @@ function ensureMicWs() {
           }
         }
 
-        if (msg.type === 'transcript_segment' || msg.type === 'status') {
+        if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
           if (eviaIpc?.send) {
             // Tag message with _source: 'mic' (speaker 1)
             eviaIpc.send('transcript-message', { ...msg, _source: 'mic' });
@@ -763,7 +807,7 @@ function ensureSystemWs(chatId?: string) {
           eviaIpc.send('debug-log', `[AudioCapture] ❌ SYSTEM ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
         }
 
-        if (msg.type === 'transcript_segment' || msg.type === 'status') {
+        if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
           // Forward to Listen window via IPC with source tag
           if (eviaIpc?.send) {
             // Tag message with _source: 'system' (speaker 0)
@@ -777,6 +821,141 @@ function ensureSystemWs(chatId?: string) {
     console.error('[AudioCapture] Failed to get system WS instance:', error);
     return null;
   }
+}
+
+function closeCaptureWebSocket(source: 'mic' | 'system') {
+  const instance = source === 'mic' ? micWsInstance : systemWsInstance;
+  if (!instance) return;
+
+  closeWebSocketInstance(instance.chatId || localStorage.getItem('current_chat_id') || '', source);
+  if (source === 'mic') {
+    micWsInstance = null;
+  } else {
+    systemWsInstance = null;
+  }
+}
+
+async function connectCaptureWebSockets(includeSystemAudio: boolean): Promise<void> {
+  const createPair = () => {
+    const mic = ensureMicWs();
+    const system = includeSystemAudio
+      ? ensureSystemWs(localStorage.getItem('current_chat_id') || undefined)
+      : null;
+
+    if (!mic) {
+      throw new Error('[AudioCapture] No valid chat_id - cannot create microphone WebSocket');
+    }
+    if (includeSystemAudio && !system) {
+      throw new Error('[AudioCapture] No valid chat_id - cannot create system WebSocket');
+    }
+    return { mic, system };
+  };
+
+  const connectPair = async (pair: ReturnType<typeof createPair>) => {
+    const connections: Promise<void>[] = [pair.mic.connect()];
+    if (pair.system) connections.push(pair.system.connect());
+    await Promise.all(connections);
+  };
+
+  let pair = createPair();
+  try {
+    await connectPair(pair);
+  } catch (error) {
+    console.error('[AudioCapture] Initial capture WebSocket connection failed:', error);
+    if (localStorage.getItem('current_chat_id')) {
+      throw error;
+    }
+
+    console.log('[AudioCapture] Recreating the chat once for both capture sockets...');
+    closeCaptureWebSocket('mic');
+    if (includeSystemAudio) closeCaptureWebSocket('system');
+
+    const token = await getActiveAuthToken();
+    const newChatId = await getOrCreateChatId(BACKEND_URL, token, true);
+    console.log('[AudioCapture] Recreated capture chat:', newChatId);
+
+    pair = createPair();
+    await connectPair(pair);
+  }
+
+  console.log(
+    `[AudioCapture] Capture WebSockets connected (${includeSystemAudio ? 'mic + system' : 'mic'})`
+  );
+}
+
+async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
+  if (!eviaApi?.systemAudio) {
+    throw new Error('macOS system audio API is unavailable');
+  }
+
+  console.log('[AudioCapture] macOS: starting SystemAudioDump concurrently with WebSocket handshakes');
+  const previousHandler = (window as any)._systemAudioHandler;
+  if (previousHandler && eviaApi.systemAudio.removeOnData) {
+    eviaApi.systemAudio.removeOnData(previousHandler);
+  }
+
+  macSystemCaptureStartedAt = Date.now();
+  const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
+    if (!isActivelyCapturing) return;
+
+    try {
+      updateWsActivity('system');
+      const isFirstSystemChunk = pipelineMetrics.lastSystemChunkTime === 0;
+      pipelineMetrics.lastSystemChunkTime = Date.now();
+      const binaryString = atob(audioData.data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      if (isFirstSystemChunk) {
+        console.log(
+          `[AudioCapture] First macOS system-audio chunk after ${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms`
+        );
+      }
+
+      if (DEBUG_SAVE_AUDIO) {
+        debugAudioBuffers.system.push(new Int16Array(bytes.buffer.slice(0)));
+      }
+
+      systemAudioBuffer.push({ data: audioData.data, timestamp: Date.now() });
+      if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
+        systemAudioBuffer.shift();
+      }
+
+      const ws = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+      if (ws?.sendBinaryData) {
+        const sendResult = ws.sendBinaryData(bytes.buffer);
+        if (sendResult === 'sent') {
+          pipelineMetrics.systemChunksSent++;
+        }
+      }
+    } catch (error) {
+      console.error('[AudioCapture] Error processing system audio data:', error);
+      pipelineMetrics.errorsEncountered++;
+    }
+  });
+
+  (window as any)._systemAudioHandler = systemAudioHandler;
+  (window as any)._systemAudioIsWindows = false;
+
+  let result = await eviaApi.systemAudio.start();
+  if (!result.success && result.error === 'already_running') {
+    console.log('[AudioCapture] System audio helper already running, stopping and retrying...');
+    await eviaApi.systemAudio.stop();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    result = await eviaApi.systemAudio.start();
+  }
+  if (!result.success) {
+    throw new Error(result.error || 'System audio helper failed to start');
+  }
+
+  console.log(
+    `[AudioCapture] System audio helper capture-ready${
+      typeof result.readyInMs === 'number' ? ` after ${result.readyInMs}ms` : ''
+    }`
+  );
+  startMacSystemHealthCheck();
 }
 
 // Glass parity: Convert Float32 to Int16 PCM
@@ -795,8 +974,12 @@ async function setupMicProcessing(stream: MediaStream) {
   // STEP 2: Load AEC WASM module first (Glass parity) - with enhanced verification
   // ──────────────────────────────────────────────────────────────────────────
   try {
+    if (DEBUG_DISABLE_CUSTOM_AEC) {
+      console.log('[AEC] Diagnostic bypass enabled; custom Speex AEC will not run');
+      disposeAec();
+    }
     const mod = await getAec();
-    if (mod && !aecPtr) {
+    if (!DEBUG_DISABLE_CUSTOM_AEC && mod && !aecPtr) {
       // Create AEC instance with verified parameters
       aecPtr = mod.newPtr(160, 1600, 24000, 1);
 
@@ -828,6 +1011,8 @@ async function setupMicProcessing(stream: MediaStream) {
   let silentFrames = 0;
 
   micProcessor.onaudioprocess = (e) => {
+    if (!isActivelyCapturing) return;
+
     // CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
     // Log diagnostic info instead
     if (frameCounter === 0) {
@@ -889,7 +1074,7 @@ async function setupMicProcessing(stream: MediaStream) {
       // ──────────────────────────────────────────────────────────────────────
       // STEP 2: Apply TIME-ALIGNED AEC (Acoustic Delay Compensation)
       // ──────────────────────────────────────────────────────────────────────
-      if (systemAudioBuffer.length > 0) {
+      if (!DEBUG_DISABLE_CUSTOM_AEC && systemAudioBuffer.length > 0) {
         try {
           // System audio heard by mic is delayed by ~150-250ms (OS output buffer + room + OS input buffer).
           // With ~100ms chunks, that's 2 chunks back. Make configurable for empirical tuning.
@@ -1003,6 +1188,8 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   let lastSilenceWarningAt = 0;
 
   sysProcessor.onaudioprocess = (e) => {
+    if (!isActivelyCapturing) return;
+
     const inputData = e.inputBuffer.getChannelData(0);
 
     // Check if actually receiving audio
@@ -1090,6 +1277,7 @@ function setupSystemAudioProcessing(stream: MediaStream) {
 
 // Glass parity: Start capture with explicit permission checks
 export async function startCapture(includeSystemAudio = false) {
+  const captureStartupStartedAt = performance.now();
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
 
   // AUDIO DEBUG: Check IMMEDIATELY at function start
@@ -1102,10 +1290,9 @@ export async function startCapture(includeSystemAudio = false) {
     console.log('[AudioDebug] window.evia exists?', !!evia);
     console.log('[AudioDebug] window.evia.checkDebugFlag exists?', !!evia?.checkDebugFlag);
 
-    if (evia && evia.checkDebugFlag) {
-      const enabled = await evia.checkDebugFlag();
-      DEBUG_SAVE_AUDIO = enabled === true;
-      debugFlagChecked = true;
+    if (evia && (evia.getAudioDiagnosticConfig || evia.checkDebugFlag)) {
+      const config = await loadAudioDiagnosticConfig();
+      const enabled = config.saveAudio;
 
       console.log('[AudioDebug] Flag check result:', enabled);
       console.log('[AudioDebug] DEBUG_SAVE_AUDIO set to:', DEBUG_SAVE_AUDIO);
@@ -1134,6 +1321,7 @@ export async function startCapture(includeSystemAudio = false) {
   }
 
   isActivelyCapturing = true;
+  macSystemCaptureStartedAt = 0;
 
   // WINDOWS FIX: Reset pipeline metrics for new session
   pipelineMetrics.sessionStart = Date.now();
@@ -1162,9 +1350,9 @@ export async function startCapture(includeSystemAudio = false) {
     console.log('[AudioCapture] 🎤 Requesting microphone access with constraints:', {
       sampleRate: SAMPLE_RATE,
       channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
+      echoCancellation: !DEBUG_DISABLE_BROWSER_PROCESSING,
+      noiseSuppression: !DEBUG_DISABLE_BROWSER_PROCESSING,
+      autoGainControl: !DEBUG_DISABLE_BROWSER_PROCESSING
     });
 
     try {
@@ -1176,16 +1364,16 @@ export async function startCapture(includeSystemAudio = false) {
       audio: {
         sampleRate: SAMPLE_RATE,
         channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        noiseSuppression: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        autoGainControl: !DEBUG_DISABLE_BROWSER_PROCESSING,
         // FIX ISSUE 2: Chrome-specific AEC and VAD constraints to aggressively filter system echo
-        googEchoCancellation: true,
-        googExperimentalEchoCancellation: true,
-        googAutoGainControl: true,
-        googNoiseSuppression: true,
-        googHighpassFilter: true,
-        googTypingNoiseDetection: true,
+        googEchoCancellation: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        googExperimentalEchoCancellation: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        googAutoGainControl: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        googNoiseSuppression: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        googHighpassFilter: !DEBUG_DISABLE_BROWSER_PROCESSING,
+        googTypingNoiseDetection: !DEBUG_DISABLE_BROWSER_PROCESSING,
       } as any,
       video: false,
     });
@@ -1262,66 +1450,18 @@ export async function startCapture(includeSystemAudio = false) {
     console.log('[AudioCapture] Mic AudioContext resumed');
   }
 
-  // Step 4: NOW create and connect mic WebSocket (AFTER getUserMedia succeeds)
-  // This prevents the hang that was occurring when we tried to connect before getUserMedia
-  let micWs = ensureMicWs();
-  if (!micWs) {
-    const errorMsg = '[AudioCapture] ❌ No valid chat_id - cannot start capture';
-    console.error(errorMsg);
-    try {
-      const eviaIpc = (window as any).evia?.ipc;
-      if (eviaIpc?.send) eviaIpc.send('debug-log', errorMsg);
-    } catch { }
-    throw new Error(errorMsg);
-  }
+  // getUserMedia must remain first, but the two network handshakes and native
+  // macOS system capture are independent after the microphone graph exists.
+  // Starting them together removes serialized launch latency while the socket
+  // queues preserve the first audio frames until their connections open.
+  const eviaApi = (window as any).evia;
+  const isMac = Boolean((window as any)?.platformInfo?.isMac);
+  const socketConnectionsPromise = connectCaptureWebSockets(includeSystemAudio);
+  const macSystemCapturePromise = includeSystemAudio && isMac
+    ? startMacSystemAudioCapture(eviaApi)
+    : Promise.resolve();
 
-  // Connect mic WebSocket (with auto-recreate on 403)
-  try {
-    await micWs.connect();
-    console.log('[AudioCapture] Mic WebSocket connected');
-    try {
-      const eviaIpc = (window as any).evia?.ipc;
-      if (eviaIpc?.send) eviaIpc.send('debug-log', '[AudioCapture] ✅ Mic WebSocket connected');
-    } catch { }
-  } catch (error) {
-    const errorMsg = `[AudioCapture] ❌ Mic WebSocket connect failed: ${error}`;
-    console.error(errorMsg);
-    try {
-      const eviaIpc = (window as any).evia?.ipc;
-      if (eviaIpc?.send) eviaIpc.send('debug-log', errorMsg);
-    } catch { }
-
-    // FIX: Check if chat_id was cleared (signal for 403/404)
-    const currentChatId = localStorage.getItem('current_chat_id');
-    if (!currentChatId) {
-      console.log('[AudioCapture] Chat ID was cleared - auto-creating new chat...');
-
-      // Get backend URL and token
-      const backendUrl = BACKEND_URL;
-      const token = await getActiveAuthToken();
-
-      // Force create new chat
-      const newChatId = await getOrCreateChatId(backendUrl, token, true);
-      console.log('[AudioCapture] Created new chat:', newChatId);
-
-      // Close old WebSocket instance and recreate
-      closeWebSocketInstance(micWsInstance?.chatId || '', 'mic');
-      micWsInstance = null;
-
-      // Recreate WebSocket with new chat_id
-      micWs = ensureMicWs();
-      if (!micWs) {
-        throw new Error('[AudioCapture] Failed to recreate mic WebSocket after chat creation');
-      }
-
-      // Retry connection
-      await micWs.connect();
-      console.log('[AudioCapture] Mic WebSocket reconnected with new chat');
-    } else {
-      // Re-throw if not a chat_id issue
-      throw error;
-    }
-  }
+  await Promise.all([socketConnectionsPromise, macSystemCapturePromise]);
 
   // Step 5: Setup system audio if requested (platform-specific approach)
   if (includeSystemAudio) {
@@ -1331,45 +1471,6 @@ export async function startCapture(includeSystemAudio = false) {
       const eviaApi = (window as any).evia;
       const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
       const isMac = Boolean((window as any)?.platformInfo?.isMac);
-
-      // Ensure system WebSocket is ready first (needed for all platforms)
-      const chatId = localStorage.getItem('current_chat_id') || undefined;
-      let sysWs = ensureSystemWs(chatId);
-      if (!sysWs) {
-        throw new Error('[AudioCapture] Failed to create system audio WebSocket - chat_id may be missing');
-      }
-
-      // Connect system WebSocket (with auto-recreate on 403)
-      try {
-        await sysWs.connect();
-        console.log('[AudioCapture] System WebSocket connected');
-      } catch (error) {
-        console.error('[AudioCapture] System WebSocket connect failed:', error);
-
-        // FIX: Check if chat_id was cleared (signal for 403/404)
-        const currentChatId = localStorage.getItem('current_chat_id');
-        if (!currentChatId) {
-          console.log('[AudioCapture] Chat ID was cleared - using newly created chat...');
-
-          // Close old WebSocket instance and recreate
-          closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
-          systemWsInstance = null;
-
-          // Recreate WebSocket with new chat_id (freshly stored in localStorage)
-          const newChatId = localStorage.getItem('current_chat_id') || undefined;
-          sysWs = ensureSystemWs(newChatId);
-          if (!sysWs) {
-            throw new Error('[AudioCapture] Failed to recreate system WebSocket after chat creation');
-          }
-
-          // Retry connection
-          await sysWs.connect();
-          console.log('[AudioCapture] System WebSocket reconnected with new chat');
-        } else {
-          // Re-throw if not a chat_id issue
-          throw error;
-        }
-      }
 
       // ════════════════════════════════════════════════════════════════════════
       // WINDOWS: Use Electron's native loopback via getDisplayMedia (GLASS PARITY!)
@@ -1441,78 +1542,10 @@ export async function startCapture(includeSystemAudio = false) {
         }
       }
       // ════════════════════════════════════════════════════════════════════════
-      // macOS: Use SystemAudioDump binary (unchanged)
+      // macOS: Use SystemAudioDump binary
       // ════════════════════════════════════════════════════════════════════════
       else if (isMac) {
-        if (!eviaApi?.systemAudio) {
-          console.error('[AudioCapture] window.evia.systemAudio API not available');
-          console.warn('[AudioCapture] Continuing with mic-only capture');
-        } else {
-          console.log('[AudioCapture] 🍎 macOS: Using SystemAudioDump binary');
-          let result = await eviaApi.systemAudio.start();
-
-          if (!result.success) {
-            console.error('[AudioCapture] Failed to start system audio helper:', result.error);
-
-            // Retry if already running
-            if (result.error === 'already_running') {
-              console.log('[AudioCapture] System audio helper already running, stopping and retrying...');
-              await eviaApi.systemAudio.stop();
-              await new Promise(resolve => setTimeout(resolve, 500));
-              result = await eviaApi.systemAudio.start();
-              if (!result.success) {
-                throw new Error(`Retry failed: ${result.error}`);
-              }
-            } else {
-              throw new Error(result.error || 'Unknown error');
-            }
-          }
-
-          console.log('[AudioCapture] ✅ System audio helper started successfully');
-          startMacSystemHealthCheck();
-
-          // Listen for system audio data from binary (via IPC)
-          const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
-            try {
-              updateWsActivity('system');
-              pipelineMetrics.lastSystemChunkTime = Date.now();
-              // Convert base64 to binary
-              const binaryString = atob(audioData.data);
-              const bytes = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-              }
-
-              // Store in AEC buffer
-              systemAudioBuffer.push({
-                data: audioData.data,
-                timestamp: Date.now(),
-              });
-              if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
-                systemAudioBuffer.shift();
-              }
-
-              // Send to WebSocket
-              const chatId = localStorage.getItem('current_chat_id') || undefined;
-              const ws = ensureSystemWs(chatId);
-              if (ws && ws.sendBinaryData) {
-                const sendResult = ws.sendBinaryData(bytes.buffer);
-                if (sendResult === 'sent') {
-                  pipelineMetrics.systemChunksSent++;
-                }
-              }
-            } catch (error) {
-              console.error('[AudioCapture] Error processing system audio data:', error);
-              pipelineMetrics.errorsEncountered++;
-            }
-          });
-
-          // Store handler for cleanup
-          (window as any)._systemAudioHandler = systemAudioHandler;
-          (window as any)._systemAudioIsWindows = false;
-
-          console.log('[AudioCapture] ✅ System audio capture started successfully (macOS binary)');
-        }
+        console.log('[AudioCapture] macOS system audio capture is ready');
       } else {
         console.warn('[AudioCapture] System audio not supported on this platform');
       }
@@ -1530,7 +1563,8 @@ export async function startCapture(includeSystemAudio = false) {
     }
   }
 
-  console.log('[AudioCapture] Capture started successfully');
+  const startupReadyInMs = Math.round(performance.now() - captureStartupStartedAt);
+  console.log(`[AudioCapture] Capture started successfully after ${startupReadyInMs}ms`);
   console.log(`[AudioCapture] Mic: ${SAMPLE_RATE} Hz, Chunk size: ${SAMPLE_RATE * AUDIO_CHUNK_DURATION} samples`);
   if (systemAudioContext) {
     console.log(`[AudioCapture] System: ${SAMPLE_RATE} Hz, Chunk size: ${SAMPLE_RATE * AUDIO_CHUNK_DURATION} samples`);
@@ -1543,6 +1577,7 @@ export async function startCapture(includeSystemAudio = false) {
     systemAudioContext,
     systemAudioProcessor,
     systemStream,
+    startupReadyInMs,
   };
 }
 
@@ -1552,43 +1587,20 @@ export async function stopCapture(captureHandle?: any) {
 
   // WINDOWS FIX (2025-12-09): Mark capture as inactive
   isActivelyCapturing = false;
+  macSystemCaptureStartedAt = 0;
   lastMicReconnectAttempt = 0;
   lastSystemReconnectAttempt = 0;
 
-  // 🎙️ AUDIO DEBUG: Save accumulated audio to WAV files
-  if (DEBUG_SAVE_AUDIO) {
-    try {
-      console.log('[AudioDebug] 🎙️ Saving debug audio files...');
-      console.log('[AudioDebug]   - Mic chunks:', debugAudioBuffers.mic.length);
-      console.log('[AudioDebug]   - Mic raw chunks:', micRawDebugBuffer.length);
-      console.log('[AudioDebug]   - System chunks:', debugAudioBuffers.system.length);
-
-      // Save mic audio if any chunks captured
-      if (debugAudioBuffers.mic.length > 0) {
-        await saveDebugAudio('mic', debugAudioBuffers.mic, debugSessionId);
+  const debugAudioToSave = DEBUG_SAVE_AUDIO
+    ? {
+        sessionId: debugSessionId,
+        mic: debugAudioBuffers.mic,
+        micRaw: micRawDebugBuffer,
+        system: debugAudioBuffers.system,
       }
-
-      if (micRawDebugBuffer.length > 0) {
-        await saveDebugAudio(
-          'mic-raw',
-          micRawDebugBuffer.map(chunk => convertFloat32ToInt16(chunk)),
-          debugSessionId
-        );
-      }
-
-      // Save system audio if any chunks captured
-      if (debugAudioBuffers.system.length > 0) {
-        await saveDebugAudio('system', debugAudioBuffers.system, debugSessionId);
-      }
-
-      // Clear buffers
-      debugAudioBuffers = { mic: [], system: [] };
-      micRawDebugBuffer = [];
-      console.log('[AudioDebug] ✅ Debug audio files saved successfully');
-    } catch (error) {
-      console.error('[AudioDebug] ❌ Failed to save debug audio:', error);
-    }
-  }
+    : null;
+  debugAudioBuffers = { mic: [], system: [] };
+  micRawDebugBuffer = [];
 
   try {
     // WINDOWS FIX: Stop health check timers
@@ -1697,6 +1709,33 @@ export async function stopCapture(captureHandle?: any) {
     (window as any)._systemAudioIsWindows = undefined;
     (window as any)._systemAudioUsingLoopback = undefined;
     console.log('[AudioCapture] Capture stopped successfully (mic + system)');
+
+    // Diagnostic disk I/O comes last so it cannot keep capture resources alive.
+    if (debugAudioToSave) {
+      try {
+        console.log('[AudioDebug] Saving debug audio files...', {
+          micChunks: debugAudioToSave.mic.length,
+          micRawChunks: debugAudioToSave.micRaw.length,
+          systemChunks: debugAudioToSave.system.length,
+        });
+        if (debugAudioToSave.mic.length > 0) {
+          await saveDebugAudio('mic', debugAudioToSave.mic, debugAudioToSave.sessionId);
+        }
+        if (debugAudioToSave.micRaw.length > 0) {
+          await saveDebugAudio(
+            'mic-raw',
+            debugAudioToSave.micRaw.map(chunk => convertFloat32ToInt16(chunk)),
+            debugAudioToSave.sessionId
+          );
+        }
+        if (debugAudioToSave.system.length > 0) {
+          await saveDebugAudio('system', debugAudioToSave.system, debugAudioToSave.sessionId);
+        }
+        console.log('[AudioDebug] Debug audio files saved successfully');
+      } catch (error) {
+        console.error('[AudioDebug] Failed to save debug audio:', error);
+      }
+    }
   } catch (error) {
     console.error('[AudioCapture] Error stopping capture:', error);
   }
@@ -1723,10 +1762,9 @@ export async function startCaptureWithStreams(
     console.log('[AudioDebug] window.evia exists?', !!evia);
     console.log('[AudioDebug] window.evia.checkDebugFlag exists?', !!evia?.checkDebugFlag);
 
-    if (evia && evia.checkDebugFlag) {
-      const enabled = await evia.checkDebugFlag();
-      DEBUG_SAVE_AUDIO = enabled === true;
-      debugFlagChecked = true;
+    if (evia && (evia.getAudioDiagnosticConfig || evia.checkDebugFlag)) {
+      const config = await loadAudioDiagnosticConfig();
+      const enabled = config.saveAudio;
 
       console.log('[AudioDebug] Flag check result:', enabled);
       console.log('[AudioDebug] DEBUG_SAVE_AUDIO set to:', DEBUG_SAVE_AUDIO);

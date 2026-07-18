@@ -17,6 +17,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
+  const [activatingPresetId, setActivatingPresetId] = useState<number | string | null>(null);
+  const [presetNotice, setPresetNotice] = useState<{ kind: 'warning' | 'error'; text: string } | null>(null);
   const [isInvisible, setIsInvisible] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
 
@@ -108,60 +110,58 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     loadAutoUpdateSetting();
   }, []);
 
-  // FIX ISSUE #2.1: Fetch presets from backend on mount
+  // Preset requests run in the main process so desktop development and production
+  // use the same authenticated path without browser CORS differences.
   useEffect(() => {
     const fetchPresets = async () => {
       try {
-        const eviaAuth = (window as any).evia?.auth;
-        const token = await eviaAuth?.getToken?.();
-        if (!token) {
-          console.warn('[SettingsView] No token available, skipping preset fetch');
-          setPresets([]);
-          setSelectedPreset(null);
+        const presetBridge = (window as any).evia?.presets;
+        if (!presetBridge?.list) {
+          console.error('[SettingsView] ❌ Preset bridge unavailable');
           return;
         }
 
-        const { BACKEND_URL } = await import('../config/config');
-        const response = await fetch(`${BACKEND_URL}/prompts`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+        const result = await presetBridge.list();
+        if (!result?.ok) {
+          if (result?.status === 401) {
+            console.warn('[SettingsView] No authenticated preset session');
+            setPresets([]);
+            setSelectedPreset(null);
+          } else {
+            console.error('[SettingsView] ❌ Failed to fetch presets:', result?.status, result?.error);
           }
-        });
+          return;
+        }
 
-        if (response.ok) {
-          const fetchedPresets = await response.json();
-          setPresets(fetchedPresets);
-          console.log('[SettingsView] ✅ Loaded presets:', fetchedPresets.length);
-          
-          // Set the active preset as selected
-          const activePreset = fetchedPresets.find((p: any) => p.is_active);
-          if (activePreset) {
-            setSelectedPreset(activePreset);
-            console.log('[SettingsView] ✅ Active preset:', activePreset.name);
-          }
-        } else {
-          console.error('[SettingsView] ❌ Failed to fetch presets:', response.status);
+        const fetchedPresets = Array.isArray(result.prompts) ? result.prompts : [];
+        setPresets(fetchedPresets);
+        console.log('[SettingsView] ✅ Loaded presets:', fetchedPresets.length);
+
+        const activePreset = fetchedPresets.find((p: any) => p.is_active) ?? null;
+        setSelectedPreset(activePreset);
+        if (activePreset) {
+          console.log('[SettingsView] ✅ Active preset:', activePreset.name);
         }
       } catch (error) {
         console.error('[SettingsView] ❌ Error fetching presets:', error);
       }
     };
 
-    fetchPresets();
+    void fetchPresets();
 
     const eviaIpc = (window as any).evia?.ipc;
-    const handleAuthChanged = () => {
+    const handleRefresh = () => {
       void fetchPresets();
     };
 
-    eviaIpc?.on?.('auth-token-changed', handleAuthChanged);
+    eviaIpc?.on?.('auth-token-changed', handleRefresh);
+    window.addEventListener('focus', handleRefresh);
 
     return () => {
-      eviaIpc?.off?.('auth-token-changed', handleAuthChanged);
+      eviaIpc?.off?.('auth-token-changed', handleRefresh);
+      window.removeEventListener('focus', handleRefresh);
     };
-  }, []); // Run once on mount
+  }, []);
 
   // Handlers
   const handleLogout = async () => {
@@ -299,69 +299,45 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       return;
     }
     
-    const isDeactivating = preset.is_active;
-    console.log(`[SettingsView] ${isDeactivating ? '🔴 Deactivating' : '🎨 Activating'} preset:`, preset.name);
+    if (preset.is_active || activatingPresetId !== null) return;
+    console.log('[SettingsView] Activating preset:', preset.name);
+    setActivatingPresetId(preset.id);
+    setPresetNotice(null);
     
     try {
-      const eviaAuth = (window as any).evia?.auth;
-      const token = await eviaAuth?.getToken?.();
-      if (!token) {
-        console.error('[SettingsView] ❌ No token available');
+      const presetBridge = (window as any).evia?.presets;
+      if (!presetBridge?.activate) {
+        console.error('[SettingsView] ❌ Preset bridge unavailable');
+        setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
         return;
       }
 
-      const { BACKEND_URL } = await import('../config/config');
-      
-      // Always clear cache when changing/deactivating presets
-      try {
-        console.log('[SettingsView] 🧹 Clearing preset cache...');
-        const clearResponse = await fetch(`${BACKEND_URL}/prompts/clear-cache`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (clearResponse.ok) {
-          console.log('[SettingsView] ✅ Cache cleared successfully');
-        } else {
-          console.warn('[SettingsView] ⚠️ Cache clear failed (non-fatal):', clearResponse.status);
-        }
-      } catch (clearError) {
-        console.warn('[SettingsView] ⚠️ Cache clear error (non-fatal):', clearError);
-      }
-      
-      // If deactivating, set is_active to false; otherwise activate
-      const response = await fetch(`${BACKEND_URL}/prompts/${preset.id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          is_active: !isDeactivating
-        })
-      });
-
-      if (response.ok) {
-        const updatedPreset = await response.json();
-        console.log(`[SettingsView] ✅ Preset ${isDeactivating ? 'deactivated' : 'activated'}:`, updatedPreset.name);
+      const result = await presetBridge.activate(preset.id);
+      if (result?.ok && result.activation) {
+        const activation = result.activation;
+        const updatedPreset = activation.prompt;
+        console.log('[SettingsView] Preset activated:', updatedPreset.name);
         
         // Update local state
         const updatedPresets = presets.map(p => ({
           ...p,
-          is_active: isDeactivating ? false : (p.id === preset.id)
+          is_active: p.id === preset.id
         }));
         setPresets(updatedPresets);
-        setSelectedPreset(isDeactivating ? null : updatedPreset);
-        
-        console.log(`[SettingsView] 🎉 ${isDeactivating ? 'Using default prompt' : `Active preset is now: ${updatedPreset.name}`}`);
+        setSelectedPreset(updatedPreset);
+        localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
+        if (activation.context?.cache_synced === false) {
+          setPresetNotice({ kind: 'warning', text: t('presetContextPending') });
+        }
       } else {
-        console.error('[SettingsView] ❌ Failed to update preset:', response.status);
+        console.error('[SettingsView] ❌ Failed to update preset:', result?.status, result?.error);
+        setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
       }
     } catch (error) {
       console.error('[SettingsView] ❌ Error updating preset:', error);
+      setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
+    } finally {
+      setActivatingPresetId(null);
     }
   };
 
@@ -385,6 +361,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   return (
     <div className="settings-container">
+      <div className="settings-scroll">
       {/* Header Section */}
       <div className="header-section">
         <div className="title-line">
@@ -511,16 +488,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             presets.filter(p => !p.is_default).map(preset => (
               <div
                 key={preset.id}
-                className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''} ${isSessionActive ? 'disabled' : ''}`}
+                className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''} ${isSessionActive || activatingPresetId !== null ? 'disabled' : ''}`}
                 onClick={() => handlePresetSelect(preset)}
-                title={isSessionActive ? 'Cannot change preset during active recording' : ''}
+                title={isSessionActive ? t('presetLockedDuringSession') : ''}
               >
                 <span className="preset-name">{preset.name || preset.title}</span>
-                {preset.is_active && <span className="preset-status">Active</span>}
+                {activatingPresetId === preset.id
+                  ? <span className="preset-status">{t('presetActivating')}</span>
+                  : preset.is_active && <span className="preset-status">{t('presetActive')}</span>}
               </div>
             ))
           )}
         </div>
+        {presetNotice && (
+          <div className={`preset-notice ${presetNotice.kind}`} role="status">
+            {presetNotice.text}
+          </div>
+        )}
       </div>
 
       {/* Action Buttons - Move buttons and Auto Updates removed per Mac parity */}
@@ -550,6 +534,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             <span>{t('quit')}</span>
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

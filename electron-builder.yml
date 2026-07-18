@@ -11,6 +11,7 @@ protocols:
 files:
   - dist/main/**
   - dist/renderer/**
+  - native/macos-liquid-glass/build/Release/taylos_liquid_glass.node
   - src/main/assets/**
   - "!dist/win-unpacked/**"
   - "!dist/*.exe"
@@ -20,6 +21,7 @@ files:
 asarUnpack:
   - "src/main/assets/SystemAudioDump"
   - "src/main/assets/WASAPILoopback.exe"
+  - "native/macos-liquid-glass/build/Release/taylos_liquid_glass.node"
 # Run afterPack script to sign SystemAudioDump with entitlements
 mac:
   icon: build/icon.icns

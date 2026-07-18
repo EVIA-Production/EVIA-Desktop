@@ -17,6 +17,18 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import SubscriptionRequired from './SubscriptionRequired';
 import '../overlay/overlay-glass.css';
+import '../overlay/liquid-glass.css';
+
+const params = new URLSearchParams(window.location.search);
+document.documentElement.dataset.material = params.get('material') || 'custom';
+document.documentElement.dataset.surface = params.get('surface') || 'modal';
+document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false';
+window.addEventListener('focus', () => {
+  document.documentElement.dataset.windowActive = 'true';
+});
+window.addEventListener('blur', () => {
+  document.documentElement.dataset.windowActive = 'false';
+});
 
 console.log('[SubscriptionEntry] 🔍 Subscription entry point executing');
 console.log('[SubscriptionEntry] 🔍 URL:', window.location.href);
@@ -30,4 +42,3 @@ if (rootEl) {
 } else {
   console.error('[SubscriptionEntry] ❌ Root element #subscription-root not found');
 }
-

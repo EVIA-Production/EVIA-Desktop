@@ -5,10 +5,20 @@ interface WebSocketMessage {
   type?: string;
   command?: string;
   language?: string; // For change_language command
+  source?: 'mic' | 'system';
+  sequence?: number;
+  client_ts_ms?: number;
   data?: {
     text?: string;
     speaker?: number | null;
     is_final?: boolean;
+    is_turn_complete?: boolean;
+    source?: 'mic' | 'system';
+    trace?: {
+      provider_received_at_ms?: number;
+      server_sent_at_ms?: number;
+      activity_sequence?: number;
+    };
   } | string;
   content?: unknown;
   transcript?: string;
@@ -110,8 +120,10 @@ export class ChatWebSocket {
   private droppedSilentChunks: number = 0;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private connectPromise: Promise<void> | null = null;
   private shouldReconnect: boolean = true;
   private queue: ArrayBuffer[] = [];
+  private audioActivitySequence: number = 0;
 
   constructor(chatId: string, source?: 'mic' | 'system') {
     this.chatId = chatId;
@@ -125,6 +137,10 @@ export class ChatWebSocket {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         console.warn('WebSocket already connected');
         return;
+      }
+
+      if (this.ws?.readyState === WebSocket.CONNECTING && this.connectPromise) {
+        return this.connectPromise;
       }
       
       this.shouldReconnect = true;
@@ -170,13 +186,34 @@ export class ChatWebSocket {
       
 // MUP FIX: Use WS_BASE_URL from config (already http/ws protocol handled)
       const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}${platformParam}&sample_rate=24000`;
-      return new Promise((resolve, reject) => {
-        this.ws = new WebSocket(wsUrl);
-        this.ws.binaryType = 'arraybuffer';
-        const timeout = setTimeout(() => reject(new Error('Connect timeout')), 10000);
-        this.ws.onopen = () => {
+      const connectionAttempt = new Promise<void>((resolve, reject) => {
+        const socket = new WebSocket(wsUrl);
+        this.ws = socket;
+        socket.binaryType = 'arraybuffer';
+        let settled = false;
+        let opened = false;
+        const resolveOnce = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        const rejectOnce = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
+        const timeout = setTimeout(() => {
+          if (socket.readyState === WebSocket.CONNECTING) {
+            // A client timeout is not evidence that the chat is invalid.
+            // Reserve application close codes for backend-declared failures.
+            socket.close(1000, 'Connect timeout');
+          }
+          rejectOnce(new Error('Connect timeout'));
+        }, 10000);
+        socket.onopen = () => {
           console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
           clearTimeout(timeout);
+          opened = true;
           if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
@@ -184,12 +221,16 @@ export class ChatWebSocket {
           this.isConnectedFlag = true;
           this.reconnectAttempts = 0;
           this.connectionChangeHandlers.forEach(h => h(true));
+          this.sendAudioActivity(this.audioDetected, true);
           this.flushQueue();
-          resolve();
+          resolveOnce();
         };
-        this.ws.onclose = (event) => {
+        socket.onclose = (event) => {
           clearTimeout(timeout);
           console.log(`[WS] Closed: code=${event.code} reason=${event.reason}`);
+          if (this.ws === socket) {
+            this.ws = null;
+          }
           this.isConnectedFlag = false;
           this.connectionChangeHandlers.forEach(h => h(false));
           
@@ -198,12 +239,15 @@ export class ChatWebSocket {
             console.error('[WS] Auth/not found error detected - chat may not exist');
             // Clear invalid chat_id and signal for recreation
             localStorage.removeItem('current_chat_id');
-            // Still schedule reconnect - the ensureMicWs/ensureSystemWs will handle recreation
           }
-          
-          if (this.shouldReconnect) this.scheduleReconnect();
+
+          if (!opened) {
+            rejectOnce(new Error(`WebSocket closed before open (${event.code}): ${event.reason || 'no reason'}`));
+          } else if (this.shouldReconnect) {
+            this.scheduleReconnect();
+          }
         };
-        this.ws.onerror = (ev: Event) => {
+        socket.onerror = (ev: Event) => {
           clearTimeout(timeout);
           console.error('[WS] Error:', ev);
           this.isConnectedFlag = false;
@@ -211,10 +255,10 @@ export class ChatWebSocket {
           
           // CRITICAL FIX: Emit user-facing error notification
           this.emitErrorNotification(`Connection error: ${errorMsg}. Attempting to reconnect...`);
-          
-          reject(new Error(`WS Error: ${errorMsg}`));
+
+          rejectOnce(new Error(`WS Error: ${errorMsg}`));
         };
-        this.ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
           try {
             let payload: any = event.data;
             if (typeof payload === 'string') {
@@ -226,6 +270,15 @@ export class ChatWebSocket {
           }
         };
       });
+
+      this.connectPromise = connectionAttempt;
+      try {
+        await connectionAttempt;
+      } finally {
+        if (this.connectPromise === connectionAttempt) {
+          this.connectPromise = null;
+        }
+      }
     } catch (err: unknown) {
       if (attempt < 3 && err instanceof Error && err.message === 'Connect timeout') {
         const delay = 1000 * Math.pow(2, attempt-1);
@@ -244,10 +297,24 @@ export class ChatWebSocket {
   sendMessage(message: WebSocketMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      console.log('Message sent:', message);
+      console.log('[WS] Control message sent:', message.command || message.type || 'unknown');
     } else {
-      console.warn('WebSocket is not connected, cannot send message:', message);
+      console.warn('[WS] WebSocket is not connected; control message was not sent:', message.command || message.type || 'unknown');
     }
+  }
+
+  private sendAudioActivity(active: boolean, force: boolean = false) {
+    if (!force && active === this.audioDetected) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    this.audioActivitySequence += 1;
+    this.ws.send(JSON.stringify({
+      command: 'audio_activity',
+      active,
+      source: this.source || 'mic',
+      sequence: this.audioActivitySequence,
+      client_ts_ms: Date.now(),
+    }));
   }
 
   sendBinaryData(data: ArrayBuffer): BinarySendResult {
@@ -258,13 +325,23 @@ export class ChatWebSocket {
     // Detect if audio is present
     const hasAudio = audioLevel > this.silenceThreshold;
     
-    // Log when audio state changes (from silence to sound or vice versa)
-    if (hasAudio && !this.audioDetected) {
+    // Preserve a short silence tail so provider endpointing receives the end of
+    // an utterance. Activity markers carry no transcript/audio content.
+    if (hasAudio) {
+      this.silentChunkStreak = 0;
+      if (!this.audioDetected) {
       console.log(`[Audio Logger] Audio detected - Level: ${audioLevel.toFixed(4)}`);
       this.audioDetected = true;
-    } else if (!hasAudio && this.audioDetected) {
-      console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
-      this.audioDetected = false;
+        this.sendAudioActivity(true, true);
+      }
+    } else {
+      this.silentChunkStreak++;
+      const HANGOVER_SILENT_CHUNKS = 5; // ~500ms with 100ms chunks
+      if (this.audioDetected && this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
+        console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
+        this.audioDetected = false;
+        this.sendAudioActivity(false, true);
+      }
     }
     
     // Update last audio level
@@ -275,11 +352,8 @@ export class ChatWebSocket {
     // - a short tail after speech is preserved
     // - only sustained silence is dropped
     // Backend/Deepgram keepalive paths keep sessions alive during silence.
-    if (hasAudio) {
-      this.silentChunkStreak = 0;
-    } else {
-      this.silentChunkStreak++;
-      const HANGOVER_SILENT_CHUNKS = 5; // ~500ms with 100ms chunks
+    if (!hasAudio) {
+      const HANGOVER_SILENT_CHUNKS = 5;
       if (this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
         this.droppedSilentChunks++;
         if (this.droppedSilentChunks % 25 === 0) {

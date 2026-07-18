@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 
@@ -15,6 +15,29 @@ interface EviaBarProps {
   onToggleLanguage: () => void;
   onToggleVisibility?: () => void;
 }
+
+type CaptureSessionState = 'idle' | 'starting' | 'recording' | 'stopping' | 'review' | 'error';
+type CaptureSessionSnapshot = {
+  state: CaptureSessionState;
+  generation: number;
+  changedAt: number;
+  reason: string;
+  errorCode: string | null;
+};
+type CaptureTransitionResult = {
+  accepted: boolean;
+  changed: boolean;
+  reason: string;
+  snapshot: CaptureSessionSnapshot;
+};
+
+const INITIAL_CAPTURE_SESSION: CaptureSessionSnapshot = {
+  state: 'idle',
+  generation: 0,
+  changedAt: 0,
+  reason: 'renderer_initializing',
+  errorCode: null,
+};
 
 // Shortcut configuration type
 interface ShortcutConfig {
@@ -42,6 +65,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   onToggleVisibility,
 }) => {
   const headerRef = useRef<HTMLDivElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
   const lastMoveTimeRef = useRef<number>(0); // Throttle mouse move events
   const settingsHideTimerRef = useRef<NodeJS.Timeout | null>(null); // Glass parity: timer for settings hover
@@ -150,40 +174,73 @@ const EviaBar: React.FC<EviaBarProps> = ({
       </div>
     ));
   };
-  const [listenStatus, setListenStatus] = useState<'before' | 'in' | 'after'>('before');
+  const [captureSession, setCaptureSession] = useState<CaptureSessionSnapshot>(INITIAL_CAPTURE_SESSION);
   const [isListenActive, setIsListenActive] = useState(currentView === 'listen');
   const [isAskActive, setIsAskActive] = useState(currentView === 'ask');
   const [isSettingsActive, setIsSettingsActive] = useState(currentView === 'settings');
   const startInProgressRef = useRef(false); // Prevent duplicate ScreenPicker opens on rapid clicks
-  const lastLocalStartMsRef = useRef(0); // Grace period after local start to ignore 'before' resets
-  const listenStatusRef = useRef<'before' | 'in' | 'after'>('before'); // Para WINDOWS
+  const captureSessionRef = useRef<CaptureSessionSnapshot>(INITIAL_CAPTURE_SESSION);
   const isListeningRef = useRef(isListening);
 
-  // For windows grace capturing correctly
+  const listenStatus: 'before' | 'in' | 'after' =
+    captureSession.state === 'recording' || captureSession.state === 'stopping'
+      ? 'in'
+      : captureSession.state === 'review'
+        ? 'after'
+        : 'before';
+
   useEffect(() => {
-    listenStatusRef.current = listenStatus;
-  }, [listenStatus]);
+    captureSessionRef.current = captureSession;
+  }, [captureSession]);
 
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
 
-  // SESSION STATE: Broadcast listenStatus changes to other components (especially AskView)
-  // This allows AskView to send the correct session_state to backend
+  // The main-process capture controller is the only lifecycle authority. This
+  // renderer mirrors its state; localStorage is only a cache for windows that
+  // have not mounted yet.
   useEffect(() => {
     const eviaIpc = (window as any).evia?.ipc;
-    if (eviaIpc?.send) {
-      // Map Desktop states to backend session states
-      const sessionState = listenStatus === 'in' ? 'during' : listenStatus;
-      
-      // Store in localStorage as backup for windows that open after state change
-      localStorage.setItem('evia_session_state', sessionState);
-      
-      // Broadcast via IPC for real-time sync
-      eviaIpc.send('session-state-changed', sessionState);
-      console.log('[EviaBar] 📡 Broadcast session state:', sessionState, '(from listenStatus:', listenStatus, ')');
-    }
-  }, [listenStatus]);
+    const captureApi = (window as any).evia?.captureSession;
+
+    const applySnapshot = (snapshot: CaptureSessionSnapshot) => {
+      if (!snapshot || typeof snapshot.state !== 'string') return;
+      captureSessionRef.current = snapshot;
+      setCaptureSession(snapshot);
+      const legacyState = snapshot.state === 'recording' || snapshot.state === 'stopping'
+        ? 'during'
+        : snapshot.state === 'review'
+          ? 'after'
+          : 'before';
+      localStorage.setItem('evia_session_state', legacyState);
+    };
+
+    const initialize = async () => {
+      const snapshot = await captureApi?.get?.();
+      if (!snapshot) return;
+
+      // A renderer reload destroys its MediaStream. Never display Stop for a
+      // main-process state this renderer cannot physically confirm.
+      if (
+        !isListeningRef.current &&
+        ['starting', 'recording', 'stopping'].includes(snapshot.state)
+      ) {
+        const reconciled = await captureApi?.reconcileNoCapture?.('capture_context_lost');
+        applySnapshot(reconciled?.snapshot ?? reconciled ?? INITIAL_CAPTURE_SESSION);
+        return;
+      }
+      applySnapshot(snapshot);
+    };
+
+    eviaIpc?.on?.('capture-session:state', applySnapshot);
+    initialize().catch((error) => {
+      console.error('[EviaBar] Failed to initialize capture lifecycle:', error);
+      applySnapshot(INITIAL_CAPTURE_SESSION);
+    });
+
+    return () => eviaIpc?.off?.('capture-session:state', applySnapshot);
+  }, []);
 
   useEffect(() => {
     setIsListenActive(currentView === 'listen');
@@ -219,10 +276,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
   }, []);
 
-  // 🔄 Sync session state with backend and listen for chat changes
+  // Backend meeting state follows local capture truth. It may be reconciled,
+  // but it can never set the button label or resurrect a MediaStream.
   useEffect(() => {
-    const syncSessionState = async () => {
+    const reconcileStaleBackendSession = async () => {
       try {
+        if (captureSessionRef.current.state !== 'idle' || isListeningRef.current) return;
         const eviaAuth = (window as any).evia?.auth;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
@@ -233,7 +292,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
           return;
         }
 
-        console.log('[EviaBar] 🔄 Syncing session state with backend...');
+        console.log('[EviaBar] 🔄 Checking backend for an orphaned session...');
         const response = await fetch(`${baseUrl}/session/status`, {
           method: 'POST',
           headers: {
@@ -246,53 +305,26 @@ const EviaBar: React.FC<EviaBarProps> = ({
         if (response.ok) {
           const data = await response.json();
           console.log('[EviaBar] ✅ Backend session status:', data.status);
-
-          const now = Date.now();
-          const withinGrace = now - lastLocalStartMsRef.current < 2000;
-          if (data.status === 'during') {
-            if (isListeningRef.current || withinGrace) {
-              setListenStatus('in');
-            } else {
-              // A renderer restart cannot resume an old MediaStream. Reconcile a
-              // stale backend "during" state instead of showing Stop while no
-              // capture exists (which previously inverted the next button press).
-              console.warn('[EviaBar] ⚠️ Backend says during but no capture exists; completing stale session');
-              try {
-                const completionResponse = await fetch(`${baseUrl}/session/complete`, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    chat_id: Number(chatId),
-                    summary: 'Session ended after capture context was lost',
-                  }),
-                });
-
-                if (!completionResponse.ok) {
-                  console.warn(
-                    '[EviaBar] Could not complete stale session:',
-                    completionResponse.status,
-                    await completionResponse.text(),
-                  );
-                }
-              } catch (completionError) {
-                // Local capture truth must win even if the backend is temporarily unavailable.
-                console.warn('[EviaBar] Could not reconcile stale backend session:', completionError);
-              }
-
+          if (data.status === 'during' || data.status === 'after') {
+            console.warn('[EviaBar] ⚠️ Completing orphaned backend session without changing capture UI');
+            const completionResponse = await fetch(`${baseUrl}/session/complete`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                chat_id: Number(chatId),
+                summary: 'Session ended after capture context was lost',
+              }),
+            });
+            if (completionResponse.ok) {
               localStorage.removeItem('current_chat_id');
-              localStorage.setItem('evia_session_state', 'before');
-              (window as any).evia?.ipc?.send?.('live-transcript:clear');
+              (window as any).evia?.liveTranscript?.clear?.();
               (window as any).evia?.ipc?.send?.('clear-session');
-              setListenStatus('before');
-              setIsListenActive(false);
+            } else {
+              console.warn('[EviaBar] Could not complete orphaned session:', completionResponse.status);
             }
-          } else if (data.status === 'after') {
-            setListenStatus('after');
-          } else if (!(withinGrace && listenStatusRef.current === 'in')) {
-            setListenStatus('before');
           }
         } else {
           console.error('[EviaBar] ❌ Failed to get session status:', response.status, await response.text());
@@ -303,11 +335,10 @@ const EviaBar: React.FC<EviaBarProps> = ({
     };
 
     // Sync on mount
-    syncSessionState();
+    reconcileStaleBackendSession();
 
     const handleChatChanged = () => {
-      console.log('[EviaBar] 💬 Chat changed - syncing session state');
-      syncSessionState();
+      reconcileStaleBackendSession();
     };
 
     const eviaIpc = (window as any).evia?.ipc;
@@ -320,14 +351,13 @@ const EviaBar: React.FC<EviaBarProps> = ({
   // FIX: Reset listen button state when language is changed or session is cleared
   useEffect(() => {
     const handleLanguageChanged = () => {
-      console.log('[EviaBar] 🌐 Language changed - resetting listen button to "before" state');
-      setListenStatus('before');
+      console.log('[EviaBar] 🌐 Language changed - reconciling capture lifecycle');
+      (window as any).evia?.captureSession?.reconcileNoCapture?.('language_changed');
       setIsListenActive(false);
     };
 
     const handleSessionClosed = () => {
-      console.log('[EviaBar] 🧹 Session closed - resetting listen button to "before" state');
-      setListenStatus('before');
+      console.log('[EviaBar] 🧹 Session closed - capture lifecycle will publish idle state');
       setIsListenActive(false);
     };
 
@@ -336,7 +366,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       console.log('[EviaBar] 🚪 App quitting - completing active session...');
       
       // Only complete if session is active (during or after state)
-      if (listenStatus === 'in' || listenStatus === 'after') {
+      if (captureSessionRef.current.state !== 'idle') {
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();
@@ -384,40 +414,89 @@ const EviaBar: React.FC<EviaBarProps> = ({
         eviaIpc.off('app:before-quit', handleBeforeQuit);
       }
     };
-  }, [listenStatus]);
+  }, []);
 
-  // Dynamic window sizing: measure content and resize window to fit
-  useEffect(() => {
+  // The currently rendered pill is the sole geometry authority. ResizeObserver
+  // catches every label, state, font, shortcut, and control-visibility change.
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header || !window.electron?.ipcRenderer) return;
+
+    let frame = 0;
+    let disposed = false;
+    let lastSignature = '';
+    const settleTimers: number[] = [];
+
     const measureAndResize = async () => {
-      if (!headerRef.current) return;
-
-      // Wait for DOM to settle (fonts, layout)
-      await new Promise(resolve => setTimeout(resolve, 100));
+      frame = 0;
+      if (disposed || !headerRef.current) return;
 
       const rect = headerRef.current.getBoundingClientRect();
+      const settingsRect = settingsButtonRef.current?.getBoundingClientRect();
       const contentWidth = Math.ceil(rect.width);
-      // Add 2px to height to match main process initial header height (glass border: 1px top + 1px bottom)
       const contentHeight = Math.ceil(rect.height) + 2;
-      const anchorX = Math.ceil(rect.width / 2);
+      const anchorX = rect.width / 2;
+      const settingsAnchorX = settingsRect
+        ? settingsRect.right - rect.left
+        : rect.width;
+      const signature = [contentWidth, contentHeight, anchorX, settingsAnchorX]
+        .map(value => Math.round(value * 2) / 2)
+        .join(':');
 
-      console.log(`[EviaBar] Content measured: ${contentWidth}px × ${contentHeight}px (w×h), anchor=${anchorX}px`);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
 
-      // Request window resize via IPC (use unified resize handler that accepts width+height)
-      if (window.electron?.ipcRenderer) {
-        try {
-          const success = await window.electron.ipcRenderer.invoke('win:resizeHeader', { width: contentWidth, height: contentHeight, anchorX });
-          if (success) {
-            console.log('[EviaBar] Window resized to fit content (width+height)');
-          }
-        } catch (error) {
-          console.warn('[EviaBar] Failed to resize window:', error);
+      try {
+        const result = await window.electron.ipcRenderer.invoke('win:resizeHeader', {
+          width: contentWidth,
+          height: contentHeight,
+          anchorX,
+          settingsAnchorX,
+        });
+        if (result?.ok === false) {
+          lastSignature = '';
+          console.warn('[EviaBar] Main process rejected live bar geometry:', result);
         }
+      } catch (error) {
+        lastSignature = '';
+        console.warn('[EviaBar] Failed to apply live bar geometry:', error);
       }
     };
-    
-    // Measure on mount and when language changes
-    measureAndResize();
-  }, [language]); // Re-measure when language changes (German words are longer!)
+
+    const scheduleMeasure = () => {
+      if (disposed || frame) return;
+      frame = window.requestAnimationFrame(measureAndResize);
+    };
+
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(header);
+    const mutationObserver = new MutationObserver(scheduleMeasure);
+    mutationObserver.observe(header, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    header.addEventListener('transitionrun', scheduleMeasure);
+    header.addEventListener('transitionend', scheduleMeasure);
+    void document.fonts.ready.then(() => {
+      scheduleMeasure();
+      settleTimers.push(window.setTimeout(scheduleMeasure, 32));
+      settleTimers.push(window.setTimeout(scheduleMeasure, 120));
+    });
+    scheduleMeasure();
+
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      mutationObserver.disconnect();
+      header.removeEventListener('transitionrun', scheduleMeasure);
+      header.removeEventListener('transitionend', scheduleMeasure);
+      if (frame) window.cancelAnimationFrame(frame);
+      settleTimers.forEach(timer => window.clearTimeout(timer));
+    };
+  }, []);
 
   // Remove global/header-level drag logic: dragging is now handled exclusively
   // by the right-side semicircular <DraggableHandle /> using app-region: drag.
@@ -437,17 +516,28 @@ const EviaBar: React.FC<EviaBarProps> = ({
     // Stop → Done: Window STAYS, show insights
     // Done → Listen: Hide window
     
-    console.log(`[EviaBar] handleListenClick - current status: ${listenStatus}`);
+    const captureApi = (window as any).evia?.captureSession;
+    const current = captureSessionRef.current;
+    console.log('[EviaBar] handleListenClick', {
+      state: current.state,
+      generation: current.generation,
+      physicalCapture: isListeningRef.current,
+    });
 
-    if (startInProgressRef.current) {
+    if (startInProgressRef.current || current.state === 'starting' || current.state === 'stopping') {
       console.warn('[EviaBar] ⏭️ Ignoring duplicate Listen transition');
       return;
     }
     
-    if (listenStatus === 'before') {
+    if (current.state === 'idle' || current.state === 'error') {
       startInProgressRef.current = true;
       console.log('[EviaBar] Listen → Stop: Showing listen window');
+      let generation = current.generation;
       try {
+        const transition: CaptureTransitionResult = await captureApi.beginStart();
+        if (!transition.accepted || !transition.changed) return;
+        generation = transition.snapshot.generation;
+
         // Hard reset stale per-session UI before showing Listen again.
         (window as any).evia?.ipc?.send?.('clear-session');
         console.log('[EviaBar] 🧹 Sent clear-session before opening Listen');
@@ -457,14 +547,12 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
         const captureStarted = await onSetListening(true);
         if (!captureStarted) {
-          setListenStatus('before');
+          await captureApi.failStart(generation, 'capture_start_returned_false');
           setIsListenActive(false);
           return;
         }
 
-        lastLocalStartMsRef.current = Date.now();
-        localStorage.setItem('evia_session_state', 'during');
-        setListenStatus('in');
+        await captureApi.confirmStarted(generation);
         setIsListenActive(true);
 
         // Lifecycle synchronization is best-effort. Capture truth owns the
@@ -498,22 +586,29 @@ const EviaBar: React.FC<EviaBarProps> = ({
       } catch (error) {
         console.error('[EviaBar] ❌ Error starting listening session:', error);
         await onSetListening(false);
-        localStorage.setItem('evia_session_state', 'before');
-        setListenStatus('before');
+        await captureApi?.failStart?.(
+          generation,
+          error instanceof Error ? error.name || 'capture_start_exception' : 'capture_start_exception',
+        );
         setIsListenActive(false);
       } finally {
         startInProgressRef.current = false;
       }
 
-    } else if (listenStatus === 'in') {
+    } else if (current.state === 'recording') {
       startInProgressRef.current = true;
       console.log('[EviaBar] Stop → Done: Window stays visible');
       try {
+        const transition: CaptureTransitionResult = await captureApi.beginStop();
+        if (!transition.accepted || !transition.changed) return;
+        const generation = transition.snapshot.generation;
         const captureStopped = await onSetListening(false);
-        if (!captureStopped) return;
+        if (!captureStopped) {
+          await captureApi.failStop(generation, 'capture_stop_returned_false');
+          return;
+        }
 
-        localStorage.setItem('evia_session_state', 'after');
-        setListenStatus('after');
+        await captureApi.confirmStopped(generation);
         setIsListenActive(false);
 
         try {
@@ -546,10 +641,14 @@ const EviaBar: React.FC<EviaBarProps> = ({
         }
       } catch (error) {
         console.error('[EviaBar] ❌ Error stopping listening session:', error);
+        await captureApi?.failStop?.(
+          captureSessionRef.current.generation,
+          error instanceof Error ? error.name || 'capture_stop_exception' : 'capture_stop_exception',
+        );
       } finally {
         startInProgressRef.current = false;
       }
-    } else if (listenStatus === 'after') {
+    } else if (current.state === 'review') {
       // FIX #27: Done (Fertig) → Hide BOTH Listen AND Ask windows
       if (completeSessionInFlightRef.current) {
         console.warn('[EviaBar] ⏭️ Ignoring duplicate Done press while /session/complete is already running');
@@ -559,15 +658,22 @@ const EviaBar: React.FC<EviaBarProps> = ({
       try {
         console.log('[EviaBar] Fertig pressed: Hiding listen and ask windows');
         
-        // 🆕 BACKEND INTEGRATION: Call /session/complete BEFORE hiding windows
-        try {
-          const eviaAuth = (window as any).evia?.auth;
-          const token = await eviaAuth?.getToken?.();
-          const chatId = localStorage.getItem('current_chat_id');
-          const { BACKEND_URL: baseUrl } = await import('../config/config');
+        // Archive asynchronously. The user-visible Done transition must not be
+        // blocked by transcript draining, summary generation, or provider I/O.
+        // Capture token/chat now because local session state is cleared below.
+        const chatIdToArchive = localStorage.getItem('current_chat_id');
+        const archiveSession = async (chatId: string | null) => {
+          try {
+            const eviaAuth = (window as any).evia?.auth;
+            const token = await eviaAuth?.getToken?.();
+            const { BACKEND_URL: baseUrl } = await import('../config/config');
 
-          if (token && chatId) {
-            console.log('[EviaBar] 🎯 Calling /session/complete for chat_id:', chatId);
+            if (!token || !chatId) {
+              console.warn('[EviaBar] Cannot archive session: missing token or chat_id');
+              return;
+            }
+
+            console.log('[EviaBar] Calling /session/complete for chat_id:', chatId);
             const response = await fetch(`${baseUrl}/session/complete`, {
               method: 'POST',
               headers: {
@@ -576,28 +682,22 @@ const EviaBar: React.FC<EviaBarProps> = ({
               },
               body: JSON.stringify({
                 chat_id: Number(chatId),
-                summary: null  // Optional - can add user input later
+                summary: null
               })
             });
-            
-            if (response.ok) {
-              const data = await response.json();
-              console.log('[EviaBar] ✅ Session completed:', data);
-              console.log(`[EviaBar] 📦 Archived ${data.transcript_count} transcripts`);
-              // Log the implementation report for debugging/metrics
-              if (data.suggestion_report) {
-                console.log('[EviaBar] 📊 SUGGESTION IMPLEMENTATION REPORT:');
-                console.log(data.suggestion_report);
-              }
-            } else {
-              console.error('[EviaBar] ❌ Failed to complete session:', response.status, await response.text());
+
+            if (!response.ok) {
+              console.error('[EviaBar] Failed to archive session:', response.status, await response.text());
+              return;
             }
-          } else {
-            console.warn('[EviaBar] ⚠️ Cannot call /session/complete: missing token or chat_id');
+
+            const data = await response.json();
+            console.log('[EviaBar] Session archived:', data);
+          } catch (error) {
+            console.error('[EviaBar] Error archiving session:', error);
           }
-        } catch (error) {
-          console.error('[EviaBar] ❌ Error calling /session/complete:', error);
-        }
+        };
+        void archiveSession(chatIdToArchive);
         
         await (window as any).evia?.windows?.hide?.('listen');
         await (window as any).evia?.windows?.hide?.('ask');
@@ -611,7 +711,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         localStorage.removeItem('current_chat_id');
         console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
         
-        setListenStatus('before');
+        await captureApi.complete(current.generation);
         setIsListenActive(false);
         console.log('[EviaBar] ✅ Session closed, windows hidden');
       } finally {
@@ -637,14 +737,14 @@ const EviaBar: React.FC<EviaBarProps> = ({
     
     // FIX #1: Calculate actual 3-dot button position for settings window
     // This fixes the issue where English header is narrower but settings position stays the same
-    const settingsButton = document.querySelector('.evia-settings-button') as HTMLElement;
+    const settingsButton = settingsButtonRef.current;
     if (settingsButton) {
       const buttonRect = settingsButton.getBoundingClientRect();
       const headerRect = headerRef.current?.getBoundingClientRect();
       if (headerRect) {
         // Calculate button position relative to header
-        const buttonX = buttonRect.left - headerRect.left;
-        console.log('[EviaBar] 📍 Settings button position:', { buttonX, buttonRect, headerRect });
+        const buttonX = buttonRect.right - headerRect.left;
+        console.log('[EviaBar] Settings button right edge:', { buttonX, buttonRect, headerRect });
         // Send button position to main process
         (window as any).evia?.windows?.showSettingsWindow?.(buttonX);
         setIsSettingsActive(true);
@@ -690,6 +790,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
         type="button"
         className={`evia-listen-button ${isListenActive ? 'listen-active' : ''} ${listenStatus === 'after' ? 'listen-done' : ''}`}
         onClick={handleListenClick}
+        aria-busy={captureSession.state === 'starting' || captureSession.state === 'stopping'}
+        data-capture-state={captureSession.state}
       >
         <span className="evia-listen-label">{listenLabel}</span>
         <span className="evia-listen-icon">
@@ -725,6 +827,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
       {/* Settings button */}
       <button
+        ref={settingsButtonRef}
         type="button"
         className={`evia-settings-button ${isSettingsActive ? 'active' : ''}`}
         onMouseEnter={showSettingsWindow}
@@ -737,6 +840,8 @@ const EviaBar: React.FC<EviaBarProps> = ({
           <circle cx="8" cy="13.17" r="1" fill="white"/>
         </svg>
       </button>
+
+      <div className="evia-bar-bottom-drag-region" aria-hidden="true" />
 
     </div>
   );

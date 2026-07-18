@@ -11,11 +11,14 @@ import * as keytar from 'keytar';
 
 // Get backend URL from environment or use production default
 function getBackendUrl(): string {
-  const env = process.env.EVIA_BACKEND_URL || process.env.API_BASE_URL;
+  const env =
+    process.env.TAYLOS_BACKEND_URL ||
+    process.env.Taylos_BACKEND_URL ||
+    process.env.EVIA_BACKEND_URL ||
+    process.env.API_BASE_URL;
   if (env && env.trim()) return String(env).replace(/\/$/, '');
-  
-  // Default to production backend
-  return process.env.NODE_ENV === 'development' 
+
+  return String(process.env.TAYLOS_SERVICE_TARGET || '').toLowerCase() === 'local'
     ? 'http://localhost:8000'
     : 'https://api.taylos.ai';
 }
@@ -194,4 +197,3 @@ export function getSubscriptionStatusMessage(status: SubscriptionStatus | null):
       return 'No active subscription';
   }
 }
-

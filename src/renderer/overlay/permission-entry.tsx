@@ -1,6 +1,19 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import PermissionHeader from './PermissionHeader';
+import './overlay-glass.css';
+import './liquid-glass.css';
+
+const params = new URLSearchParams(window.location.search);
+document.documentElement.dataset.material = params.get('material') || 'custom';
+document.documentElement.dataset.surface = params.get('surface') || 'modal';
+document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false';
+window.addEventListener('focus', () => {
+  document.documentElement.dataset.windowActive = 'true';
+});
+window.addEventListener('blur', () => {
+  document.documentElement.dataset.windowActive = 'false';
+});
 
 const rootEl = document.getElementById('permission-root');
 
@@ -30,4 +43,3 @@ const App = () => {
 if (rootEl) {
   ReactDOM.createRoot(rootEl).render(<App />);
 }
-

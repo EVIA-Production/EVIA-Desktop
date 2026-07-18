@@ -1,6 +1,6 @@
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { createHeaderWindow, getHeaderWindow } from './overlay-windows'
+import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow } from './overlay-windows'
 import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
@@ -10,10 +10,19 @@ import { systemAudioMacService } from './system-audio-mac-service';
 import { systemAudioWindowsService } from './system-audio-windows-service';
 import { headerController } from './header-controller';
 import { startSubscriptionMonitor, stopSubscriptionMonitor } from './subscription-monitor';
+import {
+  captureSessionController,
+  CaptureSessionSnapshot,
+  CaptureTransitionReason,
+} from './capture-session-controller';
 
 let pendingDeepLink: string | null = null;
+let deepLinkHandlingReady = false;
 const PRIMARY_DEEP_LINK_SCHEME = 'taylos';
 const LEGACY_DEEP_LINK_SCHEME = 'evia';
+const IS_ISOLATED_HARNESS =
+  process.env.TAYLOS_E2E === '1' ||
+  (process.env.NODE_ENV === 'development' && process.env.TAYLOS_GLASS_COMPARE === '1');
 
 function extractDeepLinkFromArgList(args: string[]): string | null {
   const raw = args.find(
@@ -42,6 +51,15 @@ function isLaunchDeepLink(url: string): boolean {
 }
 
 function registerProtocolClient(scheme: string): boolean {
+  // A development Electron bundle has the generic Electron identity on macOS.
+  // Registering it replaces the signed Taylos handler and later launches a bare
+  // Electron window without the repository argument. Only the packaged app may
+  // own production deep links on macOS.
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    console.log(`[Protocol] Skipping ${scheme}:// registration for unpackaged macOS app`);
+    return false;
+  }
+
   if (process.defaultApp && process.argv.length >= 2) {
     return app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])]);
   }
@@ -49,59 +67,85 @@ function registerProtocolClient(scheme: string): boolean {
   return app.setAsDefaultProtocolClient(scheme);
 }
 
-if (process.platform === "win32") {
-  // Capture possible deeplink in initial argv (may be quoted)
+function describeDeepLink(url: string): string {
+  try {
+    const parsed = new URL(normalizeDeepLink(url));
+    const query = parsed.searchParams.has('token') ? '?token=<redacted>' : parsed.search;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}${query}`;
+  } catch {
+    return '<invalid-deep-link>';
+  }
+}
+
+function routeDeepLink(url: string): void {
+  const normalizedUrl = normalizeDeepLink(url);
+  if (!deepLinkHandlingReady) {
+    pendingDeepLink = normalizedUrl;
+    console.log('[Protocol] Queued deep link until desktop initialization:', describeDeepLink(normalizedUrl));
+    return;
+  }
+
+  if (isAuthCallbackDeepLink(normalizedUrl)) {
+    void handleAuthCallback(normalizedUrl);
+  } else if (isLaunchDeepLink(normalizedUrl)) {
+    void handleLaunchRequest(normalizedUrl);
+  }
+}
+
+if (process.platform !== 'darwin') {
+  // Windows and Linux deliver cold-start deep links through argv. macOS uses
+  // open-url and may emit it before app.whenReady().
   try {
     const rawStartup = extractDeepLinkFromArgList(process.argv);
     if (rawStartup) {
       pendingDeepLink = normalizeDeepLink(rawStartup);
-      console.log("[Protocol] 🔗 Detected cold-start deep link (pending):", pendingDeepLink);
+      console.log('[Protocol] Detected cold-start deep link:', describeDeepLink(pendingDeepLink));
     }
   } catch (e) {
     console.warn('[Protocol] Failed to inspect process.argv for deep link:', e);
   }
 
-  const gotLock = app.requestSingleInstanceLock();
-  console.log('[Main] singleInstanceLock acquired:', gotLock);
-  if (!gotLock) {
-    console.log('[Main] secondary instance - exiting');
-    try { app.quit(); } finally { try { process.exit(0); } catch {} }
-  } else {
-    app.on('second-instance', (_event, argv) => {
-      console.log('[Protocol] second-instance argv:', argv);
-      const raw = extractDeepLinkFromArgList(argv);
-      if (raw) {
-        const url = normalizeDeepLink(raw);
-        console.log('[Protocol] second-instance found url:', url);
-        // If app is ready, handle immediately, otherwise queue
-        if (app.isReady()) {
-          try {
-            if (isAuthCallbackDeepLink(url)) {
-              handleAuthCallback(url);
-            } else if (isLaunchDeepLink(url)) {
-              handleLaunchRequest(url);
-            }
-          } catch (err) {
-            console.error('[Protocol] Handler failed:', err);
-          }
-        } else {
-          pendingDeepLink = url;
-        }
-      }
+}
 
-      // Focus primary window if exists
-      const mainWindow = BrowserWindow.getAllWindows()[0];
-      if (mainWindow) {
-        try { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } catch {}
-      }
-    });
-  }
+// A fixed localhost bridge and capture helpers require exactly one normal
+// desktop process on every platform. Isolated harnesses skip product services
+// and therefore may coexist with the installed app.
+const gotSingleInstanceLock = IS_ISOLATED_HARNESS || app.requestSingleInstanceLock();
+console.log('[Main] singleInstanceLock acquired:', gotSingleInstanceLock, { isolatedHarness: IS_ISOLATED_HARNESS });
+if (!gotSingleInstanceLock) {
+  console.log('[Main] secondary instance - focusing primary and exiting');
+  app.quit();
+} else if (!IS_ISOLATED_HARNESS) {
+  app.on('second-instance', (_event, argv) => {
+    console.log('[Protocol] second-instance argv:', argv);
+    const raw = extractDeepLinkFromArgList(argv);
+    if (raw) {
+      const url = normalizeDeepLink(raw);
+      console.log('[Protocol] second-instance found url:', describeDeepLink(url));
+      routeDeepLink(url);
+    }
+
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (mainWindow) {
+      try {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } catch {}
+    }
+  });
 }
 
 function getBackendHttpBase(): string {
-  const env = process.env.Taylos_BACKEND_URL || process.env.API_BASE_URL;
+  const env =
+    process.env.TAYLOS_BACKEND_URL ||
+    process.env.Taylos_BACKEND_URL ||
+    process.env.EVIA_BACKEND_URL ||
+    process.env.API_BASE_URL;
   if (env && env.trim()) return String(env).replace(/\/$/, '');
-  return 'http://localhost:8000';
+  return String(process.env.TAYLOS_SERVICE_TARGET || '').toLowerCase() === 'local'
+    ? 'http://localhost:8000'
+    : 'https://api.taylos.ai';
 }
 
 type UpdaterAuditState = {
@@ -177,25 +221,31 @@ async function boot() {
   }
   
   await app.whenReady();
+
+  // The material comparison is an isolated visual harness. It must run before
+  // updater, bridge, capture, auth, and subscription services so it can coexist
+  // with a normal Taylos instance without binding production ports or mutating
+  // product state.
+  if (process.env.NODE_ENV === 'development' && process.env.TAYLOS_GLASS_COMPARE === '1') {
+    createWelcomeMaterialComparison()
+    console.log('[Main] Material comparison mode active; normal product flow is paused')
+    return
+  }
+
   finalizeAppliedUpdateOnLaunch();
   registerAutoUpdater();
 
   // Start Desktop Bridge (HTTP/WS Server) EARLY
   // This ensures status detection works even if other subsystems hang
-  try {
-    console.log('[Main] 🌉 Starting Desktop Bridge...');
-    desktopBridge.start();
-  } catch (err) {
-    console.error('[Main] ❌ Failed to start desktop bridge:', err);
-  }
-
-  // Windows: Handle deep link on cold launch
-  if (process.platform === "win32" && pendingDeepLink) {
-    if (isAuthCallbackDeepLink(pendingDeepLink)) {
-      handleAuthCallback(pendingDeepLink);
-    } else if (isLaunchDeepLink(pendingDeepLink)) {
-      handleLaunchRequest(pendingDeepLink);
+  if (!IS_ISOLATED_HARNESS) {
+    try {
+      console.log('[Main] 🌉 Starting Desktop Bridge...');
+      desktopBridge.start();
+    } catch (err) {
+      console.error('[Main] ❌ Failed to start desktop bridge:', err);
     }
+  } else {
+    console.log('[Main] Isolated harness: desktop bridge disabled');
   }
 
   // WINDOWS FIX (2025-12-05): Removed Windows warning dialog per user request
@@ -226,6 +276,13 @@ async function boot() {
 
   // Initialize header flow
   await headerController.initialize();
+
+  deepLinkHandlingReady = true;
+  if (pendingDeepLink) {
+    const startupDeepLink = pendingDeepLink;
+    pendingDeepLink = null;
+    routeDeepLink(startupDeepLink);
+  }
   
   // 💳 Start subscription monitor for periodic status checks
   startSubscriptionMonitor(headerController);
@@ -361,6 +418,7 @@ app.on("activate", () => {
 
 app.on('quit', async () => {
   console.log('[Main] App quitting, cleaning up...')
+  desktopBridge.stop()
   
   // 💳 Stop subscription monitor
   stopSubscriptionMonitor();
@@ -458,6 +516,66 @@ ipcMain.handle('auth:getToken', async () => {
   return await keytar.getPassword('taylos', 'token');
 });
 
+ipcMain.handle('presets:list', async () => {
+  try {
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) return { ok: false, status: 401, error: 'not_authenticated' };
+
+    const response = await fetch(`${getBackendHttpBase()}/prompts`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: 'preset_list_failed' };
+    }
+
+    const prompts: unknown = await response.json();
+    if (!Array.isArray(prompts)) {
+      return { ok: false, status: 502, error: 'invalid_preset_response' };
+    }
+
+    return { ok: true, status: response.status, prompts };
+  } catch (error) {
+    console.error('[Presets] Failed to load presets:', (error as Error).message);
+    return { ok: false, status: 503, error: 'preset_service_unavailable' };
+  }
+});
+
+ipcMain.handle('presets:activate', async (_event, presetId: unknown) => {
+  try {
+    const normalizedId = String(presetId ?? '').trim();
+    if (!/^\d+$/.test(normalizedId)) {
+      return { ok: false, status: 400, error: 'invalid_preset_id' };
+    }
+
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) return { ok: false, status: 401, error: 'not_authenticated' };
+
+    const response = await fetch(`${getBackendHttpBase()}/prompts/${normalizedId}/activate`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: 'preset_activation_failed' };
+    }
+
+    const activation: unknown = await response.json();
+    return { ok: true, status: response.status, activation };
+  } catch (error) {
+    console.error('[Presets] Failed to activate preset:', (error as Error).message);
+    return { ok: false, status: 503, error: 'preset_service_unavailable' };
+  }
+});
+
 // NEW: Check if token is valid and not expired
 ipcMain.handle('auth:checkTokenValidity', async () => {
   try {
@@ -512,6 +630,7 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
 // Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
+    captureSessionController.reset('logout');
     await headerController.handleLogout();
     broadcastAuthTokenChanged(null);
     console.log('[Auth] ✅ Logged out via HeaderController');
@@ -520,6 +639,10 @@ ipcMain.handle('auth:logout', async () => {
     console.error('[Auth] ❌ Logout failed:', err);
     return { success: false, error: (err as Error).message };
   }
+});
+
+app.on('will-quit', () => {
+  captureSessionController.reconcileNoCapture('app_shutdown');
 });
 
 // 💳 Subscription refresh handler (Stripe Integration)
@@ -629,25 +752,59 @@ ipcMain.handle('app:quit', () => {
   app.quit();
 });
 
-// Session state broadcast handler (CRITICAL FIX for Demo)
-// Receives session state from EviaBar (Header window) and broadcasts to all windows
-// This ensures AskView always has the correct session state (before/during/after meeting)
-ipcMain.on('session-state-changed', (_event, newState: string) => {
-  console.log(`[Main] 📡 Broadcasting session state to all windows: ${newState}`);
-  
-  // Import BrowserWindow to get all windows
-  const { BrowserWindow } = require('electron');
-  const allWindows = BrowserWindow.getAllWindows();
-  
-  let broadcastCount = 0;
-  allWindows.forEach((win: any) => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('session-state-changed', newState);
-      broadcastCount++;
-    }
+function toLegacySessionState(snapshot: CaptureSessionSnapshot): 'before' | 'during' | 'after' {
+  if (snapshot.state === 'recording' || snapshot.state === 'stopping') return 'during';
+  if (snapshot.state === 'review') return 'after';
+  return 'before';
+}
+
+function broadcastCaptureSession(snapshot: CaptureSessionSnapshot, previous?: CaptureSessionSnapshot) {
+  const legacyState = toLegacySessionState(snapshot);
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+
+  console.log('[CaptureSession]', JSON.stringify({
+    from: previous?.state ?? null,
+    to: snapshot.state,
+    generation: snapshot.generation,
+    reason: snapshot.reason,
+    errorCode: snapshot.errorCode,
+    windowCount: windows.length,
+  }));
+
+  windows.forEach((win) => {
+    win.webContents.send('capture-session:state', snapshot);
+    // Existing Ask/Listen components consume the legacy semantic state. This
+    // is now an output of capture truth, never an independent input.
+    win.webContents.send('session-state-changed', legacyState);
   });
-  
-  console.log(`[Main] ✅ Broadcast complete - sent to ${broadcastCount} window(s)`);
+}
+
+captureSessionController.subscribe((current, previous) => {
+  broadcastCaptureSession(current, previous);
+});
+
+ipcMain.handle('capture-session:get', () => captureSessionController.getSnapshot());
+ipcMain.handle('capture-session:begin-start', () => captureSessionController.beginStart());
+ipcMain.handle('capture-session:confirm-started', (_event, generation: number) =>
+  captureSessionController.confirmStarted(generation));
+ipcMain.handle('capture-session:fail-start', (_event, generation: number, errorCode?: string) =>
+  captureSessionController.failStart(generation, errorCode));
+ipcMain.handle('capture-session:begin-stop', () => captureSessionController.beginStop());
+ipcMain.handle('capture-session:confirm-stopped', (_event, generation: number) =>
+  captureSessionController.confirmStopped(generation));
+ipcMain.handle('capture-session:fail-stop', (_event, generation: number, errorCode?: string) =>
+  captureSessionController.failStop(generation, errorCode));
+ipcMain.handle('capture-session:complete', (_event, generation: number) =>
+  captureSessionController.complete(generation));
+ipcMain.handle('capture-session:reconcile-no-capture', (_event, reason?: CaptureTransitionReason) =>
+  captureSessionController.reconcileNoCapture(reason));
+
+// Reject the former renderer-owned lifecycle channel. Keeping the listener
+// makes outdated renderers observable without allowing them to recreate split
+// brain state.
+ipcMain.on('session-state-changed', (_event, attemptedState: string) => {
+  console.warn('[CaptureSession] Ignored legacy renderer state mutation:', attemptedState);
+  broadcastCaptureSession(captureSessionController.getSnapshot());
 });
 
 // Permission handlers (Phase 3: Permission window)
@@ -789,6 +946,15 @@ ipcMain.handle('audio-debug:check-flag', async () => {
   }
 });
 
+ipcMain.handle('audio-debug:get-config', async () => {
+  const desktopDir = path.join(os.homedir(), 'Desktop');
+  return {
+    saveAudio: fs.existsSync(path.join(desktopDir, 'Taylos_DEBUG_AUDIO')),
+    disableCustomAec: fs.existsSync(path.join(desktopDir, 'Taylos_DISABLE_CUSTOM_AEC')),
+    disableBrowserProcessing: fs.existsSync(path.join(desktopDir, 'Taylos_DISABLE_BROWSER_AUDIO_PROCESSING')),
+  };
+});
+
 // Save audio file
 ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string, buffer: number[] }) => {
   try {
@@ -826,18 +992,14 @@ console.log(`[Protocol] ✅ Registered ${LEGACY_DEEP_LINK_SCHEME}:// compatibili
 // macOS: Handle taylos:// URLs when app is already running
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  console.log('[Protocol] 🔗 macOS open-url:', url);
+  console.log('[Protocol] macOS open-url:', describeDeepLink(url));
 
   const normalizedUrl = normalizeDeepLink(url);
   if (normalizedUrl !== url) {
     console.log('[Protocol] 🔄 Normalized legacy deep link:', normalizedUrl);
   }
 
-  if (isAuthCallbackDeepLink(normalizedUrl)) {
-    handleAuthCallback(normalizedUrl);
-  } else if (isLaunchDeepLink(normalizedUrl)) {
-    handleLaunchRequest(normalizedUrl);
-  }
+  routeDeepLink(normalizedUrl);
 });
 
 function broadcastAuthTokenChanged(token: string | null) {
@@ -945,7 +1107,7 @@ async function handleLaunchRequest(url: string) {
   try {
     const normalizedUrl = normalizeDeepLink(url);
     console.log('[Launch] ========== LAUNCH REQUEST ==========');
-    console.log('[Launch] 🚀 URL:', normalizedUrl);
+    console.log('[Launch] URL:', describeDeepLink(normalizedUrl));
     console.log('[Launch] 📍 Platform:', process.platform);
     
     const urlObj = new URL(normalizedUrl);
@@ -1036,10 +1198,13 @@ ipcMain.handle('shell:navigate', async (_event, url: string) => {
   }
 });
 
-// Kick off boot
-boot().catch((err) => {
-  console.error('[Main] ❌ Boot failed:', err);
-});
+// Only the lock owner may initialize product services. Calling app.quit() is
+// asynchronous, so a secondary instance must not fall through into boot().
+if (gotSingleInstanceLock) {
+  boot().catch((err) => {
+    console.error('[Main] ❌ Boot failed:', err);
+  });
+}
 
 // A tiny invisible window kept open on Windows to avoid window-all-closed
 // quitting during state transitions (e.g., closing permissions before header
@@ -1074,7 +1239,7 @@ function ensureWindowsAnchorWindow() {
 }
 
 // Create the anchor after app is ready
-app.whenReady().then(() => {
+if (gotSingleInstanceLock) app.whenReady().then(() => {
   try {
     ensureWindowsAnchorWindow();
     console.log('[Main] 🪟 Windows anchor window initialized');

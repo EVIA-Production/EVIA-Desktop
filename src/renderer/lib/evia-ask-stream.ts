@@ -9,6 +9,8 @@ export type StreamAskParams = {
   tokenType?: string
   signal?: AbortSignal
   screenshotRef?: string
+  requestId?: string
+  clientStartedAtMs?: number
 }
 
 export type StreamAskHandle = {
@@ -19,7 +21,7 @@ export type StreamAskHandle = {
   abort: () => void
 }
 
-export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessionState, token, tokenType = 'Bearer', signal, screenshotRef }: StreamAskParams): StreamAskHandle {
+export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessionState, token, tokenType = 'Bearer', signal, screenshotRef, requestId, clientStartedAtMs }: StreamAskParams): StreamAskHandle {
   const url = `${baseUrl.replace(/\/$/, '')}/ask`
   const headers: Record<string, string> = {
     'Authorization': `${tokenType} ${token}`,
@@ -32,7 +34,9 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     chat_id: chatId, 
     prompt: transcript || prompt,  // Use transcript if available, otherwise just prompt
     language, 
-    stream: true 
+    stream: true,
+    request_id: requestId,
+    client_started_at_ms: clientStartedAtMs,
   }
   
   // SESSION STATE: Add session state for context-aware responses
@@ -121,6 +125,13 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
             if (isProviderRouteEvent || (meta && typeof meta === 'object')) {
               try {
                 const route = isProviderRouteEvent ? obj : meta
+                if (route?.type === 'request_trace') {
+                  console.log(
+                    `[Ask][Trace] request=${String(route.request_id || 'unknown')} ` +
+                    `server_pre_stream_ms=${String(route.server_pre_stream_ms ?? 'unknown')}`
+                  )
+                  continue
+                }
                 const provider = String(route?.provider || 'unknown')
                 const model = String(route?.model || 'unknown')
                 const reason = String(route?.reason || 'unknown')

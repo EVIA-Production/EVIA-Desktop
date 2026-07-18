@@ -66,6 +66,20 @@ interface EviaBridge {
     checkTokenValidity: () => Promise<{ valid: boolean; reason: string; expiresIn?: number }>;
     validate: () => Promise<{ ok: boolean; authenticated: boolean; user?: { username: string; email?: string } }>;
   };
+  presets: {
+    list: () => Promise<{
+      ok: boolean;
+      status?: number;
+      error?: string;
+      prompts?: any[];
+    }>;
+    activate: (presetId: number | string) => Promise<{
+      ok: boolean;
+      status?: number;
+      error?: string;
+      activation?: any;
+    }>;
+  };
   // 💳 Subscription API (Stripe Integration)
   subscription: {
     refresh: () => Promise<{ success: boolean; error?: string }>;

@@ -8,6 +8,7 @@ import ShortcutsView from './ShortcutsView'
 import { i18n } from '../i18n/i18n'
 import { startCapture, stopCapture } from '../audio-processor-glass-parity'
 import '../overlay/overlay-glass.css'
+import '../overlay/liquid-glass.css'
 import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
@@ -82,6 +83,16 @@ const params = new URLSearchParams(window.location.search)
 const view = (params.get('view') || 'header').toLowerCase()
 const rootEl = document.getElementById('overlay-root')
 
+document.documentElement.dataset.material = params.get('material') || 'custom'
+document.documentElement.dataset.surface = params.get('surface') || 'content'
+document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false'
+window.addEventListener('focus', () => {
+  document.documentElement.dataset.windowActive = 'true'
+})
+window.addEventListener('blur', () => {
+  document.documentElement.dataset.windowActive = 'false'
+})
+
 // DEBUG: Entry point diagnostics (reduced to single line)
 console.log('[OverlayEntry] Rendering view:', view)
 
@@ -92,7 +103,7 @@ const savedLanguage = i18n.getLanguage()
 let isTogglingLanguage = false;
 
 // Language toggle function that broadcasts to all windows
-const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean, setIsCapturing: (val: boolean) => void) => {
+const handleToggleLanguage = async (captureHandleRef: any, setIsCapturing: (val: boolean) => void) => {
   // EDGE CASE #1: Prevent rapid toggle race conditions
   if (isTogglingLanguage) {
     console.warn('[OverlayEntry] ⚠️ Language toggle already in progress, ignoring duplicate request');
@@ -107,13 +118,44 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     
     console.log('[OverlayEntry] 🌐 Language toggle started:', currentLang, '→', newLang)
     
-    // EDGE CASE #2: Stop audio capture first (graceful close of active session)
-    if (isCapturing && captureHandleRef.current) {
+    // Stop through the same main-process lifecycle used by the Listen control.
+    // Clearing only the renderer handle here previously left the public state at
+    // `recording`, which made the next launch display Stop without live capture.
+    const captureApi = (window as any).evia?.captureSession
+    const activeHandle = captureHandleRef.current
+    if (activeHandle) {
       console.log('[OverlayEntry] 🛑 Stopping audio capture before language toggle...')
+      let stopGeneration: number | null = null
       try {
-        await stopCapture(captureHandleRef.current)
+        let snapshot = await captureApi?.get?.()
+        if (snapshot?.state === 'starting') {
+          const started = await captureApi?.confirmStarted?.(snapshot.generation)
+          snapshot = started?.snapshot ?? snapshot
+        }
+        if (snapshot?.state === 'recording') {
+          const transition = await captureApi?.beginStop?.()
+          if (transition && !transition.accepted) {
+            throw new Error(`Capture lifecycle rejected language stop: ${transition.reason}`)
+          }
+          stopGeneration = transition?.snapshot?.generation ?? snapshot.generation
+        } else if (snapshot?.state === 'stopping') {
+          stopGeneration = snapshot.generation
+        }
+
+        await stopCapture(activeHandle)
         captureHandleRef.current = null
         setIsCapturing(false)
+
+        if (stopGeneration !== null) {
+          const stopped = await captureApi?.confirmStopped?.(stopGeneration)
+          if (stopped?.snapshot?.state === 'review') {
+            await captureApi?.complete?.(stopGeneration)
+          } else {
+            await captureApi?.reconcileNoCapture?.('language_changed')
+          }
+        } else {
+          await captureApi?.reconcileNoCapture?.('language_changed')
+        }
         
         // Notify Listen window to stop timer
         const eviaIpc = (window as any).evia?.ipc
@@ -123,8 +165,16 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
         }
       } catch (error) {
         console.error('[OverlayEntry] ❌ Error stopping audio capture:', error);
-        // Continue with toggle even if stop fails
+        if (stopGeneration !== null) {
+          await captureApi?.failStop?.(stopGeneration, 'language_change_stop_failed')
+        }
+        showToast('Could not stop the current recording. Please try again.', 'error')
+        return
       }
+    } else {
+      // A renderer reload can destroy its MediaStream while the main process is
+      // still alive. Reconcile that stale state before changing language.
+      await captureApi?.reconcileNoCapture?.('language_changed')
     }
   
   // BACKEND INTEGRATION: Send language change command via WebSocket
@@ -176,55 +226,16 @@ const handleToggleLanguage = async (captureHandleRef: any, isCapturing: boolean,
     }
   }
   
-  // SINGULARITY ANIMATION: Shrink header to point, then expand with new language
-  const headerElement = document.querySelector('.evia-main-header') as HTMLElement
-  if (headerElement) {
-    console.log('[OverlayEntry] 🌀 Starting singularity animation...')
-    
-    // Phase 1: Compress to singularity (500ms)
-    headerElement.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease'
-    headerElement.style.transform = 'scale(0.01)'
-    headerElement.style.opacity = '0'
-    
-    // Wait for compression to complete
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // Update language (happens at singularity point)
-    i18n.setLanguage(newLang)
-    
-    // REACTIVE I18N: Broadcast to all windows
-    const eviaIpc = (window as any).evia?.ipc
-    if (eviaIpc) {
-      eviaIpc.send('language-changed', newLang)
-    }
-    
-    // Trigger local re-render
-    window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
-    
-    // Small delay for language to update in DOM
-    await new Promise(resolve => setTimeout(resolve, 50))
-    
-    // Phase 2: Expand from singularity (500ms)
-    headerElement.style.transform = 'scale(1)'
-    headerElement.style.opacity = '1'
-    
-    // Wait for expansion to complete
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // Reset transition for normal animations
-    headerElement.style.transition = ''
-    
-    console.log('[OverlayEntry] ✅ Singularity animation complete, language:', newLang)
-  } else {
-    // EDGE CASE #3: Fallback if header element not found
-    console.warn('[OverlayEntry] ⚠️ Header element not found, performing instant language toggle');
-    i18n.setLanguage(newLang)
-    const eviaIpc = (window as any).evia?.ipc
-    if (eviaIpc) {
-      eviaIpc.send('language-changed', newLang)
-    }
-    window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
-  }
+  // Commit the language change immediately. The old one-second collapse/expand
+  // animation hid the bar while every attached window was trying to follow its
+  // transient geometry, which caused visible lag and stale anchoring.
+  i18n.setLanguage(newLang)
+  const languageIpc = (window as any).evia?.ipc
+  languageIpc?.send?.('language-changed', newLang)
+  window.dispatchEvent(new CustomEvent('evia-language-changed', {
+    detail: { language: newLang },
+  }))
+  console.log('[OverlayEntry] ✅ Language changed immediately:', newLang)
   } catch (error) {
     // EDGE CASE #4: Error during toggle - log and recover gracefully
     console.error('[OverlayEntry] ❌ Error during language toggle:', error);
@@ -281,7 +292,8 @@ function App() {
     console.log('[OverlayEntry] ✅ Registered cross-window language listener')
     
     return () => {
-      console.log('[OverlayEntry] 🧹 Cleaning up language listener')
+      eviaIpc.off?.('language-changed', handleCrossWindowLanguageChange)
+      console.log('[OverlayEntry] 🧹 Cleaned up language listener')
     }
   }, [])
 
@@ -364,7 +376,7 @@ function App() {
   }, [])
 
   const toggleLanguage = () => {
-    handleToggleLanguage(captureHandleRef, Boolean(captureHandleRef.current), setIsCapturing)
+    void handleToggleLanguage(captureHandleRef, setIsCapturing)
   }
 
   const handleSetListening = async (enabled: boolean): Promise<boolean> => {
@@ -436,9 +448,9 @@ function App() {
 
         // Stop capture
         console.log('[OverlayEntry] Stopping audio capture...')
+        await stopCapture(activeHandle)
         captureHandleRef.current = null
         setIsCapturing(false)
-        await stopCapture(activeHandle)
         console.log('[OverlayEntry] Audio capture stopped successfully')
         
         // FIX: Notify Listen window to stop timer

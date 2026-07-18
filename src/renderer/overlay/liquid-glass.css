@@ -1,0 +1,419 @@
+/*
+ * Taylos material layer.
+ *
+ * Native mode deliberately leaves the center translucent so NSGlassEffectView
+ * remains the source of backdrop sampling and movement-dependent refraction.
+ * Custom mode uses Electron vibrancy plus this calibrated optical shell; it
+ * never captures the desktop and therefore never needs Screen Recording access.
+ */
+
+:root {
+  --taylos-glass-radius-modal: 22px;
+  --taylos-glass-radius-overlay: 999px;
+  --taylos-glass-radius-content: 18px;
+  --taylos-glass-radius-popover: 14px;
+  --taylos-glass-radius-utility: 18px;
+  --taylos-glass-radius: var(--taylos-glass-radius-content);
+
+  --taylos-glass-fill: rgba(16, 17, 19, 0.46);
+  --taylos-glass-fill-native: rgba(7, 8, 10, 0.44);
+  --taylos-glass-content-plane: rgba(10, 11, 13, 0.52);
+  --taylos-glass-content-plane-native: rgba(7, 8, 10, 0.48);
+  --taylos-glass-live-plane-native: rgba(7, 8, 10, 0.74);
+  --taylos-glass-popover-plane: rgba(15, 16, 18, 0.54);
+  --taylos-glass-inner-light: rgba(255, 255, 255, 0.085);
+  --taylos-glass-inner-mid: rgba(255, 255, 255, 0.028);
+  --taylos-glass-inner-dark: rgba(0, 0, 0, 0.32);
+  --taylos-glass-edge-dark: rgba(0, 0, 0, 0.34);
+  --taylos-glass-edge-dark-strong: rgba(0, 0, 0, 0.56);
+  --taylos-glass-rim-hot: rgba(255, 255, 255, 0.20);
+  --taylos-glass-rim: rgba(255, 255, 255, 0.075);
+  --taylos-glass-rim-low: rgba(0, 0, 0, 0.08);
+  --taylos-glass-separator: rgba(255, 255, 255, 0.14);
+  --taylos-glass-control: rgba(255, 255, 255, 0.10);
+  --taylos-glass-control-hover: rgba(255, 255, 255, 0.16);
+  --taylos-glass-control-press: rgba(255, 255, 255, 0.22);
+  --taylos-glass-shadow-inset:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 1px 0 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    inset -1px 0 0 rgba(0, 0, 0, 0.18);
+  --taylos-glass-filter: blur(28px) saturate(1.16) brightness(0.76) contrast(1.035);
+}
+
+html[data-surface='modal'] { --taylos-glass-radius: var(--taylos-glass-radius-modal); }
+html[data-surface='overlay'] { --taylos-glass-radius: var(--taylos-glass-radius-overlay); }
+html[data-surface='popover'] { --taylos-glass-radius: var(--taylos-glass-radius-popover); }
+html[data-surface='utility'] { --taylos-glass-radius: var(--taylos-glass-radius-utility); }
+
+html,
+body,
+#overlay-root,
+#welcome-root,
+#permission-root,
+#subscription-root {
+  background: transparent !important;
+}
+
+html[data-window-active='false'] {
+  --taylos-glass-inner-light: rgba(255, 255, 255, 0.08);
+  --taylos-glass-rim-hot: rgba(255, 255, 255, 0.18);
+  --taylos-glass-rim: rgba(255, 255, 255, 0.085);
+  --taylos-glass-control-hover: rgba(255, 255, 255, 0.12);
+}
+
+/* Every renderer root is one optical shell. Product content remains unchanged. */
+:is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+) {
+  isolation: isolate;
+  border: 0 !important;
+  outline: 0 !important;
+  border-radius: var(--taylos-glass-radius) !important;
+  background: var(--taylos-glass-fill) !important;
+  box-shadow: var(--taylos-glass-shadow-inset) !important;
+  -webkit-backdrop-filter: var(--taylos-glass-filter);
+  backdrop-filter: var(--taylos-glass-filter);
+}
+
+html[data-material='native'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+) {
+  background: var(--taylos-glass-fill-native) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/*
+ * The base layer is attenuation plus an inward gradient. It is static: glass
+ * does not chase the pointer. Native/AppKit provides the dynamic backdrop.
+ */
+:is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+)::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+  filter: none !important;
+  opacity: 1 !important;
+  background:
+    linear-gradient(
+      90deg,
+      var(--taylos-glass-edge-dark) 0%,
+      rgba(0, 0, 0, 0.12) 1.25%,
+      transparent 3.25%,
+      transparent 96.75%,
+      rgba(0, 0, 0, 0.15) 98.75%,
+      var(--taylos-glass-edge-dark-strong) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.11) 0%,
+      transparent 3%,
+      transparent 96%,
+      rgba(0, 0, 0, 0.17) 98.5%,
+      var(--taylos-glass-edge-dark-strong) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 var(--taylos-glass-inner-light),
+    inset 1px 0 0 var(--taylos-glass-inner-mid),
+    inset -1px 0 0 rgba(0, 0, 0, 0.14),
+    inset 0 -1px 0 var(--taylos-glass-inner-dark),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+}
+
+/*
+ * One optical rim only. The lower-right arc is dark attenuation rather than a
+ * second black lip; the native BrowserWindow remains the sole outer shadow.
+ */
+:is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+)::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  padding: 1px !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  z-index: 20 !important;
+  opacity: 1 !important;
+  background:
+    conic-gradient(
+      from 278deg at 50% 50%,
+      rgba(0, 0, 0, 0.10) 0deg,
+      var(--taylos-glass-rim-hot) 30deg,
+      var(--taylos-glass-rim) 85deg,
+      rgba(255, 255, 255, 0.018) 145deg,
+      rgba(0, 0, 0, 0.12) 210deg,
+      rgba(0, 0, 0, 0.09) 318deg,
+      rgba(0, 0, 0, 0.10) 360deg
+    ) !important;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  -webkit-mask-composite: xor !important;
+  mask-composite: exclude !important;
+}
+
+/* Reading surfaces retain the glass edge but calm the center for legibility. */
+:is(.assistant-container, .ask-container) {
+  background: var(--taylos-glass-content-plane) !important;
+}
+
+html[data-material='native'] :is(.assistant-container, .ask-container) {
+  background: var(--taylos-glass-live-plane-native) !important;
+}
+
+/*
+ * AppKit owns backdrop sampling and the optical rim in native mode. These
+ * renderer layers provide only enough attenuation for text; they must not
+ * paint a second bright perimeter over NSGlassEffectView.
+ */
+html[data-material='native'][data-surface='overlay'] .evia-main-header {
+  background: var(--taylos-glass-live-plane-native) !important;
+}
+
+html[data-material='native'][data-surface='content'] :is(
+  .assistant-container,
+  .ask-container
+)::before,
+html[data-material='native'][data-surface='overlay'] .evia-main-header::before,
+html[data-material='native'][data-surface='popover'] .settings-container::before {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.20) 0%,
+      rgba(0, 0, 0, 0.055) 1.25%,
+      transparent 3%,
+      transparent 97%,
+      rgba(0, 0, 0, 0.065) 98.75%,
+      rgba(0, 0, 0, 0.23) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.055) 0%,
+      transparent 3%,
+      transparent 96.5%,
+      rgba(0, 0, 0, 0.22) 100%
+    ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 1px 0 0 rgba(255, 255, 255, 0.014),
+    inset -1px 0 0 rgba(0, 0, 0, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18) !important;
+}
+
+html[data-material='native'][data-surface='content'] :is(
+  .assistant-container,
+  .ask-container
+)::after,
+html[data-material='native'][data-surface='overlay'] .evia-main-header::after,
+html[data-material='native'][data-surface='popover'] .settings-container::after {
+  opacity: 0 !important;
+}
+
+:is(.settings-container, .shortcuts-container) {
+  background: var(--taylos-glass-popover-plane) !important;
+}
+
+html[data-material='native'] :is(
+  .settings-container,
+  .shortcuts-container
+) {
+  background: rgba(7, 8, 10, 0.48) !important;
+}
+
+/* Permission state belongs to its controls and icon, never to the glass shell. */
+.permission-container.success {
+  border: 0 !important;
+}
+
+.permission-action-primary {
+  background-color: rgb(10, 132, 255) !important;
+}
+
+.permission-action-primary:hover {
+  background-color: rgb(37, 145, 255) !important;
+}
+
+.permission-action-primary:active {
+  background-color: rgb(0, 112, 224) !important;
+}
+
+.permission-action-secondary {
+  background-color: rgba(255, 255, 255, 0.095) !important;
+}
+
+/* Separators belong to the content hierarchy, not to the outer rim. */
+:is(.header, .header-section, .shortcuts-header h2, .response-header) {
+  border-color: var(--taylos-glass-separator) !important;
+}
+
+/* Only controls respond to pointer interaction. */
+:is(
+  .evia-header-actions,
+  .evia-settings-button,
+  .toggle-button,
+  .copy-button,
+  .submit-btn,
+  .settings-button,
+  .language-button,
+  .shortcuts-container button,
+  .welcome-container button,
+  .permission-action-button,
+  .subscription-required-container button
+) {
+  transition: background-color 120ms ease, transform 90ms ease, box-shadow 120ms ease !important;
+}
+
+:is(
+  .evia-header-actions,
+  .evia-settings-button,
+  .toggle-button,
+  .copy-button,
+  .submit-btn,
+  .settings-button,
+  .language-button,
+  .shortcuts-container button,
+  .welcome-container button,
+  .permission-action-button,
+  .subscription-required-container button
+):hover {
+  background-color: var(--taylos-glass-control-hover) !important;
+}
+
+:is(
+  .evia-header-actions,
+  .evia-settings-button,
+  .toggle-button,
+  .copy-button,
+  .submit-btn,
+  .settings-button,
+  .language-button,
+  .shortcuts-container button,
+  .welcome-container button,
+  .permission-action-button,
+  .subscription-required-container button
+):active {
+  background-color: var(--taylos-glass-control-press) !important;
+  transform: scale(0.985);
+}
+
+/* Semantic states keep their meaning; shell color remains neutral. */
+.evia-listen-button.listen-active::before {
+  background: rgba(196, 28, 39, 0.72) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 18px rgba(196, 28, 39, 0.16);
+}
+
+/* Electron must never add a synthetic assistance ring around native glass. */
+:is(
+  button,
+  input,
+  textarea,
+  select,
+  a[href],
+  [role='button'],
+  [tabindex='0']
+):focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Later legacy selectors must never restore Electron's assistance halo. */
+:is(
+  .evia-listen-button,
+  .bar-button,
+  .evia-header-actions,
+  .evia-settings-button,
+  .settings-button,
+  .language-button,
+  .scroll-to-bottom-button,
+  .toggle-button,
+  .copy-button,
+  .submit-btn
+):is(:focus, :focus-visible, :focus-within) {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Selected language keeps its semantic blue border without Chromium's white halo. */
+.language-button.active:is(:focus, :focus-visible, :focus-within) {
+  border-color: var(--accent-strong) !important;
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3) !important;
+}
+
+/* Empty utility-window background moves the window; content remains usable. */
+.shortcuts-container {
+  -webkit-app-region: drag;
+}
+
+.shortcuts-container :is(
+  .shortcuts-header,
+  .shortcuts-list,
+  .shortcut-row,
+  .shortcuts-actions,
+  button,
+  input,
+  textarea,
+  select,
+  a,
+  [role='button'],
+  [contenteditable='true']
+) {
+  -webkit-app-region: no-drag;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .evia-header-actions,
+    .evia-settings-button,
+    .toggle-button,
+    .copy-button,
+    .submit-btn,
+    .settings-button,
+    .language-button,
+    .shortcuts-container button,
+    .welcome-container button,
+    .permission-action-button,
+    .subscription-required-container button
+  ) {
+    transition: none !important;
+  }
+}

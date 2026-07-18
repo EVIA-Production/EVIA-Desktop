@@ -1,0 +1,7 @@
+{
+  "name": "taylos-macos-liquid-glass",
+  "version": "1.0.0",
+  "private": true,
+  "gypfile": true,
+  "main": "build/Release/taylos_liquid_glass.node"
+}

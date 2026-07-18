@@ -107,6 +107,7 @@ class DesktopBridge {
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private activeClients: Set<WebSocket> = new Set();
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     // Lazy start
@@ -147,6 +148,9 @@ class DesktopBridge {
 
       // WebSocket Server for tab communication
       this.wss = new WebSocketServer({ server: this.httpServer });
+      this.wss.on('error', (err: NodeJS.ErrnoException) => {
+        console.error('[Bridge] WebSocket server error:', err.code || err.message);
+      });
 
       this.wss.on('connection', (ws: WebSocket) => {
         console.log('[Bridge] 🔗 Frontend tab connected');
@@ -176,17 +180,24 @@ class DesktopBridge {
         });
       });
 
-      this.httpServer.listen(PORT, HOST, () => {
-        console.log(`[Bridge] 🌉 Server running at http://${HOST}:${PORT}`);
+      this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`[Bridge] ${HOST}:${PORT} is already owned; bridge disabled for this process`);
+        } else {
+          console.error('[Bridge] Server error:', err);
+        }
+        this.wss?.close();
+        this.wss = null;
+        this.httpServer = null;
       });
 
-      this.httpServer.on('error', (err) => {
-        console.error('[Bridge] ❌ Server error:', err);
+      this.httpServer.listen(PORT, HOST, () => {
+        console.log(`[Bridge] Server running at http://${HOST}:${PORT}`);
       });
       
       // WINDOWS FIX (2025-12-05): Periodic ping to keep connections alive
       // Browsers may close stale WebSocket connections, so send heartbeat
-      setInterval(() => {
+      this.heartbeatTimer = setInterval(() => {
         for (const client of this.activeClients) {
           if (client.readyState === WebSocket.OPEN) {
             try {
@@ -253,8 +264,18 @@ class DesktopBridge {
   }
 
   public stop() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    for (const client of this.activeClients) {
+      try { client.close(); } catch {}
+    }
+    this.activeClients.clear();
     this.wss?.close();
     this.httpServer?.close();
+    this.wss = null;
+    this.httpServer = null;
   }
 }
 

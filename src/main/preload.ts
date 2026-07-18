@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('evia', {
   createWs,
   // Audio debug flag check (synchronous invoke)
   checkDebugFlag: () => ipcRenderer.invoke('audio-debug:check-flag'),
+  getAudioDiagnosticConfig: () => ipcRenderer.invoke('audio-debug:get-config'),
   getDesktopCapturerSources: (options: Electron.SourcesOptions) => ipcRenderer.invoke('desktop-capturer:getSources', options),
   systemAudio: {
     start: () => ipcRenderer.invoke('system-audio:start'),
@@ -84,10 +85,15 @@ contextBridge.exposeInMainWorld('evia', {
     hide: (name: 'listen' | 'ask' | 'settings' | 'shortcuts') => ipcRenderer.invoke('win:hide', name),
     getHeaderPosition: () => ipcRenderer.invoke('win:getHeaderPosition'),
     moveHeaderTo: (x: number, y: number) => ipcRenderer.invoke('win:moveHeaderTo', x, y),
-    resizeHeader: (w: number, h: number, anchorX?: number) => ipcRenderer.invoke('win:resizeHeader', { width: w, height: h, anchorX }),
+    resizeHeader: (w: number, h: number, anchorX?: number, settingsAnchorX?: number) => ipcRenderer.invoke('win:resizeHeader', {
+      width: w,
+      height: h,
+      anchorX,
+      settingsAnchorX,
+    }),
     adjustWindowHeight: (winName: 'listen' | 'ask' | 'settings' | 'shortcuts', height: number) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
     adjustAskHeight: (height: number) => ipcRenderer.invoke('adjust-window-height', { winName: 'ask', height }),
-    showSettingsWindow: (buttonX?: number) => ipcRenderer.send('show-settings-window', buttonX),
+    showSettingsWindow: (buttonRightX?: number) => ipcRenderer.send('show-settings-window', buttonRightX),
     hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
     toggleAllVisibility: () => ipcRenderer.invoke('header:toggle-visibility'),
@@ -110,6 +116,20 @@ contextBridge.exposeInMainWorld('evia', {
     set: (payload: Record<string, any>) => ipcRenderer.send('live-transcript:set', payload),
     clear: () => ipcRenderer.send('live-transcript:clear'),
   },
+  captureSession: {
+    get: () => ipcRenderer.invoke('capture-session:get'),
+    beginStart: () => ipcRenderer.invoke('capture-session:begin-start'),
+    confirmStarted: (generation: number) => ipcRenderer.invoke('capture-session:confirm-started', generation),
+    failStart: (generation: number, errorCode?: string) =>
+      ipcRenderer.invoke('capture-session:fail-start', generation, errorCode),
+    beginStop: () => ipcRenderer.invoke('capture-session:begin-stop'),
+    confirmStopped: (generation: number) => ipcRenderer.invoke('capture-session:confirm-stopped', generation),
+    failStop: (generation: number, errorCode?: string) =>
+      ipcRenderer.invoke('capture-session:fail-stop', generation, errorCode),
+    complete: (generation: number) => ipcRenderer.invoke('capture-session:complete', generation),
+    reconcileNoCapture: (reason?: string) =>
+      ipcRenderer.invoke('capture-session:reconcile-no-capture', reason),
+  },
   closeWindow: (name: string) => ipcRenderer.invoke('close-window', name),
   auth: {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', {username, password}),
@@ -117,6 +137,10 @@ contextBridge.exposeInMainWorld('evia', {
     logout: () => ipcRenderer.invoke('auth:logout'),
     checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // NEW: Check token expiry
     validate: () => ipcRenderer.invoke('auth:validate')  // UI IMPROVEMENT: Proactive auth validation
+  },
+  presets: {
+    list: () => ipcRenderer.invoke('presets:list'),
+    activate: (presetId: number | string) => ipcRenderer.invoke('presets:activate', presetId),
   },
   // 💳 Subscription APIs (Stripe Integration)
   subscription: {
