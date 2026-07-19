@@ -318,6 +318,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       try {
         if (captureSessionRef.current.state !== 'idle' || isListeningRef.current) return;
         const eviaAuth = (window as any).evia?.auth;
+        const captureApi = (window as any).evia?.captureSession;
         const token = await eviaAuth?.getToken?.();
         const chatId = localStorage.getItem('current_chat_id');
         const { BACKEND_URL: baseUrl } = await import('../config/config');
@@ -340,7 +341,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         if (response.ok) {
           const data = await response.json();
           console.log('[EviaBar] ✅ Backend session status:', data.status);
-          if (data.status === 'during' || data.status === 'after') {
+          if (data.status === 'during') {
             console.warn('[EviaBar] ⚠️ Completing orphaned backend session without changing capture UI');
             const completionResponse = await fetch(`${baseUrl}/session/complete`, {
               method: 'POST',
@@ -359,6 +360,14 @@ const EviaBar: React.FC<EviaBarProps> = ({
               (window as any).evia?.ipc?.send?.('clear-session');
             } else {
               console.warn('[EviaBar] Could not complete orphaned session:', completionResponse.status);
+            }
+          } else if (data.status === 'after') {
+            // `after` is the normal paused post-call state. A new desktop
+            // process has no capture state to restore, but must keep the chat
+            // available so the user can review it and explicitly press Done.
+            const restored = await captureApi?.restoreReview?.();
+            if (!restored?.accepted) {
+              console.warn('[EviaBar] Could not restore paused session review:', restored?.reason);
             }
           }
         } else {

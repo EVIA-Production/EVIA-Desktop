@@ -14,6 +14,7 @@ export type CaptureTransitionReason =
   | 'capture_stopped'
   | 'capture_stop_failed'
   | 'user_done'
+  | 'backend_review_recovered'
   | 'capture_context_lost'
   | 'language_changed'
   | 'logout'
@@ -43,8 +44,9 @@ type TransitionListener = (
 /**
  * Process-local source of truth for capture lifecycle.
  *
- * Browser storage and backend meeting state deliberately cannot mutate this
- * controller. A renderer may only confirm what its real MediaStream did.
+ * Browser storage and backend meeting state cannot resurrect active capture.
+ * A renderer may restore only the non-capturing review state after confirming
+ * the authenticated backend session is paused.
  */
 export class CaptureSessionController {
   private snapshot: CaptureSessionSnapshot
@@ -129,6 +131,19 @@ export class CaptureSessionController {
       return this.noop(false, 'stale_or_invalid_completion')
     }
     return this.transition('idle', 'user_done', { errorCode: null })
+  }
+
+  restoreReview(): CaptureTransitionResult {
+    if (this.snapshot.state === 'review') {
+      return this.noop(true, 'review_already_restored')
+    }
+    if (this.snapshot.state !== 'idle') {
+      return this.noop(false, `cannot_restore_review_from_${this.snapshot.state}`)
+    }
+    return this.transition('review', 'backend_review_recovered', {
+      generation: this.snapshot.generation + 1,
+      errorCode: null,
+    })
   }
 
   reconcileNoCapture(reason: CaptureTransitionReason = 'capture_context_lost'): CaptureTransitionResult {
