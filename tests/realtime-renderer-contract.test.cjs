@@ -183,6 +183,18 @@ test('Done never waits for backend archival before closing the local session', (
   );
 });
 
+test('paused backend sessions restore review instead of being auto-archived', () => {
+  const reconciliationBlock = barSource
+    .split('const reconcileStaleBackendSession = async () => {', 2)[1]
+    .split('// Sync on mount', 1)[0];
+  assert.ok(reconciliationBlock, 'backend reconciliation should exist');
+  assert.doesNotMatch(reconciliationBlock, /data\.status === 'during' \|\| data\.status === 'after'/);
+  assert.match(reconciliationBlock, /if \(data\.status === 'during'\)[\s\S]*\/session\/complete/);
+  assert.match(reconciliationBlock, /else if \(data\.status === 'after'\)[\s\S]*restoreReview/);
+  assert.match(preloadSource, /restoreReview: \(\) => ipcRenderer\.invoke\('capture-session:restore-review'\)/);
+  assert.match(mainSource, /capture-session:restore-review[\s\S]*captureSessionController\.restoreReview\(\)/);
+});
+
 test('partial transcript rendering follows the audio cadence', () => {
   assert.match(listenSource, /PARTIAL_THROTTLE_MS = 100/);
 });

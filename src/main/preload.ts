@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld('evia', {
     failStop: (generation: number, errorCode?: string) =>
       ipcRenderer.invoke('capture-session:fail-stop', generation, errorCode),
     complete: (generation: number) => ipcRenderer.invoke('capture-session:complete', generation),
+    restoreReview: () => ipcRenderer.invoke('capture-session:restore-review'),
     reconcileNoCapture: (reason?: string) =>
       ipcRenderer.invoke('capture-session:reconcile-no-capture', reason),
   },

@@ -843,6 +843,8 @@ ipcMain.handle('capture-session:fail-stop', (_event, generation: number, errorCo
   captureSessionController.failStop(generation, errorCode));
 ipcMain.handle('capture-session:complete', (_event, generation: number) =>
   captureSessionController.complete(generation));
+ipcMain.handle('capture-session:restore-review', () =>
+  captureSessionController.restoreReview());
 ipcMain.handle('capture-session:reconcile-no-capture', (_event, reason?: CaptureTransitionReason) =>
   captureSessionController.reconcileNoCapture(reason));
 
