@@ -160,6 +160,25 @@ test('capture shutdown cleans resources before optional debug export', () => {
   );
 });
 
+test('logout stops native capture before closing the renderer and publishing idle', () => {
+  const logoutBlock = mainSource
+    .split("ipcMain.handle('auth:logout'", 2)[1]
+    .split("app.on('will-quit'", 1)[0];
+  assert.ok(logoutBlock, 'logout handler should exist');
+  assert.match(logoutBlock, /systemAudioMacService\.stop\(\)/);
+  assert.match(logoutBlock, /systemAudioWindowsService\.stop\(\)/);
+  assert.ok(
+    logoutBlock.indexOf('systemAudioMacService.stop()') <
+      logoutBlock.indexOf('await headerController.handleLogout()'),
+    'main-process audio must stop before logout destroys the capture renderer',
+  );
+  assert.ok(
+    logoutBlock.indexOf('await headerController.handleLogout()') <
+      logoutBlock.indexOf("captureSessionController.reset('logout')"),
+    'idle must be published only after physical capture resources are gone',
+  );
+});
+
 test('a WebSocket policy close before open rejects the active connection attempt', () => {
   assert.match(wsSource, /if \(!opened\) \{/);
   assert.match(wsSource, /WebSocket closed before open/);

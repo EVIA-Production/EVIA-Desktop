@@ -677,8 +677,20 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
 // Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
-    captureSessionController.reset('logout');
+    // Native capture lives in the main process and survives renderer teardown.
+    // Stop it before closing the header window or publishing an idle lifecycle
+    // state so logout cannot leave system audio recording in the background.
+    const nativeStopResults = await Promise.all([
+      systemAudioMacService.stop(),
+      systemAudioWindowsService.stop(),
+    ]);
+    const nativeStopFailure = nativeStopResults.find((result) => !result.success);
+    if (nativeStopFailure) {
+      throw new Error(nativeStopFailure.error || 'Failed to stop native audio capture');
+    }
+
     await headerController.handleLogout();
+    captureSessionController.reset('logout');
     broadcastAuthTokenChanged(null);
     console.log('[Auth] ✅ Logged out via HeaderController');
     return { success: true };
