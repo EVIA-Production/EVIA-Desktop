@@ -387,16 +387,19 @@ function App() {
           return true
         }
 
-        console.log('[OverlayEntry] 🔐 Validating auth before starting session...');
+        // Latency: use the local JWT-expiry check (no network round-trip) instead of
+        // the server validate() call. Catches missing/expired tokens instantly; an
+        // otherwise-invalid token still fails fast at websocket connect.
+        console.log('[OverlayEntry] 🔐 Checking token validity (local) before starting session...');
         const eviaAuth = (window as any).evia?.auth;
-        if (eviaAuth?.validate) {
-          const authResult = await eviaAuth.validate();
-          if (!authResult || !authResult.authenticated) {
-            console.error('[OverlayEntry] ❌ Auth validation failed - cannot start session');
+        if (eviaAuth?.checkTokenValidity) {
+          const tokenStatus = await eviaAuth.checkTokenValidity();
+          if (!tokenStatus || tokenStatus.valid === false) {
+            console.error('[OverlayEntry] ❌ Token invalid/expired - cannot start session:', tokenStatus?.reason);
             showToast('Please login to start recording', 'error');
             return false;
           }
-          console.log('[OverlayEntry] ✅ Auth validated - proceeding with session start');
+          console.log('[OverlayEntry] ✅ Token valid (local check) - proceeding with session start');
         }
 
         // Start capture

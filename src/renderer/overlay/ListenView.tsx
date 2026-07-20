@@ -2107,8 +2107,36 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               Loading insights...
             </div>
           ) : sessionState === 'during' && !hasGroundedProspectSpeech(transcripts) ? (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
-              {i18n.t('overlay.listen.waitingForProspectSpeech')}
+            <div className="insights-placeholder" style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', background: 'transparent' }}>
+              <div style={{ fontStyle: 'italic', textAlign: 'center', color: 'rgba(255, 255, 255, 0.7)' }}>
+                {i18n.t('overlay.listen.noContext')}
+              </div>
+              <p
+                onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'))}
+                style={{
+                  fontSize: '12px',
+                  lineHeight: '1.4',
+                  margin: 0,
+                  color: 'rgba(255, 255, 255, 0.85)',
+                  padding: '6px 10px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  alignSelf: 'stretch',
+                  textAlign: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdownInline(i18n.t('overlay.listen.whatToSayNext')) }}
+              />
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>

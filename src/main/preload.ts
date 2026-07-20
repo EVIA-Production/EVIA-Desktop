@@ -144,6 +144,7 @@ contextBridge.exposeInMainWorld('evia', {
   presets: {
     list: () => ipcRenderer.invoke('presets:list'),
     activate: (presetId: number | string) => ipcRenderer.invoke('presets:activate', presetId),
+    deactivate: (presetId: number | string) => ipcRenderer.invoke('presets:deactivate', presetId),
   },
   // 💳 Subscription APIs (Stripe Integration)
   subscription: {

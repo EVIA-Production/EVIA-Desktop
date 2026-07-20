@@ -91,10 +91,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
   const sanitizeRichAskMarkdown = useCallback((text: string) => {
     if (!text) return '';
+    // Preparation/post-call responses render full markdown structure (headings, lists,
+    // bold, line breaks). Keep headings — h1-h6 are already in the render allow-list —
+    // so the model's structure survives instead of being flattened to one block.
     return stripUserVisibleStreamArtifacts(text)
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`(.+?)`/gs, '$1')
-      .replace(/^#{1,6}\s+/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }, [stripUserVisibleStreamArtifacts]);

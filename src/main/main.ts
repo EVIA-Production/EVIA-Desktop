@@ -623,6 +623,35 @@ ipcMain.handle('presets:activate', async (_event, presetId: unknown) => {
   }
 });
 
+ipcMain.handle('presets:deactivate', async (_event, presetId: unknown) => {
+  try {
+    const normalizedId = String(presetId ?? '').trim();
+    if (!/^\d+$/.test(normalizedId)) {
+      return { ok: false, status: 400, error: 'invalid_preset_id' };
+    }
+
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) return { ok: false, status: 401, error: 'not_authenticated' };
+
+    const response = await fetch(`${getBackendHttpBase()}/prompts/${normalizedId}/deactivate`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      return { ok: true, status: response.status };
+    }
+    return { ok: false, status: response.status, error: 'preset_deactivation_failed' };
+  } catch (error) {
+    console.error('[Presets] Failed to deactivate preset:', (error as Error).message);
+    return { ok: false, status: 503, error: 'preset_service_unavailable' };
+  }
+});
+
 // NEW: Check if token is valid and not expired
 ipcMain.handle('auth:checkTokenValidity', async () => {
   try {

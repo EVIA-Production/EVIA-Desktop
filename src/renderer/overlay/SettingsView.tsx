@@ -21,6 +21,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [presetNotice, setPresetNotice] = useState<{ kind: 'warning' | 'error'; text: string } | null>(null);
   const [isInvisible, setIsInvisible] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const [liveShortcuts, setLiveShortcuts] = useState<Record<string, string>>({});
 
   // FIX: Track session state to disable preset changes during recording
   useEffect(() => {
@@ -51,6 +52,32 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       if (eviaIpc) {
         eviaIpc.off('session-state-changed');
       }
+    };
+  }, []);
+
+  // Keep the Settings hotkey display in sync with the user's ACTUAL (remappable) keys
+  useEffect(() => {
+    const eviaIpc = (window as any).evia?.ipc;
+    const applyShortcuts = (map: Record<string, string> | undefined) => {
+      if (map && typeof map === 'object') setLiveShortcuts(map);
+    };
+    const loadShortcuts = async () => {
+      try {
+        const result = await eviaIpc?.invoke?.('shortcuts:get');
+        if (result?.ok && result.shortcuts) applyShortcuts(result.shortcuts);
+      } catch (error) {
+        console.error('[SettingsView] ❌ Failed to load shortcuts:', error);
+      }
+    };
+    void loadShortcuts();
+
+    const handleShortcutsUpdated = (newShortcuts: Record<string, string>) => applyShortcuts(newShortcuts);
+    const handleFocus = () => { void loadShortcuts(); };
+    eviaIpc?.on?.('shortcuts-updated', handleShortcutsUpdated);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      eviaIpc?.off?.('shortcuts-updated', handleShortcutsUpdated);
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
@@ -299,7 +326,38 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       return;
     }
     
-    if (preset.is_active || activatingPresetId !== null) return;
+    if (activatingPresetId !== null) return;
+
+    // Toggle off: clicking the already-active preset deactivates it
+    if (preset.is_active) {
+      setActivatingPresetId(preset.id);
+      setPresetNotice(null);
+      try {
+        const presetBridge = (window as any).evia?.presets;
+        if (!presetBridge?.deactivate) {
+          console.error('[SettingsView] ❌ Preset bridge unavailable');
+          setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
+          return;
+        }
+        const result = await presetBridge.deactivate(preset.id);
+        if (result?.ok) {
+          console.log('[SettingsView] Preset deactivated:', preset.name);
+          setPresets(presets.map(p => ({ ...p, is_active: false })));
+          setSelectedPreset(null);
+          localStorage.removeItem('active_preset_context');
+        } else {
+          console.error('[SettingsView] ❌ Failed to deactivate preset:', result?.status, result?.error);
+          setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
+        }
+      } catch (error) {
+        console.error('[SettingsView] ❌ Error deactivating preset:', error);
+        setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
+      } finally {
+        setActivatingPresetId(null);
+      }
+      return;
+    }
+
     console.log('[SettingsView] Activating preset:', preset.name);
     setActivatingPresetId(preset.id);
     setPresetNotice(null);
@@ -411,42 +469,47 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       {/* Shortcuts Section - WINDOWS FIX (2025-12-05): Use Ctrl instead of ⌘ on Windows */}
       {(() => {
         const isWindowsPlatform = Boolean((window as any)?.platformInfo?.isWindows);
-        const modKey = isWindowsPlatform ? 'Ctrl' : '⌘';
-        const shiftKey = isWindowsPlatform ? 'Shift' : '⇧';
-        const toggleKey = isWindowsPlatform ? 'Space' : '\\';
+        const defaults: Record<string, string> = {
+          toggleVisibility: isWindowsPlatform ? 'Ctrl+Space' : 'Cmd+\\',
+          nextStep: isWindowsPlatform ? 'Ctrl+Enter' : 'Cmd+Enter',
+          moveUp: isWindowsPlatform ? 'Ctrl+Up' : 'Cmd+Up',
+          moveDown: isWindowsPlatform ? 'Ctrl+Down' : 'Cmd+Down',
+        };
+        const tokenLabel = (token: string): string => {
+          switch (token) {
+            case 'Cmd': case 'Command': return isWindowsPlatform ? 'Ctrl' : '⌘';
+            case 'Ctrl': case 'Control': return isWindowsPlatform ? 'Ctrl' : '⌃';
+            case 'Alt': case 'Option': return isWindowsPlatform ? 'Alt' : '⌥';
+            case 'Shift': return isWindowsPlatform ? 'Shift' : '⇧';
+            case 'Enter': case 'Return': return '↵';
+            case 'Space': return isWindowsPlatform ? 'Space' : '␣';
+            case 'Up': return '↑';
+            case 'Down': return '↓';
+            case 'Left': return '←';
+            case 'Right': return '→';
+            case '\\': return (!isWindowsPlatform && language === 'de') ? '#' : '\\';
+            default: return token;
+          }
+        };
+        const renderKeys = (accel: string) =>
+          accel.split('+').map((part, idx, arr) => (
+            <span key={idx} className={idx < arr.length - 1 ? 'cmd-key' : 'shortcut-key'}>{tokenLabel(part)}</span>
+          ));
+        const shortcutRows: Array<{ id: string; label: string }> = [
+          { id: 'toggleVisibility', label: 'shortcutShowHide' },
+          { id: 'nextStep', label: 'shortcutAskAnything' },
+          { id: 'moveUp', label: 'shortcutScrollUp' },
+          { id: 'moveDown', label: 'shortcutScrollDown' },
+        ];
         
         return (
       <div className="shortcuts-section">
-        <div className="shortcut-item">
-          <span className="shortcut-name">{t('shortcutShowHide')}</span>
-          <div className="shortcut-keys">
-                <span className="cmd-key">{modKey}</span>
-            <span className="shortcut-key">{toggleKey}</span>
+        {shortcutRows.map(({ id, label }) => (
+          <div className="shortcut-item" key={id}>
+            <span className="shortcut-name">{t(label)}</span>
+            <div className="shortcut-keys">{renderKeys(liveShortcuts[id] || defaults[id])}</div>
           </div>
-        </div>
-        <div className="shortcut-item">
-          <span className="shortcut-name">{t('shortcutAskAnything')}</span>
-          <div className="shortcut-keys">
-                <span className="cmd-key">{modKey}</span>
-            <span className="shortcut-key">↵</span>
-          </div>
-        </div>
-        <div className="shortcut-item">
-          <span className="shortcut-name">{t('shortcutScrollUp')}</span>
-          <div className="shortcut-keys">
-                <span className="cmd-key">{modKey}</span>
-                <span className="cmd-key">{shiftKey}</span>
-            <span className="shortcut-key">↑</span>
-          </div>
-        </div>
-        <div className="shortcut-item">
-          <span className="shortcut-name">{t('shortcutScrollDown')}</span>
-          <div className="shortcut-keys">
-                <span className="cmd-key">{modKey}</span>
-                <span className="cmd-key">{shiftKey}</span>
-            <span className="shortcut-key">↓</span>
-          </div>
-        </div>
+        ))}
       </div>
         );
       })()}
