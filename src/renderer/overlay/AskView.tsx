@@ -97,6 +97,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return stripUserVisibleStreamArtifacts(text)
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`(.+?)`/gs, '$1')
+      // Normalize bullet markers to "-": a model that mixes "-" and "*"/"+" markers makes
+      // CommonMark split one list into several, so the first bullet rendered detached from
+      // the rest. Only matches a marker followed by whitespace at line start (never *bold*).
+      .replace(/^([ \t]*)[*+]([ \t]+)/gm, '$1-$2')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }, [stripUserVisibleStreamArtifacts]);

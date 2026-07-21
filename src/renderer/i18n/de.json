@@ -26,6 +26,8 @@
       "noContext": "Noch kein Kontext",
       "whatToSayNext": "💬 Was soll ich als Nächstes sagen?",
       "whatToSayNextPrompt": "Was soll ich als Nächstes sagen?",
+      "noContextProspect": "Noch keine Prospect-Eingabe — beginne zu sprechen, um die Situation zu erfassen.",
+      "noContextAnalysis": "Öffne mit einem konkreten, warmen Einstieg und stelle dann eine Frage, die ihre wichtigste Priorität aufdeckt.",
       "listening": "Taylos hört zu",
       "copyTranscript": "Transkript kopieren",
       "copiedTranscript": "Transkript kopiert!",

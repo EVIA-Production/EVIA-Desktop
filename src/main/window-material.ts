@@ -218,7 +218,9 @@ export function applyWindowMaterial(
   const tryNative = process.platform === 'darwin' && resolvedMode === 'native'
   const attach = () => {
     if (win.isDestroyed() || !tryNative) return
-    const result = applyNativeBridge(win, surface, win.isFocused())
+    // Always attach in the ACTIVE state: this overlay is a persistent HUD and must look
+    // consistent even when first shown while unfocused (e.g. right after Hide/Show).
+    const result = applyNativeBridge(win, surface, true)
     if (result.applied) {
       clearElectronVibrancy(win)
       win.setHasShadow(true)
@@ -253,15 +255,18 @@ export function applyWindowMaterial(
     }
   }
 
+  // The Taylos overlay is ONE visual unit and a persistent HUD: keep every window in the
+  // ACTIVE material state regardless of focus / show / hide. Otherwise the button and
+  // panel styling flips per window - e.g. the Listen button reverting to a flat look
+  // after Hide/Show, or when another overlay window (bar / Ask) takes focus.
   win.on('focus', () => updateActiveState(true))
-  // The Taylos overlay is ONE visual unit. Do not dim on blur when focus moves between
-  // Taylos windows (bar / Listen / Ask) - otherwise button and panel styling flips per
-  // window. An always-on-top overlay reads better staying consistently active.
   win.on('blur', () => updateActiveState(true))
+  win.on('show', () => updateActiveState(true))
+  win.on('restore', () => updateActiveState(true))
   win.on('resize', () => {
     // Electron can resize a BrowserWindow after the native NSGlassEffectView is
     // attached. Refresh on the next main-loop turn so AppKit sees final bounds.
-    setImmediate(() => updateActiveState(win.isFocused()))
+    setImmediate(() => updateActiveState(true))
   })
   win.once('closed', () => {
     const bridge = loadNativeBridge()

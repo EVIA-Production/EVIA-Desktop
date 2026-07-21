@@ -2593,6 +2593,14 @@ textarea:focus-visible,
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
+/* The active (blue) language button must also light up on hover. .active:hover (0,3,0)
+   outranks .active (0,2,0), so it wins without weakening the base active style. */
+.language-button.active:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.55) !important;
+}
+
 .language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
   outline: none !important;
   border-color: rgba(255, 255, 255, 0.2) !important;

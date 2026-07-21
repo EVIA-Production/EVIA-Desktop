@@ -829,7 +829,11 @@ ipcMain.handle('app:quit', () => {
 });
 
 function toLegacySessionState(snapshot: CaptureSessionSnapshot): 'before' | 'during' | 'after' {
-  if (snapshot.state === 'recording' || snapshot.state === 'stopping') return 'during';
+  // 'starting' maps to 'during' (NOT 'before'). Pressing Listen goes idle -> starting ->
+  // recording; if 'starting' broadcast 'before', the AskView would hard-reset and wipe the
+  // user's pre-call prep/tips at the exact moment the call begins. Treating 'starting' as
+  // 'during' keeps that content visible into the call.
+  if (snapshot.state === 'recording' || snapshot.state === 'stopping' || snapshot.state === 'starting') return 'during';
   if (snapshot.state === 'review') return 'after';
   return 'before';
 }

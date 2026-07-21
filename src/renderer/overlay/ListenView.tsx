@@ -2107,36 +2107,61 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               Loading insights...
             </div>
           ) : sessionState === 'during' && !hasGroundedProspectSpeech(transcripts) ? (
-            <div className="insights-placeholder" style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', background: 'transparent' }}>
-              <div style={{ fontStyle: 'italic', textAlign: 'center', color: 'rgba(255, 255, 255, 0.7)' }}>
-                {i18n.t('overlay.listen.noContext')}
+            <div style={{ padding: '0px 12px 4px 12px' }}>
+              {/* Prospect - no grounded input yet */}
+              <div style={{ marginBottom: '4px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  Prospect
+                </h3>
+                <p style={{ fontSize: '12px', lineHeight: '1.3', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.65)', position: 'relative', padding: '4px 12px', fontStyle: 'italic' }}>
+                  <span style={{ position: 'absolute', left: '12px' }}>•</span>
+                  <span style={{ marginLeft: '12px', display: 'block' }}>{i18n.t('overlay.listen.noContextProspect')}</span>
+                </p>
               </div>
-              <p
-                onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'))}
-                style={{
-                  fontSize: '12px',
-                  lineHeight: '1.4',
-                  margin: 0,
-                  color: 'rgba(255, 255, 255, 0.85)',
-                  padding: '6px 10px',
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  alignSelf: 'stretch',
-                  textAlign: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                }}
-                dangerouslySetInnerHTML={{ __html: renderMarkdownInline(i18n.t('overlay.listen.whatToSayNext')) }}
-              />
+
+              {/* Sales Analysis - proactive advice while there is no context yet */}
+              <div style={{ marginBottom: '4px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  {i18n.getLanguage() === 'en' ? 'Sales Analysis' : 'Sales Analyse'}
+                </h3>
+                <p style={{ fontSize: '12px', lineHeight: '1.3', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.85)', position: 'relative', padding: '4px 12px' }}>
+                  <span style={{ position: 'absolute', left: '12px' }}>•</span>
+                  <span style={{ marginLeft: '12px', display: 'block' }}>{i18n.t('overlay.listen.noContextAnalysis')}</span>
+                </p>
+              </div>
+
+              {/* Next Actions - clickable, in its usual position */}
+              <div>
+                <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px', color: 'rgba(255, 255, 255, 0.9)' }}>
+                  {i18n.t('overlay.listen.nextActions')}
+                </h3>
+                <p
+                  onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'))}
+                  style={{
+                    fontSize: '12px',
+                    lineHeight: '1.4',
+                    marginBottom: '3px',
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    padding: '6px 10px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                  }}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdownInline(i18n.t('overlay.listen.whatToSayNext')) }}
+                />
+              </div>
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
