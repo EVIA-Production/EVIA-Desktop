@@ -2588,21 +2588,17 @@ textarea:focus-visible,
   border-color: rgba(255, 255, 255, 0.45);
 }
 
-/* Active blue: fill must be opaque enough that the glass backdrop can't read as a
-   grey center inside the blue frame. Hover = solid Apple blue (fill + frame light up
-   together as one surface — no grey wash). */
 .language-button.active {
-  background: rgba(0, 122, 255, 0.72);
-  border-color: rgba(0, 122, 255, 1);
-  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.35);
-  color: #fff;
+  background: var(--accent-weak);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
+/* Active (blue) button on hover: stays fully blue, brightens uniformly (more opaque
+   blue), keeps the subtle 1px ring from .active. .active:hover (0,3,0) outranks .active. */
 .language-button.active:hover {
-  background: #007AFF;
-  border-color: #007AFF;
-  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.55);
-  color: #fff;
+  background: rgba(0, 122, 255, 0.45);
+  border-color: var(--accent);
 }
 
 .language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
