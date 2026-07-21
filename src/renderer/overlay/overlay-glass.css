@@ -2582,8 +2582,9 @@ textarea:focus-visible,
 }
 
 .language-button:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.18);
 }
 
 .language-button.active {
@@ -2918,8 +2919,10 @@ textarea:focus-visible,
 }
 
 .settings-button.danger:hover {
-  background: rgba(255, 59, 48, 0.15);
-  border-color: rgba(255, 59, 48, 0.4);
+  background: rgba(255, 59, 48, 0.28) !important;
+  border-color: rgba(255, 59, 48, 0.75);
+  color: rgba(255, 94, 84, 1);
+  box-shadow: 0 0 12px rgba(255, 59, 48, 0.28);
 }
 
 .move-buttons, .bottom-buttons {

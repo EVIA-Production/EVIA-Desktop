@@ -384,9 +384,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         setPresets(updatedPresets);
         setSelectedPreset(updatedPreset);
         localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
-        if (activation.context?.cache_synced === false) {
-          setPresetNotice({ kind: 'warning', text: t('presetContextPending') });
-        }
       } else {
         console.error('[SettingsView] ❌ Failed to update preset:', result?.status, result?.error);
         setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
@@ -472,8 +469,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const defaults: Record<string, string> = {
           toggleVisibility: isWindowsPlatform ? 'Ctrl+Space' : 'Cmd+\\',
           nextStep: isWindowsPlatform ? 'Ctrl+Enter' : 'Cmd+Enter',
-          moveUp: isWindowsPlatform ? 'Ctrl+Up' : 'Cmd+Up',
-          moveDown: isWindowsPlatform ? 'Ctrl+Down' : 'Cmd+Down',
+          previousResponse: isWindowsPlatform ? 'Ctrl+[' : 'Cmd+[',
+          nextResponse: isWindowsPlatform ? 'Ctrl+]' : 'Cmd+]',
         };
         const tokenLabel = (token: string): string => {
           switch (token) {
@@ -498,8 +495,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const shortcutRows: Array<{ id: string; label: string }> = [
           { id: 'toggleVisibility', label: 'shortcutShowHide' },
           { id: 'nextStep', label: 'shortcutAskAnything' },
-          { id: 'moveUp', label: 'shortcutScrollUp' },
-          { id: 'moveDown', label: 'shortcutScrollDown' },
+          { id: 'previousResponse', label: 'shortcutPreviousResponse' },
+          { id: 'nextResponse', label: 'shortcutNextResponse' },
         ];
         
         return (

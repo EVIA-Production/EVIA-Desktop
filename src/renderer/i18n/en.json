@@ -71,6 +71,8 @@
       "editShortcuts": "Edit Shortcuts",
       "shortcutShowHide": "Show / Hide",
       "shortcutAskAnything": "Ask Anything",
+      "shortcutPreviousResponse": "Previous Response",
+      "shortcutNextResponse": "Next Response",
       "shortcutMoveUp": "Move Up Window",
       "shortcutMoveDown": "Move Down Window",
       "shortcutMoveLeft": "Move Left Window",

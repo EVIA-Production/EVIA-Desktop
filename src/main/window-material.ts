@@ -254,7 +254,10 @@ export function applyWindowMaterial(
   }
 
   win.on('focus', () => updateActiveState(true))
-  win.on('blur', () => updateActiveState(false))
+  // The Taylos overlay is ONE visual unit. Do not dim on blur when focus moves between
+  // Taylos windows (bar / Listen / Ask) - otherwise button and panel styling flips per
+  // window. An always-on-top overlay reads better staying consistently active.
+  win.on('blur', () => updateActiveState(true))
   win.on('resize', () => {
     // Electron can resize a BrowserWindow after the native NSGlassEffectView is
     // attached. Refresh on the next main-loop turn so AppKit sees final bounds.
