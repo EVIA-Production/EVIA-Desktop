@@ -2597,7 +2597,7 @@ textarea:focus-visible,
 /* Active (blue) button on hover: stays fully blue, brightens uniformly (more opaque
    blue), keeps the subtle 1px ring from .active. .active:hover (0,3,0) outranks .active. */
 .language-button.active:hover {
-  background: rgba(0, 122, 255, 0.45);
+  background: rgba(0, 122, 255, 0.85);
   border-color: var(--accent);
 }
 
