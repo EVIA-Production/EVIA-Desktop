@@ -27,7 +27,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   useEffect(() => {
     const checkSessionState = () => {
       const sessionState = localStorage.getItem('evia_session_state');
-      setIsSessionActive(sessionState === 'during');
+      // Preset is changeable ONLY before a session. Lock during AND after (until the next
+      // session starts), matching the immutable per-chat preset lineage on the backend.
+      setIsSessionActive(sessionState === 'during' || sessionState === 'after');
     };
     
     // Check on mount
@@ -40,7 +42,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         // CRITICAL FIX: Also update localStorage in THIS window's context
         // Each Electron window has its own localStorage, so we must sync it here!
         localStorage.setItem('evia_session_state', newState);
-        setIsSessionActive(newState === 'during');
+        setIsSessionActive(newState === 'during' || newState === 'after');
       });
     }
     

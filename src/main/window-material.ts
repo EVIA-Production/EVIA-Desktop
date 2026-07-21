@@ -237,11 +237,17 @@ export function applyWindowMaterial(
     attach()
   }
 
+  let lastActiveState: boolean | null = null
   const updateActiveState = (active: boolean) => {
     const configured = configuredWindows.get(win)
     if (!configured || configured.mode === 'custom' || win.isDestroyed()) return
+    // Skip redundant native NSGlassEffectView updates. Every focus/blur/show/restore/resize
+    // asserts active=true; without this guard those repeated native calls made rapid
+    // Show/Hide feel laggy. Only the first (state-changing) call hits the native bridge.
+    if (active === lastActiveState) return
     const bridge = loadNativeBridge()
     if (!bridge?.isSupported()) return
+    lastActiveState = active
     const policy = POLICIES[configured.surface]
     try {
       bridge.update(win.getNativeWindowHandle(), {

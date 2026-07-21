@@ -2581,10 +2581,11 @@ textarea:focus-visible,
   font-family: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Hover = the WHOLE button lights up slightly and uniformly. No outer glow, and no
+   greyed-out center: keep the fill opaque so the button reads as one solid surface. */
 .language-button:hover {
-  background: rgba(255, 255, 255, 0.24);
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .language-button.active {
@@ -2593,12 +2594,11 @@ textarea:focus-visible,
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
-/* The active (blue) language button must also light up on hover. .active:hover (0,3,0)
-   outranks .active (0,2,0), so it wins without weakening the base active style. */
+/* Active (blue) button on hover: stays fully blue, brightens uniformly (more opaque
+   blue), keeps the subtle 1px ring from .active. .active:hover (0,3,0) outranks .active. */
 .language-button.active:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
-  box-shadow: 0 0 12px rgba(0, 122, 255, 0.55) !important;
+  background: rgba(0, 122, 255, 0.45);
+  border-color: var(--accent);
 }
 
 .language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
