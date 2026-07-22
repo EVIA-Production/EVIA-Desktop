@@ -218,9 +218,7 @@ export function applyWindowMaterial(
   const tryNative = process.platform === 'darwin' && resolvedMode === 'native'
   const attach = () => {
     if (win.isDestroyed() || !tryNative) return
-    // Always attach in the ACTIVE state: this overlay is a persistent HUD and must look
-    // consistent even when first shown while unfocused (e.g. right after Hide/Show).
-    const result = applyNativeBridge(win, surface, true)
+    const result = applyNativeBridge(win, surface, win.isFocused())
     if (result.applied) {
       clearElectronVibrancy(win)
       win.setHasShadow(true)
@@ -237,17 +235,11 @@ export function applyWindowMaterial(
     attach()
   }
 
-  let lastActiveState: boolean | null = null
   const updateActiveState = (active: boolean) => {
     const configured = configuredWindows.get(win)
     if (!configured || configured.mode === 'custom' || win.isDestroyed()) return
-    // Skip redundant native NSGlassEffectView updates. Every focus/blur/show/restore/resize
-    // asserts active=true; without this guard those repeated native calls made rapid
-    // Show/Hide feel laggy. Only the first (state-changing) call hits the native bridge.
-    if (active === lastActiveState) return
     const bridge = loadNativeBridge()
     if (!bridge?.isSupported()) return
-    lastActiveState = active
     const policy = POLICIES[configured.surface]
     try {
       bridge.update(win.getNativeWindowHandle(), {
@@ -261,18 +253,12 @@ export function applyWindowMaterial(
     }
   }
 
-  // The Taylos overlay is ONE visual unit and a persistent HUD: keep every window in the
-  // ACTIVE material state regardless of focus / show / hide. Otherwise the button and
-  // panel styling flips per window - e.g. the Listen button reverting to a flat look
-  // after Hide/Show, or when another overlay window (bar / Ask) takes focus.
   win.on('focus', () => updateActiveState(true))
-  win.on('blur', () => updateActiveState(true))
-  win.on('show', () => updateActiveState(true))
-  win.on('restore', () => updateActiveState(true))
+  win.on('blur', () => updateActiveState(false))
   win.on('resize', () => {
     // Electron can resize a BrowserWindow after the native NSGlassEffectView is
     // attached. Refresh on the next main-loop turn so AppKit sees final bounds.
-    setImmediate(() => updateActiveState(true))
+    setImmediate(() => updateActiveState(win.isFocused()))
   })
   win.once('closed', () => {
     const bridge = loadNativeBridge()
