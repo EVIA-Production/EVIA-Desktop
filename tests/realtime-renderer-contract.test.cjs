@@ -192,12 +192,15 @@ test('during-call Ask prefers live context before database history', () => {
   assert.ok(contextBlock.indexOf("currentSessionState === 'during'") < contextBlock.indexOf('getChatTranscripts(chatId'));
 });
 
-test('stub insights are rejected in every lifecycle state', () => {
+test('stub insights are rejected and live refreshes replace atomically', () => {
   assert.match(listenSource, /if \(isStubInsightPayload\(fetchedInsights\)\)/);
   assert.match(listenSource, /const receivedStub = isStubInsightPayload\(fetchedInsights\)/);
   assert.match(listenSource, /derivedSessionState !== 'after' && !liveProspectSpeechAvailable/);
-  assert.match(listenSource, /sessionState === 'during' && !hasGroundedProspectSpeech\(transcripts\)/);
+  assert.match(listenSource, /const showBlockingLoader = latestSessionState === 'after'/);
+  assert.match(listenSource, /sessionState === 'during' \? \(/);
   assert.match(listenSource, /Grounded prospect speech arrived - refreshing visible insights/);
+  assert.doesNotMatch(listenSource, /Refreshing insights\.\.\./);
+  assert.doesNotMatch(listenSource, /Waiting for fresher transcript data\.\.\./);
   assert.doesNotMatch(listenSource, /derivedSessionState !== 'after' && isStubInsightPayload/);
   assert.doesNotMatch(listenSource, /Post-meeting insights accepted without stub rejection/);
 });
@@ -298,11 +301,11 @@ test('Listen and Done retain component glass depth when focused', () => {
   assert.match(overlayGlassSource, /\.evia-listen-button \{[\s\S]*background: transparent/);
   assert.match(
     overlayGlassSource,
-    /\.evia-listen-button::before \{[\s\S]*background: rgb\(67, 67, 64\)/,
+    /\.evia-listen-button::before \{[\s\S]*background: rgba\(255, 255, 255, 0\.14\)/,
   );
   assert.match(
     overlayGlassSource,
-    /\.evia-listen-button:not\(\.listen-active\):not\(\.listen-done\):hover::before \{[\s\S]*background: rgb\(76, 76, 73\)/,
+    /\.evia-listen-button:not\(\.listen-active\):not\(\.listen-done\):hover::before \{[\s\S]*background: rgba\(255, 255, 255, 0\.18\)/,
   );
   assert.match(overlayGlassSource, /\.evia-listen-button\.listen-done \{[\s\S]*background: linear-gradient\(180deg, rgb\(248, 248, 248\)/);
 });
@@ -318,6 +321,40 @@ test('selected language keeps blue center, brighter frame, and hover glow', () =
 test('read-mode markdown normalizes standalone section titles', () => {
   assert.match(askSource, /bold section title to the preceding takeaway/);
   assert.match(askSource, /\(\\\*\\\*\[\^\*\\n\]\{2,80\}\\\*\\\*\)/);
+});
+
+test('Ask history stores each response with its request-local question', () => {
+  assert.match(askSource, /onSubmitPrompt\(actualPrompt\)/);
+  assert.match(
+    askSource,
+    /setResponseHistory\(\(prev\) => \{[\s\S]*question: actualPrompt, response: finalResponse/,
+  );
+  assert.doesNotMatch(askSource, /questionSnapshot = currentQuestion/);
+  assert.match(
+    askSource,
+    /handleShortcutPreviousResponse[\s\S]*setResponse\(entry\.response\)[\s\S]*setCurrentQuestion\(entry\.question\)/,
+  );
+  assert.match(
+    askSource,
+    /handleShortcutNextResponse[\s\S]*setResponse\(entry\.response\)[\s\S]*setCurrentQuestion\(entry\.question\)/,
+  );
+});
+
+test('Ask renders its complete thinking state before asynchronous context work', () => {
+  const startBlock = askSource.split('const startStream = async', 2)[1];
+  const firstAwait = startBlock.indexOf('await ');
+  for (const marker of [
+    'setCurrentQuestion(actualPrompt)',
+    'setResponse(\'\')',
+    'setIsStreaming(true)',
+    'setIsLoadingFirstToken(true)',
+    'requestWindowResize(thinkingHeight)',
+  ]) {
+    const markerIndex = startBlock.indexOf(marker);
+    assert.ok(markerIndex >= 0 && markerIndex < firstAwait, `${marker} must run before the first await`);
+  }
+  assert.match(askSource, /const hasResponse = Boolean\(response\) \|\| isLoadingFirstToken/);
+  assert.match(askSource, /const resetPendingRequest = \(\) => \{[\s\S]*setIsStreaming\(false\)[\s\S]*requestWindowResize\(MIN_ASK_BAR_HEIGHT\)/);
 });
 
 test('visible live insights refresh after the first grounded prospect line', () => {

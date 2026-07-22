@@ -1447,9 +1447,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
 
     const fullReplace = options.fullReplace === true || latestSessionState === 'after';
+    // Live refreshes are atomic: keep the last stable frame visible until a
+    // complete replacement arrives. Only an empty post-call load blocks.
+    const showBlockingLoader = latestSessionState === 'after' && insightsHistoryRef.current.length === 0;
 
     if (demoModeEnabledRef.current && (latestSessionState === 'during' || latestSessionState === 'after')) {
-      setIsLoadingInsights(true);
+      if (showBlockingLoader) setIsLoadingInsights(true);
       setInsightsRefreshPending(false);
       await new Promise((resolve) => setTimeout(
         resolve,
@@ -1475,7 +1478,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         afterInsightsRequestPendingRef.current = false;
       }
       insightsRequestInFlightRef.current = false;
-      setIsLoadingInsights(false);
+      if (showBlockingLoader) setIsLoadingInsights(false);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (viewportRef.current) viewportRef.current.scrollTop = 0;
@@ -1494,7 +1497,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const MAX_RETRIES = 3;
     const RETRY_DELAYS = [0, 300, 700]; // Exponential: 0ms, 300ms, 700ms
     
-    setIsLoadingInsights(true);
+    if (showBlockingLoader) setIsLoadingInsights(true);
     setInsightsRefreshPending(false);
     const ttftStart = Date.now();
     
@@ -1591,8 +1594,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] ✅ Glass insights received!');
         if (isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
-            console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state with refresh warning');
-            setInsightsRefreshPending(true);
+            console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
+            setInsightsRefreshPending(false);
             return;
           }
           console.log('[ListenView] 🛡️ Stub-like insights detected before any valid insight; showing the safe waiting state');
@@ -2030,17 +2033,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             )
           ) : displayedInsights ? (
               <div style={{ padding: '0px 12px 4px 12px' }}>
-              {isLoadingInsights && (
-                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
-                  {i18n.getLanguage() === 'en' ? 'Refreshing insights...' : 'Insights werden aktualisiert...'}
-                </div>
-              )}
-              {!isLoadingInsights && insightsRefreshPending && (
-                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '6px' }}>
-                  {i18n.getLanguage() === 'en' ? 'Waiting for fresher transcript data...' : 'Warte auf frischere Transkript-Daten...'}
-                </div>
-              )}
-
 	              <div style={{ marginBottom: '4px' }}>
 	                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
 	                  {i18n.getLanguage() === 'en' ? 'Prospect' : 'Prospect'}
@@ -2162,7 +2154,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
               Loading insights...
             </div>
-          ) : sessionState === 'during' && !hasGroundedProspectSpeech(transcripts) ? (
+          ) : sessionState === 'during' ? (
             <div style={{ padding: '0px 12px 4px 12px' }}>
               {/* Prospect - no grounded input yet */}
               <div style={{ marginBottom: '4px' }}>

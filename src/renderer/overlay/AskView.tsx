@@ -78,6 +78,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       .replace(/^\s*\d+\.\s+/gm, '')
       .replace(/`(.+?)`/gs, '$1')
       .replace(/^[\s,;:.\-–—]+/, '')
+      // A direct answer and an optional spoken line are different products:
+      // information for the seller, then exact words for the prospect.
+      .replace(/\s*→\s*(Say|Sag)\s*:\s*/i, (_match, label: string) => `\n\n---\n\n**${label}:** `)
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
@@ -779,8 +782,36 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
     setErrorToast(null);
+    setShowTextInput(true);
+    setResponse('');
+    responseBufferRef.current = '';
+    lastResponseRef.current = '';
+    setResponseSessionState(currentSessionState);
+    setIsStreaming(true);
     setIsLoadingFirstToken(true);
     setHeaderText(i18n.t('overlay.ask.thinking'));
+    setTtftMs(null);
+    ttftLoggedRef.current = false;
+    setPrompt('');
+
+    // Render the complete thinking layout before auth, transcript hydration, or
+    // any network request begins: question in the header, spinner centered,
+    // and the input anchored below it. Without this immediate expansion the
+    // user sees an inert compact bar during the slowest part of the request.
+    const minimumThinkingHeight = 106;
+    const thinkingHeight = Math.max(window.innerHeight, minimumThinkingHeight);
+    storedContentHeightRef.current = thinkingHeight;
+    requestWindowResize(thinkingHeight);
+
+    const resetPendingRequest = () => {
+      setIsStreaming(false);
+      setIsLoadingFirstToken(false);
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+      ttftLoggedRef.current = false;
+      streamStartTime.current = null;
+      storedContentHeightRef.current = MIN_ASK_BAR_HEIGHT;
+      requestWindowResize(MIN_ASK_BAR_HEIGHT);
+    };
 
     // Demo mode substitutes only explicitly scripted outcomes at the same
     // request boundary as production. Every unmatched prompt still uses the
@@ -793,20 +824,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       if (currentSessionState !== sessionState) setSessionState(currentSessionState);
       onSubmitPrompt?.(actualPrompt);
 
-      const minimumThinkingHeight = 106;
       const nextHeight = Math.max(window.innerHeight, minimumThinkingHeight);
       const startedAt = performance.now();
 
-      setShowTextInput(true);
-      setResponse('');
-      responseBufferRef.current = '';
-      lastResponseRef.current = '';
-      setResponseSessionState(currentSessionState);
-      setIsStreaming(true);
-      setTtftMs(null);
       storedContentHeightRef.current = nextHeight;
       requestWindowResize(nextHeight);
-      setPrompt('');
 
       deterministicDemoTimerRef.current = setTimeout(() => {
         deterministicDemoTimerRef.current = null;
@@ -851,8 +873,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const token = await eviaAuth?.getToken();
     if (!token) {
       showError('Authentication required. Please login first.', false);
-      setIsLoadingFirstToken(false);
-      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+      resetPendingRequest();
       return;
     }
     
@@ -861,8 +882,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const validity = await (eviaAuth as any).checkTokenValidity();
       if (!validity.valid) {
         showError(`Token ${validity.reason === 'expired' ? 'expired' : 'invalid'}. Please re-login.`, false);
-        setIsLoadingFirstToken(false);
-        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        resetPendingRequest();
         return;
       }
       if (validity.reason === 'expiring_soon') {
@@ -881,15 +901,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         
         if (res.status === 401) {
           showError('Authentication expired. Please reconnect.', true);
-          setIsLoadingFirstToken(false);
-          setHeaderText(i18n.t('overlay.ask.aiResponse'));
+          resetPendingRequest();
           return;
         }
         
         if (!res.ok) {
           showError(`Failed to create chat session (HTTP ${res.status}). Reconnect?`, true);
-          setIsLoadingFirstToken(false);
-          setHeaderText(i18n.t('overlay.ask.aiResponse'));
+          resetPendingRequest();
           return;
         }
         
@@ -904,8 +922,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           } catch {}
         } else {
           showError('Invalid chat session. Please reconnect.', true);
-          setIsLoadingFirstToken(false);
-          setHeaderText(i18n.t('overlay.ask.aiResponse'));
+          resetPendingRequest();
           return;
         }
       } catch (e: any) {
@@ -916,8 +933,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             : 'Failed to create chat session. Reconnect?',
           true
         );
-        setIsLoadingFirstToken(false);
-        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        resetPendingRequest();
         return;
       }
     }
@@ -971,8 +987,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           console.log('[AskView] 📸 Screenshot captured:', result.width, 'x', result.height);
         } else if (result?.needsPermission) {
           showError(result.error || 'Screen Recording permission required.', false);
-          setIsLoadingFirstToken(false);
-          setHeaderText(i18n.t('overlay.ask.aiResponse'));
+          resetPendingRequest();
           return;
         }
       } catch (err: any) {
@@ -980,12 +995,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     }
 
-    if (onSubmitPrompt) onSubmitPrompt(prompt);
+    if (onSubmitPrompt) onSubmitPrompt(actualPrompt);
 
-    const preserveExpandedHeight = Boolean((response || lastResponseRef.current || '').trim());
-    const nextHeight = preserveExpandedHeight
-      ? Math.max(window.innerHeight, MIN_ASK_BAR_HEIGHT)
-      : MIN_ASK_BAR_HEIGHT;
+    const nextHeight = Math.max(window.innerHeight, minimumThinkingHeight);
 
     setResponse('');
     responseBufferRef.current = '';
@@ -993,9 +1005,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     lastResponseRef.current = '';  // UI IMPROVEMENT: Clear last response ref on new question
     storedContentHeightRef.current = nextHeight;
     requestWindowResize(nextHeight);
-    setIsStreaming(true);
-    setTtftMs(null);
-    ttftLoggedRef.current = false;
     console.log('[AskView] Context preparation:', (performance.now() - requestStartedAt).toFixed(0), 'ms');
 
     // CRITICAL FIX: Re-read session state from localStorage before streaming
@@ -1101,9 +1110,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] 🧠 Final suggestion content:\n%s', finalResponse);
       }
       if (finalResponse) {
-        const questionSnapshot = currentQuestion;
         setResponseHistory((prev) => {
-          const next = [...prev, { question: questionSnapshot, response: finalResponse }];
+          // Pair the answer with this request's immutable prompt. Reading
+          // currentQuestion here uses the render closure from before
+          // setCurrentQuestion() and shifts every question one response ahead.
+          const next = [...prev, { question: actualPrompt, response: finalResponse }];
           setResponseIndex(next.length - 1);
           return next;
         });
@@ -1159,7 +1170,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     });
 
-    setPrompt('');
   };
 
   useEffect(() => {
@@ -1344,7 +1354,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   const hasExpandedHeight = (storedContentHeightRef.current || MIN_ASK_BAR_HEIGHT) > MIN_ASK_BAR_HEIGHT;
-  const hasResponse = Boolean(response) || (isStreaming && (!isLoadingFirstToken || hasExpandedHeight));
+  const hasResponse = Boolean(response) || isLoadingFirstToken || (isStreaming && hasExpandedHeight);
 
   return (
     <div className="ask-container">
