@@ -363,12 +363,25 @@ textarea:focus-visible,
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   border-radius: var(--pill-radius);
-  background: rgba(255,255,255,0.14);
-  transition: background 0.15s ease;
+  /* IDLE "Listen" mirrors the red quit button's logic in blue: a less-opaque blue center
+     inside a brighter blue frame; both brighten + glow on hover (see the :hover rules). */
+  background: rgba(0, 122, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.34);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
   z-index: -1;
 }
 
-.evia-listen-button:hover::before { background: rgba(255,255,255,0.18); }
+.evia-listen-button:not(.listen-active):not(.listen-done):hover::before {
+  background: rgba(0, 122, 255, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.75);
+}
+.evia-listen-button:not(.listen-active):not(.listen-done):hover {
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.22),
+    0 0 12px rgba(0, 122, 255, 0.32);
+}
 .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.5); }
 .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.6); }
 .evia-listen-button.listen-done {
