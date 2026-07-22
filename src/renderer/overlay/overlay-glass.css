@@ -361,15 +361,16 @@ textarea:focus-visible,
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   border-radius: var(--pill-radius);
-  /* Keep the desktop visible through the control. The inset top highlight on
-     the button supplies the accepted liquid-glass white edge. */
-  background: rgba(255, 255, 255, 0.14);
+  /* OPAQUE dark-glass gradient so the native window focus/blur change cannot bleed through
+     (same principle that already makes Done and Stop focus-independent). The inset top
+     highlight from the base box-shadow supplies the accepted liquid-glass white edge. */
+  background: linear-gradient(180deg, rgb(80, 82, 88) 0%, rgb(56, 58, 64) 100%);
   transition: background 0.15s ease;
   z-index: -1;
 }
 
 .evia-listen-button:not(.listen-active):not(.listen-done):hover::before {
-  background: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, rgb(92, 94, 100) 0%, rgb(66, 68, 74) 100%);
 }
 .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.5); }
 .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.6); }
