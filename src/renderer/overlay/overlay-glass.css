@@ -363,33 +363,18 @@ textarea:focus-visible,
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   border-radius: var(--pill-radius);
-  /* IDLE "Listen" mirrors the red quit button's logic in blue. Critically, the fill is
-     OPAQUE-enough (0.5, same as the red Stop button) so the native glass focus/blur change
-     behind it does NOT bleed through - which is exactly why Stop already looks identical in
-     both window states. Center is slightly less opaque than the frame ring (quit logic). */
-  background: rgba(0, 122, 255, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.72);
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  /* IDLE "Listen" = liquid-glass white (the white top edge comes from the base box-shadow).
+     Opaque-enough (kept as the original faint fill; the base box-shadow gives the depth). */
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.15s ease;
   z-index: -1;
 }
 
-.evia-listen-button:not(.listen-active):not(.listen-done):hover::before {
-  background: rgba(0, 122, 255, 0.68);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.95);
-}
-.evia-listen-button:not(.listen-active):not(.listen-done):hover {
-  box-shadow:
-    inset 0 1px 0.5px rgba(255, 255, 255, 0.45),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.18),
-    0 1px 2px rgba(0, 0, 0, 0.22),
-    0 0 12px rgba(0, 122, 255, 0.32);
-}
+.evia-listen-button:not(.listen-active):not(.listen-done):hover::before { background: rgba(255, 255, 255, 0.18); }
 .evia-listen-button.listen-active::before { background: rgba(215, 0, 0, 0.5); }
 .evia-listen-button.listen-active:hover::before { background: rgba(255, 20, 20, 0.6); }
 .evia-listen-button.listen-done {
-  /* Opaque white so the native glass focus/blur change does not bleed through (same
-     principle as Stop/Listen) - keeps "Done" looking identical in both window states. */
-  background-color: rgba(255,255,255,0.92);
+  background-color: rgba(255,255,255,0.6);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     inset 0 -1px 1px rgba(0, 0, 0, 0.15),
@@ -2603,18 +2588,18 @@ textarea:focus-visible,
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-/* The active button uses an OPAQUE blue fill. The settings window now sits on a native
-   glass backdrop, over which a semi-transparent (0.25) blue reads grey - opaque makes it a
-   solid blue like it looked pre-overhaul, and it brightens slightly (still solid) on hover. */
+/* Blue design: a less-opaque blue center inside a brighter blue frame; both brighten +
+   glow on hover (the same logic as the red quit button, in blue). */
 .language-button.active {
-  background: rgb(0, 122, 255);
-  border-color: rgb(0, 122, 255);
+  background: rgba(0, 122, 255, 0.5);
+  border-color: rgba(0, 122, 255, 0.72);
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
 .language-button.active:hover {
-  background: rgb(36, 142, 255);
-  border-color: rgb(36, 142, 255);
+  background: rgba(0, 122, 255, 0.68);
+  border-color: rgba(0, 122, 255, 0.95);
+  box-shadow: 0 0 10px rgba(0, 122, 255, 0.32);
 }
 
 .language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
