@@ -798,7 +798,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // any network request begins: question in the header, spinner centered,
     // and the input anchored below it. Without this immediate expansion the
     // user sees an inert compact bar during the slowest part of the request.
-    const minimumThinkingHeight = 106;
+    const minimumThinkingHeight = 300;
     const thinkingHeight = Math.max(window.innerHeight, minimumThinkingHeight);
     storedContentHeightRef.current = thinkingHeight;
     requestWindowResize(thinkingHeight);
@@ -1384,10 +1384,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       <div className={`response-header ${!hasResponse ? 'hidden' : ''}`}>
         <div className="header-left">
           <div className="response-icon">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
+            {/* Taylos liquid-glass mark (frame styled in .response-icon CSS) */}
+            <svg viewBox="0 0 100 100" fill="#ffffff" aria-hidden="true">
+              <g transform="translate(50,50)">
+                {[0, 36, 72, 108, 144, 180, 216, 252, 288, 324].map((a) => (
+                  <g key={a} transform={`rotate(${a})`}>
+                    <rect x="-5.4" y="-34" width="10.8" height="25" rx="5.4" />
+                    <circle cx="0" cy="-35" r="7.6" />
+                  </g>
+                ))}
+                <circle r="8.6" />
+              </g>
             </svg>
           </div>
           <span className="response-label">{headerText}</span>
