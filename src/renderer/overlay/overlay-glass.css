@@ -2586,10 +2586,18 @@ textarea:focus-visible,
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+/* The active button uses an OPAQUE blue fill. The settings window now sits on a native
+   glass backdrop, over which a semi-transparent (0.25) blue reads grey - opaque makes it a
+   solid blue like it looked pre-overhaul, and it brightens slightly (still solid) on hover. */
 .language-button.active {
-  background: var(--accent-weak);
-  border-color: var(--accent-strong);
+  background: rgb(0, 122, 255);
+  border-color: rgb(0, 122, 255);
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
+}
+
+.language-button.active:hover {
+  background: rgb(36, 142, 255);
+  border-color: rgb(36, 142, 255);
 }
 
 .language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
