@@ -289,7 +289,6 @@ html[data-material='native'] :is(
   .copy-button,
   .submit-btn,
   .settings-button,
-  .language-button,
   .shortcuts-container button,
   .welcome-container button,
   .permission-action-button,
@@ -305,7 +304,6 @@ html[data-material='native'] :is(
   .copy-button,
   .submit-btn,
   .settings-button,
-  .language-button,
   .shortcuts-container button,
   .welcome-container button,
   .permission-action-button,
@@ -321,7 +319,6 @@ html[data-material='native'] :is(
   .copy-button,
   .submit-btn,
   .settings-button,
-  .language-button,
   .shortcuts-container button,
   .welcome-container button,
   .permission-action-button,
@@ -355,14 +352,13 @@ html[data-material='native'] :is(
   box-shadow: none !important;
 }
 
-/* Later legacy selectors must never restore Electron's assistance halo. */
+/* Later legacy selectors must never restore Electron's assistance halo.
+   Listen/Done and the selected language retain their own optical depth below. */
 :is(
-  .evia-listen-button,
   .bar-button,
   .evia-header-actions,
   .evia-settings-button,
   .settings-button,
-  .language-button,
   .scroll-to-bottom-button,
   .toggle-button,
   .copy-button,
@@ -373,10 +369,43 @@ html[data-material='native'] :is(
   box-shadow: none !important;
 }
 
-/* Selected language keeps its semantic blue border without Chromium's white halo. */
+/* A focused control must look identical to an unfocused control. These are the
+   component's glass shadows, not Chromium focus halos. */
+.evia-listen-button:is(:focus, :focus-visible, :focus-within) {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.22) !important;
+}
+
+.evia-listen-button.listen-done:is(:focus, :focus-visible, :focus-within) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15),
+    0 1px 3px rgba(0, 0, 0, 0.28) !important;
+}
+
+.language-button:not(.active):is(:focus, :focus-visible, :focus-within) {
+  outline: none !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: none !important;
+}
+
+/* Selected language keeps the blue center/frame hierarchy and hover glow without
+   allowing native glass or the generic control rules to grey the center. */
 .language-button.active:is(:focus, :focus-visible, :focus-within) {
-  border-color: var(--accent-strong) !important;
-  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3) !important;
+  background: rgb(0, 91, 191) !important;
+  border-color: rgb(42, 139, 255) !important;
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.34) !important;
+}
+
+.language-button.active:hover,
+.language-button.active:is(:focus, :focus-visible, :focus-within):hover {
+  background: rgb(0, 112, 224) !important;
+  border-color: rgb(83, 164, 255) !important;
+  box-shadow: 0 0 10px rgba(0, 122, 255, 0.32) !important;
 }
 
 /* Empty utility-window background moves the window; content remains usable. */

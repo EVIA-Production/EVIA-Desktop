@@ -75,6 +75,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const demoModeEnabledRef = useRef(false);
   const demoInsightTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveInsightsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const insightsRequestInFlightRef = useRef(false);
+  const liveInsightsRefreshQueuedRef = useRef(false);
   const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
@@ -481,6 +484,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (demoInsightTimerRef.current) {
         clearTimeout(demoInsightTimerRef.current);
         demoInsightTimerRef.current = null;
+      }
+      if (liveInsightsRefreshTimerRef.current) {
+        clearTimeout(liveInsightsRefreshTimerRef.current);
+        liveInsightsRefreshTimerRef.current = null;
       }
     };
   }, []);
@@ -1421,8 +1428,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Extract insights fetching to reusable function
   const fetchInsightsNow = async (options: { fullReplace?: boolean } = {}) => {
     const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
-    const isDeterministicPostCall = demoModeEnabledRef.current && latestSessionState === 'after';
-    if (isLoadingInsights && !isDeterministicPostCall) return; // Prevent duplicate fetches
+    if (insightsRequestInFlightRef.current) {
+      if (latestSessionState === 'during' && hasGroundedProspectSpeech(transcriptsRef.current)) {
+        liveInsightsRefreshQueuedRef.current = true;
+      }
+      return;
+    }
+    insightsRequestInFlightRef.current = true;
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
     const currentIsSessionActive = isSessionActiveRef.current;
@@ -1462,6 +1474,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         afterInsightsFrozenRef.current = true;
         afterInsightsRequestPendingRef.current = false;
       }
+      insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -1488,13 +1501,22 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Get auth credentials once
     const chatId = Number(localStorage.getItem('current_chat_id') || '0');
     const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
-    const token = await eviaAuth?.getToken();
+    let token: string | null | undefined;
+    try {
+      token = await eviaAuth?.getToken();
+    } catch (error) {
+      console.error('[ListenView] ❌ Failed to read auth token for insights:', error);
+      insightsRequestInFlightRef.current = false;
+      setIsLoadingInsights(false);
+      return;
+    }
 
     console.log('[ListenView] 🔍 Chat ID:', chatId);
     console.log('[ListenView] 🔍 Token available:', !!token);
 
     if (!chatId || !token) {
       console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
+      insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
       return;
     }
@@ -1632,7 +1654,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (derivedSessionState === 'after' && !afterInsightsFrozenRef.current) {
         afterInsightsRequestPendingRef.current = false;
       }
+      insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
+      if (liveInsightsRefreshQueuedRef.current) {
+        liveInsightsRefreshQueuedRef.current = false;
+        setTimeout(() => {
+          if (
+            sessionStateRef.current === 'during' &&
+            viewModeRef.current === 'insights' &&
+            hasGroundedProspectSpeech(transcriptsRef.current) &&
+            finalTranscriptCountRef.current > lastInsightsFetchCountRef.current
+          ) {
+            void fetchInsightsNowRef.current();
+          }
+        }, 0);
+      }
     }
   };
 
@@ -1665,6 +1701,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (demoInsightTimerRef.current) {
         clearTimeout(demoInsightTimerRef.current);
         demoInsightTimerRef.current = null;
+      }
+    };
+  }, [transcripts, sessionState, viewMode]);
+
+  useEffect(() => {
+    if (demoModeEnabledRef.current || sessionState !== 'during' || viewMode !== 'insights') return;
+    if (!hasGroundedProspectSpeech(transcripts)) return;
+    if (finalTranscriptCountRef.current <= lastInsightsFetchCountRef.current) return;
+
+    if (liveInsightsRefreshTimerRef.current) clearTimeout(liveInsightsRefreshTimerRef.current);
+    liveInsightsRefreshTimerRef.current = setTimeout(() => {
+      liveInsightsRefreshTimerRef.current = null;
+      console.log('[ListenView] 🔄 Grounded prospect speech arrived - refreshing visible insights');
+      void fetchInsightsNowRef.current();
+    }, 450);
+
+    return () => {
+      if (liveInsightsRefreshTimerRef.current) {
+        clearTimeout(liveInsightsRefreshTimerRef.current);
+        liveInsightsRefreshTimerRef.current = null;
       }
     };
   }, [transcripts, sessionState, viewMode]);

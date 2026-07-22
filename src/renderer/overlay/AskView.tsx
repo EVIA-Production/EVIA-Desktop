@@ -101,6 +101,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // CommonMark split one list into several, so the first bullet rendered detached from
       // the rest. Only matches a marker followed by whitespace at line start (never *bold*).
       .replace(/^([ \t]*)[*+]([ \t]+)/gm, '$1-$2')
+      // Models occasionally glue a bold section title to the preceding takeaway. A bold
+      // span followed by a list is structural, so make the boundary deterministic here too.
+      .replace(/[ \t]*(\*\*[^*\n]{2,80}\*\*)[ \t]*(?=(?:\n[ \t]*)?[-*+]\s+)/g, '\n\n$1\n')
+      .replace(/(\*\*[^*\n]+\*\*)[ \t]+(?=\*\*[^*\n]+\*\*)/g, '$1\n\n')
+      .replace(/[ \t]+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }, [stripUserVisibleStreamArtifacts]);

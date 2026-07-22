@@ -196,7 +196,8 @@ test('stub insights are rejected in every lifecycle state', () => {
   assert.match(listenSource, /if \(isStubInsightPayload\(fetchedInsights\)\)/);
   assert.match(listenSource, /const receivedStub = isStubInsightPayload\(fetchedInsights\)/);
   assert.match(listenSource, /derivedSessionState !== 'after' && !liveProspectSpeechAvailable/);
-  assert.match(listenSource, /waitingForProspectSpeech/);
+  assert.match(listenSource, /sessionState === 'during' && !hasGroundedProspectSpeech\(transcripts\)/);
+  assert.match(listenSource, /Grounded prospect speech arrived - refreshing visible insights/);
   assert.doesNotMatch(listenSource, /derivedSessionState !== 'after' && isStubInsightPayload/);
   assert.doesNotMatch(listenSource, /Post-meeting insights accepted without stub rejection/);
 });
@@ -283,4 +284,45 @@ test('AppKit owns the native optical rim and renderer focus halos stay disabled'
     overlayGlassSource,
     /outline:\s*2px solid rgba\(59, 130, 246, 0\.8\)/
   );
+});
+
+test('Listen and Done retain component glass depth when focused', () => {
+  assert.match(
+    liquidGlassSource,
+    /\.evia-listen-button:is\(:focus, :focus-visible, :focus-within\)[\s\S]*inset 0 1px 0\.5px[\s\S]*!important/,
+  );
+  assert.match(
+    liquidGlassSource,
+    /\.evia-listen-button\.listen-done:is\(:focus, :focus-visible, :focus-within\)[\s\S]*inset 0 1px 0[\s\S]*!important/,
+  );
+  assert.match(overlayGlassSource, /\.evia-listen-button \{[\s\S]*background: transparent/);
+  assert.match(
+    overlayGlassSource,
+    /\.evia-listen-button::before \{[\s\S]*background: rgb\(67, 67, 64\)/,
+  );
+  assert.match(
+    overlayGlassSource,
+    /\.evia-listen-button:not\(\.listen-active\):not\(\.listen-done\):hover::before \{[\s\S]*background: rgb\(76, 76, 73\)/,
+  );
+  assert.match(overlayGlassSource, /\.evia-listen-button\.listen-done \{[\s\S]*background: linear-gradient\(180deg, rgb\(248, 248, 248\)/);
+});
+
+test('selected language keeps blue center, brighter frame, and hover glow', () => {
+  assert.match(overlayGlassSource, /\.language-button\.active \{[\s\S]*background: rgb\(0, 91, 191\) !important[\s\S]*border-color: rgb\(42, 139, 255\) !important/);
+  assert.match(overlayGlassSource, /\.language-button\.active:hover,[\s\S]*background: rgb\(0, 112, 224\) !important[\s\S]*border-color: rgb\(83, 164, 255\) !important[\s\S]*0 0 10px/);
+
+  const genericHoverBlock = liquidGlassSource.match(/:is\([\s\S]*?\):hover \{\n  background-color: var\(--taylos-glass-control-hover\) !important;/)?.[0] || '';
+  assert.doesNotMatch(genericHoverBlock, /\.language-button/);
+});
+
+test('read-mode markdown normalizes standalone section titles', () => {
+  assert.match(askSource, /bold section title to the preceding takeaway/);
+  assert.match(askSource, /\(\\\*\\\*\[\^\*\\n\]\{2,80\}\\\*\\\*\)/);
+});
+
+test('visible live insights refresh after the first grounded prospect line', () => {
+  assert.match(listenSource, /liveInsightsRefreshTimerRef/);
+  assert.match(listenSource, /hasGroundedProspectSpeech\(transcripts\)/);
+  assert.match(listenSource, /finalTranscriptCountRef\.current <= lastInsightsFetchCountRef\.current/);
+  assert.match(listenSource, /void fetchInsightsNowRef\.current\(\)/);
 });
