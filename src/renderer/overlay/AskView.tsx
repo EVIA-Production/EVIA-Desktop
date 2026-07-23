@@ -29,6 +29,28 @@ type AskSendPayload = {
 
 type AskSessionState = 'before' | 'during' | 'after';
 
+// The thinking layout (header + centered spinner + input row) has one deterministic
+// height, but it depends on font metrics that only exist after render. We cache the real
+// measurement so every open starts at EXACTLY the height thinking settles at - the window
+// must not resize between "pressed Enter" and "first token".
+const THINKING_HEIGHT_KEY = 'evia_ask_thinking_height';
+const DEFAULT_THINKING_HEIGHT = 168;
+const MIN_THINKING_HEIGHT = 120;
+const MAX_THINKING_HEIGHT = 400;
+
+const isSaneThinkingHeight = (value: number): boolean =>
+  Number.isFinite(value) && value >= MIN_THINKING_HEIGHT && value <= MAX_THINKING_HEIGHT;
+
+const readThinkingHeight = (): number => {
+  try {
+    const cached = Number(localStorage.getItem(THINKING_HEIGHT_KEY));
+    if (isSaneThinkingHeight(cached)) return cached;
+  } catch {
+    /* localStorage unavailable - fall through to the default */
+  }
+  return DEFAULT_THINKING_HEIGHT;
+};
+
 const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) => {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
@@ -798,8 +820,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // any network request begins: question in the header, spinner centered,
     // and the input anchored below it. Without this immediate expansion the
     // user sees an inert compact bar during the slowest part of the request.
-    const minimumThinkingHeight = 200;
-    const thinkingHeight = Math.max(window.innerHeight, minimumThinkingHeight);
+    const thinkingHeight = readThinkingHeight();
     storedContentHeightRef.current = thinkingHeight;
     requestWindowResize(thinkingHeight);
 
@@ -824,7 +845,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       if (currentSessionState !== sessionState) setSessionState(currentSessionState);
       onSubmitPrompt?.(actualPrompt);
 
-      const nextHeight = Math.max(window.innerHeight, minimumThinkingHeight);
+      const nextHeight = thinkingHeight;
       const startedAt = performance.now();
 
       storedContentHeightRef.current = nextHeight;
@@ -997,7 +1018,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     if (onSubmitPrompt) onSubmitPrompt(actualPrompt);
 
-    const nextHeight = Math.max(window.innerHeight, minimumThinkingHeight);
+    const nextHeight = thinkingHeight;
 
     setResponse('');
     responseBufferRef.current = '';
@@ -1287,6 +1308,43 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // ResizeObserver handles non-empty states automatically
   }, [response, isLoadingFirstToken, triggerManualResize]);
 
+  // Calibrate the thinking height against the real spinner layout. measureResponseContentHeight()
+  // deliberately reports 0 while loading, so the spinner is measured directly here. The result is
+  // cached, which makes every later open land on exactly this height with no resize at all.
+  useEffect(() => {
+    if (!isLoadingFirstToken) return;
+    if (responseBufferRef.current.trim()) return;
+
+    const rafId = requestAnimationFrame(() => requestAnimationFrame(() => {
+      const container = responseContainerRef.current;
+      const headerEl = document.querySelector('.response-header:not(.hidden)') as HTMLElement | null;
+      const inputEl = document.querySelector('.text-input-container:not(.hidden)') as HTMLElement | null;
+      const loadingEl = container?.querySelector('.loading-dots') as HTMLElement | null;
+      if (!container || !headerEl || !inputEl || !loadingEl) return;
+
+      const style = window.getComputedStyle(container);
+      const padding = (parseFloat(style.paddingTop || '0') || 0) + (parseFloat(style.paddingBottom || '0') || 0);
+      const measured = Math.ceil(
+        headerEl.offsetHeight + loadingEl.offsetHeight + padding + inputEl.offsetHeight + 2,
+      );
+      if (!isSaneThinkingHeight(measured)) return;
+
+      try {
+        localStorage.setItem(THINKING_HEIGHT_KEY, String(measured));
+      } catch {
+        /* non-fatal: we still resize this session */
+      }
+
+      if (Math.abs(measured - window.innerHeight) > 2) {
+        storedContentHeightRef.current = measured;
+        requestWindowResize(measured);
+        console.log('[AskView] 📏 Thinking height calibrated: %dpx', measured);
+      }
+    }));
+
+    return () => cancelAnimationFrame(rafId);
+  }, [isLoadingFirstToken, requestWindowResize]);
+
   // After streaming completes, shrink or grow Ask exactly to the settled content.
   useEffect(() => {
     if (isStreaming) return;
@@ -1384,8 +1442,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       <div className={`response-header ${!hasResponse ? 'hidden' : ''}`}>
         <div className="header-left">
           <div className="response-icon">
-            {/* The actual Taylos app icon (600x600), clipped from squircle to circle by CSS. */}
-            <img src={new URL('./assets/taylos_icon.png', import.meta.url).href} alt="" aria-hidden="true" />
+            {/* The Taylos mark, extracted from the app icon: squircle and glass rim cropped
+                away, background keyed transparent. The bead around it (CSS) reproduces the
+                icon's own background colour plus the liquid-glass frame. */}
+            <img src={new URL('./assets/taylos_mark.png', import.meta.url).href} alt="" aria-hidden="true" />
           </div>
           <span className="response-label">{headerText}</span>
         </div>

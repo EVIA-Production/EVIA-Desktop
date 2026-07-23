@@ -1687,19 +1687,33 @@ textarea:focus-visible,
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
-  /* Show the ACTUAL Taylos app icon clipped from squircle to circle. The icon already
-     carries the glass + directional top-light + the flower's padding ring, so we only add
-     a soft outer lift here. */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  /* Fill sampled from the real app icon's own background (neutral near-black, radial
+     falloff from rgb(26,26,26) at centre to rgb(3,3,3) at the edge) so the bead reads as
+     the actual icon rather than a recolour of it. The white directional top edge is the
+     liquid-glass frame, same language as the Listen button. */
+  background: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #191919 42%, #0d0d0d 74%, #030303 100%);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.75),
+    inset 0 -2px 2.5px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 2px 5px rgba(0, 0, 0, 0.45);
 }
 
+/* The REAL Taylos mark, extracted from the app icon: the squircle and its bright glass rim
+   are cropped away and the background is keyed transparent, so only the white symbol sits
+   inside the bead - scaled small, with a dark ring around it like the reference icons. */
 .response-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  width: 60%;
+  height: 60%;
+  object-fit: contain;
   display: block;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
 }
 
 .response-label {
