@@ -1266,12 +1266,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       };
 
       const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
-        console.log('[ListenView] 📡 Session state changed:', newState);
+        const prevState = sessionStateRef.current;
+        console.log('[ListenView] 📡 Session state changed:', newState, '(prev:', prevState, ')');
         // CRITICAL FIX: Also update localStorage in THIS window's context
         // Each Electron window has its own localStorage, so we must sync it here!
         localStorage.setItem('evia_session_state', newState);
         setSessionState(newState);
         if (newState === 'during') {
+          // Only reset for a genuinely NEW session. A new session ALWAYS enters 'during' from
+          // 'before' (idle -> starting). On Done, capture goes recording -> stopping -> review;
+          // 'stopping' re-broadcasts legacy 'during' and (racing with recording_stopped which
+          // may have set 'after' first) previously wiped the just-recorded transcript before the
+          // review stage. Guarding on prevState==='before' preserves it in every ordering.
+          if (prevState !== 'before') return;
           (window as any).evia?.liveTranscript?.clear?.();
           // Prevent one-frame flash of stale insights from previous session.
           setTranscripts([]);
