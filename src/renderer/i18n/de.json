@@ -14,7 +14,7 @@
       "showInsights": "Erkenntnisse",
       "showTranscript": "Transkript",
       "hideInsights": "Erkenntnisse ausblenden",
-      "noTranscript": "Noch keine Transkription. Starten Sie das Zuhören, um die Transkription zu sehen.",
+      "noTranscript": "Noch keine Transkription. Starte das Zuhören, um die Transkription zu sehen.",
       "noTranscriptsYet": "Warte auf Audioeingang...",
       "transcriptStalled": "Transkription gestoppt - verbinde neu...",
       "reconnecting": "Audio wird neu verbunden...",
@@ -35,15 +35,15 @@
       "copiedInsights": "Taylos Analyse kopiert!",
       "speaker": "Sprecher",
       "unknown": "Unbekannt",
-      "local": "Sie",
+      "local": "Du",
       "summary": "Zusammenfassung",
       "nextActions": "Aktionen",
       "followUps": "Follow-Ups"
     },
     "insights": {
-      "dummyInsight1": "Taylos analysiert Ihr Gespräch...",
+      "dummyInsight1": "Taylos analysiert dein Gespräch...",
       "dummyInsight2": "Erkenntnisse werden in Echtzeit generiert",
-      "dummyInsight3": "Beginnen Sie mit dem Zuhören, um persönliche Erkenntnisse zu erhalten"
+      "dummyInsight3": "Beginne mit dem Zuhören, um persönliche Erkenntnisse zu erhalten"
     },
     "ask": {
       "title": "Taylos fragen",
@@ -88,12 +88,12 @@
       "myPresets": "Meine Vorlagen",
       "presetsCount": "{{count}}",
       "noPresetsMessage": "Noch keine benutzerdefinierten Vorlagen.",
-      "createFirstPreset": "Erstellen Sie Ihre erste Vorlage",
+      "createFirstPreset": "Erstelle deine erste Vorlage",
       "presetActive": "Aktiv",
       "presetActivating": "Wird aktiviert...",
-      "presetActivationFailed": "Vorlage konnte nicht aktiviert werden. Versuchen Sie es vor Gesprächsbeginn erneut.",
+      "presetActivationFailed": "Vorlage konnte nicht aktiviert werden. Versuch es vor Gesprächsbeginn erneut.",
       "presetContextPending": "Vorlage aktiviert. Taylos prüft den Kontext beim Start des nächsten Gesprächs.",
-      "presetLockedDuringSession": "Beenden Sie das Zuhören, bevor Sie die Vorlage wechseln.",
+      "presetLockedDuringSession": "Beende das Zuhören, bevor du die Vorlage wechselst.",
       "personalizeButton": "Personalisieren / Besprechungsnotizen",
       "automaticUpdates": "Automatische Updates",
       "automaticUpdatesOn": "Automatische Updates: An",
@@ -108,14 +108,14 @@
     },
     "shortcuts": {
       "title": "Tastenkombinationen",
-      "description": "Passen Sie Ihre Tastenkombinationen an",
+      "description": "Passe deine Tastenkombinationen an",
       "save": "Speichern",
       "cancel": "Abbrechen",
       "reset": "Auf Standard zurücksetzen"
     },
     "errors": {
-      "network": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
-      "auth": "Authentifizierung fehlgeschlagen. Bitte melden Sie sich erneut an.",
+      "network": "Netzwerkfehler. Bitte überprüf deine Verbindung.",
+      "auth": "Authentifizierung fehlgeschlagen. Bitte melde dich erneut an.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
       "screenshot": "Screenshot konnte nicht aufgenommen werden"
     },
