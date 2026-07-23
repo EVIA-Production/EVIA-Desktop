@@ -798,7 +798,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // any network request begins: question in the header, spinner centered,
     // and the input anchored below it. Without this immediate expansion the
     // user sees an inert compact bar during the slowest part of the request.
-    const minimumThinkingHeight = 300;
+    const minimumThinkingHeight = 200;
     const thinkingHeight = Math.max(window.innerHeight, minimumThinkingHeight);
     storedContentHeightRef.current = thinkingHeight;
     requestWindowResize(thinkingHeight);
@@ -1384,18 +1384,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       <div className={`response-header ${!hasResponse ? 'hidden' : ''}`}>
         <div className="header-left">
           <div className="response-icon">
-            {/* Taylos liquid-glass mark (frame styled in .response-icon CSS) */}
-            <svg viewBox="0 0 100 100" fill="#ffffff" aria-hidden="true">
-              <g transform="translate(50,50)">
-                {[0, 36, 72, 108, 144, 180, 216, 252, 288, 324].map((a) => (
-                  <g key={a} transform={`rotate(${a})`}>
-                    <rect x="-5.4" y="-34" width="10.8" height="25" rx="5.4" />
-                    <circle cx="0" cy="-35" r="7.6" />
-                  </g>
-                ))}
-                <circle r="8.6" />
-              </g>
-            </svg>
+            {/* The actual Taylos app icon (600x600), clipped from squircle to circle by CSS. */}
+            <img src={new URL('./assets/taylos_icon.png', import.meta.url).href} alt="" aria-hidden="true" />
           </div>
           <span className="response-label">{headerText}</span>
         </div>
