@@ -46,7 +46,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const PARTIAL_THROTTLE_MS = 100; // Match the 100ms audio cadence without redundant paints
   const lastPartialUpdate = useRef<Record<string, number>>({});
   const pendingPartialUpdates = useRef<Record<string, {text: string, speaker: number | null, utteranceId?: string}>>({});
-  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('transcript');
+  // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
+  // Transcript stays one click away via the header toggle.
+  const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('insights');
   const [isHovering, setIsHovering] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [copiedView, setCopiedView] = useState<'transcript' | 'insights' | null>(null); // Track which view was copied
@@ -696,7 +698,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsHistory([]);
         setInsightsIndex(-1);
         setInsightsRefreshPending(false);
-        setViewMode('transcript');
+        setViewMode('insights');
         setElapsedTime('00:00');
         setIsSessionActive(true);
         setSessionState('during');
@@ -1227,7 +1229,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsHistory([]);
         setInsightsIndex(-1);
         setInsightsRefreshPending(false);
-        setViewMode('transcript');
+        setViewMode('insights');
         setElapsedTime('00:00');
         setIsSessionActive(false);
         finalTranscriptCountRef.current = 0;
@@ -1282,7 +1284,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           (window as any).evia?.liveTranscript?.clear?.();
           // Prevent one-frame flash of stale insights from previous session.
           setTranscripts([]);
-          setViewMode('transcript');
+          setViewMode('insights');
           setInsights(null);
           setInsightsHistory([]);
           setInsightsIndex(-1);
@@ -1310,7 +1312,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           setInsightsHistory([]);
           setInsightsIndex(-1);
           setInsightsRefreshPending(false);
-          setViewMode('transcript');
+          setViewMode('insights');
           setIsSessionActive(false);
           finalTranscriptCountRef.current = 0;
           lastInsightsFetchCountRef.current = 0;
