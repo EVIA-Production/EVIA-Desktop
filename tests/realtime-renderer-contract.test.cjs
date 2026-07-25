@@ -357,6 +357,27 @@ test('Ask renders its complete thinking state before asynchronous context work',
   assert.match(askSource, /const resetPendingRequest = \(\) => \{[\s\S]*setIsStreaming\(false\)[\s\S]*requestWindowResize\(MIN_ASK_BAR_HEIGHT\)/);
 });
 
+test('Ask guards the pre-stream await window against concurrent starts', () => {
+  assert.match(askSource, /const pendingStartRef = useRef\(false\)/);
+  assert.match(askSource, /const requestGenerationRef = useRef\(0\)/);
+  assert.match(
+    askSource,
+    /if \(\s*!actualPrompt\.trim\(\) \|\|\s*streamRef\.current \|\|\s*pendingStartRef\.current \|\|\s*deterministicDemoTimerRef\.current\s*\)/
+  );
+  assert.match(
+    askSource,
+    /if \(streamRef\.current \|\| pendingStartRef\.current\) \{\s*cancelActiveStreamRef\.current\?\.\('new suggestion requested'\)/
+  );
+  assert.match(askSource, /requestGenerationRef\.current \+= 1;\s*pendingStartRef\.current = false/);
+  assert.match(
+    askSource,
+    /const resetPendingRequest = \(\) => \{[\s\S]*if \(lastPromptRef\.current\) \{\s*setPrompt\(lastPromptRef\.current\);\s*\}/
+  );
+  const startBlock = askSource.split('const startStream = async', 2)[1];
+  assert.match(startBlock, /if \(!isCurrentRequest\(\)\) return/);
+  assert.match(startBlock, /streamRef\.current = handle;\s*pendingStartRef\.current = false/);
+});
+
 test('visible live insights refresh after the first grounded prospect line', () => {
   assert.match(listenSource, /liveInsightsRefreshTimerRef/);
   assert.match(listenSource, /hasGroundedProspectSpeech\(transcripts\)/);

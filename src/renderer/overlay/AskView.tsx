@@ -66,6 +66,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [responseNeedsScroll, setResponseNeedsScroll] = useState(false);
   
   const streamRef = useRef<{ abort: () => void } | null>(null);
+  // Covers the pre-streamAsk window (auth/chat/transcript awaits). streamRef is
+  // still null there, so without this a second startStream can race and pair the
+  // wrong answer with the visible question.
+  const pendingStartRef = useRef(false);
+  const requestGenerationRef = useRef(0);
   const streamStartTime = useRef<number | null>(null);
   const ttftLoggedRef = useRef(false);
   const responseContainerRef = useRef<HTMLDivElement>(null);
@@ -403,6 +408,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         (
           now - lastSendAndSubmitAtRef.current < 1500 ||
           Boolean(streamRef.current) ||
+          Boolean(pendingStartRef.current) ||
           Boolean(restartStreamTimeoutRef.current)
         )
       ) {
@@ -440,7 +446,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         }, delayMs);
       };
 
-      if (streamRef.current) {
+      // pendingStartRef covers the await window before streamRef is assigned.
+      if (streamRef.current || pendingStartRef.current) {
         cancelActiveStreamRef.current?.('new suggestion requested');
         queueReplacementStart(250);
         return;
@@ -768,6 +775,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   };
 
   const cancelActiveStream = useCallback((reason: string) => {
+    // Invalidate any in-flight startStream that has not assigned streamRef yet.
+    requestGenerationRef.current += 1;
+    pendingStartRef.current = false;
     if (deterministicDemoTimerRef.current) {
       clearTimeout(deterministicDemoTimerRef.current);
       deterministicDemoTimerRef.current = null;
@@ -793,13 +803,22 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
-    if (!actualPrompt.trim() || streamRef.current || deterministicDemoTimerRef.current) return;
+    if (
+      !actualPrompt.trim() ||
+      streamRef.current ||
+      pendingStartRef.current ||
+      deterministicDemoTimerRef.current
+    ) {
+      return;
+    }
 
     const requestStartedAt = performance.now();
     const clientStartedAtMs = Date.now();
     const requestId = crypto.randomUUID();
     const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
     streamStartTime.current = requestStartedAt;
+    pendingStartRef.current = true;
+    const generation = ++requestGenerationRef.current;
     
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
@@ -824,7 +843,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     storedContentHeightRef.current = thinkingHeight;
     requestWindowResize(thinkingHeight);
 
+    const isCurrentRequest = () => requestGenerationRef.current === generation;
+
     const resetPendingRequest = () => {
+      if (!isCurrentRequest()) return;
+      pendingStartRef.current = false;
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       setHeaderText(i18n.t('overlay.ask.aiResponse'));
@@ -832,6 +855,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamStartTime.current = null;
       storedContentHeightRef.current = MIN_ASK_BAR_HEIGHT;
       requestWindowResize(MIN_ASK_BAR_HEIGHT);
+      // Early commit clears the input before auth/chat work; put the question
+      // back so a pre-stream failure does not silently drop what the user typed.
+      if (lastPromptRef.current) {
+        setPrompt(lastPromptRef.current);
+      }
     };
 
     // Demo mode substitutes only explicitly scripted outcomes at the same
@@ -842,6 +870,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       : null;
 
     if (deterministicDemoResponse) {
+      // Demo timer becomes the in-flight lock; release the pre-stream guard.
+      pendingStartRef.current = false;
       if (currentSessionState !== sessionState) setSessionState(currentSessionState);
       onSubmitPrompt?.(actualPrompt);
 
@@ -853,6 +883,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
       deterministicDemoTimerRef.current = setTimeout(() => {
         deterministicDemoTimerRef.current = null;
+        if (!isCurrentRequest()) return;
         const finalResponse = sanitizeAskOutput(
           deterministicDemoResponse.content,
           currentSessionState,
@@ -892,6 +923,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       checkTokenValidity?: () => Promise<{ valid: boolean, reason: string, expiresIn?: number }>
     } | undefined;
     const token = await eviaAuth?.getToken();
+    if (!isCurrentRequest()) return;
     if (!token) {
       showError('Authentication required. Please login first.', false);
       resetPendingRequest();
@@ -901,6 +933,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // FIX: Check token validity before making request
     if (eviaAuth?.checkTokenValidity) {
       const validity = await (eviaAuth as any).checkTokenValidity();
+      if (!isCurrentRequest()) return;
       if (!validity.valid) {
         showError(`Token ${validity.reason === 'expired' ? 'expired' : 'invalid'}. Please re-login.`, false);
         resetPendingRequest();
@@ -919,6 +952,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ language }),
         });
+        if (!isCurrentRequest()) return;
         
         if (res.status === 401) {
           showError('Authentication expired. Please reconnect.', true);
@@ -933,6 +967,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         }
         
         const data = await res.json();
+        if (!isCurrentRequest()) return;
         chatId = Number(data?.id);
         if (chatId && !Number.isNaN(chatId)) {
           try {
@@ -941,12 +976,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           try {
             await (window as any).evia?.prefs?.set?.({ current_chat_id: String(chatId) });
           } catch {}
+          if (!isCurrentRequest()) return;
         } else {
           showError('Invalid chat session. Please reconnect.', true);
           resetPendingRequest();
           return;
         }
       } catch (e: any) {
+        if (!isCurrentRequest()) return;
         const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network');
         showError(
           isNetworkError 
@@ -964,9 +1001,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     try {
       const explicitTranscriptContext = liveTranscriptOverrideRef.current || '';
       const { getChatTranscripts } = await import('../services/websocketService');
+      if (!isCurrentRequest()) return;
       const liveSnapshot = explicitTranscriptContext
         ? null
         : await (window as any).evia?.liveTranscript?.get?.(chatId);
+      if (!isCurrentRequest()) return;
       const liveTranscriptContext = explicitTranscriptContext || liveSnapshot?.data?.transcriptContext || '';
 
       // During a call, the renderer snapshot is the freshest source and avoids
@@ -977,6 +1016,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] 📄 Using live transcript context:', transcriptContext.length, 'chars,', lineCount, 'entries');
       } else {
         const transcripts = await getChatTranscripts(chatId, token, 200);
+        if (!isCurrentRequest()) return;
         const deduped = deduplicateTranscriptEntries(transcripts as AskTranscriptEntry[]);
         const dbTranscriptContext = deduped.length > 0
           ? formatTranscriptContextForLLM(deduped)
@@ -992,9 +1032,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         );
       }
     } catch (e) {
+      if (!isCurrentRequest()) return;
       console.warn('[AskView] ⚠️ Could not fetch transcript (continuing without context):', e);
     } finally {
-      liveTranscriptOverrideRef.current = null;
+      if (isCurrentRequest()) {
+        liveTranscriptOverrideRef.current = null;
+      }
     }
 
     // Taylos enhancement: Screenshot capture
@@ -1002,6 +1045,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (captureScreenshot) {
       try {
         const result = await (window as any).evia?.capture?.takeScreenshot?.();
+        if (!isCurrentRequest()) return;
         
         if (result?.ok && result?.base64) {
           screenshotRef = result.base64;
@@ -1012,9 +1056,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           return;
         }
       } catch (err: any) {
+        if (!isCurrentRequest()) return;
         console.error('[AskView] Screenshot capture error:', err);
       }
     }
+
+    if (!isCurrentRequest()) return;
 
     if (onSubmitPrompt) onSubmitPrompt(actualPrompt);
 
@@ -1055,6 +1102,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       clientStartedAtMs,
     });
     streamRef.current = handle;
+    pendingStartRef.current = false;
 
     handle.onDelta((d) => {
       if (streamRef.current !== handle) return;
