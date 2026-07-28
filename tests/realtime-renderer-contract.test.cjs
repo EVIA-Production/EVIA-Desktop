@@ -363,3 +363,32 @@ test('visible live insights refresh after the first grounded prospect line', () 
   assert.match(listenSource, /finalTranscriptCountRef\.current <= lastInsightsFetchCountRef\.current/);
   assert.match(listenSource, /void fetchInsightsNowRef\.current\(\)/);
 });
+
+test('post-call insights retry after an in-flight live request finishes', () => {
+  const fetchBlock = listenSource.split('const fetchInsightsNow = async', 2)[1];
+  assert.match(
+    fetchBlock,
+    /Discarding stale live insights that arrived after Stop/,
+    'stale during responses must not paint the after surface',
+  );
+  assert.match(
+    fetchBlock,
+    /needsPostCallRetry/,
+    'finally must detect a deferred post-call fetch',
+  );
+  assert.match(
+    fetchBlock,
+    /Re-running post-call insights after in-flight live request finished/,
+    'finally must re-fire after Stop when a live request blocked the first attempt',
+  );
+  assert.match(
+    fetchBlock,
+    /void fetchInsightsNowRef\.current\(\{ fullReplace: true \}\)/,
+    'deferred post-call fetch must request a full replace',
+  );
+  assert.match(
+    fetchBlock,
+    /if \(derivedSessionState === 'after'\) \{\s*afterInsightsFrozenRef\.current = true;\s*afterInsightsRequestPendingRef\.current = false;/,
+    'successful after snapshot must clear the pending latch',
+  );
+});

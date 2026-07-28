@@ -1441,6 +1441,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (latestSessionState === 'during' && hasGroundedProspectSpeech(transcriptsRef.current)) {
         liveInsightsRefreshQueuedRef.current = true;
       }
+      // Post-call: schedulePostMeetingInsightsFetch already set
+      // afterInsightsRequestPendingRef. The in-flight live request's finally
+      // must re-run this fetch — otherwise Stop during a live refresh permanently
+      // drops the after snapshot (pending stays true, frozen never set).
       return;
     }
     insightsRequestInFlightRef.current = true;
@@ -1520,6 +1524,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] ❌ Failed to read auth token for insights:', error);
       insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
+      if (latestSessionState === 'after') {
+        afterInsightsRequestPendingRef.current = false;
+      }
       return;
     }
 
@@ -1530,6 +1537,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
       insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
+      if (latestSessionState === 'after') {
+        afterInsightsRequestPendingRef.current = false;
+      }
       return;
     }
 
@@ -1601,6 +1611,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       
       if (fetchedInsights) {
         console.log('[ListenView] ✅ Glass insights received!');
+        const nowAfter =
+          sessionStateRef.current === 'after' ||
+          localStorage.getItem('evia_session_state') === 'after';
+        // A live (during) response that finishes after Stop must not repaint the
+        // cleared post-call surface. finally will re-fire the after fetch.
+        if (derivedSessionState !== 'after' && nowAfter) {
+          console.log('[ListenView] ⏭️ Discarding stale live insights that arrived after Stop');
+          setInsightsRefreshPending(false);
+          return;
+        }
         if (isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
             console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
@@ -1647,6 +1667,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         lastInsightsFetchAtRef.current = Date.now();
         if (derivedSessionState === 'after') {
           afterInsightsFrozenRef.current = true;
+          afterInsightsRequestPendingRef.current = false;
         }
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
@@ -1663,12 +1684,31 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.error('[ListenView] 🔍 Error details:', errorMessage);
       setInsightsRefreshPending(false);
     } finally {
+      const needsPostCallRetry =
+        derivedSessionState !== 'after' &&
+        afterInsightsRequestPendingRef.current &&
+        !afterInsightsFrozenRef.current &&
+        (sessionStateRef.current === 'after' ||
+          localStorage.getItem('evia_session_state') === 'after');
+
       if (derivedSessionState === 'after' && !afterInsightsFrozenRef.current) {
         afterInsightsRequestPendingRef.current = false;
       }
       insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
-      if (liveInsightsRefreshQueuedRef.current) {
+      if (needsPostCallRetry) {
+        // Live request finished after Stop: run the deferred post-call snapshot.
+        console.log('[ListenView] 🔁 Re-running post-call insights after in-flight live request finished');
+        setTimeout(() => {
+          if (
+            !afterInsightsFrozenRef.current &&
+            (sessionStateRef.current === 'after' ||
+              localStorage.getItem('evia_session_state') === 'after')
+          ) {
+            void fetchInsightsNowRef.current({ fullReplace: true });
+          }
+        }, 0);
+      } else if (liveInsightsRefreshQueuedRef.current) {
         liveInsightsRefreshQueuedRef.current = false;
         setTimeout(() => {
           if (
