@@ -7,11 +7,13 @@ import { OverlayVisibilityController } from './overlay-visibility-controller'
 import {
   applyWindowMaterial,
   getRequestedMaterialMode,
+  isMacPhysicalKeyPressed,
   materialQuery,
   materialWindowOptions,
   type MaterialMode,
   type MaterialSurface,
 } from './window-material'
+import { appendAudioDiagnostic } from './audio-diagnostics'
 import {
   centerWindowGroupX,
   centerWindowX,
@@ -1524,6 +1526,276 @@ function nudgeHeader(dx: number, dy: number) {
   animate()
 }
 
+type HeaderMovementDirection = 'up' | 'down' | 'left' | 'right';
+
+let heldMovementDirection: HeaderMovementDirection | null = null;
+let heldMovementLastSignalAt = 0;
+let heldMovementRapidSignals = 0;
+let heldMovementTimer: NodeJS.Timeout | null = null;
+let heldMovementProbeTimer: NodeJS.Timeout | null = null;
+let heldMovementStartedAt = 0;
+let heldMovementLastFrameAt = 0;
+let heldMovementKeyCode: number | null = null;
+let heldMovementVelocityX = 0;
+let heldMovementVelocityY = 0;
+let heldMovementReleaseTimer: NodeJS.Timeout | null = null;
+
+const MAC_ARROW_KEY_CODES: Record<HeaderMovementDirection, number> = {
+  left: 123,
+  right: 124,
+  down: 125,
+  up: 126,
+};
+
+// A single 80px cubic ease-out over 300ms starts at 800px/s
+// (distance * 3 / duration). Holding begins at that same velocity, then ramps
+// beyond repeated taps so it is the unambiguously faster distance control.
+const HELD_MOVEMENT_INITIAL_PX_PER_SECOND = 800;
+const HELD_MOVEMENT_MAX_PX_PER_SECOND = 1800;
+const HELD_MOVEMENT_RAMP_MS = 1200;
+
+function cancelContinuousHeaderRelease() {
+  if (!heldMovementReleaseTimer) return;
+  clearTimeout(heldMovementReleaseTimer);
+  heldMovementReleaseTimer = null;
+}
+
+function animateContinuousHeaderRelease(velocityX: number, velocityY: number) {
+  const header = headerWindow;
+  if (
+    !header ||
+    header.isDestroyed() ||
+    !Number.isFinite(velocityX) ||
+    !Number.isFinite(velocityY)
+  ) {
+    return false;
+  }
+
+  const speed = Math.hypot(velocityX, velocityY);
+  if (speed < 1) return false;
+
+  cancelContinuousHeaderRelease();
+
+  // Match the tap movement's 300ms cubic ease-out without sharing its mutable
+  // animation state. A cubic ease-out travels v0*T/3 when its initial velocity
+  // is v0, so the first release frame preserves the held velocity and every
+  // subsequent frame slows smoothly to exactly zero.
+  const durationMs = 300;
+  const durationSeconds = durationMs / 1000;
+  const startBounds = header.getBounds();
+  const targetBounds = clampBounds({
+    ...startBounds,
+    x: startBounds.x + velocityX * durationSeconds / 3,
+    y: startBounds.y + velocityY * durationSeconds / 3,
+  });
+  const releaseDistanceX = targetBounds.x - startBounds.x;
+  const releaseDistanceY = targetBounds.y - startBounds.y;
+  if (Math.hypot(releaseDistanceX, releaseDistanceY) < 1) return false;
+
+  const startedAt = Date.now();
+  const animateReleaseFrame = () => {
+    if (!headerWindow || headerWindow !== header || header.isDestroyed()) {
+      heldMovementReleaseTimer = null;
+      return;
+    }
+
+    const progress = Math.min((Date.now() - startedAt) / durationMs, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const x = startBounds.x + releaseDistanceX * eased;
+    const y = startBounds.y + releaseDistanceY * eased;
+
+    if (!safeSetWindowPosition(header, x, y, 'heldHeaderRelease')) {
+      heldMovementReleaseTimer = null;
+      return;
+    }
+    layoutChildWindows(getVisibility());
+
+    if (progress < 1) {
+      heldMovementReleaseTimer = setTimeout(animateReleaseFrame, 16);
+      return;
+    }
+
+    heldMovementReleaseTimer = null;
+    layoutChildWindows(getVisibility());
+    saveState({ headerBounds: targetBounds });
+  };
+
+  animateReleaseFrame();
+  return true;
+}
+
+function stopContinuousHeaderMovement(saveBounds = true, easeOut = false) {
+  if (heldMovementTimer) {
+    clearTimeout(heldMovementTimer);
+    heldMovementTimer = null;
+  }
+  if (heldMovementProbeTimer) {
+    clearTimeout(heldMovementProbeTimer);
+    heldMovementProbeTimer = null;
+  }
+
+  const shouldEaseOut = easeOut && animateContinuousHeaderRelease(
+    heldMovementVelocityX,
+    heldMovementVelocityY,
+  );
+
+  if (saveBounds && !shouldEaseOut && headerWindow && !headerWindow.isDestroyed()) {
+    const bounds = headerWindow.getBounds();
+    layoutChildWindows(getVisibility());
+    saveState({ headerBounds: bounds });
+  }
+
+  heldMovementDirection = null;
+  heldMovementRapidSignals = 0;
+  heldMovementKeyCode = null;
+  heldMovementVelocityX = 0;
+  heldMovementVelocityY = 0;
+}
+
+function startContinuousHeaderMovement(
+  direction: HeaderMovementDirection,
+  dx: number,
+  dy: number
+) {
+  if (heldMovementTimer && heldMovementDirection === direction) return;
+  const physicalKeyCode = heldMovementKeyCode;
+  stopContinuousHeaderMovement(false);
+
+  // The initial 80px nudge supplies the eased start. Once OS key-repeat proves
+  // the shortcut is held, transition to frame-based movement until repeats
+  // cease (key released) or clamping reports a screen edge.
+  if (animationTimer) {
+    clearTimeout(animationTimer);
+    animationTimer = null;
+  }
+  isAnimating = false;
+
+  heldMovementDirection = direction;
+  heldMovementKeyCode = physicalKeyCode;
+  heldMovementStartedAt = Date.now();
+  heldMovementLastFrameAt = heldMovementStartedAt;
+  heldMovementVelocityX = 0;
+  heldMovementVelocityY = 0;
+
+  const moveFrame = () => {
+    const now = Date.now();
+    const physicalKeyPressed = heldMovementKeyCode === null
+      ? null
+      : isMacPhysicalKeyPressed(heldMovementKeyCode);
+    if (heldMovementDirection !== direction) {
+      stopContinuousHeaderMovement();
+      return;
+    }
+    if (
+      physicalKeyPressed === false ||
+      (physicalKeyPressed === null && now - heldMovementLastSignalAt > 130)
+    ) {
+      stopContinuousHeaderMovement(true, true);
+      return;
+    }
+
+    const header = headerWindow;
+    if (!header || header.isDestroyed()) {
+      stopContinuousHeaderMovement(false);
+      return;
+    }
+
+    const elapsedSeconds = Math.max(0.001, (now - heldMovementLastFrameAt) / 1000);
+    const rampProgress = Math.min(
+      (now - heldMovementStartedAt) / HELD_MOVEMENT_RAMP_MS,
+      1,
+    );
+    const pixelsPerSecond =
+      HELD_MOVEMENT_INITIAL_PX_PER_SECOND +
+      (HELD_MOVEMENT_MAX_PX_PER_SECOND - HELD_MOVEMENT_INITIAL_PX_PER_SECOND) *
+        rampProgress;
+    heldMovementVelocityX = Math.sign(dx) * pixelsPerSecond;
+    heldMovementVelocityY = Math.sign(dy) * pixelsPerSecond;
+    const distance = pixelsPerSecond * elapsedSeconds;
+    const bounds = header.getBounds();
+    const requested = {
+      ...bounds,
+      x: bounds.x + Math.sign(dx) * distance,
+      y: bounds.y + Math.sign(dy) * distance,
+    };
+    const clamped = clampBounds(requested);
+    const atEdge = clamped.x === bounds.x && clamped.y === bounds.y;
+
+    if (atEdge) {
+      stopContinuousHeaderMovement();
+      return;
+    }
+
+    heldMovementLastFrameAt = now;
+    if (!safeSetWindowPosition(header, clamped.x, clamped.y, 'heldHeaderMovement')) {
+      stopContinuousHeaderMovement(false);
+      return;
+    }
+    layoutChildWindows(getVisibility());
+    heldMovementTimer = setTimeout(moveFrame, 16);
+  };
+
+  moveFrame();
+}
+
+function signalHeaderMovement(
+  direction: HeaderMovementDirection,
+  dx: number,
+  dy: number,
+  macKeyCode?: number,
+) {
+  // A new command takes ownership immediately from any residual glide.
+  cancelContinuousHeaderRelease();
+
+  const now = Date.now();
+  const sameDirection = heldMovementDirection === direction;
+  const rapidRepeat = sameDirection && now - heldMovementLastSignalAt <= 180;
+
+  if (!sameDirection) {
+    stopContinuousHeaderMovement();
+    heldMovementDirection = direction;
+    heldMovementRapidSignals = 0;
+  } else if (rapidRepeat) {
+    heldMovementRapidSignals += 1;
+  } else {
+    heldMovementRapidSignals = 0;
+  }
+
+  heldMovementLastSignalAt = now;
+  heldMovementKeyCode = process.platform === 'darwin' && macKeyCode !== undefined
+    ? macKeyCode
+    : null;
+  if (heldMovementTimer) return;
+
+  nudgeHeader(dx, dy);
+
+  // Electron globalShortcut callbacks are not a reliable macOS key-repeat
+  // signal. Poll the physical arrow state after the normal tap animation has
+  // started; a tap remains one 80px nudge, while a held key transitions into
+  // continuous frame-based movement and stops on physical release.
+  if (heldMovementKeyCode !== null && isMacPhysicalKeyPressed(heldMovementKeyCode) !== null) {
+    if (heldMovementProbeTimer) clearTimeout(heldMovementProbeTimer);
+    heldMovementProbeTimer = setTimeout(() => {
+      heldMovementProbeTimer = null;
+      const stillHeld = (
+        heldMovementDirection === direction &&
+        heldMovementKeyCode === macKeyCode &&
+        isMacPhysicalKeyPressed(macKeyCode) === true
+      );
+      if (stillHeld) {
+        startContinuousHeaderMovement(direction, dx, dy);
+      } else if (heldMovementDirection === direction) {
+        stopContinuousHeaderMovement(false);
+      }
+    }, 210);
+    return;
+  }
+
+  if (heldMovementRapidSignals >= 2) {
+    startContinuousHeaderMovement(direction, dx, dy);
+  }
+}
+
 function openAskWindow() {
   console.log('[overlay-windows] 🚨 openAskWindow() CALLED - STACK TRACE:')
   console.trace()
@@ -1618,10 +1890,10 @@ function registerShortcuts() {
   const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
 
   // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
-  const nudgeUp = () => nudgeHeader(0, -step)
-  const nudgeDown = () => nudgeHeader(0, step)
-  const nudgeLeft = () => nudgeHeader(-step, 0)
-  const nudgeRight = () => nudgeHeader(step, 0)
+  const nudgeUp = () => signalHeaderMovement('up', 0, -step, MAC_ARROW_KEY_CODES.up)
+  const nudgeDown = () => signalHeaderMovement('down', 0, step, MAC_ARROW_KEY_CODES.down)
+  const nudgeLeft = () => signalHeaderMovement('left', -step, 0, MAC_ARROW_KEY_CODES.left)
+  const nudgeRight = () => signalHeaderMovement('right', step, 0, MAC_ARROW_KEY_CODES.right)
   const findActiveSuggestionWindow = (): BrowserWindow | null => {
     const askWin = childWindows.get('ask')
     const listenWin = childWindows.get('listen')
@@ -2503,6 +2775,13 @@ ipcMain.on('ask:error-diagnostic', (_event, data: { error: string; canRetry: boo
 // This allows us to see AudioCapture logs from the Header window
 ipcMain.on('debug-log', (_event, message: string) => {
   console.log('[Renderer]', message)
+  if (
+    message.includes('[AudioCapture]') ||
+    message.includes('[MIC-DIAGNOSTIC]') ||
+    message.includes('[Recovery]')
+  ) {
+    appendAudioDiagnostic('renderer_audio_status', { message })
+  }
 })
 
 // CRITICAL FIX: IPC relay for cross-window communication (Header → Listen)

@@ -13,10 +13,83 @@ import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
 import { BACKEND_URL } from '../config/config'
-import { initPostHog, identifyUser } from '../services/posthogService'
+import { initPostHog, identifyUser, trackError } from '../services/posthogService'
 
 // Initialize PostHog analytics
 initPostHog()
+
+type AudioStartFailureKind =
+  | 'microphone_permission'
+  | 'authentication'
+  | 'network'
+  | 'capture_start';
+
+function classifyAudioStartFailure(error: unknown): AudioStartFailureKind {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (
+    message.includes('permission') ||
+    message.includes('notallowed') ||
+    message.includes('denied')
+  ) {
+    return 'microphone_permission';
+  }
+  if (
+    message.includes('auth') ||
+    message.includes('token') ||
+    message.includes('401') ||
+    message.includes('403')
+  ) {
+    return 'authentication';
+  }
+  if (
+    message.includes('websocket') ||
+    message.includes('network') ||
+    message.includes('connect')
+  ) {
+    return 'network';
+  }
+  return 'capture_start';
+}
+
+function safeChatId(value: string | null): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function systemAudioWarning(
+  status: string,
+  language: 'de' | 'en',
+): string {
+  const german = language === 'de';
+  switch (status) {
+    case 'unsupported_os':
+      return german
+        ? 'Das Mikrofon hört zu. Direkte Anrufaudio-Erfassung benötigt macOS 13 oder neuer. Nutze auf macOS 12 den Lautsprecher.'
+        : 'The microphone is listening. Direct call-audio capture requires macOS 13 or later. Use speaker mode on macOS 12.';
+    case 'permission_denied':
+      return german
+        ? 'Das Mikrofon hört zu. Erlaube Taylos unter Datenschutz & Sicherheit den Zugriff auf Bildschirm- und Systemaudio.'
+        : 'The microphone is listening. Allow Taylos under Privacy & Security to record screen and system audio.';
+    case 'missing_binary':
+    case 'invalid_audio_protocol':
+      return german
+        ? 'Das Mikrofon hört zu. Die Systemaudio-Komponente ist beschädigt. Installiere die aktuelle Taylos-Version neu.'
+        : 'The microphone is listening. The system-audio component is damaged. Reinstall the latest Taylos version.';
+    case 'socket_timeout':
+    case 'socket_connection_failed':
+    case 'socket_unavailable':
+      return german
+        ? 'Das Mikrofon hört zu. Die Verbindung für Anrufaudio ist fehlgeschlagen. Prüfe das Netzwerk und starte Zuhören neu.'
+        : 'The microphone is listening. The call-audio connection failed. Check the network and restart Listen.';
+    case 'capture_timeout':
+    case 'spawn_failed':
+    case 'capture_failed':
+    default:
+      return german
+        ? 'Das Mikrofon hört zu, aber Anrufaudio konnte nicht gestartet werden. Starte Zuhören neu oder nutze den Lautsprecher.'
+        : 'The microphone is listening, but call audio could not start. Restart Listen or use speaker mode.';
+  }
+}
 
 function syncAuthTokenToLocalStorage(token: string | null, reason: string) {
   try {
@@ -430,6 +503,17 @@ function App() {
         captureHandleRef.current = handle
         setIsCapturing(true)
         console.log('[OverlayEntry] ✅ Audio capture started')
+
+        if (!handle.systemAudioAvailable) {
+          const warning = systemAudioWarning(handle.systemAudioStatus, language);
+          showToast(warning, 'warning');
+          trackError({
+            error_type: 'system_audio_degraded',
+            error_message: handle.systemAudioStatus,
+            chat_id: safeChatId(localStorage.getItem('current_chat_id')),
+            context: 'capture_start_mic_continues',
+          });
+        }
         
         // Notify Listen window to start timer
         try {
@@ -478,7 +562,27 @@ function App() {
       } catch (cleanupError) {
         console.warn('[OverlayEntry] Failed to fully clean up partial audio capture:', cleanupError)
       }
-      showToast(`Audio capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      const failureKind = classifyAudioStartFailure(error);
+      const errorMessage = language === 'de'
+        ? {
+            microphone_permission: 'Taylos braucht Mikrofonzugriff. Erlaube ihn in den Systemeinstellungen und versuche es erneut.',
+            authentication: 'Deine Anmeldung ist abgelaufen. Öffne Taylos erneut und melde dich an.',
+            network: 'Taylos konnte keine sichere Verbindung herstellen. Prüfe das Internet und versuche es erneut.',
+            capture_start: 'Das Zuhören konnte nicht gestartet werden. Starte Taylos neu und versuche es erneut.',
+          }[failureKind]
+        : {
+            microphone_permission: 'Taylos needs microphone access. Allow it in System Settings and try again.',
+            authentication: 'Your sign-in expired. Reopen Taylos and sign in again.',
+            network: 'Taylos could not establish a secure connection. Check your internet and try again.',
+            capture_start: 'Listening could not start. Restart Taylos and try again.',
+          }[failureKind];
+      showToast(errorMessage, 'error');
+      trackError({
+        error_type: failureKind,
+        error_message: failureKind,
+        chat_id: safeChatId(localStorage.getItem('current_chat_id')),
+        context: 'capture_start_failed',
+      });
       // Reset state on error
       captureHandleRef.current = null
       setIsCapturing(false)

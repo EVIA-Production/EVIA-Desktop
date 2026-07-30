@@ -1,6 +1,7 @@
 #include <napi.h>
 
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -110,6 +111,24 @@ Napi::Value IsSupported(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(info.Env(), RuntimeSupportsGlass());
 }
 
+Napi::Value IsKeyPressed(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    return Napi::Boolean::New(env, false);
+  }
+
+  const int keyCode = info[0].As<Napi::Number>().Int32Value();
+  if (keyCode < 0 || keyCode > 127) {
+    return Napi::Boolean::New(env, false);
+  }
+
+  const bool pressed = CGEventSourceKeyState(
+    kCGEventSourceStateCombinedSessionState,
+    static_cast<CGKeyCode>(keyCode)
+  );
+  return Napi::Boolean::New(env, pressed);
+}
+
 Napi::Value Apply(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (!RuntimeSupportsGlass()) return Result(env, false, false, @"NSGlassEffectView is unavailable");
@@ -216,6 +235,7 @@ Napi::Value Detach(const Napi::CallbackInfo &info) {
 
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
+  exports.Set("isKeyPressed", Napi::Function::New(env, IsKeyPressed));
   exports.Set("apply", Napi::Function::New(env, Apply));
   exports.Set("update", Napi::Function::New(env, Update));
   exports.Set("detach", Napi::Function::New(env, Detach));

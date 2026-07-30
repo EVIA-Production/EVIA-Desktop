@@ -13,22 +13,49 @@
 import { spawn, ChildProcess } from 'child_process';
 import { app, systemPreferences, BrowserWindow } from 'electron';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { appendAudioDiagnostic } from './audio-diagnostics';
 
-// Audio format constants (must match SystemAudioDump output)
-const CHUNK_DURATION = 0.1; // seconds
-const SAMPLE_RATE = 24000; // Hz
-const BYTES_PER_SAMPLE = 2; // int16
-const CHANNELS = 2; // stereo
-const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION; // 4800 bytes
-const CAPTURE_READY_MARKER = 'Capturing system audio';
+const TARGET_SAMPLE_RATE = 24000;
 const CAPTURE_READY_TIMEOUT_MS = 8000;
+
+export type SystemAudioStartErrorCode =
+  | 'already_running'
+  | 'unsupported'
+  | 'unsupported_os'
+  | 'permission_denied'
+  | 'missing_binary'
+  | 'spawn_failed'
+  | 'capture_timeout'
+  | 'capture_failed'
+  | 'invalid_audio_protocol';
+
+export type SystemAudioStartResult = {
+  success: boolean;
+  error?: string;
+  code?: SystemAudioStartErrorCode;
+  readyInMs?: number;
+  minimumMacOS?: string;
+  currentMacOS?: string;
+};
+
+class SystemAudioStartError extends Error {
+  constructor(
+    public readonly code: SystemAudioStartErrorCode,
+    message: string,
+    public readonly details: { minimumMacOS?: string; currentMacOS?: string } = {},
+  ) {
+    super(message);
+    this.name = 'SystemAudioStartError';
+  }
+}
 
 export class SystemAudioMacService {
   private systemAudioProc: ChildProcess | null = null;
   private initialOrphanCleanup: Promise<void> | null = null;
   private didInitialOrphanCleanup = false;
-  private audioBuffer: Buffer = Buffer.alloc(0);
+  private stdoutBuffer = '';
   private isRunning: boolean = false;
   private chunkWatchdog: NodeJS.Timeout | null = null;
   private lastChunkAt: number = 0;
@@ -123,21 +150,74 @@ export class SystemAudioMacService {
     await forcedExit;
   }
 
-  /**
-   * Convert stereo PCM to mono by taking only the left channel
-   * Input: Stereo buffer (LLRRLLRR... format, 2 bytes per sample)
-   * Output: Mono buffer (LLLL... format, 2 bytes per sample)
-   */
-  private convertStereoToMono(stereoBuffer: Buffer): Buffer {
-    const samples = stereoBuffer.length / 4; // 2 bytes per sample * 2 channels
-    const monoBuffer = Buffer.alloc(samples * 2); // 2 bytes per sample
-
-    for (let i = 0; i < samples; i++) {
-      const leftSample = stereoBuffer.readInt16LE(i * 4); // Read left channel
-      monoBuffer.writeInt16LE(leftSample, i * 2);
+  private convertFloat32PayloadToPcm16(
+    encoded: string,
+    sampleRate: number,
+    channels: number,
+  ): Buffer {
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0 || !Number.isInteger(channels) || channels <= 0) {
+      throw new SystemAudioStartError(
+        'invalid_audio_protocol',
+        `Invalid helper format rate=${sampleRate} channels=${channels}`,
+      );
     }
 
-    return monoBuffer;
+    const source = Buffer.from(encoded, 'base64');
+    const bytesPerFrame = Float32Array.BYTES_PER_ELEMENT * channels;
+    const sourceFrames = Math.floor(source.length / bytesPerFrame);
+    if (sourceFrames <= 0) return Buffer.alloc(0);
+
+    const outputFrames = Math.max(1, Math.floor(sourceFrames * TARGET_SAMPLE_RATE / sampleRate));
+    const output = Buffer.allocUnsafe(outputFrames * Int16Array.BYTES_PER_ELEMENT);
+
+    for (let outputFrame = 0; outputFrame < outputFrames; outputFrame += 1) {
+      const sourceFrame = Math.min(
+        sourceFrames - 1,
+        Math.floor(outputFrame * sampleRate / TARGET_SAMPLE_RATE),
+      );
+      let mono = 0;
+      for (let channel = 0; channel < channels; channel += 1) {
+        mono += source.readFloatLE((sourceFrame * channels + channel) * Float32Array.BYTES_PER_ELEMENT);
+      }
+      mono = Math.max(-1, Math.min(1, mono / channels));
+      const pcm16 = mono < 0 ? Math.round(mono * 32768) : Math.round(mono * 32767);
+      output.writeInt16LE(pcm16, outputFrame * Int16Array.BYTES_PER_ELEMENT);
+    }
+
+    return output;
+  }
+
+  private parseAudioLine(line: string): Buffer {
+    let payload: { data?: unknown; mimeType?: unknown };
+    try {
+      payload = JSON.parse(line);
+    } catch {
+      throw new SystemAudioStartError(
+        'invalid_audio_protocol',
+        'SystemAudioDump emitted non-JSON data on stdout',
+      );
+    }
+
+    if (typeof payload.data !== 'string' || typeof payload.mimeType !== 'string') {
+      throw new SystemAudioStartError(
+        'invalid_audio_protocol',
+        'SystemAudioDump audio frame is missing data or mimeType',
+      );
+    }
+
+    const format = /^audio\/float32;rate=(\d+);channels=(\d+)$/.exec(payload.mimeType);
+    if (!format) {
+      throw new SystemAudioStartError(
+        'invalid_audio_protocol',
+        `Unsupported SystemAudioDump format: ${payload.mimeType}`,
+      );
+    }
+
+    return this.convertFloat32PayloadToPcm16(
+      payload.data,
+      Number(format[1]),
+      Number(format[2]),
+    );
   }
 
   /**
@@ -162,6 +242,10 @@ export class SystemAudioMacService {
           `[SystemAudioMacService] 🚨 No audio chunk for ${Math.round(ageMs / 1000)}s (chunks=${this.chunksForwarded})`
         );
         this.sendToRenderer('system-audio:status', `stall:${ageMs}`);
+        appendAudioDiagnostic('system_audio_stall', {
+          ageMs,
+          chunksForwarded: this.chunksForwarded,
+        });
       }
     }, this.WATCHDOG_INTERVAL_MS);
   }
@@ -246,16 +330,30 @@ export class SystemAudioMacService {
   }
 
   /**
-   * Start capturing system audio via SystemAudioDump binary
-   * Returns: Promise<{ success: boolean, error?: string }>
+   * Start capturing system audio via SystemAudioDump binary.
+   *
+   * Microphone capture is intentionally owned by the renderer and is not
+   * stopped when this optional channel fails.
    */
-  public async start(): Promise<{ success: boolean; error?: string; readyInMs?: number }> {
+  public async start(): Promise<SystemAudioStartResult> {
+    appendAudioDiagnostic('system_audio_start_requested', {
+      platform: process.platform,
+      osRelease: os.release(),
+    });
     if (process.platform !== 'darwin') {
-      return { success: false, error: 'System audio capture only available on macOS' };
+      return {
+        success: false,
+        code: 'unsupported',
+        error: 'System audio capture is only available on macOS',
+      };
     }
 
     if (this.isRunning) {
-      return { success: false, error: 'already_running' };
+      return {
+        success: false,
+        code: 'already_running',
+        error: 'System audio capture is already running',
+      };
     }
 
     try {
@@ -269,8 +367,13 @@ export class SystemAudioMacService {
       // Step 3: Spawn SystemAudioDump binary
       const systemAudioPath = this.getSystemAudioPath();
       if (!systemAudioPath) {
-        this.sendToRenderer('system-audio:status', 'missing-binary');
-        return { success: false, error: 'SystemAudioDump binary not found' };
+        const result: SystemAudioStartResult = {
+          success: false,
+          code: 'missing_binary',
+          error: 'SystemAudioDump binary not found',
+        };
+        this.sendToRenderer('system-audio:status', result);
+        return result;
       }
       
       console.log('[SystemAudioMacService] 🚀 Spawning SystemAudioDump binary...');
@@ -281,7 +384,8 @@ export class SystemAudioMacService {
       let captureReadySettled = false;
       let captureReadyTimeout: NodeJS.Timeout | null = null;
       let resolveCaptureReady!: (readyInMs: number) => void;
-      let rejectCaptureReady!: (error: Error) => void;
+      let rejectCaptureReady!: (error: SystemAudioStartError) => void;
+      let startupFailure: SystemAudioStartError | null = null;
 
       const captureReadyPromise = new Promise<number>((resolve, reject) => {
         resolveCaptureReady = resolve;
@@ -297,11 +401,16 @@ export class SystemAudioMacService {
         }
         const readyInMs = Date.now() - captureStartupStartedAt;
         console.log(`[SystemAudioMacService] ✅ Native capture ready after ${readyInMs}ms`);
-        this.sendToRenderer('system-audio:status', `ready:${readyInMs}`);
+        this.sendToRenderer('system-audio:status', {
+          status: 'ready',
+          readyInMs,
+        });
+        appendAudioDiagnostic('system_audio_ready', { readyInMs });
         resolveCaptureReady(readyInMs);
       };
 
-      const failCaptureReady = (error: Error) => {
+      const failCaptureReady = (error: SystemAudioStartError) => {
+        startupFailure = error;
         if (captureReadySettled) return;
         captureReadySettled = true;
         if (captureReadyTimeout) {
@@ -317,14 +426,21 @@ export class SystemAudioMacService {
         console.error('[SystemAudioMacService] ❌ Error name:', err.name);
         console.error('[SystemAudioMacService] ❌ Error message:', err.message);
         console.error('[SystemAudioMacService] ❌ Error stack:', err.stack);
-        this.sendToRenderer('system-audio:status', `error:${err.code || err.message}`);
+        const failure = new SystemAudioStartError(
+          'spawn_failed',
+          `SystemAudioDump process error: ${err.code || err.message}`,
+        );
+        this.sendToRenderer('system-audio:status', {
+          status: 'spawn_failed',
+          error: failure.message,
+        });
         if (this.systemAudioProc === spawnedProc) {
           this.systemAudioProc = null;
           this.isRunning = false;
-          this.audioBuffer = Buffer.alloc(0);
+          this.stdoutBuffer = '';
           this.stopChunkWatchdog();
         }
-        failCaptureReady(new Error(`SystemAudioDump process error: ${err.code || err.message}`));
+        failCaptureReady(failure);
       };
 
       spawnedProc = spawn(systemAudioPath, [], {
@@ -335,68 +451,134 @@ export class SystemAudioMacService {
 
       if (!spawnedProc.pid) {
         console.error('[SystemAudioMacService] ❌ Failed to start SystemAudioDump - no PID assigned');
-        this.sendToRenderer('system-audio:status', 'spawn-no-pid');
-        return { success: false, error: 'Failed to spawn process - no PID' };
+        const result: SystemAudioStartResult = {
+          success: false,
+          code: 'spawn_failed',
+          error: 'Failed to spawn SystemAudioDump: no PID assigned',
+        };
+        this.sendToRenderer('system-audio:status', result);
+        return result;
       }
 
       console.log('[SystemAudioMacService] ✅ SystemAudioDump started with PID:', spawnedProc.pid);
       this.isRunning = true;
+      this.stdoutBuffer = '';
       this.lastChunkAt = 0;
       this.chunksForwarded = 0;
 
-      // Step 4: Process audio data from stdout
+      // Step 4: Process versioned NDJSON audio frames from stdout. Diagnostic
+      // status is written only to stderr, so a malformed stdout line is a
+      // protocol failure rather than something to reinterpret as PCM.
       spawnedProc.stdout!.on('data', (data: Buffer) => {
         if (this.systemAudioProc !== spawnedProc || !this.isRunning) return;
-        this.audioBuffer = Buffer.concat([this.audioBuffer, data]);
+        this.stdoutBuffer += data.toString('utf8');
 
-        // Process complete chunks
-        while (this.audioBuffer.length >= CHUNK_SIZE) {
-          const chunk = this.audioBuffer.slice(0, CHUNK_SIZE);
-          this.audioBuffer = this.audioBuffer.slice(CHUNK_SIZE);
+        let newlineIndex = this.stdoutBuffer.indexOf('\n');
+        while (newlineIndex >= 0) {
+          const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
+          this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
+          newlineIndex = this.stdoutBuffer.indexOf('\n');
+          if (!line) continue;
 
-          // Convert stereo to mono
-          const monoChunk = this.convertStereoToMono(chunk);
-          const base64Data = monoChunk.toString('base64');
-          this.lastChunkAt = Date.now();
-          this.chunksForwarded += 1;
+          try {
+            const pcm16 = this.parseAudioLine(line);
+            if (pcm16.length === 0) continue;
 
-          // Send to renderer for AEC reference
-          this.sendToRenderer('system-audio-data', { data: base64Data });
+            this.lastChunkAt = Date.now();
+            this.chunksForwarded += 1;
+            this.sendToRenderer('system-audio-data', {
+              data: pcm16.toString('base64'),
+            });
 
-          if (this.chunksForwarded % 50 === 0) {
-            console.log(
-              `[SystemAudioMacService] 🎧 Forwarded ${this.chunksForwarded} chunks (last=${new Date(this.lastChunkAt).toISOString()})`
-            );
+            if (this.chunksForwarded % 50 === 0) {
+              console.log(
+                `[SystemAudioMacService] 🎧 Forwarded ${this.chunksForwarded} chunks (last=${new Date(this.lastChunkAt).toISOString()})`
+              );
+            }
+          } catch (error: any) {
+            const failure = error instanceof SystemAudioStartError
+              ? error
+              : new SystemAudioStartError(
+                  'invalid_audio_protocol',
+                  error?.message || 'Invalid SystemAudioDump audio protocol',
+                );
+            console.error('[SystemAudioMacService] ❌ Invalid helper audio protocol:', failure.message);
+            this.sendToRenderer('system-audio:status', {
+              status: failure.code,
+              error: failure.message,
+            });
+            failCaptureReady(failure);
+            void this.terminateOwnedProcess(spawnedProc);
+            return;
           }
-
-          // Log chunk transmission (verbose, can be removed in production)
-          // console.log('[SystemAudioMacService] Sent SYSTEM chunk:', monoChunk.length * 2, 'bytes (original stereo:', chunk.length, 'bytes)');
         }
       });
 
-      // Step 5: Error handling
+      // Step 5: Parse structured helper status from stderr.
       let stderrBuffer = '';
       spawnedProc.stderr!.on('data', (data: Buffer) => {
-        const errorMsg = data.toString().trim();
-        console.error('[SystemAudioMacService] 🔴 SystemAudioDump stderr:', errorMsg);
-        stderrBuffer = `${stderrBuffer}\n${errorMsg}`.slice(-4096);
+        stderrBuffer += data.toString('utf8');
 
-        // SystemAudioDump emits this only after ScreenCaptureKit's
-        // startCapture completion handler succeeds. Process spawn alone is not
-        // recording readiness and can lose the opening words of a meeting.
-        if (stderrBuffer.includes(CAPTURE_READY_MARKER)) {
-          markCaptureReady();
-        }
-        
-        // Check for specific permission error
-        if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
-          console.error('[SystemAudioMacService] ❌ PERMISSION ERROR DETECTED');
-          console.error('[SystemAudioMacService] 🔧 DEV MODE FIX: Grant Screen Recording permission to Terminal.app');
-          console.error('[SystemAudioMacService]     1. Open System Settings');
-          console.error('[SystemAudioMacService]     2. Go to Privacy & Security → Screen & System Audio Recording');
-          console.error('[SystemAudioMacService]     3. Add Terminal.app (or iTerm2.app if you use that)');
-          console.error('[SystemAudioMacService]     4. Toggle it ON');
-          console.error('[SystemAudioMacService]     5. Quit and restart Taylos from Terminal');
+        let newlineIndex = stderrBuffer.indexOf('\n');
+        while (newlineIndex >= 0) {
+          const line = stderrBuffer.slice(0, newlineIndex).trim();
+          stderrBuffer = stderrBuffer.slice(newlineIndex + 1);
+          newlineIndex = stderrBuffer.indexOf('\n');
+          if (!line) continue;
+
+          console.log('[SystemAudioMacService] Helper status:', line);
+          let status: Record<string, unknown>;
+          try {
+            status = JSON.parse(line);
+          } catch {
+            console.warn('[SystemAudioMacService] Ignoring unstructured helper stderr:', line);
+            continue;
+          }
+
+          this.sendToRenderer('system-audio:status', status);
+          const statusName = typeof status.status === 'string' ? status.status : '';
+          appendAudioDiagnostic('system_audio_helper_status', {
+            status: statusName || 'unknown',
+            code: typeof status.code === 'string' ? status.code : undefined,
+            current: typeof status.current === 'string' ? status.current : undefined,
+            minimum: typeof status.minimum === 'string' ? status.minimum : undefined,
+          });
+          if (statusName === 'capture_started') {
+            markCaptureReady();
+            continue;
+          }
+          if (statusName === 'first_audio_chunk') {
+            console.log('[SystemAudioMacService] ✅ Native first_audio_chunk received');
+            continue;
+          }
+          if (statusName === 'unsupported_os') {
+            failCaptureReady(new SystemAudioStartError(
+              'unsupported_os',
+              'Native system audio requires macOS 13 or later',
+              {
+                minimumMacOS: typeof status.minimum === 'string' ? status.minimum : '13.0',
+                currentMacOS: typeof status.current === 'string' ? status.current : undefined,
+              },
+            ));
+            continue;
+          }
+          if (statusName === 'permission_error') {
+            failCaptureReady(new SystemAudioStartError(
+              'permission_denied',
+              typeof status.error === 'string'
+                ? status.error
+                : 'Screen and system audio recording permission was denied',
+            ));
+            continue;
+          }
+          if (statusName === 'capture_error' || statusName === 'fatal_error') {
+            failCaptureReady(new SystemAudioStartError(
+              'capture_failed',
+              typeof status.error === 'string'
+                ? status.error
+                : 'ScreenCaptureKit failed to start system audio capture',
+            ));
+          }
         }
       });
 
@@ -405,23 +587,26 @@ export class SystemAudioMacService {
         if (this.systemAudioProc === spawnedProc) {
           this.systemAudioProc = null;
           this.isRunning = false;
-          this.audioBuffer = Buffer.alloc(0);
+          this.stdoutBuffer = '';
           this.stopChunkWatchdog();
         }
-        failCaptureReady(new Error(`SystemAudioDump closed before capture was ready (code=${code})`));
+        failCaptureReady(
+          startupFailure || new SystemAudioStartError(
+            'capture_failed',
+            `SystemAudioDump closed before capture was ready (code=${code})`,
+          ),
+        );
 
-        if (code === 1) {
-          console.error('[SystemAudioMacService] ❌ Binary exited with code 1 - PERMISSION DENIED');
-          console.error('[SystemAudioMacService] 🔧 FIX: Grant Screen Recording permission to Terminal.app');
-          console.error('[SystemAudioMacService]     System Settings → Privacy & Security → Screen & System Audio Recording → Add Terminal');
-          console.error('[SystemAudioMacService]     Then relaunch Taylos from Terminal (not Cursor)');
-        } else if (code !== 0 && code !== null) {
+        if (code !== 0 && code !== null) {
           console.error('[SystemAudioMacService] ❌ Binary exited with code:', code);
         }
       });
 
       captureReadyTimeout = setTimeout(() => {
-        failCaptureReady(new Error(`SystemAudioDump capture readiness timed out after ${CAPTURE_READY_TIMEOUT_MS}ms`));
+        failCaptureReady(new SystemAudioStartError(
+          'capture_timeout',
+          `SystemAudioDump capture readiness timed out after ${CAPTURE_READY_TIMEOUT_MS}ms`,
+        ));
       }, CAPTURE_READY_TIMEOUT_MS);
 
       const readyInMs = await captureReadyPromise;
@@ -435,12 +620,34 @@ export class SystemAudioMacService {
         await this.terminateOwnedProcess(failedProc);
       }
       this.isRunning = false;
-      this.audioBuffer = Buffer.alloc(0);
+      this.stdoutBuffer = '';
       this.lastChunkAt = 0;
       this.chunksForwarded = 0;
       this.stopChunkWatchdog();
-      this.sendToRenderer('system-audio:status', `start-failed:${error.message}`);
-      return { success: false, error: error.message };
+      const failure = error instanceof SystemAudioStartError
+        ? error
+        : new SystemAudioStartError(
+            'capture_failed',
+            error?.message || 'System audio capture failed to start',
+          );
+      const result: SystemAudioStartResult = {
+        success: false,
+        code: failure.code,
+        error: failure.message,
+        minimumMacOS: failure.details.minimumMacOS,
+        currentMacOS: failure.details.currentMacOS,
+      };
+      this.sendToRenderer('system-audio:status', {
+        status: 'start_failed',
+        ...result,
+      });
+      appendAudioDiagnostic('system_audio_start_failed', {
+        code: result.code,
+        error: result.error,
+        minimumMacOS: result.minimumMacOS,
+        currentMacOS: result.currentMacOS,
+      });
+      return result;
     }
   }
 
@@ -461,7 +668,7 @@ export class SystemAudioMacService {
       }
 
       this.isRunning = false;
-      this.audioBuffer = Buffer.alloc(0);
+      this.stdoutBuffer = '';
       this.lastChunkAt = 0;
       this.chunksForwarded = 0;
       this.stopChunkWatchdog();
@@ -481,7 +688,7 @@ export class SystemAudioMacService {
     return this.isRunning;
   }
 
-  public async restart(): Promise<{ success: boolean; error?: string }> {
+  public async restart(): Promise<SystemAudioStartResult> {
     console.log('[SystemAudioMacService] 🔄 Restart requested');
     const stopResult = await this.stop();
     if (!stopResult.success) {
@@ -495,7 +702,7 @@ export class SystemAudioMacService {
    * Get current audio buffer size (for debugging)
    */
   public getBufferSize(): number {
-    return this.audioBuffer.length;
+    return Buffer.byteLength(this.stdoutBuffer);
   }
 }
 

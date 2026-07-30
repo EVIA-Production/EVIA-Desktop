@@ -13,7 +13,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "SystemAudioCapture",
-            dependencies: []
+            dependencies: [],
+            exclude: ["Resources"]
         ),
     ]
 )

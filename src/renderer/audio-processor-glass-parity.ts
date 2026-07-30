@@ -835,7 +835,29 @@ function closeCaptureWebSocket(source: 'mic' | 'system') {
   }
 }
 
-async function connectCaptureWebSockets(includeSystemAudio: boolean): Promise<void> {
+type SystemAudioStartupStatus =
+  | 'ready'
+  | 'not_requested'
+  | 'socket_unavailable'
+  | 'socket_timeout'
+  | 'socket_connection_failed'
+  | 'capture_failed'
+  | 'capture_timeout'
+  | 'permission_denied'
+  | 'missing_binary'
+  | 'spawn_failed'
+  | 'invalid_audio_protocol'
+  | 'unsupported_os'
+  | 'unsupported';
+
+type CaptureSocketConnectionStatus = {
+  systemAudioSocketAvailable: boolean;
+  systemAudioStatus: SystemAudioStartupStatus;
+};
+
+async function connectCaptureWebSockets(
+  includeSystemAudio: boolean
+): Promise<CaptureSocketConnectionStatus> {
   const createPair = () => {
     const mic = ensureMicWs();
     const system = includeSystemAudio
@@ -845,23 +867,65 @@ async function connectCaptureWebSockets(includeSystemAudio: boolean): Promise<vo
     if (!mic) {
       throw new Error('[AudioCapture] No valid chat_id - cannot create microphone WebSocket');
     }
-    if (includeSystemAudio && !system) {
-      throw new Error('[AudioCapture] No valid chat_id - cannot create system WebSocket');
-    }
     return { mic, system };
   };
 
-  const connectPair = async (pair: ReturnType<typeof createPair>) => {
-    const connections: Promise<void>[] = [pair.mic.connect()];
-    if (pair.system) connections.push(pair.system.connect());
-    await Promise.all(connections);
+  const connectPair = async (
+    pair: ReturnType<typeof createPair>
+  ): Promise<CaptureSocketConnectionStatus> => {
+    if (!includeSystemAudio) {
+      await pair.mic.connect();
+      return {
+        systemAudioSocketAvailable: false,
+        systemAudioStatus: 'not_requested',
+      };
+    }
+
+    if (!pair.system) {
+      await pair.mic.connect();
+      return {
+        systemAudioSocketAvailable: false,
+        systemAudioStatus: 'socket_unavailable',
+      };
+    }
+
+    // Start both handshakes together. Only the microphone promise is required.
+    const micConnection = pair.mic.connect();
+    const systemConnection = pair.system.connect()
+      .then(() => 'ready' as const)
+      .catch((error) => {
+        console.warn(
+          '[AudioCapture] Optional system-audio WebSocket failed; continuing with microphone:',
+          error
+        );
+        return 'socket_connection_failed' as const;
+      });
+
+    await micConnection;
+    // System audio is optional. A stalled secondary socket must never delay a
+    // healthy microphone session or make the Listen control appear frozen.
+    const systemConnectionStatus = await Promise.race([
+      systemConnection,
+      new Promise<'socket_timeout'>((resolve) => {
+        window.setTimeout(() => resolve('socket_timeout'), 1500);
+      }),
+    ]);
+    const systemConnected = systemConnectionStatus === 'ready';
+    if (!systemConnected) {
+      closeCaptureWebSocket('system');
+    }
+    return {
+      systemAudioSocketAvailable: systemConnected,
+      systemAudioStatus: systemConnectionStatus,
+    };
   };
 
   let pair = createPair();
+  let connectionStatus: CaptureSocketConnectionStatus;
   try {
-    await connectPair(pair);
+    connectionStatus = await connectPair(pair);
   } catch (error) {
-    console.error('[AudioCapture] Initial capture WebSocket connection failed:', error);
+    console.error('[AudioCapture] Required microphone WebSocket connection failed:', error);
     if (localStorage.getItem('current_chat_id')) {
       throw error;
     }
@@ -875,17 +939,22 @@ async function connectCaptureWebSockets(includeSystemAudio: boolean): Promise<vo
     console.log('[AudioCapture] Recreated capture chat:', newChatId);
 
     pair = createPair();
-    await connectPair(pair);
+    connectionStatus = await connectPair(pair);
   }
 
   console.log(
-    `[AudioCapture] Capture WebSockets connected (${includeSystemAudio ? 'mic + system' : 'mic'})`
+    `[AudioCapture] Microphone WebSocket connected; system=${connectionStatus.systemAudioStatus}`
   );
+  return connectionStatus;
 }
 
 async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
   if (!eviaApi?.systemAudio) {
-    throw new Error('macOS system audio API is unavailable');
+    const error = new Error('macOS system audio API is unavailable') as Error & {
+      systemAudioStatus?: SystemAudioStartupStatus;
+    };
+    error.systemAudioStatus = 'unsupported';
+    throw error;
   }
 
   console.log('[AudioCapture] macOS: starting SystemAudioDump concurrently with WebSocket handshakes');
@@ -940,14 +1009,34 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
   (window as any)._systemAudioIsWindows = false;
 
   let result = await eviaApi.systemAudio.start();
-  if (!result.success && result.error === 'already_running') {
+  if (!result.success && (result.code === 'already_running' || result.error === 'already_running')) {
     console.log('[AudioCapture] System audio helper already running, stopping and retrying...');
     await eviaApi.systemAudio.stop();
     await new Promise(resolve => setTimeout(resolve, 500));
     result = await eviaApi.systemAudio.start();
   }
   if (!result.success) {
-    throw new Error(result.error || 'System audio helper failed to start');
+    const error = new Error(result.error || 'System audio helper failed to start') as Error & {
+      systemAudioStatus?: SystemAudioStartupStatus;
+      minimumMacOS?: string;
+      currentMacOS?: string;
+    };
+    const supportedStatus: SystemAudioStartupStatus[] = [
+      'capture_failed',
+      'capture_timeout',
+      'permission_denied',
+      'missing_binary',
+      'spawn_failed',
+      'invalid_audio_protocol',
+      'unsupported_os',
+      'unsupported',
+    ];
+    error.systemAudioStatus = supportedStatus.includes(result.code)
+      ? result.code
+      : 'capture_failed';
+    error.minimumMacOS = result.minimumMacOS;
+    error.currentMacOS = result.currentMacOS;
+    throw error;
   }
 
   console.log(
@@ -956,6 +1045,31 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
     }`
   );
   startMacSystemHealthCheck();
+}
+
+async function stopMacSystemAudioCaptureOnly(eviaApi: any): Promise<void> {
+  stopMacSystemHealthCheck();
+  macSystemCaptureStartedAt = 0;
+
+  try {
+    await eviaApi?.systemAudio?.stop?.();
+  } catch (error) {
+    console.warn('[AudioCapture] Failed to stop degraded macOS system-audio helper:', error);
+  }
+
+  const handler = (window as any)._systemAudioHandler;
+  if (handler) {
+    try {
+      eviaApi?.systemAudio?.removeOnData?.(handler);
+    } catch (error) {
+      console.warn('[AudioCapture] Failed to remove macOS system-audio handler:', error);
+    }
+    (window as any)._systemAudioHandler = null;
+  }
+
+  closeCaptureWebSocket('system');
+  systemAudioBuffer = [];
+  pipelineMetrics.lastSystemChunkTime = 0;
 }
 
 // Glass parity: Convert Float32 to Int16 PCM
@@ -1459,9 +1573,46 @@ export async function startCapture(includeSystemAudio = false) {
   const socketConnectionsPromise = connectCaptureWebSockets(includeSystemAudio);
   const macSystemCapturePromise = includeSystemAudio && isMac
     ? startMacSystemAudioCapture(eviaApi)
-    : Promise.resolve();
+        .then(() => ({ available: true, status: 'ready' as SystemAudioStartupStatus }))
+        .catch((error) => {
+          console.warn(
+            '[AudioCapture] Optional macOS system audio failed; microphone capture remains active:',
+            error
+          );
+          return {
+            available: false,
+            status: (
+              error?.systemAudioStatus || 'capture_failed'
+            ) as SystemAudioStartupStatus,
+          };
+        })
+    : Promise.resolve({
+        available: false,
+        status: includeSystemAudio
+          ? ('unsupported' as SystemAudioStartupStatus)
+          : ('not_requested' as SystemAudioStartupStatus),
+      });
 
-  await Promise.all([socketConnectionsPromise, macSystemCapturePromise]);
+  const [socketStatus, macSystemStatus] = await Promise.all([
+    socketConnectionsPromise,
+    macSystemCapturePromise,
+  ]);
+  let systemAudioAvailable = false;
+  let systemAudioStatus: SystemAudioStartupStatus = includeSystemAudio
+    ? socketStatus.systemAudioStatus
+    : 'not_requested';
+
+  if (includeSystemAudio && isMac) {
+    systemAudioAvailable =
+      socketStatus.systemAudioSocketAvailable && macSystemStatus.available;
+    systemAudioStatus = !socketStatus.systemAudioSocketAvailable
+      ? socketStatus.systemAudioStatus
+      : macSystemStatus.status;
+
+    if (!systemAudioAvailable) {
+      await stopMacSystemAudioCaptureOnly(eviaApi);
+    }
+  }
 
   // Step 5: Setup system audio if requested (platform-specific approach)
   if (includeSystemAudio) {
@@ -1530,6 +1681,10 @@ export async function startCapture(includeSystemAudio = false) {
           // Store flag for cleanup
           (window as any)._systemAudioIsWindows = true;
           (window as any)._systemAudioUsingLoopback = true;
+          systemAudioAvailable = socketStatus.systemAudioSocketAvailable;
+          systemAudioStatus = systemAudioAvailable
+            ? 'ready'
+            : socketStatus.systemAudioStatus;
 
         } catch (loopbackErr: any) {
           console.error('[AudioCapture] 🪟 Native loopback failed:', loopbackErr);
@@ -1539,15 +1694,23 @@ export async function startCapture(includeSystemAudio = false) {
           }
           // Continue without system audio on Windows if loopback fails
           console.warn('[AudioCapture] 🪟 Continuing with mic-only capture on Windows');
+          systemAudioAvailable = false;
+          systemAudioStatus = 'capture_failed';
+          closeCaptureWebSocket('system');
         }
       }
       // ════════════════════════════════════════════════════════════════════════
       // macOS: Use SystemAudioDump binary
       // ════════════════════════════════════════════════════════════════════════
       else if (isMac) {
-        console.log('[AudioCapture] macOS system audio capture is ready');
+        console.log(
+          `[AudioCapture] macOS system audio status: ${systemAudioStatus}`
+        );
       } else {
         console.warn('[AudioCapture] System audio not supported on this platform');
+        systemAudioAvailable = false;
+        systemAudioStatus = 'unsupported';
+        closeCaptureWebSocket('system');
       }
     } catch (error: any) {
       console.error('[AudioCapture] System audio capture failed:', error);
@@ -1557,6 +1720,9 @@ export async function startCapture(includeSystemAudio = false) {
       });
 
       console.warn('[AudioCapture] ⚠️  Continuing with mic-only capture');
+      systemAudioAvailable = false;
+      systemAudioStatus = 'capture_failed';
+      closeCaptureWebSocket('system');
       if ((window as any)?.platformInfo?.isMac) {
         console.warn('[AudioCapture] Please ensure Screen Recording permission is granted in System Settings');
       }
@@ -1578,6 +1744,8 @@ export async function startCapture(includeSystemAudio = false) {
     systemAudioProcessor,
     systemStream,
     startupReadyInMs,
+    systemAudioAvailable,
+    systemAudioStatus,
   };
 }
 

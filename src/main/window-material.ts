@@ -20,6 +20,7 @@ type NativeApplyResult = {
 
 type NativeGlassBridge = {
   isSupported: () => boolean
+  isKeyPressed?: (keyCode: number) => boolean
   apply: (
     handle: Buffer,
     configuration: {
@@ -39,6 +40,18 @@ type NativeGlassBridge = {
     },
   ) => NativeApplyResult
   detach: (handle: Buffer) => NativeApplyResult
+}
+
+export function isMacPhysicalKeyPressed(keyCode: number): boolean | null {
+  if (process.platform !== 'darwin' || !Number.isInteger(keyCode)) return null
+  const bridge = loadNativeBridge()
+  if (!bridge?.isKeyPressed) return null
+  try {
+    return bridge.isKeyPressed(keyCode)
+  } catch (error) {
+    console.warn('[window-material] Failed to read macOS key state:', error)
+    return null
+  }
 }
 
 const POLICIES: Record<MaterialSurface, MaterialPolicy> = {
@@ -206,6 +219,13 @@ function applyNativeBridge(
   }
 }
 
+function nativeMaterialActiveState(surface: MaterialSurface, windowIsActive: boolean): boolean {
+  // The Taylos bar is persistent UI, not a conventional document window.
+  // AppKit's inactive alpha changes made the same control look like two
+  // different designs depending on which overlay child had focus.
+  return surface === 'overlay' ? true : windowIsActive
+}
+
 export function applyWindowMaterial(
   win: BrowserWindow,
   surface: MaterialSurface,
@@ -218,7 +238,11 @@ export function applyWindowMaterial(
   const tryNative = process.platform === 'darwin' && resolvedMode === 'native'
   const attach = () => {
     if (win.isDestroyed() || !tryNative) return
-    const result = applyNativeBridge(win, surface, win.isFocused())
+    const result = applyNativeBridge(
+      win,
+      surface,
+      nativeMaterialActiveState(surface, win.isFocused()),
+    )
     if (result.applied) {
       clearElectronVibrancy(win)
       win.setHasShadow(true)
@@ -245,7 +269,7 @@ export function applyWindowMaterial(
       bridge.update(win.getNativeWindowHandle(), {
         surface: configured.surface,
         radius: policy.radius,
-        active,
+        active: nativeMaterialActiveState(configured.surface, active),
         interactive: policy.nativeInteractive,
       })
     } catch (error) {

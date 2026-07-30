@@ -7,6 +7,7 @@ import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
 import { getDemoAskResponse } from '../demo-scenario';
+import taylosMarkUrl from './assets/taylos_mark.png';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -1445,7 +1446,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             {/* The Taylos mark, extracted from the app icon: squircle and glass rim cropped
                 away, background keyed transparent. The bead around it (CSS) reproduces the
                 icon's own background colour plus the liquid-glass frame. */}
-            <img src={new URL('./assets/taylos_mark.png', import.meta.url).href} alt="" aria-hidden="true" />
+            <img src={taylosMarkUrl} alt="" aria-hidden="true" />
           </div>
           <span className="response-label">{headerText}</span>
         </div>

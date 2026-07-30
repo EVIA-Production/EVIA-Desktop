@@ -23,7 +23,7 @@ const preloadSource = read('src/main/preload.ts');
 const settingsSource = read('src/renderer/overlay/SettingsView.tsx');
 const liquidGlassSource = read('src/renderer/overlay/liquid-glass.css');
 const overlayGlassSource = read('src/renderer/overlay/overlay-glass.css');
-const systemAudioHelper = fs.readFileSync(path.join(ROOT, 'src/main/assets/SystemAudioDump'));
+const nativeGlassSource = read('native/macos-liquid-glass/src/taylos_liquid_glass.mm');
 
 test('macOS watchdog waits for a real first system-audio chunk', () => {
   assert.match(audioSource, /macSystemCaptureStartedAt/);
@@ -32,16 +32,12 @@ test('macOS watchdog waits for a real first system-audio chunk', () => {
 });
 
 test('macOS capture becomes ready only after ScreenCaptureKit confirms startup', () => {
-  assert.match(macAudioSource, /CAPTURE_READY_MARKER = 'Capturing system audio'/);
+  assert.match(macAudioSource, /statusName === 'capture_started'/);
   assert.match(macAudioSource, /const readyInMs = await captureReadyPromise/);
   assert.match(macAudioSource, /capture readiness timed out/);
-});
-
-test('bundled macOS helper exposes the readiness contract consumed by Electron', () => {
-  assert.ok(
-    systemAudioHelper.includes(Buffer.from('Capturing system audio')),
-    'SystemAudioDump must contain the post-startCapture readiness marker'
-  );
+  assert.match(macAudioSource, /statusName === 'permission_error'/);
+  assert.match(macAudioSource, /statusName === 'unsupported_os'/);
+  assert.match(macAudioSource, /invalid_audio_protocol/);
 });
 
 test('macOS helper cleanup is global only once and session shutdown targets its owned child', () => {
@@ -102,12 +98,28 @@ test('renderer subscribes before starting the macOS native helper', () => {
   );
 });
 
-test('capture sockets and native macOS capture start in parallel', () => {
+test('capture sockets and native macOS capture start in parallel without sacrificing the microphone', () => {
   const startBlock = audioSource.split('export async function startCapture', 2)[1];
   assert.ok(startBlock, 'capture startup should exist');
   assert.match(startBlock, /const socketConnectionsPromise = connectCaptureWebSockets\(includeSystemAudio\)/);
   assert.match(startBlock, /const macSystemCapturePromise = includeSystemAudio && isMac/);
-  assert.match(startBlock, /await Promise\.all\(\[socketConnectionsPromise, macSystemCapturePromise\]\)/);
+  assert.match(startBlock, /Promise\.all\(\[\s*socketConnectionsPromise,\s*macSystemCapturePromise/);
+  assert.match(startBlock, /Optional macOS system audio failed; microphone capture remains active/);
+  assert.match(startBlock, /stopMacSystemAudioCaptureOnly\(eviaApi\)/);
+  assert.match(startBlock, /systemAudioAvailable/);
+  assert.match(startBlock, /systemAudioStatus/);
+});
+
+test('system WebSocket failure is isolated from the required microphone connection', () => {
+  const socketBlock = audioSource.split('async function connectCaptureWebSockets', 2)[1];
+  assert.ok(socketBlock, 'capture socket startup should exist');
+  assert.match(socketBlock, /const micConnection = pair\.mic\.connect\(\)/);
+  assert.match(socketBlock, /pair\.system\.connect\(\)[\s\S]*\.catch/);
+  assert.match(socketBlock, /await micConnection/);
+  assert.match(socketBlock, /Promise\.race\(\[\s*systemConnection/);
+  assert.match(socketBlock, /window\.setTimeout\(\(\) => resolve\('socket_timeout'\), 1500\)/);
+  assert.match(socketBlock, /socket_connection_failed/);
+  assert.match(socketBlock, /socket_timeout/);
 });
 
 test('late audio callbacks cannot recreate sockets after capture stops', () => {
@@ -169,6 +181,34 @@ test('a WebSocket policy close before open rejects the active connection attempt
 test('a client connection timeout does not invalidate a chat', () => {
   assert.match(wsSource, /socket\.close\(1000, 'Connect timeout'\)/);
   assert.doesNotMatch(wsSource, /socket\.close\(4000, 'Connect timeout'\)/);
+});
+
+test('held movement accelerates continuously and eases out on release', () => {
+  assert.match(overlayWindowsSource, /function signalHeaderMovement/);
+  assert.match(overlayWindowsSource, /function startContinuousHeaderMovement/);
+  assert.match(overlayWindowsSource, /function animateContinuousHeaderRelease/);
+  assert.match(overlayWindowsSource, /function cancelContinuousHeaderRelease/);
+  assert.match(overlayWindowsSource, /isMacPhysicalKeyPressed\(heldMovementKeyCode\)/);
+  assert.match(overlayWindowsSource, /physicalKeyPressed === false/);
+  assert.match(overlayWindowsSource, /stopContinuousHeaderMovement\(true, true\)/);
+  assert.match(overlayWindowsSource, /velocityX \* durationSeconds \/ 3/);
+  assert.match(overlayWindowsSource, /1 - Math\.pow\(1 - progress, 3\)/);
+  assert.match(overlayWindowsSource, /heldHeaderRelease/);
+  assert.match(overlayWindowsSource, /HELD_MOVEMENT_INITIAL_PX_PER_SECOND = 800/);
+  assert.match(overlayWindowsSource, /HELD_MOVEMENT_MAX_PX_PER_SECOND = 1800/);
+  assert.match(overlayWindowsSource, /HELD_MOVEMENT_RAMP_MS = 1200/);
+  assert.match(nativeGlassSource, /CGEventSourceKeyState/);
+  assert.match(nativeGlassSource, /exports\.Set\("isKeyPressed"/);
+  assert.match(overlayWindowsSource, /const clamped = clampBounds\(requested\)/);
+  assert.match(overlayWindowsSource, /if \(atEdge\)/);
+  assert.match(
+    overlayWindowsSource,
+    /signalHeaderMovement\('left', -step, 0, MAC_ARROW_KEY_CODES\.left\)/,
+  );
+  assert.match(
+    overlayWindowsSource,
+    /signalHeaderMovement\('right', step, 0, MAC_ARROW_KEY_CODES\.right\)/,
+  );
 });
 
 test('Done never waits for backend archival before closing the local session', () => {

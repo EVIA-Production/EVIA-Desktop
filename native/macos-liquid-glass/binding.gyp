@@ -14,6 +14,7 @@
             "link_settings": {
               "libraries": [
                 "-framework AppKit",
+                "-framework ApplicationServices",
                 "-framework QuartzCore"
               ]
             },

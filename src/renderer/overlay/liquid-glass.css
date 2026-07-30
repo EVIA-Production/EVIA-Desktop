@@ -446,3 +446,64 @@ html[data-material='native'] :is(
     transition: none !important;
   }
 }
+
+/*
+ * Listen is a component-level material, not a window-focus effect. Keep its
+ * optical result invariant when Chromium focus and AppKit window activation
+ * change. Active (red) and Done retain their semantic materials.
+ */
+html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done),
+html[data-window-active='true'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done),
+html[data-window-active='false'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done),
+html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done):is(:focus, :focus-visible, :focus-within) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.58),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.24) !important;
+}
+
+html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::before,
+html[data-window-active='true'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::before,
+html[data-window-active='false'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::before {
+  display: block !important;
+  inset: 0 !important;
+  z-index: -1 !important;
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::after,
+html[data-window-active='true'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::after,
+html[data-window-active='false'] .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)::after {
+  display: block !important;
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  padding: 1px !important;
+  border-radius: inherit !important;
+  opacity: 1 !important;
+  pointer-events: none !important;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.64) 0%,
+    rgba(255, 255, 255, 0.18) 42%,
+    rgba(0, 0, 0, 0.28) 100%
+  ) !important;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  -webkit-mask-composite: destination-out !important;
+  mask-composite: exclude !important;
+}
+
+html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done):hover::before {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
