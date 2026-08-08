@@ -863,7 +863,13 @@ captureSessionController.subscribe((current, previous) => {
   broadcastCaptureSession(current, previous);
 });
 
-ipcMain.handle('capture-session:get', () => captureSessionController.getSnapshot());
+ipcMain.handle('capture-session:get', () => {
+  const snapshot = captureSessionController.getSnapshot();
+  // Ship the legacy mapping alongside the snapshot so renderers never have to
+  // re-derive it (or fall back to a stale localStorage copy of it). The Ask
+  // request path reads this to decide before/during/after.
+  return { ...snapshot, legacyState: toLegacySessionState(snapshot) };
+});
 ipcMain.handle('capture-session:begin-start', () => captureSessionController.beginStart());
 ipcMain.handle('capture-session:confirm-started', (_event, generation: number) =>
   captureSessionController.confirmStarted(generation));

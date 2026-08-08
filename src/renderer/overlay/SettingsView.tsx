@@ -556,7 +556,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
               >
                 <span className="preset-name">{preset.name || preset.title}</span>
                 {activatingPresetId === preset.id
-                  ? <span className="preset-status">{t('presetActivating')}</span>
+                  ? (
+                    // Toggling an already-active preset deactivates it, so the
+                    // pending label has to follow the direction of travel.
+                    <span className="preset-status">
+                      {preset.is_active ? t('presetDeactivating') : t('presetActivating')}
+                    </span>
+                  )
                   : preset.is_active && <span className="preset-status">{t('presetActive')}</span>}
               </div>
             ))

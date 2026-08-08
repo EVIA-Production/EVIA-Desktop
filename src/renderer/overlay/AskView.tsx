@@ -791,6 +791,36 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     streamStartTime.current = null;
   }, []);
 
+  /**
+   * Resolve before/during/after from the main process capture controller.
+   *
+   * Falls back to the cached localStorage value only when the IPC is
+   * unavailable, and defaults to 'before' rather than 'during' so an unknown
+   * state never claims a call is in progress.
+   */
+  const resolveAuthoritativeSessionState = async (): Promise<AskSessionState> => {
+    try {
+      const snapshot = await (window as any).evia?.captureSession?.get?.();
+      const authoritative = snapshot?.legacyState;
+      if (authoritative === 'before' || authoritative === 'during' || authoritative === 'after') {
+        const cached = localStorage.getItem('evia_session_state');
+        if (cached !== authoritative) {
+          console.warn(
+            '[AskView] ⚠️ Session state cache was stale:', cached, '→', authoritative,
+            '(capture state:', snapshot?.state, ')'
+          );
+          localStorage.setItem('evia_session_state', authoritative);
+        }
+        return authoritative;
+      }
+    } catch (err) {
+      console.warn('[AskView] ⚠️ Could not read capture session state, using cache:', err);
+    }
+    const stored = localStorage.getItem('evia_session_state');
+    if (stored === 'before' || stored === 'during' || stored === 'after') return stored;
+    return 'before';
+  };
+
   const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
@@ -799,9 +829,13 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const requestStartedAt = performance.now();
     const clientStartedAtMs = Date.now();
     const requestId = crypto.randomUUID();
-    const currentSessionState = localStorage.getItem('evia_session_state') as AskSessionState || 'during';
     streamStartTime.current = requestStartedAt;
-    
+
+    // The cached state is good enough to paint with; only the request itself
+    // needs the authoritative value. Awaiting before this point would put an
+    // IPC round trip in front of the first pixel the user sees.
+    const cachedSessionState = (localStorage.getItem('evia_session_state') as AskSessionState) || 'before';
+
     lastPromptRef.current = actualPrompt;
     setCurrentQuestion(actualPrompt);
     setErrorToast(null);
@@ -809,7 +843,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     setResponse('');
     responseBufferRef.current = '';
     lastResponseRef.current = '';
-    setResponseSessionState(currentSessionState);
+    setResponseSessionState(cachedSessionState);
     setIsStreaming(true);
     setIsLoadingFirstToken(true);
     setHeaderText(i18n.t('overlay.ask.thinking'));
@@ -824,6 +858,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const thinkingHeight = readThinkingHeight();
     storedContentHeightRef.current = thinkingHeight;
     requestWindowResize(thinkingHeight);
+
+    // The main process owns capture truth; localStorage is only a cache of a
+    // broadcast this window may never have received (it is written by whichever
+    // view happened to be mounted). Resolving it here is what stops a finished
+    // call from being answered as if it were still live.
+    const currentSessionState = await resolveAuthoritativeSessionState();
+    if (currentSessionState !== cachedSessionState) {
+      setResponseSessionState(currentSessionState);
+    }
 
     const resetPendingRequest = () => {
       setIsStreaming(false);

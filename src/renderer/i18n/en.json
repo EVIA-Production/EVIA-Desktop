@@ -91,6 +91,7 @@
       "createFirstPreset": "Create your first preset",
       "presetActive": "Active",
       "presetActivating": "Activating...",
+      "presetDeactivating": "Deactivating...",
       "presetActivationFailed": "Preset activation failed. Try again before starting the conversation.",
       "presetContextPending": "Preset activated. Taylos will verify its context when the next conversation starts.",
       "presetLockedDuringSession": "Stop listening before changing the preset.",

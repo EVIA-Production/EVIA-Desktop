@@ -19,14 +19,14 @@ declare global {
   }
 }
 
-interface TranscriptLine {
-  speaker: number | null;
-  text: string;
-  isFinal?: boolean;
-  isPartial?: boolean;
-  timestamp?: number;
-  utteranceId?: string;
-}
+import {
+  buildTranscriptContext,
+  inSpokenOrder,
+  orderingKeyOf,
+  type OrderedTranscriptLine,
+} from '../../main/transcript-order';
+
+type TranscriptLine = OrderedTranscriptLine;
 
 interface ListenViewProps {
   lines: TranscriptLine[];
@@ -36,7 +36,7 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
-  const [transcripts, setTranscripts] = useState<{text: string, speaker: number | null, isFinal: boolean, isPartial?: boolean, timestamp?: number, utteranceId?: string}[]>([]);
+  const [transcripts, setTranscripts] = useState<TranscriptLine[]>([]);
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   
@@ -108,6 +108,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const lastInsightsFetchCountRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
   const ECHO_WINDOW_MS = 3000;
+  /**
+   * Words a partial must already hold before divergent interim text is treated
+   * as a new segment rather than a revision. Below this a partial is still a
+   * fragment ("Wel", "Welcome") that the provider may legitimately rewrite.
+   */
+  const NEW_SEGMENT_MIN_WORDS = 4;
 
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -274,26 +280,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     });
   };
 
-  const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) => {
-    const stableRows = rows.filter(entry => {
-      const cleaned = (entry.text || '').trim();
-      return Boolean(cleaned) && entry.isFinal === true && entry.isPartial !== true;
-    });
-    const lines: string[] = [];
-    let charCount = 0;
-    for (let i = stableRows.length - 1; i >= 0; i -= 1) {
-      const entry = stableRows[i];
-      const cleaned = (entry.text || '').trim();
-      if (!cleaned) continue;
-      const speakerLabel = entry.speaker === 1 ? 'User' : entry.speaker === 0 ? 'Prospect' : 'Unknown';
-      const line = `${speakerLabel}: ${cleaned}`;
-      const projected = charCount + line.length + 1;
-      if (projected > maxChars) break;
-      lines.unshift(line);
-      charCount = projected;
-    }
-    return lines.join('\n');
-  };
+  const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) =>
+    buildTranscriptContext(rows, { maxChars });
 
   useEffect(() => {
     if (!isSessionActive || sessionState !== 'during' || transcripts.length > 0) return;
@@ -761,6 +749,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] 🛑 Recording stopped - stopping timer');
         stopTimer();
+
+        // Nothing is still being spoken once capture stops, so no bubble may
+        // keep the dimmed "in progress" look. Settle whatever text each partial
+        // reached; dropping them instead would silently lose the last words of
+        // the call, which are usually the ones that matter.
+        setTranscripts(prev => {
+          if (!prev.some(item => item.isPartial && !item.isFinal)) return prev;
+          const settled = prev
+            .filter(item => (item.text || '').trim())
+            .map(item => (
+              item.isPartial && !item.isFinal
+                ? { ...item, isFinal: true, isPartial: false }
+                : item
+            ));
+          console.log('[ListenView] ✅ Settled', settled.length, 'transcript rows on stop');
+          return settled;
+        });
+
         setIsSessionActive(false);
         setSessionState('after');
         localStorage.setItem('evia_session_state', 'after');
@@ -791,8 +797,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let isFinal = false;
       let isPartial = false;
       let utteranceId: string | undefined;
+      let audioStartMs: number | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
+        const rawAudioStart = Number(msg.data.audio_start_ms);
+        if (Number.isFinite(rawAudioStart) && rawAudioStart > 0) {
+          audioStartMs = rawAudioStart;
+        }
         source = msg.data.source || msg._source;
         text = msg.data.text || '';
         if (source === 'mic') {
@@ -932,7 +943,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               item.utteranceId &&
               item.utteranceId === reliableUtteranceId
             );
-            if (!sameReliableUtterance && !areCompatiblePartialTexts(item.text || '', incomingText)) continue;
+            if (!areCompatiblePartialTexts(item.text || '', incomingText)) {
+              // A shared utterance id is not proof of a shared sentence. The id
+              // only advances when the server flushes a turn, so one turn spans
+              // several provider segments: after "Welcome back to your favorite
+              // podcast." the next interim was "Having a hard time", which
+              // overwrote the visible bubble and made the first sentence vanish
+              // until its final arrived.
+              //
+              // A revision shares a prefix; a new segment does not. Once the
+              // existing partial has real content, treat divergent text as the
+              // next segment and let it start its own bubble.
+              const existingWordCount = getWordTokens(item.text || '').length;
+              if (!sameReliableUtterance || existingWordCount >= NEW_SEGMENT_MIN_WORDS) continue;
+            }
 
             let score = 0;
             if (sameReliableUtterance) {
@@ -1027,7 +1051,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               speaker,
               isFinal: false,
               isPartial: true,
-              timestamp: messageTimestamp,
+              // Keep the moment this turn *started*. Re-stamping on every
+              // interim made a partial that is still being spoken drift to the
+              // end of the ordering, so a bubble visibly overtook an earlier
+              // one and then snapped back when it finalised and regained its
+              // real audio time.
+              timestamp: existing.timestamp ?? messageTimestamp,
+              audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
             newMessages = collapseDuplicatePartialsForUtterance(
@@ -1049,6 +1079,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              audioStartMs,
               utteranceId: normalizedUtteranceId,
             });
             newMessages = collapseDuplicatePartialsForUtterance(
@@ -1142,6 +1173,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: true,
               isPartial: false,
               timestamp: messageTimestamp,
+              audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
             logFinalMismatch(text, resolvedFinalText);
@@ -1184,6 +1216,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
+                audioStartMs,
                 utteranceId: normalizedUtteranceId,
               });
               logFinalMismatch(text, incomingDisplayText);
@@ -1995,7 +2028,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           )}
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
-              transcripts.map((line, i) => {
+              // Render in the order the words were spoken, not the order the
+              // two capture sockets happened to deliver them.
+              inSpokenOrder(transcripts).map((line, i) => {
                 // GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
                 // null defaults to system (grey, left) for safety
                 const isMe = line.speaker === 1;

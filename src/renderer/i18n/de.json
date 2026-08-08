@@ -91,6 +91,7 @@
       "createFirstPreset": "Erstelle deine erste Vorlage",
       "presetActive": "Aktiv",
       "presetActivating": "Wird aktiviert...",
+      "presetDeactivating": "Wird deaktiviert...",
       "presetActivationFailed": "Vorlage konnte nicht aktiviert werden. Versuch es vor Gesprächsbeginn erneut.",
       "presetContextPending": "Vorlage aktiviert. Taylos prüft den Kontext beim Start des nächsten Gesprächs.",
       "presetLockedDuringSession": "Beende das Zuhören, bevor du die Vorlage wechselst.",
