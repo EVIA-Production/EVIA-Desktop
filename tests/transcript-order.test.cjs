@@ -233,3 +233,61 @@ test('blank partials are ignored', () => {
   const now = BASE + 5000
   assert.equal(selectEligiblePartial([partial(0, '   ', BASE + 4000, now)], now), undefined)
 })
+
+// ── a bubble must never visibly shrink ───────────────────────────────────────
+
+const { shouldReplacePartialText } = require('../dist/main/transcript-order.js')
+
+test('growth is always accepted', () => {
+  assert.equal(shouldReplacePartialText('Welcome back', 'Welcome back to your'), true)
+  assert.equal(shouldReplacePartialText('', 'Welcome'), true)
+})
+
+test('a stale shorter prefix is refused', () => {
+  // The exact flicker: a newer interim is already shown, an older one arrives.
+  assert.equal(
+    shouldReplacePartialText('Welcome back to your favorite podcast.', 'Welcome back to'),
+    false,
+  )
+})
+
+test('a genuine revision of similar length is accepted', () => {
+  // "gink" -> "geek" is the provider correcting itself, not a regression.
+  assert.equal(
+    shouldReplacePartialText('You look like a gink.', 'You look like a geek.'),
+    true,
+  )
+})
+
+test('a shorter but genuinely different revision is accepted', () => {
+  // Not a prefix of what is shown, so the provider rewrote the wording.
+  assert.equal(shouldReplacePartialText('Having a hard time getting', 'Having trouble'), true)
+})
+
+test('identical text is not re-rendered', () => {
+  assert.equal(shouldReplacePartialText('Keine Zeit.', 'Keine Zeit.'), false)
+})
+
+test('empty incoming never clears a bubble', () => {
+  assert.equal(shouldReplacePartialText('Keine Zeit.', ''), false)
+  assert.equal(shouldReplacePartialText('Keine Zeit.', '   '), false)
+})
+
+test('replaying a full interim sequence never shrinks the bubble', () => {
+  // Property: whatever order interims arrive in, visible length never drops.
+  const arrivals = [
+    'Welcome', 'Welcome back to your favorite podcast.', 'Welcome back',
+    'Welcome back to your favorite podcast. It is the', 'Welcome back to your',
+  ]
+  let shown = ''
+  for (const incoming of arrivals) {
+    if (shouldReplacePartialText(shown, incoming)) {
+      assert.ok(
+        incoming.trim().length >= shown.trim().length || !shown.startsWith(incoming.trim()),
+        `bubble shrank from ${shown.length} to ${incoming.length}`,
+      )
+      shown = incoming
+    }
+  }
+  assert.equal(shown, 'Welcome back to your favorite podcast. It is the')
+})

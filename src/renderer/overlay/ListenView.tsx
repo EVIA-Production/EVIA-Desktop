@@ -23,6 +23,7 @@ import {
   buildTranscriptContext,
   inSpokenOrder,
   orderingKeyOf,
+  shouldReplacePartialText,
   type OrderedTranscriptLine,
 } from '../../main/transcript-order';
 
@@ -1037,6 +1038,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (targetIdx !== -1) {
             // Update existing partial with new accumulated text
             const existing = newMessages[targetIdx];
+            if (!shouldReplacePartialText(existing.text || '', incomingDisplayText)) {
+              // A stale interim overtook a newer one. Rendering it would shrink
+              // the visible sentence and then jump back - the flicker a viewer
+              // sees. The newer text is already shown and loses nothing.
+              console.log(
+                '[ListenView] ⏭️ Ignoring stale/shorter interim for speaker', speaker,
+                'utt:', normalizedUtteranceId ?? '∅',
+                '| shown:', (existing.text || '').length, 'ch, incoming:', incomingDisplayText.length, 'ch',
+              );
+              return prev;
+            }
             if (existing.text === incomingDisplayText) {
               console.log('[ListenView] ⏭️ Skipping identical partial update for speaker', speaker, 'utt:', normalizedUtteranceId ?? '∅');
               return prev;

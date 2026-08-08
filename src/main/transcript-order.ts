@@ -58,6 +58,36 @@ export const REORDER_WINDOW_MS = 20_000;
  */
 export const LIVE_PARTIAL_MAX_AGE_MS = 15_000;
 
+/**
+ * Should this interim replace what a bubble already shows?
+ *
+ * The server emits a turn's accumulated text, so within one utterance the text
+ * only ever grows. Anything arriving shorter is therefore a *stale* interim
+ * that overtook a newer one - the renderer throttles partials and forwards them
+ * through the main process, so ordering is not guaranteed end to end.
+ *
+ * Rendering it would make the visible sentence briefly shrink and then jump
+ * back, which is what a viewer reports as flicker. Refusing shrinkage costs
+ * nothing: the newer text has already been shown, and the next interim carries
+ * everything this one had.
+ *
+ * Only applies within a single utterance. A new turn legitimately starts short,
+ * and a final may be shorter than the partial it replaces because the tail
+ * migrates to the next turn.
+ */
+export function shouldReplacePartialText(current: string, incoming: string): boolean {
+  const existing = (current || '').trim();
+  const next = (incoming || '').trim();
+  if (!next) return false;
+  if (!existing) return true;
+  if (next === existing) return false;
+  // A correction of the same length, or any growth, is real progress.
+  if (next.length >= existing.length) return true;
+  // Shorter: only accept when it is not simply a prefix of what is shown,
+  // i.e. the provider genuinely revised the wording rather than regressing.
+  return !existing.startsWith(next);
+}
+
 /** Canonical ordering key. Falls back to arrival time for legacy events. */
 export function orderingKeyOf(entry: OrderedTranscriptLine): number {
   const spoken = entry.audioStartMs;
