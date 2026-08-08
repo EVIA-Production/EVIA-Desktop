@@ -935,7 +935,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             const item = rows[i];
             if (item.speaker !== spk) continue;
             if (!item.isPartial || item.isFinal) continue;
-            const itemTs = item.timestamp ?? 0;
+            // Liveness, not position: a turn that is still being spoken
+            // stays matchable however long it runs.
+            const itemTs = item.updatedAt ?? item.timestamp ?? 0;
             if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
             if (reliableUtteranceId && item.utteranceId && item.utteranceId !== reliableUtteranceId) continue;
             const sameReliableUtterance = Boolean(
@@ -1051,12 +1053,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               speaker,
               isFinal: false,
               isPartial: true,
-              // Keep the moment this turn *started*. Re-stamping on every
-              // interim made a partial that is still being spoken drift to the
-              // end of the ordering, so a bubble visibly overtook an earlier
-              // one and then snapped back when it finalised and regained its
-              // real audio time.
+              // Keep the moment this turn *started* so it holds its place in
+              // the conversation, and track liveness separately so it stays
+              // matchable while it grows.
               timestamp: existing.timestamp ?? messageTimestamp,
+              updatedAt: messageTimestamp,
               audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
@@ -1079,6 +1080,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isFinal: false,
               isPartial: true,
               timestamp: messageTimestamp,
+              updatedAt: messageTimestamp,
               audioStartMs,
               utteranceId: normalizedUtteranceId,
             });
@@ -1172,7 +1174,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               speaker,
               isFinal: true,
               isPartial: false,
-              timestamp: messageTimestamp,
+              // A finalised turn keeps the position it has held since it began.
+              timestamp: newMessages[targetIdx].timestamp ?? messageTimestamp,
+              updatedAt: messageTimestamp,
               audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
@@ -1216,6 +1220,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isFinal: true,
                 isPartial: false,
                 timestamp: messageTimestamp,
+                updatedAt: messageTimestamp,
                 audioStartMs,
                 utteranceId: normalizedUtteranceId,
               });

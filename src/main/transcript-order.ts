@@ -20,8 +20,21 @@ export interface OrderedTranscriptLine {
   text: string;
   isFinal?: boolean;
   isPartial?: boolean;
-  /** Arrival time in the renderer. Fallback key for pre-audio-clock events. */
+  /**
+   * When this turn *started*. Ordering key of last resort, and deliberately
+   * not refreshed as a turn grows: a turn still being spoken must not drift
+   * past turns that began after it.
+   */
   timestamp?: number;
+  /**
+   * When this row last received data. Separate from `timestamp` because the
+   * two answer different questions: "where does this belong in the
+   * conversation" versus "is this row still live". Collapsing them into one
+   * field means whichever job loses is silently broken - keeping only the
+   * start time made a partial unmatchable after 5s of continuous speech, so
+   * every further interim spawned a new bubble.
+   */
+  updatedAt?: number;
   utteranceId?: string;
   /** Absolute epoch ms the words were spoken, from provider audio offsets. */
   audioStartMs?: number;
