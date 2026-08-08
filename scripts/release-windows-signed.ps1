@@ -247,8 +247,22 @@ function Assert-ReleaseAssets {
 Assert-RepoRoot
 
 Write-Step "Repository state"
-$branch = (& git branch --show-current).Trim()
-$head = (& git rev-parse HEAD).Trim()
+# A tag build checks out a detached HEAD, where `git branch --show-current`
+# prints nothing and calling .Trim() on the resulting $null threw before the
+# build even started - which is what failed the v1.0.66 Windows release. Every
+# release is a tag, so this path is the normal one, not an edge case.
+$branchRaw = (& git branch --show-current | Out-String).Trim()
+if ([string]::IsNullOrWhiteSpace($branchRaw)) {
+  $describedTag = (& git describe --tags --exact-match HEAD 2>$null | Out-String).Trim()
+  $branch = if ([string]::IsNullOrWhiteSpace($describedTag)) {
+    "(detached HEAD)"
+  } else {
+    "(detached at tag $describedTag)"
+  }
+} else {
+  $branch = $branchRaw
+}
+$head = (& git rev-parse HEAD | Out-String).Trim()
 $dirty = & git status --short
 Write-Host "Branch: $branch"
 Write-Host "HEAD: $head"
