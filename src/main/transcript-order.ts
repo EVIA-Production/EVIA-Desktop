@@ -88,11 +88,53 @@ export function shouldReplacePartialText(current: string, incoming: string): boo
   return !existing.startsWith(next);
 }
 
+/** True when this row carries a real spoken-time key. */
+export function hasAudioKey(entry: OrderedTranscriptLine): boolean {
+  const spoken = entry.audioStartMs;
+  return typeof spoken === 'number' && Number.isFinite(spoken) && spoken > 0;
+}
+
 /** Canonical ordering key. Falls back to arrival time for legacy events. */
 export function orderingKeyOf(entry: OrderedTranscriptLine): number {
-  const spoken = entry.audioStartMs;
-  if (typeof spoken === 'number' && Number.isFinite(spoken) && spoken > 0) return spoken;
+  if (hasAudioKey(entry)) return entry.audioStartMs as number;
   return entry.timestamp ?? 0;
+}
+
+/**
+ * Give every row a key on the *same* scale before sorting.
+ *
+ * Spoken time and arrival time are both epoch milliseconds, which makes them
+ * look comparable - but arrival is roughly a second later than the speech it
+ * describes, because the provider has to endpoint and transcribe first. So a
+ * row keyed by arrival sorts after everything keyed by speech from the same
+ * moment, and if only some rows carry an audio key the two clocks interleave
+ * wrongly. That is a whole class of ordering bug, not one case.
+ *
+ * Rather than convert between the scales - the offset is not constant, so any
+ * conversion is a guess - an unkeyed row is pinned just after the last keyed
+ * row that preceded it. It keeps the position it arrived in, relative to rows
+ * that do know when they were spoken, and never competes on a foreign scale.
+ */
+function keysOnOneScale(rows: OrderedTranscriptLine[]): number[] {
+  const keys = new Array<number>(rows.length);
+  let lastKeyed = Number.NEGATIVE_INFINITY;
+  let unkeyedRun = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    if (hasAudioKey(rows[i])) {
+      lastKeyed = rows[i].audioStartMs as number;
+      unkeyedRun = 0;
+      keys[i] = lastKeyed;
+      continue;
+    }
+    unkeyedRun += 1;
+    keys[i] = lastKeyed === Number.NEGATIVE_INFINITY
+      // Nothing keyed yet: fall back to arrival, which is all we have.
+      ? (rows[i].timestamp ?? 0)
+      // Just after the last keyed row, preserving arrival order among peers.
+      : lastKeyed + unkeyedRun / 1000;
+  }
+  return keys;
 }
 
 /**
@@ -100,8 +142,9 @@ export function orderingKeyOf(entry: OrderedTranscriptLine): number {
  *
  * Only the tail within `REORDER_WINDOW_MS` of the newest row participates, and
  * the sort is stable, so equal keys keep insertion order and settled history
- * never moves. Mixing audio-clock rows with legacy arrival-time rows is safe:
- * both are epoch milliseconds on the same scale.
+ * never moves. Every row is first placed on a single scale by
+ * `keysOnOneScale`, so a row that never received a spoken time cannot compete
+ * against one that did.
  */
 export function inSpokenOrder(
   rows: OrderedTranscriptLine[],
@@ -109,23 +152,24 @@ export function inSpokenOrder(
 ): OrderedTranscriptLine[] {
   if (rows.length < 2) return rows;
 
+  const keys = keysOnOneScale(rows);
+
   let newest = Number.NEGATIVE_INFINITY;
-  for (const row of rows) {
-    const key = orderingKeyOf(row);
+  for (const key of keys) {
     if (key > newest) newest = key;
   }
   const cutoff = newest - windowMs;
 
   // The frozen head is the longest prefix entirely older than the cutoff.
   let head = 0;
-  while (head < rows.length && orderingKeyOf(rows[head]) < cutoff) head += 1;
+  while (head < rows.length && keys[head] < cutoff) head += 1;
   if (head >= rows.length - 1) return rows;
 
   const tail = rows
     .slice(head)
-    .map((entry, index) => ({ entry, index }))
+    .map((entry, index) => ({ entry, index, key: keys[head + index] }))
     .sort((a, b) => {
-      const delta = orderingKeyOf(a.entry) - orderingKeyOf(b.entry);
+      const delta = a.key - b.key;
       return delta !== 0 ? delta : a.index - b.index;
     })
     .map(({ entry }) => entry);

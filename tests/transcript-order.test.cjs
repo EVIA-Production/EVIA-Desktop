@@ -291,3 +291,60 @@ test('replaying a full interim sequence never shrinks the bubble', () => {
   }
   assert.equal(shown, 'Welcome back to your favorite podcast. It is the')
 })
+
+// ── one scale only: spoken time never competes with arrival time ─────────────
+
+test('an unkeyed partial stays beside its neighbours, not below them', () => {
+  // The reported symptom: unfinished bubbles formed a second list underneath
+  // the finished ones, because arrival time is ~1s later than spoken time.
+  const spokenBase = BASE
+  const arrivalOfSecond = BASE + 1200 // a real turn, but only arrival is known
+  const rows = [
+    seller('erste', spokenBase + 0),
+    { speaker: 0, text: 'zweite (kein Audio-Key)', isPartial: true, timestamp: arrivalOfSecond },
+    seller('dritte', spokenBase + 4000),
+  ]
+  // Without one scale, "zweite" (1200) would sort before "dritte" (4000) only
+  // by luck; with a larger arrival lag it would land after it.
+  assert.deepEqual(
+    textsOf(inSpokenOrder(rows)),
+    ['erste', 'zweite (kein Audio-Key)', 'dritte'],
+  )
+})
+
+test('an unkeyed row cannot overtake a later keyed one', () => {
+  const rows = [
+    seller('gesprochen zuerst', BASE + 0),
+    // Arrival is far in the future relative to spoken time - the exact way
+    // arrival-keyed rows used to sink below everything.
+    { speaker: 0, text: 'unmittelbar danach', isPartial: true, timestamp: BASE + 90_000 },
+    seller('gesprochen danach', BASE + 1000),
+  ]
+  assert.deepEqual(
+    textsOf(inSpokenOrder(rows)),
+    ['gesprochen zuerst', 'unmittelbar danach', 'gesprochen danach'],
+  )
+})
+
+test('several consecutive unkeyed rows keep their arrival order', () => {
+  const rows = [
+    seller('anker', BASE),
+    { speaker: 1, text: 'a', isPartial: true, timestamp: BASE + 50_000 },
+    { speaker: 1, text: 'b', isPartial: true, timestamp: BASE + 10_000 },
+    { speaker: 1, text: 'c', isPartial: true, timestamp: BASE + 70_000 },
+  ]
+  assert.deepEqual(textsOf(inSpokenOrder(rows)), ['anker', 'a', 'b', 'c'])
+})
+
+test('rows before any keyed row fall back to arrival time', () => {
+  const rows = [
+    { speaker: 1, text: 'spaeter', isPartial: true, timestamp: BASE + 900 },
+    { speaker: 0, text: 'frueher', isPartial: true, timestamp: BASE + 100 },
+  ]
+  assert.deepEqual(textsOf(inSpokenOrder(rows)), ['frueher', 'spaeter'])
+})
+
+test('all-keyed input is unaffected by the one-scale mapping', () => {
+  const rows = [prospect('Hi', BASE + 600), seller('Hallo', BASE), seller('Und?', BASE + 1100)]
+  assert.deepEqual(textsOf(inSpokenOrder(rows)), ['Hallo', 'Hi', 'Und?'])
+})

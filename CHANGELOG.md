@@ -1,8 +1,9 @@
-# Desktop 1.0.69
+# Desktop 1.0.70
 
-- A bubble can no longer visibly shrink. The server emits a turn's accumulated
-  text, so within one turn the text only grows; anything shorter arriving is a
-  stale interim that overtook a newer one, and rendering it produced the brief
-  flicker where a sentence shortened and jumped back. Genuine revisions of the
-  same or different wording are still accepted.
+- Unfinished bubbles can no longer sink below finished ones. Spoken time and
+  arrival time are both epoch milliseconds and so looked comparable, but
+  arrival is about a second later than the speech it describes; any row keyed
+  by arrival therefore sorted after every row keyed by speech from the same
+  moment. All rows are now placed on one scale before sorting, and a row with
+  no spoken time is pinned beside the neighbours it arrived among.
 
