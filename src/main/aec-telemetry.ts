@@ -41,6 +41,8 @@ export interface AecReport {
   referenceGapRatio: number;
   /** Mic energy over the window, dBFS. Silence makes every other number moot. */
   micLevelDb: number;
+  /** Reference energy, dBFS. Separates "silent reference" from "misaligned". */
+  refLevelDb: number;
 }
 
 function energy(signal: Float32Array): number {
@@ -256,6 +258,7 @@ export class AecTelemetry {
       coherence: linearExplainability(reference, before, lagSamples),
       referenceGapRatio: gapRatio,
       micLevelDb: levelDb(before),
+      refLevelDb: levelDb(reference),
     };
   }
 }
@@ -269,6 +272,7 @@ export function describeReport(report: AecReport): string {
     `coh=${report.coherence.toFixed(3)}`,
     `refGap=${(report.referenceGapRatio * 100).toFixed(0)}%`,
     `mic=${report.micLevelDb.toFixed(0)}dBFS`,
+    `ref=${report.refLevelDb.toFixed(0)}dBFS`,
   ];
 
   let verdict: string;
@@ -276,6 +280,13 @@ export function describeReport(report: AecReport): string {
     verdict = 'mic silent - other numbers are meaningless';
   } else if (report.referenceGapRatio > 0.25) {
     verdict = 'REFERENCE MISSING - the canceller has no far-end signal';
+  } else if (report.refLevelDb < -60) {
+    // Distinct from a gap: the window was filled, but with silence. Means the
+    // reference clock maps mic time onto a stretch of the ring holding nothing.
+    verdict = 'REFERENCE SILENT - window filled, but with no audio in it';
+  } else if (report.coherence < 0.02 && report.micLevelDb > -50) {
+    // Both sides carry audio yet share nothing. Alignment, not acoustics.
+    verdict = 'REFERENCE UNRELATED TO MIC - misaligned beyond the search window';
   } else if (report.delayConfidence < 10) {
     verdict = 'no echo detectable in the mic (good, or nothing is playing)';
   } else if (report.coherence < 0.2) {
