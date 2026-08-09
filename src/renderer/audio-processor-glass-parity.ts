@@ -3,6 +3,8 @@ import { getWebSocketInstance, getOrCreateChatId, closeWebSocketInstance } from 
 import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
+import { ReferenceRing, requiredFilterSamples } from '../main/aec-reference';
+
 const BUFFER_SIZE = 2048;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 
@@ -512,6 +514,13 @@ let aecPtr: number = 0;
 // Size: Limited to AEC_RING_BUFFER_SIZE for proper acoustic delay compensation
 let systemAudioBuffer: Array<{ data: string; timestamp: number }> = [];
 const MAX_SYSTEM_BUFFER_SIZE = AEC_RING_BUFFER_SIZE;
+
+/** Continuous, wall-clock-addressable far-end reference for the canceller. */
+const referenceRing = new ReferenceRing();
+/** Origin for counting mic capture time; set on the first chunk of a session. */
+let micOriginMs: number | null = null;
+/** Mic samples already emitted, so a chunk's start time is counted, not sampled. */
+let micSamplesConsumed = 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // WINDOWS FIX (2025-12-05): Buffer Maintenance to prevent memory pressure
@@ -1094,12 +1103,17 @@ async function setupMicProcessing(stream: MediaStream) {
     }
     const mod = await getAec();
     if (!DEBUG_DISABLE_CUSTOM_AEC && mod && !aecPtr) {
-      // Create AEC instance with verified parameters
-      aecPtr = mod.newPtr(160, 1600, 24000, 1);
+      // The filter has to span the whole echo path: the reference window's
+      // lead, the acoustic delay, and the room's reverb tail. It was 1600 taps
+      // (66.7ms) against a delay measured at 60.3ms on this hardware, so almost
+      // the entire filter was consumed by pure delay with nothing left to model
+      // the room - it could not have cancelled regardless of alignment.
+      const filterLength = requiredFilterSamples(SAMPLE_RATE);
+      aecPtr = mod.newPtr(160, filterLength, 24000, 1);
 
       // STEP 2: Verify instance was actually created
       if (aecPtr && aecPtr > 0) {
-        console.log('[AEC] ✅ AEC instance created (ptr=' + aecPtr + ', frameSize=160, filterLength=1600, sampleRate=24000)');
+        console.log('[AEC] ✅ AEC instance created (ptr=' + aecPtr + ', frameSize=160, filterLength=' + filterLength + ' (' + ((filterLength / SAMPLE_RATE) * 1000).toFixed(0) + 'ms), sampleRate=24000)');
         console.log('[AEC] ✅ Heap buffers verified: HEAPU8=' + !!mod.HEAPU8 + ', HEAP16=' + !!mod.HEAP16);
       } else {
         console.error('[AEC] ❌ AEC instance creation failed - newPtr returned invalid pointer');
@@ -1188,22 +1202,42 @@ async function setupMicProcessing(stream: MediaStream) {
       // ──────────────────────────────────────────────────────────────────────
       // STEP 2: Apply TIME-ALIGNED AEC (Acoustic Delay Compensation)
       // ──────────────────────────────────────────────────────────────────────
-      if (!DEBUG_DISABLE_CUSTOM_AEC && systemAudioBuffer.length > 0) {
+      // The capture time of this chunk's FIRST sample, counted rather than
+      // sampled: deriving it from the callback's own clock each time would put
+      // scheduler jitter straight into the alignment. One origin, then count.
+      if (micOriginMs === null) {
+        const micPendingMs = (audioBuffer.length / SAMPLE_RATE) * 1000;
+        const micChunkMs = (samplesPerChunk / SAMPLE_RATE) * 1000;
+        micOriginMs = performance.now() - micPendingMs - micChunkMs;
+      }
+      const micChunkStartedAtMs = micOriginMs + (micSamplesConsumed / SAMPLE_RATE) * 1000;
+      micSamplesConsumed += samplesPerChunk;
+
+      if (!DEBUG_DISABLE_CUSTOM_AEC && referenceRing.hasData) {
         try {
-          // System audio heard by mic is delayed by ~150-250ms (OS output buffer + room + OS input buffer).
-          // With ~100ms chunks, that's 2 chunks back. Make configurable for empirical tuning.
-          const AEC_DELAY_CHUNKS = Math.max(1, Math.round((AEC_LATENCY_MS || 200) / 100));
-          const delayedIndex = Math.max(0, systemAudioBuffer.length - 1 - AEC_DELAY_CHUNKS);
-          const referenceChunk = systemAudioBuffer[delayedIndex];
-          const sysF32 = base64ToFloat32Array(referenceChunk.data);
+          // Sample-accurate reference for exactly this mic chunk. The window
+          // deliberately starts before the expected echo: a reference that
+          // leads is something a causal filter absorbs as leading zero taps,
+          // whereas a reference that lags makes the echo non-causal and no
+          // amount of adaptation can recover it. The previous code delayed the
+          // reference 100ms against a 60.3ms measured path, i.e. exactly that
+          // unrecoverable case.
+          const { samples: sysF32, missingSamples } = referenceRing.referenceFor(
+            micChunkStartedAtMs,
+            samplesPerChunk,
+          );
 
-          // Run AEC with time-aligned reference
-          const originalChunk = new Float32Array(chunk);
-          const aecResult = runAecSync(originalChunk, sysF32);
-          float32Chunk = new Float32Array(aecResult);
+          // A window we could not fill is not a reference. Adapting to
+          // partially-silent audio teaches the filter a wrong path that it then
+          // has to un-learn, which is worse than not adapting at all.
+          if (missingSamples * 4 <= samplesPerChunk) {
+            const originalChunk = new Float32Array(chunk);
+            const aecResult = runAecSync(originalChunk, sysF32);
+            float32Chunk = new Float32Array(aecResult);
+          }
 
-          // Accessing the aligned reference above is sufficient validation. Do
-          // not log from the 100 ms audio callback; console capture adds jitter.
+          // Do not log from the 100 ms audio callback; console capture adds
+          // jitter to the very timing this alignment depends on.
         } catch (error) {
           console.error('[AEC] ❌ AEC processing failed, using unprocessed audio:', error);
           // Fall back to unprocessed audio on AEC error
@@ -1336,6 +1370,19 @@ function setupSystemAudioProcessing(stream: MediaStream) {
         binary += String.fromCharCode(bytes[i]);
       }
       const base64Data = btoa(binary);
+
+      // Continuous, sample-addressable reference for AEC. The chunk list below
+      // is kept for the existing debug paths, but alignment no longer comes
+      // from indexing it: 100ms chunks cannot express the 60.3ms measured
+      // acoustic delay, and the two AudioContexts start at an arbitrary phase
+      // from each other, so a chunk index was a per-session random offset.
+      // Stamp the chunk's FIRST sample, not the callback. A chunk is cut at
+      // 2400 samples while the processor delivers 2048, so the samples still
+      // pending after the cut are more recent than this chunk - ignoring them
+      // puts up to 85ms of constant error into the alignment.
+      const sysPendingMs = (audioBuffer.length / SAMPLE_RATE) * 1000;
+      const sysChunkMs = (samplesPerChunk / SAMPLE_RATE) * 1000;
+      referenceRing.write(float32Chunk, performance.now() - sysPendingMs - sysChunkMs);
 
       // Add to system audio buffer (for AEC reference)
       systemAudioBuffer.push({
@@ -1837,7 +1884,13 @@ export async function stopCapture(captureHandle?: any) {
     // ──────────────────────────────────────────────────────────────────────
     disposeAec();
     systemAudioBuffer = [];
-    console.log('[AudioCapture] ✅ AEC disposed and system audio buffer cleared');
+    // The reference clock is per session. Carrying an origin across sessions
+    // would align the next call's mic against the previous call's timeline,
+    // which is precisely the misalignment this rewrite exists to remove.
+    referenceRing.reset();
+    micOriginMs = null;
+    micSamplesConsumed = 0;
+    console.log('[AudioCapture] ✅ AEC disposed and reference clock reset');
 
     // Stop system audio helper (mac uses binary, Windows may use native loopback or helper)
     const eviaApi = (window as any).evia;
