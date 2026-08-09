@@ -406,3 +406,101 @@ export function groupIntoBlocks(rows: OrderedTranscriptLine[]): TranscriptBlock[
 
   return blocks;
 }
+
+/**
+ * Is this microphone text the far end's speech arriving through the speakers?
+ *
+ * The two capture sockets do not merely cut the audio at different points, they
+ * transcribe different words - the system hears "Build their businesses, they
+ * have better ratings" where the mic hears "is they have better ratings". So
+ * equality and containment both fail, which is why a containment-based check
+ * fired once across an entire session while most of the transcript was bleed.
+ *
+ * What survives that difference is a contiguous run. Bleed reproduces a stretch
+ * of the far end's word order; genuine speech about the same subject reuses
+ * vocabulary but not order. Measured on a real capture: bled utterances shared
+ * runs of 4, 5, 5, 10 and 13 consecutive words with the far end, while genuine
+ * speech peaked at 3 - including an utterance on the identical topic.
+ *
+ * Deliberately takes no timestamps. Judging by arrival time is what let bled
+ * rows survive: the far end's version of a sentence frequently arrives after
+ * the microphone's, so at mic-arrival time the evidence does not exist yet.
+ * This is re-run over the visible rows whenever new far-end text appears.
+ */
+export const BLED_MIN_RUN_WORDS = 4;
+export const BLED_MIN_RUN_COVERAGE = 0.3;
+export const BLED_MIN_WORDS = 8;
+
+const BLED_WORD_RE = /[^\p{L}\p{N}\s]/gu;
+
+function bledWords(value: string): string[] {
+  return (value || '')
+    .replace(BLED_WORD_RE, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** Longest run of consecutive words `text` shares with `reference`. */
+export function longestSharedWordRun(text: string, reference: string): number {
+  const words = bledWords(text);
+  const source = bledWords(reference);
+  if (!words.length || !source.length) return 0;
+
+  const positions = new Map<string, number[]>();
+  source.forEach((word, index) => {
+    const list = positions.get(word);
+    if (list) list.push(index);
+    else positions.set(word, [index]);
+  });
+
+  let best = 0;
+  for (let i = 0; i < words.length; i += 1) {
+    if (words.length - i <= best) break;
+    for (const j of positions.get(words[i]) ?? []) {
+      let run = 0;
+      while (
+        i + run < words.length &&
+        j + run < source.length &&
+        words[i + run] === source[j + run]
+      ) {
+        run += 1;
+      }
+      if (run > best) best = run;
+    }
+  }
+  return best;
+}
+
+export function isBledFromFarEnd(micText: string, farEndText: string): boolean {
+  const words = bledWords(micText);
+  if (words.length < BLED_MIN_WORDS) return false;
+  const run = longestSharedWordRun(micText, farEndText);
+  return run >= BLED_MIN_RUN_WORDS && run / words.length >= BLED_MIN_RUN_COVERAGE;
+}
+
+/**
+ * Remove every microphone row that is the far end's speech.
+ *
+ * Runs over all rows, final and partial alike, every time new far-end text
+ * arrives - so a row displayed before the far end's version existed is removed
+ * as soon as the evidence appears. That is what fixes the session-start rows,
+ * which are always judged before any far-end text exists at all.
+ */
+export function dropBledMicRows<T extends OrderedTranscriptLine>(
+  rows: T[],
+  farEndText: string,
+): T[] {
+  if (!farEndText.trim()) return rows;
+  return rows.filter(
+    (row) => row.speaker !== 1 || !isBledFromFarEnd(row.text || '', farEndText),
+  );
+}
+
+/** Everything the far end has said, for use as the comparison window. */
+export function farEndTextOf(rows: OrderedTranscriptLine[]): string {
+  return rows
+    .filter((row) => row.speaker === 0 && (row.text || '').trim())
+    .map((row) => row.text)
+    .join(' ');
+}

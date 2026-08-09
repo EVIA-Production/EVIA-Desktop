@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance, getChatTranscripts } from '../services/websocketService';
 import { fetchInsights, Insight, InsightActionItem } from '../services/insightsService';
@@ -21,6 +21,8 @@ declare global {
 
 import {
   buildTranscriptContext,
+  dropBledMicRows,
+  farEndTextOf,
   groupIntoBlocks,
   orderingKeyOf,
   shouldReplacePartialText,
@@ -118,6 +120,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  /**
+   * Rows with the far end's speech removed from the microphone side.
+   *
+   * Recomputed whenever anything changes, deliberately. Judging a mic row once
+   * at arrival cannot work: the far end's version of a sentence frequently
+   * arrives later, so at that moment the evidence does not exist. Re-running
+   * the whole sweep is what removes rows that were displayed during the first
+   * seconds of a session, and what stops a bled row staying visible forever
+   * once it has slipped through.
+   */
+  const visibleTranscripts = useMemo(
+    () => dropBledMicRows(transcripts, farEndTextOf(transcripts)),
+    [transcripts],
+  );
 
   const isNearDuplicateText = (a: string, b: string) => {
     const an = normalizeTranscriptText(a || '');
@@ -2064,13 +2081,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div>
           )}
           {viewMode === 'transcript' ? (
-            transcripts.length > 0 ? (
+            visibleTranscripts.length > 0 ? (
               // Turns, in the order the words were spoken - not one bubble per
               // provider utterance, and not the order the two capture sockets
               // happened to deliver them. A block is sealed at three sentences
               // and never changes again, so nothing above the cursor reflows
               // while it is being read.
-              groupIntoBlocks(transcripts).map((block) => {
+              groupIntoBlocks(visibleTranscripts).map((block) => {
                 // GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
                 // null defaults to system (grey, left) for safety
                 const isMe = block.speaker === 1;
