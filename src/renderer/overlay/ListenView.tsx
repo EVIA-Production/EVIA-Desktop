@@ -21,7 +21,7 @@ declare global {
 
 import {
   buildTranscriptContext,
-  inSpokenOrder,
+  groupIntoBlocks,
   orderingKeyOf,
   shouldReplacePartialText,
   type OrderedTranscriptLine,
@@ -2065,22 +2065,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           )}
           {viewMode === 'transcript' ? (
             transcripts.length > 0 ? (
-              // Render in the order the words were spoken, not the order the
-              // two capture sockets happened to deliver them.
-              inSpokenOrder(transcripts).map((line, i) => {
+              // Turns, in the order the words were spoken - not one bubble per
+              // provider utterance, and not the order the two capture sockets
+              // happened to deliver them. A block is sealed at three sentences
+              // and never changes again, so nothing above the cursor reflows
+              // while it is being read.
+              groupIntoBlocks(transcripts).map((block) => {
                 // GLASS PARITY: speaker 0 = system/them (grey, left), speaker 1 = mic/me (blue, right)
                 // null defaults to system (grey, left) for safety
-                const isMe = line.speaker === 1;
-                const isThem = line.speaker === 0 || line.speaker === null; // Default to "them" if unknown
+                const isMe = block.speaker === 1;
+                const isThem = block.speaker === 0 || block.speaker === null; // Default to "them" if unknown
 
-                const bubbleKey = `${line.utteranceId ?? line.timestamp ?? i}-${i}`;
                 return (
-                  <div key={bubbleKey}>
+                  <div key={block.key}>
                     <div
-                      className={`bubble ${isMe ? 'me' : 'them'} ${line.isPartial ? 'partial' : 'final'}`}
+                      className={`bubble ${isMe ? 'me' : 'them'} ${block.isPartial ? 'partial' : 'final'}`}
                       style={{
                         // GLASS PARITY: Highlight partial vs final directly in opacity
-                        opacity: line.isPartial ? 0.78 : 1,
+                        opacity: block.isPartial ? 0.78 : 1,
                         // GLASS PARITY: Blue for me, grey for them (exact colors from Glass SttView.js)
                         background: isMe
                           ? 'rgba(0, 122, 255, 0.75)'  // Slightly more transparent mic blue
@@ -2093,7 +2095,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                         borderBottomRightRadius: isMe ? '4px' : '12px',
                         padding: '8px 12px',
                         marginBottom: '8px',
-                        maxWidth: '80%',
+                        // Cap the measure as well as the fraction: past roughly
+                        // 70 characters the eye starts losing the line return,
+                        // which is the dominant cost when scanning rather than
+                        // reading. On a narrow overlay the 80% still wins.
+                        maxWidth: 'min(80%, 68ch)',
                         // GLASS PARITY: iMessage-style width shrinks to content, not full-width
                         width: 'fit-content',
                         wordWrap: 'break-word',
@@ -2102,7 +2108,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                       }}
                     >
                       {/* GLASS PARITY: No speaker labels, only CSS-based styling via background color */}
-                      <span className="bubble-text">{line.text}</span>
+                      <span className="bubble-text">{block.text}</span>
                     </div>
                   </div>
                 );
