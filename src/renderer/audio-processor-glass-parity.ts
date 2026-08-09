@@ -1251,11 +1251,30 @@ async function setupMicProcessing(stream: MediaStream) {
             if (!aecTelemetry) aecTelemetry = new AecTelemetry(SAMPLE_RATE);
             aecTelemetry.record(originalChunk, float32Chunk, sysF32, missingSamples);
             const report = aecTelemetry.report(performance.now(), requiredFilterSamples(SAMPLE_RATE));
-            if (report) console.log(describeReport(report));
+            if (report) {
+              const line = describeReport(report);
+              console.log(line);
+              // Also to the main process, which prints to the terminal. The
+              // audio pipeline runs in the main window's renderer while the
+              // console people actually read is the overlay's, so a log that
+              // only goes to console.log here is invisible in practice - which
+              // is exactly how the first two rounds of this were flown blind.
+              try {
+                (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${line}`);
+              } catch {
+                /* diagnostics must never break capture */
+              }
+            }
           } else if (!aecTelemetry) {
             // Reference gap so large the canceller was skipped. Say so, rather
             // than leaving silence that reads as "AEC is fine".
-            console.warn(`[AEC] reference window ${missingSamples}/${samplesPerChunk} samples short - skipped`);
+            const gapLine = `[AEC] reference window ${missingSamples}/${samplesPerChunk} samples short - skipped`;
+            console.warn(gapLine);
+            try {
+              (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${gapLine}`);
+            } catch {
+              /* diagnostics must never break capture */
+            }
           }
 
           // Do not log from the 100 ms audio callback; console capture adds
