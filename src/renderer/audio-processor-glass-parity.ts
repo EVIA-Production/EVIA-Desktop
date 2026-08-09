@@ -1122,7 +1122,16 @@ async function setupMicProcessing(stream: MediaStream) {
 
       // STEP 2: Verify instance was actually created
       if (aecPtr && aecPtr > 0) {
-        console.log('[AEC] ✅ AEC instance created (ptr=' + aecPtr + ', frameSize=160, filterLength=' + filterLength + ' (' + ((filterLength / SAMPLE_RATE) * 1000).toFixed(0) + 'ms), sampleRate=24000)');
+        const initLine = '[AEC] ✅ instance created (frameSize=160, filterLength=' + filterLength + ' = ' + ((filterLength / SAMPLE_RATE) * 1000).toFixed(0) + 'ms, sampleRate=24000)';
+        console.log(initLine);
+        // To the terminal as well. Whether the canceller exists at all is the
+        // first question when a call comes back full of bleed, and it must be
+        // answerable from the log people actually paste.
+        try {
+          (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${initLine}`);
+        } catch {
+          /* diagnostics must never break capture */
+        }
         console.log('[AEC] ✅ Heap buffers verified: HEAPU8=' + !!mod.HEAPU8 + ', HEAP16=' + !!mod.HEAP16);
       } else {
         console.error('[AEC] ❌ AEC instance creation failed - newPtr returned invalid pointer');
