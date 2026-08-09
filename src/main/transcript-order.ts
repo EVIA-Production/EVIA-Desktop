@@ -268,3 +268,141 @@ export function buildTranscriptContext(
   }
   return kept.join('\n');
 }
+
+/**
+ * A speaker keeps the floor across this much silence.
+ *
+ * Deepgram's utterance boundaries come from endpointing, not from how people
+ * talk - a rep pausing to think produces a new utterance mid-thought. Grouping
+ * by utterance is what produced a wall of one-line bubbles. Two seconds is long
+ * enough to survive a breath and short enough that a genuine handover still
+ * starts a new block.
+ */
+export const TURN_BREAK_GAP_MS = 2_000;
+
+/**
+ * Sentences per rendered block.
+ *
+ * This is not only a reading-comfort number. A block is sealed once it holds
+ * this many sentences and never changes again, so growth only ever happens in
+ * the last block. That is what makes "text above the cursor never reflows" true
+ * by construction rather than by careful re-rendering.
+ */
+export const MAX_SENTENCES_PER_BLOCK = 3;
+
+export interface TranscriptBlock {
+  speaker: number | null;
+  text: string;
+  /** True while this block still ends in speech the provider has not finalized. */
+  isPartial: boolean;
+  /** Stable across re-renders so React never remounts a settled block. */
+  key: string;
+  /** First row feeding this block, for scroll anchoring and click-to-suggest. */
+  startedAt: number;
+}
+
+/**
+ * Split on sentence-ending punctuation followed by the start of a new sentence.
+ *
+ * Requires whitespace and then a capital or digit, which leaves decimals ("3.5")
+ * and mid-word punctuation alone. Trailing text with no terminator is a sentence
+ * in progress and comes back as the final element.
+ */
+export function splitSentences(text: string): string[] {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return [];
+  return trimmed
+    .split(/(?<=[.!?])\s+(?=[A-ZÄÖÜ0-9"'"„])/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function gapMs(previous: OrderedTranscriptLine, next: OrderedTranscriptLine): number {
+  const a = previous.audioStartMs ?? previous.timestamp;
+  const b = next.audioStartMs ?? next.timestamp;
+  // Without both times there is no evidence of a pause, and inventing one would
+  // split a turn that never paused.
+  if (typeof a !== 'number' || typeof b !== 'number') return 0;
+  return b - a;
+}
+
+/**
+ * Group rows into the blocks the transcript actually renders.
+ *
+ * Mid-call the rep is glancing, not reading: the question is "what did they
+ * just say", answered in one saccade. So the unit on screen is a turn, not a
+ * provider utterance, and a long turn is broken into fixed blocks rather than
+ * allowed to grow into a wall.
+ *
+ * The in-flight partial is never its own block. It is the unfinished tail of
+ * the turn it belongs to, which is what stops a new bubble appearing for every
+ * interim.
+ */
+export function groupIntoBlocks(rows: OrderedTranscriptLine[]): TranscriptBlock[] {
+  const ordered = inSpokenOrder(rows).filter((row) => (row.text || '').trim());
+  const blocks: TranscriptBlock[] = [];
+
+  let index = 0;
+  while (index < ordered.length) {
+    const first = ordered[index];
+    const turn: OrderedTranscriptLine[] = [first];
+    index += 1;
+
+    while (index < ordered.length) {
+      const candidate = ordered[index];
+      if (candidate.speaker !== first.speaker) break;
+      if (gapMs(turn[turn.length - 1], candidate) > TURN_BREAK_GAP_MS) break;
+      turn.push(candidate);
+      index += 1;
+    }
+
+    const finalText = turn
+      .filter((row) => row.isFinal || !row.isPartial)
+      .map((row) => (row.text || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const partialText = turn
+      .filter((row) => !row.isFinal && row.isPartial)
+      .map((row) => (row.text || '').trim())
+      .filter(Boolean)
+      .join(' ');
+
+    const sentences = splitSentences(finalText);
+    const startedAt = orderingKeyOf(first);
+    const turnKey = `${first.speaker}:${startedAt}`;
+
+    for (let cursor = 0; cursor < sentences.length; cursor += MAX_SENTENCES_PER_BLOCK) {
+      blocks.push({
+        speaker: first.speaker,
+        text: sentences.slice(cursor, cursor + MAX_SENTENCES_PER_BLOCK).join(' '),
+        isPartial: false,
+        key: `${turnKey}:${cursor}`,
+        startedAt,
+      });
+    }
+
+    if (partialText) {
+      const tail = blocks[blocks.length - 1];
+      const canExtend =
+        tail !== undefined &&
+        tail.key.startsWith(`${turnKey}:`) &&
+        splitSentences(tail.text).length < MAX_SENTENCES_PER_BLOCK;
+      if (canExtend) {
+        // The tail block is not sealed yet, so the unfinished words belong in
+        // it rather than in a block of their own.
+        tail.text = `${tail.text} ${partialText}`.trim();
+        tail.isPartial = true;
+      } else {
+        blocks.push({
+          speaker: first.speaker,
+          text: partialText,
+          isPartial: true,
+          key: `${turnKey}:${sentences.length}`,
+          startedAt,
+        });
+      }
+    }
+  }
+
+  return blocks;
+}

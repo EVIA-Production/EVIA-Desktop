@@ -1546,6 +1546,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       return;
     }
 
+    // Nothing was captured, so there is nothing an insight could be grounded
+    // in. The backend can only answer with its safe stub, and the retry ladder
+    // below then spends three round trips rediscovering that - 11.4s measured
+    // on a session that recorded no speech at all. An empty call is a normal
+    // outcome, not a slow one, so answer it locally and immediately.
+    //
+    // Deliberately does not set afterInsightsFrozenRef: freezing here would
+    // block a real fetch if rows arrive late. Only the pending flag is cleared,
+    // exactly as the finally block below would have done.
+    if (currentTranscripts.length === 0 && finalTranscriptCountRef.current === 0) {
+      console.log('[ListenView] ⏭️ No transcripts captured - skipping insights fetch');
+      setInsightsRefreshPending(false);
+      if (latestSessionState === 'after' && !afterInsightsFrozenRef.current) {
+        afterInsightsRequestPendingRef.current = false;
+      }
+      insightsRequestInFlightRef.current = false;
+      setIsLoadingInsights(false);
+      return;
+    }
+
     // Keep current insights visible while refreshing. Only replace on successful fetch.
 
     // SMART RETRY STRATEGY: Poll with exponential backoff instead of hardcoded delay
