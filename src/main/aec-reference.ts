@@ -166,6 +166,20 @@ export class ReferenceRing {
     this.originMs = null;
   }
 
+  /**
+   * Has every sample up to `position` been written yet?
+   *
+   * A microphone chunk cannot be cancelled until the far-end audio covering it
+   * exists. Measured offline against the live timeline: asking for a chunk's
+   * reference the moment the chunk is cut leaves 2184 of its 2400 samples
+   * unwritten, because those samples are still being captured. The canceller
+   * was then skipped for 91% of chunks - silently, since a skipped chunk
+   * records no telemetry, which is why the live logs reported refGap=0%.
+   */
+  hasWrittenThrough(position: number): boolean {
+    return this.originMs !== null && position <= this.writeCursor;
+  }
+
   /** Absolute sample index for a wall-clock instant, or null before any write. */
   positionAt(timestampMs: number): number | null {
     if (this.originMs === null) return null;

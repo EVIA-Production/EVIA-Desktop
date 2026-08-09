@@ -16,6 +16,14 @@ const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 // ──────────────────────────────────────────────────────────────────────────────
 const AEC_LATENCY_MS = 100; // Acoustic delay (mic hears speaker output from this long ago)
 const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 1000)) + 3; // +3 for safety
+/**
+ * Mic chunks held back so their far-end reference has arrived.
+ *
+ * The measured shortfall is ~91ms of a 100ms window, so one chunk of reserve
+ * leaves almost no margin for callback jitter. Two costs 200ms on the mic path
+ * and covers it comfortably.
+ */
+const AEC_MIC_RESERVE_CHUNKS = 2;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // AUDIO DEBUG RECORDING (Development Only)
@@ -1203,8 +1211,19 @@ async function setupMicProcessing(stream: MediaStream) {
       audioBuffer.push(inputData[i]);
     }
 
-    // Send when we have enough samples
-    while (audioBuffer.length >= samplesPerChunk) {
+    // Send when we have enough samples, holding AEC_MIC_RESERVE_CHUNKS behind.
+    //
+    // A mic chunk is cut the instant its last sample is captured, but the far
+    // end audio covering that same instant is still in flight. Measured offline
+    // against this pipeline's real timeline: 2184 of a reference window's 2400
+    // samples were still unwritten, so the canceller was skipped for 91% of
+    // chunks - silently, because a skipped chunk records no telemetry, which is
+    // why the logs read refGap=0% while cancelling nothing at all.
+    //
+    // Keeping chunks in reserve makes the chunk being processed old enough that
+    // its reference exists. It costs that much latency on the microphone path,
+    // which is the price of the canceller working at all.
+    while (audioBuffer.length >= samplesPerChunk * (1 + AEC_MIC_RESERVE_CHUNKS)) {
       // WINDOWS FIX: Perform periodic buffer maintenance to prevent memory pressure
       if (isWindowsPlatformGlobal) {
         performBufferMaintenance();
@@ -1248,6 +1267,10 @@ async function setupMicProcessing(stream: MediaStream) {
           // A window we could not fill is not a reference. Adapting to
           // partially-silent audio teaches the filter a wrong path that it then
           // has to un-learn, which is worse than not adapting at all.
+          // Still not ready is a real possibility under jitter. Skip the
+          // canceller rather than adapt to a half-written window, but never
+          // skip SENDING the audio - losing the rep's words is the one outcome
+          // worse than the bleed.
           if (missingSamples * 4 <= samplesPerChunk) {
             const originalChunk = new Float32Array(chunk);
             const aecResult = runAecSync(originalChunk, sysF32);
