@@ -90,7 +90,7 @@ test('a clean echo is fully explainable, unrelated audio is not', () => {
 test('the report names a missing reference before anything else', () => {
   const line = describeReport({
     erleDb: 0, delayMs: 0, delayConfidence: 0, coherence: 0,
-    referenceGapRatio: 1, micLevelDb: -20,
+    referenceGapRatio: 1, micLevelDb: -20, refLevelDb: -25,
   })
   assert.match(line, /REFERENCE MISSING/)
 })
@@ -98,7 +98,7 @@ test('the report names a missing reference before anything else', () => {
 test('the report names the exact shipped failure: cancellable but not cancelled', () => {
   const line = describeReport({
     erleDb: 0.2, delayMs: 60, delayConfidence: 400, coherence: 0.9,
-    referenceGapRatio: 0, micLevelDb: -25,
+    referenceGapRatio: 0, micLevelDb: -25, refLevelDb: -25,
   })
   assert.match(line, /NOT BEING CANCELLED/)
 })
@@ -106,7 +106,7 @@ test('the report names the exact shipped failure: cancellable but not cancelled'
 test('a silent mic invalidates the other numbers rather than reporting them', () => {
   const line = describeReport({
     erleDb: 0, delayMs: 0, delayConfidence: 0, coherence: 0,
-    referenceGapRatio: 0, micLevelDb: -100,
+    referenceGapRatio: 0, micLevelDb: -100, refLevelDb: -25,
   })
   assert.match(line, /mic silent/)
 })
@@ -114,7 +114,7 @@ test('a silent mic invalidates the other numbers rather than reporting them', ()
 test('good cancellation is reported as such', () => {
   const line = describeReport({
     erleDb: 18, delayMs: 60, delayConfidence: 300, coherence: 0.95,
-    referenceGapRatio: 0, micLevelDb: -25,
+    referenceGapRatio: 0, micLevelDb: -25, refLevelDb: -25,
   })
   assert.match(line, /cancelling well/)
 })
@@ -146,4 +146,24 @@ test('telemetry reports the real delay and ERLE once the window fills', () => {
   assert.ok(Math.abs(report.delayMs - 60) < 2, `delay ${report.delayMs}ms`)
   assert.ok(report.coherence > 0.9, `coherence ${report.coherence}`)
   assert.match(describeReport(report), /cancelling well/)
+})
+
+test('a silent reference is named distinctly from a missing one', () => {
+  // refGap says the window was filled; ref level says it was filled with
+  // nothing. Different cause, different fix, so it needs its own verdict.
+  const line = describeReport({
+    erleDb: 0, delayMs: 0, delayConfidence: 0, coherence: 0,
+    referenceGapRatio: 0, micLevelDb: -24, refLevelDb: -120,
+  })
+  assert.match(line, /REFERENCE SILENT/)
+})
+
+test('reference present but uncorrelated is named as misalignment', () => {
+  // The state the first real capture was in: both sides carrying audio,
+  // sharing nothing. That is alignment, not acoustics.
+  const line = describeReport({
+    erleDb: 2.7, delayMs: 166, delayConfidence: 5, coherence: 0.000,
+    referenceGapRatio: 0, micLevelDb: -26, refLevelDb: -30,
+  })
+  assert.match(line, /REFERENCE UNRELATED TO MIC/)
 })
