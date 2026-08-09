@@ -122,19 +122,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     value.trim().replace(/\s+/g, ' ').toLowerCase();
 
   /**
-   * Rows with the far end's speech removed from the microphone side.
+   * REVERTED: this dropped whole microphone rows that looked like far-end
+   * speech, and a row can hold the rep's own words AND bleed at once, because
+   * accumulating turns merge them. It therefore deleted things the rep actually
+   * said - the one failure that is worse than showing the bleed, since a lost
+   * sentence cannot be recovered by reading more carefully.
    *
-   * Recomputed whenever anything changes, deliberately. Judging a mic row once
-   * at arrival cannot work: the far end's version of a sentence frequently
-   * arrives later, so at that moment the evidence does not exist. Re-running
-   * the whole sweep is what removes rows that were displayed during the first
-   * seconds of a session, and what stops a bled row staying visible forever
-   * once it has slipped through.
+   * Row-level suppression is the wrong granularity and no threshold fixes that.
+   * Removing the far end from the microphone AUDIO is the only approach that
+   * cannot take the rep's words with it.
    */
-  const visibleTranscripts = useMemo(
-    () => dropBledMicRows(transcripts, farEndTextOf(transcripts)),
-    [transcripts],
-  );
+  const visibleTranscripts = transcripts;
 
   const isNearDuplicateText = (a: string, b: string) => {
     const an = normalizeTranscriptText(a || '');
