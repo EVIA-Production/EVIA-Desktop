@@ -4,6 +4,7 @@ import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
 import { ReferenceRing, requiredFilterSamples } from '../main/aec-reference';
+import { AecTelemetry, describeReport } from '../main/aec-telemetry';
 
 const BUFFER_SIZE = 2048;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
@@ -521,6 +522,8 @@ const referenceRing = new ReferenceRing();
 let micOriginMs: number | null = null;
 /** Mic samples already emitted, so a chunk's start time is counted, not sampled. */
 let micSamplesConsumed = 0;
+/** Measures what the canceller actually does. Set up per session. */
+let aecTelemetry: AecTelemetry | null = null;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // WINDOWS FIX (2025-12-05): Buffer Maintenance to prevent memory pressure
@@ -996,6 +999,12 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
         debugAudioBuffers.system.push(new Int16Array(bytes.buffer.slice(0)));
       }
 
+      // macOS delivers system audio from the helper binary over IPC - NOT
+      // through sysProcessor.onaudioprocess, which only runs on the Windows
+      // loopback path. The reference ring has to be fed here too, or the
+      // canceller has no far-end signal on the platform we ship first.
+      referenceRing.write(base64ToFloat32Array(audioData.data), performance.now());
+
       systemAudioBuffer.push({ data: audioData.data, timestamp: Date.now() });
       if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
         systemAudioBuffer.shift();
@@ -1234,6 +1243,19 @@ async function setupMicProcessing(stream: MediaStream) {
             const originalChunk = new Float32Array(chunk);
             const aecResult = runAecSync(originalChunk, sysF32);
             float32Chunk = new Float32Array(aecResult);
+
+            // Measure it. Four different things have been wrong here at various
+            // points - alignment, filter length, whether the reference was fed
+            // at all, whether the WASM module initialised - and a transcript
+            // cannot tell them apart. These numbers can.
+            if (!aecTelemetry) aecTelemetry = new AecTelemetry(SAMPLE_RATE);
+            aecTelemetry.record(originalChunk, float32Chunk, sysF32, missingSamples);
+            const report = aecTelemetry.report(performance.now(), requiredFilterSamples(SAMPLE_RATE));
+            if (report) console.log(describeReport(report));
+          } else if (!aecTelemetry) {
+            // Reference gap so large the canceller was skipped. Say so, rather
+            // than leaving silence that reads as "AEC is fine".
+            console.warn(`[AEC] reference window ${missingSamples}/${samplesPerChunk} samples short - skipped`);
           }
 
           // Do not log from the 100 ms audio callback; console capture adds
@@ -1890,6 +1912,7 @@ export async function stopCapture(captureHandle?: any) {
     referenceRing.reset();
     micOriginMs = null;
     micSamplesConsumed = 0;
+    aecTelemetry = null;
     console.log('[AudioCapture] ✅ AEC disposed and reference clock reset');
 
     // Stop system audio helper (mac uses binary, Windows may use native loopback or helper)
