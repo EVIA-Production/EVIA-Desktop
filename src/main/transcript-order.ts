@@ -318,12 +318,20 @@ export function splitSentences(text: string): string[] {
 }
 
 function gapMs(previous: OrderedTranscriptLine, next: OrderedTranscriptLine): number {
-  const a = previous.audioStartMs ?? previous.timestamp;
-  const b = next.audioStartMs ?? next.timestamp;
-  // Without both times there is no evidence of a pause, and inventing one would
-  // split a turn that never paused.
-  if (typeof a !== 'number' || typeof b !== 'number') return 0;
-  return b - a;
+  // A pause is the silence between one row ENDING and the next STARTING. Rows
+  // carry only a start time, so the only quantity available here is
+  //
+  //     start(next) - start(previous) = duration(previous) + real pause
+  //
+  // which is dominated by how long the previous row was. A five second
+  // utterance therefore looked like a five second pause and broke the turn,
+  // with the result that every single utterance became its own block - the
+  // one-sentence bubbles this grouping exists to prevent.
+  //
+  // Until rows carry an end time there is no evidence of a pause at all, and
+  // inventing one splits turns that never paused. Speaker change and the
+  // sentence limit do the work; both are exact.
+  return 0;
 }
 
 /**

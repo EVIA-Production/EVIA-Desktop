@@ -47,18 +47,22 @@ test('a speaker change starts a new block', () => {
   assert.equal(blocks[1].speaker, 0)
 })
 
-test('a pause past the gap breaks the turn', () => {
+test('start-to-start distance does NOT break a turn', () => {
+  // Rows carry only a start time, so start(next) - start(previous) is
+  // duration(previous) + pause, dominated by the duration. Treating it as a
+  // pause made every utterance its own block - the exact symptom this grouping
+  // exists to prevent. Speaker change and the sentence limit do the work.
   const blocks = groupIntoBlocks([
     row(1, 'Hey Brad.', BASE),
-    row(1, 'Anyway.', BASE + TURN_BREAK_GAP_MS + 1),
+    row(1, 'Anyway.', BASE + TURN_BREAK_GAP_MS * 5),
   ])
-  assert.equal(blocks.length, 2)
+  assert.equal(blocks.length, 1, 'a long previous utterance is not a pause')
 })
 
-test('a breath inside the gap keeps the floor', () => {
+test('consecutive utterances from one speaker stay one block', () => {
   const blocks = groupIntoBlocks([
-    row(1, 'Hey Brad.', BASE),
-    row(1, 'Anyway.', BASE + TURN_BREAK_GAP_MS - 1),
+    row(0, 'And so if you start to think about all of these things together.', BASE),
+    row(0, 'Abundant where the incremental cost is close to zero.', BASE + 8000),
   ])
   assert.equal(blocks.length, 1)
 })
