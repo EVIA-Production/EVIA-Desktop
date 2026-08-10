@@ -35,7 +35,26 @@ const AEC_MIC_RESERVE_CHUNKS = 2;
 //   rm ~/Desktop/Taylos_DEBUG_AUDIO
 // ──────────────────────────────────────────────────────────────────────────────
 let DEBUG_SAVE_AUDIO = false;
-let DEBUG_DISABLE_CUSTOM_AEC = false;
+/**
+ * The Speex canceller is OFF, on measurement, not preference.
+ *
+ * Driven offline against a silent reference - nothing to cancel, so a correct
+ * canceller returns the microphone untouched - this build attenuates the input
+ * by 9dB on noise and 24.6dB on a tone, and prints speexdsp's divergence
+ * message ("the echo canceller started acting funny and got slapped") on every
+ * configuration tried. Results were identical at 0, 60 and 150ms of echo delay
+ * and with 1600 or 7080 taps, which is only possible if the filter never adapts
+ * at all. The argument order was verified separately: the alternatives return
+ * -103dB, so the call is right and the instance is wrong.
+ *
+ * Leaving it enabled is not neutral. It attenuates the REP's voice while
+ * failing to remove the far end, so the bleed becomes relatively louder in the
+ * signal handed to the recogniser - which is a mechanism for the far end being
+ * transcribed in place of the rep, exactly what the transcripts show.
+ *
+ * Re-enable when a build passes the silent-reference test in tools/aec-bench.
+ */
+let DEBUG_DISABLE_CUSTOM_AEC = true;
 let DEBUG_DISABLE_BROWSER_PROCESSING = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
 let micRawDebugBuffer: Float32Array[] = [];
