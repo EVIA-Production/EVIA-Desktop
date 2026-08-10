@@ -78,6 +78,48 @@ export const REFERENCE_LEAD_MS = 0;
 export const ACOUSTIC_DELAY_MS = 60;
 
 /**
+ * Compatibility fallback for helper binaries that do not expose the real
+ * ScreenCaptureKit presentation timestamp.
+ *
+ * This used to decide whether cancellation was possible at all. Current macOS
+ * helpers send `capturedAtUnixMs`; the renderer uses this constant only when
+ * that field is absent or invalid.
+ *
+ * A chunk of far-end audio is timestamped when it reaches the renderer, but it
+ * was captured earlier - the helper buffered it, ScreenCaptureKit buffered it
+ * before that, and it crossed an IPC boundary. Only the first chunk's stamp
+ * matters, since every later position is derived by counting samples, so this
+ * is one constant offset for the whole session.
+ *
+ * Write L for the true latency and A for this assumption. The reference window
+ * handed to the canceller ends up (L - A) OLDER than the microphone window, and
+ * the causality rule from REFERENCE_LEAD_MS says that has to stay under the
+ * acoustic delay:
+ *
+ *     L - A <= 60ms          or the echo precedes the whole reference history
+ *
+ * Underestimating is therefore fatal and overestimating is merely expensive:
+ * assuming too much latency makes the reference NEWER than the mic window,
+ * which just adds to the lag AEC3 has to search. Measured on the bench, AEC3
+ * tracks a total render-to-capture lag of 500ms and collapses somewhere between
+ * 500 and 650ms, so 60ms of acoustic delay plus this leaves a wide margin.
+ *
+ * The stamp was previously `performance.now()` with no correction at all on the
+ * macOS path, i.e. A = 0. Any helper latency above 60ms then made the echo
+ * non-causal, and the bench shows exactly what that looks like: 42dB of
+ * cancellation at -60ms of skew, 2.9dB at -120ms. It is a cliff, not a slope.
+ *
+ * A production capture on 2026-08-10 falsified the original 120ms estimate:
+ * far-end-only windows retained a stable -55..-70ms residual offset (the
+ * reference arrived after the echo) and achieved only 0.3..1.7dB attenuation.
+ * With the measured 60ms acoustic path, that implies about 235..250ms of helper
+ * latency. Using 240ms moves the same windows to a causal +50..65ms delay, where
+ * AEC3 has real history to adapt against. The mic reserve is 400ms, covering the
+ * 100ms window plus this assumption with 60ms to spare.
+ */
+export const SYSTEM_CAPTURE_ASSUMED_LATENCY_MS = 240;
+
+/**
  * Residual alignment error the filter must still absorb.
  *
  * Each side derives its clock origin from a callback timestamp. Chunks are cut

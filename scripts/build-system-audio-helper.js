@@ -74,7 +74,13 @@ try {
   }
 
   const strings = execFileSync('strings', [merged], { encoding: 'utf8' })
-  for (const marker of ['capture_started', 'unsupported_os', 'first_audio_chunk', 'ndjson-float32-v1']) {
+  for (const marker of [
+    'capture_started',
+    'unsupported_os',
+    'first_audio_chunk',
+    'ndjson-float32-v1',
+    'capturedAtUnixMs',
+  ]) {
     if (!strings.includes(marker)) {
       throw new Error(`SystemAudioDump is missing protocol marker: ${marker}`)
     }

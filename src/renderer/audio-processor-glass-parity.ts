@@ -3,8 +3,10 @@ import { getWebSocketInstance, getOrCreateChatId, closeWebSocketInstance } from 
 import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
-import { ReferenceRing, requiredFilterSamples } from '../main/aec-reference';
+import { ReferenceRing, SYSTEM_CAPTURE_ASSUMED_LATENCY_MS } from '../main/aec-reference';
 import { AecTelemetry, describeReport } from '../main/aec-telemetry';
+import { Aec3Canceller, AEC3_MAX_TRACKABLE_DELAY_MS } from '../main/aec3-canceller';
+import { aec3WasmBinary } from './aec3/wasm-binary';
 
 const BUFFER_SIZE = 2048;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
@@ -19,11 +21,25 @@ const AEC_RING_BUFFER_SIZE = Math.ceil(AEC_LATENCY_MS / (AUDIO_CHUNK_DURATION * 
 /**
  * Mic chunks held back so their far-end reference has arrived.
  *
- * The measured shortfall is ~91ms of a 100ms window, so one chunk of reserve
- * leaves almost no margin for callback jitter. Two costs 200ms on the mic path
- * and covers it comfortably.
+ * A mic chunk is cut the instant its last sample is captured, but the far-end
+ * audio covering that same instant is still in flight. Measured against the
+ * real timeline before any reserve existed, 2184 of a window's 2400 samples
+ * were unwritten, so the canceller was skipped for 91% of chunks - silently.
+ *
+ * The reserve is not a round number, it is a budget, and the constraint is
+ * exact. Reading a window that assumes the reference is
+ * SYSTEM_CAPTURE_ASSUMED_LATENCY_MS stale means reading that much further
+ * ahead, on top of the chunk's own duration:
+ *
+ *     reserve >= chunk duration + SYSTEM_CAPTURE_ASSUMED_LATENCY_MS
+ *     400ms   >= 100ms          + 240ms                              (+60ms spare)
+ *
+ * Three chunks is not enough for the latency measured in the 2026-08-10
+ * production capture. Four costs 400ms on the microphone path and makes every
+ * 100ms window available after the 240ms helper correction instead of feeding
+ * AEC3 a non-causal reference that cannot remove the far end.
  */
-const AEC_MIC_RESERVE_CHUNKS = 2;
+const AEC_MIC_RESERVE_CHUNKS = 4;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // AUDIO DEBUG RECORDING (Development Only)
@@ -36,27 +52,42 @@ const AEC_MIC_RESERVE_CHUNKS = 2;
 // ──────────────────────────────────────────────────────────────────────────────
 let DEBUG_SAVE_AUDIO = false;
 /**
- * The Speex canceller is OFF, on measurement, not preference.
+ * The canceller is ON, on measurement, not preference.
  *
- * Driven offline against a silent reference - nothing to cancel, so a correct
- * canceller returns the microphone untouched - this build attenuates the input
- * by 9dB on noise and 24.6dB on a tone, and prints speexdsp's divergence
- * message ("the echo canceller started acting funny and got slapped") on every
- * configuration tried. Results were identical at 0, 60 and 150ms of echo delay
- * and with 1600 or 7080 taps, which is only possible if the filter never adapts
- * at all. The argument order was verified separately: the alternatives return
- * -103dB, so the call is right and the instance is wrong.
+ * It was off because the Speex build did net harm. WebRTC AEC3 replaced it and
+ * passes every gate in `tools/aec-bench.cjs`, measured through this same
+ * wrapper at this same rate, on real speech through a hardware-shaped room:
  *
- * Leaving it enabled is not neutral. It attenuates the REP's voice while
- * failing to remove the far end, so the bleed becomes relatively louder in the
- * signal handed to the recogniser - which is a mechanism for the far end being
- * transcribed in place of the rep, exactly what the transcripts show.
+ *     silent reference        -0.4dB   (Speex: -5.7dB speech, -16.1dB tone)
+ *     echo removed at 60ms   +42.7dB   (Speex: +14.1dB)
+ *     rep kept in double talk -3.0dB   (Speex: -8.8dB)
+ *     survives +200ppm drift +46.9dB   (Speex: +6.4dB at +50ppm)
  *
- * Re-enable when a build passes the silent-reference test in tools/aec-bench.
+ * And the test that actually decides it - the same nova-3 model production
+ * uses, over the bench's own audio - transcribes the cancelled microphone
+ * identically to the rep recorded alone, with the prospect's longest leaked
+ * word run down from 20 to 2.
+ *
+ * This remains a kill switch. Set `disableCustomAec: true` in the audio
+ * diagnostic config to capture raw.
  */
-let DEBUG_DISABLE_CUSTOM_AEC = true;
+let DEBUG_DISABLE_CUSTOM_AEC = false;
 let DEBUG_DISABLE_BROWSER_PROCESSING = false;
 let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], system: [] };
+/**
+ * The reference window as the canceller actually received it, one entry per mic
+ * chunk including skipped ones.
+ *
+ * The `system` track above is what was SENT to the recogniser; this is what was
+ * READ back out of the ring at the mic's own timeline, and the difference
+ * between the two is the whole alignment question. Live logs have shown
+ * ref=-120dBFS with refGap=0% - digital silence from inside the written range -
+ * and no offline model reproduces it, so the only way to settle whether the
+ * helper delivered silence or the indexing returned silence is to keep both and
+ * compare them. Padded on skipped chunks so it stays sample-aligned with
+ * `mic-raw`; that alignment is what makes the offline analysis possible.
+ */
+let referenceDebugBuffer: Float32Array[] = [];
 let micRawDebugBuffer: Float32Array[] = [];
 let debugSessionId: string = '';
 let debugFlagChecked = false;
@@ -145,7 +176,7 @@ async function checkDebugFlag() {
  * Save debug audio as WAV file
  * Converts accumulated PCM16 chunks to standard WAV format
  */
-async function saveDebugAudio(source: 'mic' | 'system' | 'mic-raw', chunks: Int16Array[], sessionId: string): Promise<void> {
+async function saveDebugAudio(source: 'mic' | 'system' | 'mic-raw' | 'reference', chunks: Int16Array[], sessionId: string): Promise<void> {
   try {
     // Concatenate all chunks into single buffer
     const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -537,11 +568,17 @@ let systemAudioProcessor: ScriptProcessorNode | null = null;
 let systemStream: MediaStream | null = null;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// AEC (Acoustic Echo Cancellation) - Glass Parity with Speex WASM
+// AEC (Acoustic Echo Cancellation) - WebRTC AEC3
+//
+// Replaced the Speex WASM canceller, which was measured doing net harm: on a
+// silent reference, where a correct canceller returns the microphone untouched,
+// it attenuated speech by 5.7dB and a tone by 16.1dB, and during double talk it
+// took 8.8dB off the rep's voice. AEC3 on the same bench costs 0.4dB and 3.0dB
+// respectively while removing 42dB of echo. `tools/aec-bench.cjs` is the gate.
 // ──────────────────────────────────────────────────────────────────────────────
-let aecModPromise: Promise<any> | null = null;
-let aecMod: any = null;
-let aecPtr: number = 0;
+let aec3Canceller: Aec3Canceller | null = null;
+/** Reported once per session; a canceller that failed to load must not be silent. */
+let aec3LoadFailed = false;
 
 // System audio buffer for AEC reference (Ring buffer with time-delayed chunks)
 // Size: Limited to AEC_RING_BUFFER_SIZE for proper acoustic delay compensation
@@ -556,6 +593,9 @@ let micOriginMs: number | null = null;
 let micSamplesConsumed = 0;
 /** Measures what the canceller actually does. Set up per session. */
 let aecTelemetry: AecTelemetry | null = null;
+/** Chunks the canceller was skipped for, so a skip can never be invisible. */
+let aecSkippedChunks = 0;
+let lastSkipWarningAtMs = 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // WINDOWS FIX (2025-12-05): Buffer Maintenance to prevent memory pressure
@@ -591,90 +631,47 @@ function performBufferMaintenance() {
 }
 
 /**
- * 🎯 AEC WASM Module Loader - Glass Parity
- * Loads Speex AEC WASM module once and caches it
+ * Bring up the echo canceller for a session.
+ *
+ * Never throws: a microphone with echo in it is bad, and a microphone that
+ * stopped working because the canceller failed to load is worse. On failure the
+ * pipeline runs uncancelled and says so, once, where the log is actually read.
  */
-async function getAec(): Promise<any> {
-  if (aecModPromise) return aecModPromise; // Cache hit
-
-  aecModPromise = (async () => {
-    try {
-      // Dynamic import of AEC WASM module (ES6 import for browser compatibility)
-      const aecModule = await import('./aec/aec.js');
-      const createAecModule = aecModule.default || aecModule;
-      const M: any = await createAecModule();
-
-      // STEP 2: Verify heap buffers exist (critical for AEC to work)
-      if (!M.HEAPU8) {
-        console.error('[AEC] ❌ WASM loaded but HEAPU8 buffer missing!');
-        return null;
-      }
-      if (!M.HEAP16) {
-        console.error('[AEC] ❌ WASM loaded but HEAP16 buffer missing!');
-        return null;
-      }
-
-      aecMod = M;
-      console.log('[AEC] ✅ WASM Module Loaded (with heap buffers verified)');
-
-      // Bind C symbols to JS wrappers (once)
-      M.newPtr = M.cwrap('AecNew', 'number', ['number', 'number', 'number', 'number']);
-      M.cancel = M.cwrap('AecCancelEcho', null, ['number', 'number', 'number', 'number', 'number']);
-      M.destroy = M.cwrap('AecDestroy', null, ['number']);
-
-      return M;
-    } catch (error) {
-      console.error('[AEC] ❌ Failed to load WASM module:', error);
-      console.error('[AEC] ❌ Error details:', error);
-      // Don't throw - allow audio capture to continue without AEC
-      return null;
-    }
-  })();
-
-  return aecModPromise;
+async function initAec3(): Promise<void> {
+  if (aec3Canceller || aec3LoadFailed) return;
+  try {
+    aec3Canceller = await Aec3Canceller.create({
+      streamRate: SAMPLE_RATE,
+      // Embedded rather than fetched: a packaged renderer runs from file://,
+      // where emscripten's fetch of a sibling .wasm fails - in production only.
+      wasmBinary: aec3WasmBinary(),
+    });
+    const line = `[AEC] ✅ WebRTC AEC3 ready (${aec3Canceller.internalRate}Hz internal, ` +
+      `${aec3Canceller.frameSamples}-sample frames at ${SAMPLE_RATE}Hz)`;
+    console.log(line);
+    sendDebugLog(line);
+  } catch (error) {
+    aec3LoadFailed = true;
+    const line = `[AEC] ❌ AEC3 failed to load - capturing WITHOUT echo cancellation: ${error}`;
+    console.error(line);
+    sendDebugLog(line);
+  }
 }
 
-/**
- * 🎯 AEC Disposal - Glass Parity
- * Destroys the AEC instance when done
- */
 function disposeAec() {
-  if (aecPtr && aecMod && aecMod.destroy) {
-    aecMod.destroy(aecPtr);
-    aecPtr = 0;
-    console.log('[AEC] ✅ AEC instance destroyed');
-  }
+  if (!aec3Canceller) return;
+  aec3Canceller.dispose();
+  aec3Canceller = null;
+  console.log('[AEC] ✅ AEC3 instance destroyed');
 }
 
-/**
- * 🎯 JS ↔︎ WASM Helper - Convert Float32 to Int16 pointer
- */
-function int16PtrFromFloat32(mod: any, f32: Float32Array): { ptr: number; view: Int16Array } {
-  const len = f32.length;
-  const bytes = len * 2;
-  const ptr = mod._malloc(bytes);
-
-  // HEAP16 wrapper (fallback to HEAPU8.buffer if not available)
-  const heapBuf = mod.HEAP16 ? mod.HEAP16.buffer : mod.HEAPU8.buffer;
-  const i16 = new Int16Array(heapBuf, ptr, len);
-
-  for (let i = 0; i < len; ++i) {
-    const s = Math.max(-1, Math.min(1, f32[i]));
-    i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+/** Diagnostics to the terminal, where they are read. Must never break capture. */
+function sendDebugLog(line: string): void {
+  try {
+    (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${line}`);
+  } catch {
+    /* diagnostics must never break capture */
   }
-
-  return { ptr, view: i16 };
-}
-
-/**
- * 🎯 JS ↔︎ WASM Helper - Convert Int16 view to Float32
- */
-function float32FromInt16View(i16: Int16Array): Float32Array {
-  const out = new Float32Array(i16.length);
-  for (let i = 0; i < i16.length; ++i) {
-    out[i] = i16[i] / 32768;
-  }
-  return out;
 }
 
 /**
@@ -699,74 +696,31 @@ function base64ToFloat32Array(base64: string): Float32Array {
 }
 
 /**
- * 🎯 Run AEC Synchronously - Glass Parity
- * Applies Speex AEC to remove system audio echo from mic input
- * 
- * @param micF32 - Microphone audio (Float32Array, 2400 samples)
- * @param sysF32 - System audio reference (Float32Array, 2400 samples)
- * @returns Processed audio with echo removed (Float32Array, 2400 samples)
+ * Cancel the far end out of one microphone chunk.
+ *
+ * Returns the microphone unchanged if the canceller is not up. Never throws:
+ * losing the rep's words is the single worst outcome in this product, so a
+ * canceller in trouble degrades to a duplicate, never to silence.
  */
 function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
-  // STEP 2: Enhanced AEC verification - check module, instance, AND heap
-  if (!aecMod || !aecPtr || !aecMod.HEAPU8 || !aecMod.HEAP16) {
-    // Only warn once to avoid log spam (use window instead of global for browser/renderer)
-    const globalAny = (typeof window !== 'undefined' ? window : global) as any;
-    if (!globalAny.aecWarnedOnce) {
-      console.warn('[AEC] ⚠️  AEC not initialized - missing:', {
-        hasModule: !!aecMod,
-        hasInstance: !!aecPtr,
-        hasHEAPU8: !!(aecMod && aecMod.HEAPU8),
-        hasHEAP16: !!(aecMod && aecMod.HEAP16)
-      });
-      globalAny.aecWarnedOnce = true;
-    }
+  if (!aec3Canceller) return micF32;
+
+  // AEC3 needs matched windows. The ring always returns exactly the length
+  // asked for, so this is belt and braces against a future caller.
+  const reference = sysF32.length === micF32.length
+    ? sysF32
+    : (() => {
+        const padded = new Float32Array(micF32.length);
+        padded.set(sysF32.subarray(0, Math.min(sysF32.length, micF32.length)));
+        return padded;
+      })();
+
+  try {
+    return aec3Canceller.process(micF32, reference);
+  } catch (error) {
+    console.error('[AEC] ❌ AEC3 process failed, passing the microphone through:', error);
     return micF32;
   }
-
-  const frameSize = 160; // AEC frame size (matches initialization: 160 samples @ 24kHz)
-  const numFrames = Math.floor(micF32.length / frameSize);
-
-  // Final processed audio buffer
-  const processedF32 = new Float32Array(micF32.length);
-
-  // Align system audio with mic audio length (for stability)
-  const alignedSysF32 = new Float32Array(micF32.length);
-  if (sysF32.length > 0) {
-    const lengthToCopy = Math.min(micF32.length, sysF32.length);
-    alignedSysF32.set(sysF32.slice(0, lengthToCopy));
-  }
-
-  // Process 2400 samples in 160-sample frames
-  for (let i = 0; i < numFrames; i++) {
-    const offset = i * frameSize;
-
-    // Extract 160-sample frames
-    const micFrame = micF32.subarray(offset, offset + frameSize);
-    const echoFrame = alignedSysF32.subarray(offset, offset + frameSize);
-
-    // Write frames to WASM memory
-    const micPtr = int16PtrFromFloat32(aecMod, micFrame);
-    const echoPtr = int16PtrFromFloat32(aecMod, echoFrame);
-    const outPtr = aecMod._malloc(frameSize * 2); // 160 * 2 bytes
-
-    // Run AEC (160 samples at a time)
-    aecMod.cancel(aecPtr, micPtr.ptr, echoPtr.ptr, outPtr, frameSize);
-
-    // Read processed frame from WASM memory
-    const heapBuf = aecMod.HEAP16 ? aecMod.HEAP16.buffer : aecMod.HEAPU8.buffer;
-    const outFrameI16 = new Int16Array(heapBuf, outPtr, frameSize);
-    const outFrameF32 = float32FromInt16View(outFrameI16);
-
-    // Copy processed frame to final buffer at correct position
-    processedF32.set(outFrameF32, offset);
-
-    // Free allocated memory
-    aecMod._free(micPtr.ptr);
-    aecMod._free(echoPtr.ptr);
-    aecMod._free(outPtr);
-  }
-
-  return processedF32;
 }
 
 // Ensure WebSocket for microphone (source=mic, speaker=1)
@@ -1008,7 +962,10 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
   }
 
   macSystemCaptureStartedAt = Date.now();
-  const systemAudioHandler = eviaApi.systemAudio.onData((audioData: { data: string }) => {
+  const systemAudioHandler = eviaApi.systemAudio.onData((audioData: {
+    data: string;
+    capturedAtUnixMs?: number;
+  }) => {
     if (!isActivelyCapturing) return;
 
     try {
@@ -1021,12 +978,6 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      if (isFirstSystemChunk) {
-        console.log(
-          `[AudioCapture] First macOS system-audio chunk after ${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms`
-        );
-      }
-
       if (DEBUG_SAVE_AUDIO) {
         debugAudioBuffers.system.push(new Int16Array(bytes.buffer.slice(0)));
       }
@@ -1035,7 +986,36 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
       // through sysProcessor.onaudioprocess, which only runs on the Windows
       // loopback path. The reference ring has to be fed here too, or the
       // canceller has no far-end signal on the platform we ship first.
-      referenceRing.write(base64ToFloat32Array(audioData.data), performance.now());
+      // Stamp when this chunk's FIRST sample was CAPTURED, not when it arrived.
+      // ScreenCaptureKit's presentation timestamp crosses the helper and IPC as
+      // Unix time, so renderer receipt delay is included in the age below. The
+      // fixed assumption remains only for compatibility with an older helper.
+      const referenceChunk = base64ToFloat32Array(audioData.data);
+      const referenceChunkMs = (referenceChunk.length / SAMPLE_RATE) * 1000;
+      const measuredAgeMs = typeof audioData.capturedAtUnixMs === 'number'
+        && Number.isFinite(audioData.capturedAtUnixMs)
+        ? Date.now() - audioData.capturedAtUnixMs
+        : Number.NaN;
+      const capturedAtPerformanceMs = Number.isFinite(measuredAgeMs)
+        && measuredAgeMs >= 0
+        && measuredAgeMs <= 5000
+        ? performance.now() - measuredAgeMs
+        : performance.now() - referenceChunkMs - SYSTEM_CAPTURE_ASSUMED_LATENCY_MS;
+      if (isFirstSystemChunk) {
+        const timestampSource = Number.isFinite(measuredAgeMs)
+          && measuredAgeMs >= 0
+          && measuredAgeMs <= 5000
+          ? `ScreenCaptureKit (${measuredAgeMs.toFixed(1)}ms old)`
+          : `fallback (${SYSTEM_CAPTURE_ASSUMED_LATENCY_MS + referenceChunkMs}ms old)`;
+        console.log(
+          `[AudioCapture] First macOS system-audio chunk after ` +
+          `${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms; timestamp=${timestampSource}`
+        );
+      }
+      referenceRing.write(
+        referenceChunk,
+        capturedAtPerformanceMs,
+      );
 
       systemAudioBuffer.push({ data: audioData.data, timestamp: Date.now() });
       if (systemAudioBuffer.length > MAX_SYSTEM_BUFFER_SIZE) {
@@ -1135,52 +1115,15 @@ function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
 // Glass parity: Setup microphone processing with ScriptProcessorNode + AEC
 async function setupMicProcessing(stream: MediaStream) {
   // ──────────────────────────────────────────────────────────────────────────
-  // STEP 2: Load AEC WASM module first (Glass parity) - with enhanced verification
+  // Bring up the echo canceller before the first microphone frame arrives.
   // ──────────────────────────────────────────────────────────────────────────
-  try {
-    if (DEBUG_DISABLE_CUSTOM_AEC) {
-      console.log('[AEC] Diagnostic bypass enabled; custom Speex AEC will not run');
-      disposeAec();
-    }
-    const mod = await getAec();
-    if (!DEBUG_DISABLE_CUSTOM_AEC && mod && !aecPtr) {
-      // The filter has to span the whole echo path: the reference window's
-      // lead, the acoustic delay, and the room's reverb tail. It was 1600 taps
-      // (66.7ms) against a delay measured at 60.3ms on this hardware, so almost
-      // the entire filter was consumed by pure delay with nothing left to model
-      // the room - it could not have cancelled regardless of alignment.
-      const filterLength = requiredFilterSamples(SAMPLE_RATE);
-      // Fourth argument 0, not 1. Measured against a silent reference, where a
-      // correct canceller must return the microphone untouched:
-      //     AecNew(160, 7080, 24000, 1) -> -9.1dB   (what shipped)
-      //     AecNew(160, 7080, 24000, 0) -> -0.3dB   (correct)
-      // With 1 it mangles audio it has nothing to cancel against. With 0 the
-      // near-end damage on a real echo also halves, -21.8dB to -9.6dB.
-      aecPtr = mod.newPtr(160, filterLength, 24000, 0);
-
-      // STEP 2: Verify instance was actually created
-      if (aecPtr && aecPtr > 0) {
-        const initLine = '[AEC] ✅ instance created (frameSize=160, filterLength=' + filterLength + ' = ' + ((filterLength / SAMPLE_RATE) * 1000).toFixed(0) + 'ms, sampleRate=24000)';
-        console.log(initLine);
-        // To the terminal as well. Whether the canceller exists at all is the
-        // first question when a call comes back full of bleed, and it must be
-        // answerable from the log people actually paste.
-        try {
-          (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${initLine}`);
-        } catch {
-          /* diagnostics must never break capture */
-        }
-        console.log('[AEC] ✅ Heap buffers verified: HEAPU8=' + !!mod.HEAPU8 + ', HEAP16=' + !!mod.HEAP16);
-      } else {
-        console.error('[AEC] ❌ AEC instance creation failed - newPtr returned invalid pointer');
-        aecPtr = 0;
-      }
-    } else if (!mod) {
-      console.warn('[AEC] ⚠️  AEC module failed to load - continuing without echo cancellation');
-    }
-  } catch (error) {
-    console.error('[AEC] ❌ AEC initialization exception - continuing without echo cancellation:', error);
-    aecPtr = 0;
+  if (DEBUG_DISABLE_CUSTOM_AEC) {
+    const line = '[AEC] bypass enabled - capturing WITHOUT echo cancellation';
+    console.log(line);
+    sendDebugLog(line);
+    disposeAec();
+  } else {
+    await initAec3();
   }
 
   const micAudioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -1260,7 +1203,9 @@ async function setupMicProcessing(stream: MediaStream) {
       }
 
       const chunk = audioBuffer.splice(0, samplesPerChunk);
-      let float32Chunk = new Float32Array(chunk); // Initial value (may be replaced by AEC)
+      // Annotated: the canceller returns a Float32Array over ArrayBufferLike,
+      // which does not assign to the inferred Float32Array<ArrayBuffer>.
+      let float32Chunk: Float32Array = new Float32Array(chunk); // may be replaced by AEC
 
       if (DEBUG_SAVE_AUDIO) {
         micRawDebugBuffer.push(new Float32Array(float32Chunk));
@@ -1280,6 +1225,21 @@ async function setupMicProcessing(stream: MediaStream) {
       const micChunkStartedAtMs = micOriginMs + (micSamplesConsumed / SAMPLE_RATE) * 1000;
       micSamplesConsumed += samplesPerChunk;
 
+      // The reference debug track has to gain exactly one window per mic chunk,
+      // including the chunks where the canceller does not run. mic-raw and mic
+      // are both pushed unconditionally, so pushing the reference only from
+      // inside the guard below shifts the tracks apart by however many chunks
+      // were cut before the far end arrived - and on macOS that is guaranteed to
+      // be some, because setupMicProcessing is awaited before the system helper
+      // is even spawned, and the helper still has to clear a permission check
+      // and start ScreenCaptureKit. aec-analyse-session.cjs cross-correlates
+      // these two tracks over a +/-0.5s search to recover the real acoustic
+      // delay, so a startup shift past that makes the one remaining
+      // verification step report a delay that is not there - and its advice on
+      // a pinned-at-zero delay is to RAISE the assumed latency, which would be
+      // exactly the wrong move.
+      let referenceForDebug: Float32Array | null = null;
+
       if (!DEBUG_DISABLE_CUSTOM_AEC && referenceRing.hasData) {
         try {
           // Sample-accurate reference for exactly this mic chunk. The window
@@ -1294,17 +1254,17 @@ async function setupMicProcessing(stream: MediaStream) {
             samplesPerChunk,
           );
 
-          // A window we could not fill is not a reference. Adapting to
-          // partially-silent audio teaches the filter a wrong path that it then
-          // has to un-learn, which is worse than not adapting at all.
-          // Still not ready is a real possibility under jitter. Skip the
-          // canceller rather than adapt to a half-written window, but never
-          // skip SENDING the audio - losing the rep's words is the one outcome
-          // worse than the bleed.
-          if (missingSamples * 4 <= samplesPerChunk) {
+          // A window we could not fill is not a reference. AEC3 adapts to what
+          // it is given, so a half-written window teaches it a path that does
+          // not exist and it then has to un-learn. Skip the canceller rather
+          // than feed it holes - and skip the reference too, so the two streams
+          // stay aligned with each other across the gap. Never skip SENDING the
+          // audio: losing the rep's words is the one outcome worse than bleed.
+          referenceForDebug = sysF32;
+
+          if (missingSamples === 0) {
             const originalChunk = new Float32Array(chunk);
-            const aecResult = runAecSync(originalChunk, sysF32);
-            float32Chunk = new Float32Array(aecResult);
+            float32Chunk = runAecSync(originalChunk, sysF32);
 
             // Measure it. Four different things have been wrong here at various
             // points - alignment, filter length, whether the reference was fed
@@ -1312,30 +1272,34 @@ async function setupMicProcessing(stream: MediaStream) {
             // cannot tell them apart. These numbers can.
             if (!aecTelemetry) aecTelemetry = new AecTelemetry(SAMPLE_RATE);
             aecTelemetry.record(originalChunk, float32Chunk, sysF32, missingSamples);
-            const report = aecTelemetry.report(performance.now(), requiredFilterSamples(SAMPLE_RATE));
+            const maxLagSamples = Math.round((AEC3_MAX_TRACKABLE_DELAY_MS / 1000) * SAMPLE_RATE);
+            const report = aecTelemetry.report(performance.now(), maxLagSamples);
             if (report) {
-              const line = describeReport(report);
+              const skipNote = aecSkippedChunks > 0 ? ` skipped=${aecSkippedChunks}` : '';
+              aecSkippedChunks = 0;
+              const line = `${describeReport(report)}${skipNote}`;
               console.log(line);
               // Also to the main process, which prints to the terminal. The
               // audio pipeline runs in the main window's renderer while the
               // console people actually read is the overlay's, so a log that
               // only goes to console.log here is invisible in practice - which
               // is exactly how the first two rounds of this were flown blind.
-              try {
-                (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${line}`);
-              } catch {
-                /* diagnostics must never break capture */
-              }
+              sendDebugLog(line);
             }
-          } else if (!aecTelemetry) {
-            // Reference gap so large the canceller was skipped. Say so, rather
-            // than leaving silence that reads as "AEC is fine".
-            const gapLine = `[AEC] reference window ${missingSamples}/${samplesPerChunk} samples short - skipped`;
-            console.warn(gapLine);
-            try {
-              (window as any).evia?.ipc?.send?.('debug-log', `[AudioCapture] ${gapLine}`);
-            } catch {
-              /* diagnostics must never break capture */
+          } else {
+            // A skipped chunk records no telemetry, so without this the logs
+            // read "refGap=0%" while the canceller runs on nothing - which is
+            // exactly how 91% of chunks were silently skipped for a whole
+            // release. Count every skip and surface it on the next report, and
+            // if reports have stopped entirely, say so on a timer of its own.
+            aecSkippedChunks += 1;
+            const now = performance.now();
+            if (now - lastSkipWarningAtMs >= 5000) {
+              lastSkipWarningAtMs = now;
+              const gapLine = `[AEC] reference window ${missingSamples}/${samplesPerChunk} samples ` +
+                `short - canceller skipped (${aecSkippedChunks} chunks)`;
+              console.warn(gapLine);
+              sendDebugLog(gapLine);
             }
           }
 
@@ -1345,6 +1309,18 @@ async function setupMicProcessing(stream: MediaStream) {
           console.error('[AEC] ❌ AEC processing failed, using unprocessed audio:', error);
           // Fall back to unprocessed audio on AEC error
         }
+      }
+
+      // One window per mic chunk, always - digital silence when there was no
+      // reference to read. This is what actually makes the four debug tracks
+      // "sample-aligned by construction". aec-analyse-session.cjs rejects the
+      // session if this alignment is broken.
+      if (DEBUG_SAVE_AUDIO) {
+        referenceDebugBuffer.push(
+          referenceForDebug
+            ? new Float32Array(referenceForDebug)
+            : new Float32Array(samplesPerChunk),
+        );
       }
 
       // ──────────────────────────────────────────────────────────────────────
@@ -1483,9 +1459,16 @@ function setupSystemAudioProcessing(stream: MediaStream) {
       // 2400 samples while the processor delivers 2048, so the samples still
       // pending after the cut are more recent than this chunk - ignoring them
       // puts up to 85ms of constant error into the alignment.
+      // The same capture-latency correction the macOS path needs: the loopback
+      // audio in this buffer was rendered by the system before Chromium handed
+      // it over, and a reference older than the mic window by more than the
+      // acoustic delay cannot be cancelled at all.
       const sysPendingMs = (audioBuffer.length / SAMPLE_RATE) * 1000;
       const sysChunkMs = (samplesPerChunk / SAMPLE_RATE) * 1000;
-      referenceRing.write(float32Chunk, performance.now() - sysPendingMs - sysChunkMs);
+      referenceRing.write(
+        float32Chunk,
+        performance.now() - sysPendingMs - sysChunkMs - SYSTEM_CAPTURE_ASSUMED_LATENCY_MS,
+      );
 
       // Add to system audio buffer (for AEC reference)
       systemAudioBuffer.push({
@@ -1565,6 +1548,7 @@ export async function startCapture(includeSystemAudio = false) {
         debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
         debugAudioBuffers = { mic: [], system: [] };
         micRawDebugBuffer = [];
+        referenceDebugBuffer = [];
 
         console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
         console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');
@@ -1915,10 +1899,12 @@ export async function stopCapture(captureHandle?: any) {
         mic: debugAudioBuffers.mic,
         micRaw: micRawDebugBuffer,
         system: debugAudioBuffers.system,
+        reference: referenceDebugBuffer,
       }
     : null;
   debugAudioBuffers = { mic: [], system: [] };
   micRawDebugBuffer = [];
+  referenceDebugBuffer = [];
 
   try {
     // WINDOWS FIX: Stop health check timers
@@ -1994,6 +1980,12 @@ export async function stopCapture(captureHandle?: any) {
     micOriginMs = null;
     micSamplesConsumed = 0;
     aecTelemetry = null;
+    aecSkippedChunks = 0;
+    lastSkipWarningAtMs = 0;
+    // A failed load is per session too: a helper that was not running last time
+    // must not condemn the next call to capturing raw for the rest of the app's
+    // lifetime.
+    aec3LoadFailed = false;
     console.log('[AudioCapture] ✅ AEC disposed and reference clock reset');
 
     // Stop system audio helper (mac uses binary, Windows may use native loopback or helper)
@@ -2056,6 +2048,16 @@ export async function stopCapture(captureHandle?: any) {
         if (debugAudioToSave.system.length > 0) {
           await saveDebugAudio('system', debugAudioToSave.system, debugAudioToSave.sessionId);
         }
+        if (debugAudioToSave.reference.length > 0) {
+          // Sample-aligned with mic-raw, which is what lets
+          // `tools/aec-analyse-session.cjs` recover the real acoustic delay,
+          // the real clock drift and the real coherence from a real call.
+          await saveDebugAudio(
+            'reference',
+            debugAudioToSave.reference.map(chunk => convertFloat32ToInt16(chunk)),
+            debugAudioToSave.sessionId
+          );
+        }
         console.log('[AudioDebug] Debug audio files saved successfully');
       } catch (error) {
         console.error('[AudioDebug] Failed to save debug audio:', error);
@@ -2098,6 +2100,7 @@ export async function startCaptureWithStreams(
         debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
         debugAudioBuffers = { mic: [], system: [] };
         micRawDebugBuffer = [];
+        referenceDebugBuffer = [];
 
         console.log('[AudioDebug] ✅ ✅ ✅ AUDIO DEBUG RECORDING ENABLED ✅ ✅ ✅');
         console.log('[AudioDebug] 💾 Files will save to: ~/Desktop/taylos-audio-debug/');

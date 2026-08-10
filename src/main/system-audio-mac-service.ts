@@ -187,8 +187,11 @@ export class SystemAudioMacService {
     return output;
   }
 
-  private parseAudioLine(line: string): Buffer {
-    let payload: { data?: unknown; mimeType?: unknown };
+  private parseAudioLine(line: string): {
+    pcm16: Buffer;
+    capturedAtUnixMs?: number;
+  } {
+    let payload: { data?: unknown; mimeType?: unknown; capturedAtUnixMs?: unknown };
     try {
       payload = JSON.parse(line);
     } catch {
@@ -213,11 +216,20 @@ export class SystemAudioMacService {
       );
     }
 
-    return this.convertFloat32PayloadToPcm16(
-      payload.data,
-      Number(format[1]),
-      Number(format[2]),
-    );
+    const capturedAtUnixMs = typeof payload.capturedAtUnixMs === 'number'
+      && Number.isFinite(payload.capturedAtUnixMs)
+      && payload.capturedAtUnixMs > 0
+      ? payload.capturedAtUnixMs
+      : undefined;
+
+    return {
+      pcm16: this.convertFloat32PayloadToPcm16(
+        payload.data,
+        Number(format[1]),
+        Number(format[2]),
+      ),
+      capturedAtUnixMs,
+    };
   }
 
   /**
@@ -481,13 +493,14 @@ export class SystemAudioMacService {
           if (!line) continue;
 
           try {
-            const pcm16 = this.parseAudioLine(line);
+            const { pcm16, capturedAtUnixMs } = this.parseAudioLine(line);
             if (pcm16.length === 0) continue;
 
             this.lastChunkAt = Date.now();
             this.chunksForwarded += 1;
             this.sendToRenderer('system-audio-data', {
               data: pcm16.toString('base64'),
+              capturedAtUnixMs,
             });
 
             if (this.chunksForwarded % 50 === 0) {

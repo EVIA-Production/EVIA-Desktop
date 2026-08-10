@@ -322,6 +322,12 @@ if (!$SkipInstall) {
 Write-Step "Typecheck"
 Invoke-Checked "npm" @("run", "typecheck")
 
+Write-Step "Release gates"
+Invoke-Checked "npm" @("run", "test:lifecycle")
+Invoke-Checked "npm" @("run", "test:aec")
+Invoke-Checked "npm" @("run", "aec:bench")
+Invoke-Checked "npm" @("run", "aec:browser-check")
+
 Write-Step "Build signed Windows release"
 Invoke-Checked "npm" @("run", "build:release:win")
 

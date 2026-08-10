@@ -50,6 +50,11 @@ test('system-audio helper source and Electron share a typed protocol', () => {
   }
   assert.match(swiftSource, /ndjson-float32-v1/)
   assert.match(serviceSource, /audio\\\/float32/)
+  assert.match(swiftSource, /CMSampleBufferGetPresentationTimeStamp/)
+  assert.match(swiftSource, /capturedAtUnixMs/)
+  assert.match(serviceSource, /capturedAtUnixMs/)
+  assert.match(read('src/main/preload.ts'), /capturedAtUnixMs/)
+  assert.match(read('src/renderer/audio-processor-glass-parity.ts'), /capturedAtPerformanceMs/)
 })
 
 test('audio failures persist content-free rotating diagnostics', () => {
@@ -83,7 +88,13 @@ test('bundled system-audio helper is universal and launches on macOS 12', { skip
   }
 
   const strings = execFileSync('strings', [binary], { encoding: 'utf8' })
-  for (const marker of ['capture_started', 'unsupported_os', 'first_audio_chunk', 'ndjson-float32-v1']) {
+  for (const marker of [
+    'capture_started',
+    'unsupported_os',
+    'first_audio_chunk',
+    'ndjson-float32-v1',
+    'capturedAtUnixMs',
+  ]) {
     assert.match(strings, new RegExp(marker))
   }
 })

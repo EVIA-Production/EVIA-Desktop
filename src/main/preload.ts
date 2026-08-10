@@ -52,9 +52,13 @@ contextBridge.exposeInMainWorld('evia', {
     stop: () => ipcRenderer.invoke('system-audio:stop'),
     restart: () => ipcRenderer.invoke('system-audio:restart'),
     isRunning: () => ipcRenderer.invoke('system-audio:is-running'),
-    // Glass parity: system-audio-data event sends {data: base64String}
-    onData: (cb: (data: { data: string }) => void) => {
-      const wrappedCb = (_e: any, data: { data: string }) => cb(data);
+    // The optional timestamp is the first sample's capture time. Older helper
+    // binaries omit it and the renderer retains a conservative fallback.
+    onData: (cb: (data: { data: string; capturedAtUnixMs?: number }) => void) => {
+      const wrappedCb = (
+        _e: any,
+        data: { data: string; capturedAtUnixMs?: number },
+      ) => cb(data);
       ipcRenderer.on('system-audio-data', wrappedCb);
       return wrappedCb; // Return for cleanup
     },

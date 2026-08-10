@@ -112,10 +112,31 @@ final class AudioDumper: NSObject {
 
             let channels = max(1, Int(asbd.mChannelsPerFrame))
             let mimeType = "audio/float32;rate=\(Int(asbd.mSampleRate));channels=\(channels)"
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "data": data.base64EncodedString(),
                 "mimeType": mimeType,
             ]
+
+            // ScreenCaptureKit timestamps the first sample in each buffer on
+            // the host clock. Convert that to Unix time here, while both the
+            // presentation timestamp and host time are available in the same
+            // process. Electron can then account for helper and IPC latency
+            // instead of guessing one fixed delay for the whole session.
+            let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            let hostTime = CMClockGetTime(CMClockGetHostTimeClock())
+            if presentationTime.isValid,
+               presentationTime.isNumeric,
+               hostTime.isValid,
+               hostTime.isNumeric,
+               presentationTime.epoch == hostTime.epoch {
+                let captureAgeSeconds = CMTimeGetSeconds(CMTimeSubtract(hostTime, presentationTime))
+                if captureAgeSeconds.isFinite,
+                   captureAgeSeconds >= 0,
+                   captureAgeSeconds <= 5 {
+                    payload["capturedAtUnixMs"] =
+                        Date().timeIntervalSince1970 * 1000 - captureAgeSeconds * 1000
+                }
+            }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else { return }
             FileHandle.standardOutput.write(jsonData)
             FileHandle.standardOutput.write("\n".data(using: .utf8)!)
