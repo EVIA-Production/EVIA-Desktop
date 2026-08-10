@@ -78,7 +78,12 @@ async function loadAudioDiagnosticConfig(): Promise<AudioDiagnosticConfig> {
       };
 
   DEBUG_SAVE_AUDIO = config?.saveAudio === true;
-  DEBUG_DISABLE_CUSTOM_AEC = config?.disableCustomAec === true;
+  // Only an EXPLICIT false re-enables the canceller. `config?.x === true`
+  // silently reset this to false whenever the caller omitted the field, which
+  // is every call - so the disable above never took effect and the broken
+  // canceller kept running, still attenuating the rep by 9-24dB.
+  if (config?.disableCustomAec === false) DEBUG_DISABLE_CUSTOM_AEC = false;
+  else if (config?.disableCustomAec === true) DEBUG_DISABLE_CUSTOM_AEC = true;
   DEBUG_DISABLE_BROWSER_PROCESSING = config?.disableBrowserProcessing === true;
   debugFlagChecked = true;
 
