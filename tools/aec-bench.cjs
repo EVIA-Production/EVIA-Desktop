@@ -58,7 +58,7 @@ const db = (x) => 10 * Math.log10(Math.max(x, 1e-12))
 async function run({ delayMs, filterSamples, label }) {
   const M = await createAec()
   const cancel = M.cwrap('AecCancelEcho', null, ['number','number','number','number','number'])
-  const ptr = M._AecNew(FRAME, filterSamples, RATE, 1)
+  const ptr = M._AecNew(FRAME, filterSamples, RATE, 0)
   if (!ptr) throw new Error('AecNew failed')
 
   const n = SECONDS * RATE

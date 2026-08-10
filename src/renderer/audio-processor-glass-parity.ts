@@ -1150,7 +1150,13 @@ async function setupMicProcessing(stream: MediaStream) {
       // the entire filter was consumed by pure delay with nothing left to model
       // the room - it could not have cancelled regardless of alignment.
       const filterLength = requiredFilterSamples(SAMPLE_RATE);
-      aecPtr = mod.newPtr(160, filterLength, 24000, 1);
+      // Fourth argument 0, not 1. Measured against a silent reference, where a
+      // correct canceller must return the microphone untouched:
+      //     AecNew(160, 7080, 24000, 1) -> -9.1dB   (what shipped)
+      //     AecNew(160, 7080, 24000, 0) -> -0.3dB   (correct)
+      // With 1 it mangles audio it has nothing to cancel against. With 0 the
+      // near-end damage on a real echo also halves, -21.8dB to -9.6dB.
+      aecPtr = mod.newPtr(160, filterLength, 24000, 0);
 
       // STEP 2: Verify instance was actually created
       if (aecPtr && aecPtr > 0) {
