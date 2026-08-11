@@ -38,6 +38,145 @@ export interface OrderedTranscriptLine {
   utteranceId?: string;
   /** Absolute epoch ms the words were spoken, from provider audio offsets. */
   audioStartMs?: number;
+  /** Absolute epoch ms of the final word/sample in this provider snapshot. */
+  audioEndMs?: number;
+  /**
+   * Absolute word timings from the shared mic/system audio clock.
+   *
+   * A provider utterance may span a real interruption from the other source.
+   * These timings are what let us render that as Them -> Me -> Them without
+   * guessing from the order two WebSockets happened to deliver updates.
+   */
+  words?: TimedTranscriptWord[];
+}
+
+export interface TimedTranscriptWord {
+  text: string;
+  startMs: number;
+  endMs?: number;
+}
+
+function comparableTokens(value: string): string[] {
+  return (value || '').toLocaleLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || [];
+}
+
+function timedWordsMatchText(words: TimedTranscriptWord[], text: string): boolean {
+  const fromWords = comparableTokens(words.map(word => word.text).join(' '));
+  const fromText = comparableTokens(text);
+  if (fromWords.length !== fromText.length || fromWords.length === 0) return false;
+  return fromWords.every((token, index) => token === fromText[index]);
+}
+
+/**
+ * Project provider utterances onto the actual cross-source word timeline.
+ *
+ * Deepgram's utterance id belongs to one audio stream; it is not a dialogue
+ * turn id. During short interruptions the same system utterance can contain
+ * words spoken both before and after the user's reply. Flattening the two
+ * streams onto their absolute word times is the only deterministic way to
+ * reconstruct the visible order.
+ *
+ * The projection is deliberately fail-closed. If provider words do not match
+ * the authoritative displayed text (for example after a correction/filter),
+ * that row remains atomic and unchanged. We never manufacture, duplicate, or
+ * silently drop words to obtain a prettier timeline.
+ */
+export function projectTranscriptTimeline(
+  rows: OrderedTranscriptLine[],
+): OrderedTranscriptLine[] {
+  if (rows.length < 2 || !rows.some(row => (row.words?.length || 0) > 0)) return rows;
+
+  type Atom = {
+    speaker: number | null;
+    text: string;
+    startMs: number;
+    endMs: number;
+    timestamp: number;
+    updatedAt: number;
+    isFinal: boolean;
+    isPartial: boolean;
+    order: number;
+  };
+
+  const atoms: Atom[] = [];
+  let atomOrder = 0;
+
+  rows.forEach((row) => {
+    const words = (row.words || []).filter(word =>
+      Boolean((word.text || '').trim()) && Number.isFinite(word.startMs) && word.startMs > 0
+    );
+    const canProject = words.length > 0 && timedWordsMatchText(words, row.text || '');
+
+    if (canProject) {
+      words.forEach((word) => {
+        const endMs = Number.isFinite(word.endMs) && (word.endMs as number) >= word.startMs
+          ? word.endMs as number
+          : word.startMs;
+        atoms.push({
+          speaker: row.speaker ?? null,
+          text: word.text.trim(),
+          startMs: word.startMs,
+          endMs,
+          timestamp: row.timestamp ?? word.startMs,
+          updatedAt: row.updatedAt ?? row.timestamp ?? word.startMs,
+          isFinal: row.isFinal === true,
+          isPartial: row.isPartial === true && row.isFinal !== true,
+          order: atomOrder++,
+        });
+      });
+      return;
+    }
+
+    const startMs = hasAudioKey(row) ? row.audioStartMs as number : row.timestamp ?? 0;
+    const endMs = typeof row.audioEndMs === 'number' && Number.isFinite(row.audioEndMs)
+      ? Math.max(startMs, row.audioEndMs)
+      : startMs;
+    atoms.push({
+      speaker: row.speaker ?? null,
+      text: (row.text || '').trim(),
+      startMs,
+      endMs,
+      timestamp: row.timestamp ?? startMs,
+      updatedAt: row.updatedAt ?? row.timestamp ?? startMs,
+      isFinal: row.isFinal === true,
+      isPartial: row.isPartial === true && row.isFinal !== true,
+      order: atomOrder++,
+    });
+  });
+
+  atoms.sort((left, right) => {
+    const byStart = left.startMs - right.startMs;
+    if (byStart !== 0) return byStart;
+    const byEnd = left.endMs - right.endMs;
+    return byEnd !== 0 ? byEnd : left.order - right.order;
+  });
+
+  const projected: OrderedTranscriptLine[] = [];
+  for (const atom of atoms) {
+    if (!atom.text) continue;
+    const tail = projected[projected.length - 1];
+    if (tail && tail.speaker === atom.speaker) {
+      tail.text = `${tail.text} ${atom.text}`.trim();
+      tail.audioEndMs = Math.max(tail.audioEndMs ?? atom.endMs, atom.endMs);
+      tail.updatedAt = Math.max(tail.updatedAt ?? 0, atom.updatedAt);
+      tail.isFinal = tail.isFinal === true && atom.isFinal;
+      tail.isPartial = tail.isFinal !== true && (tail.isPartial === true || atom.isPartial);
+      continue;
+    }
+    projected.push({
+      speaker: atom.speaker,
+      text: atom.text,
+      isFinal: atom.isFinal,
+      isPartial: atom.isPartial,
+      timestamp: atom.timestamp,
+      updatedAt: atom.updatedAt,
+      audioStartMs: atom.startMs,
+      audioEndMs: atom.endMs,
+      utteranceId: `timeline:${atom.speaker ?? 'unknown'}:${Math.round(atom.startMs)}`,
+    });
+  }
+
+  return projected;
 }
 
 /**
@@ -86,6 +225,34 @@ export function shouldReplacePartialText(current: string, incoming: string): boo
   // Shorter: only accept when it is not simply a prefix of what is shown,
   // i.e. the provider genuinely revised the wording rather than regressing.
   return !existing.startsWith(next);
+}
+
+/**
+ * Locate the one live row owned by a provider utterance.
+ *
+ * `utteranceId` is a stream identity, not a text-similarity hint: the backend
+ * keeps it stable for every interim revision and advances it only after that
+ * turn is finalized. Deepgram may substantially rewrite an interim while it
+ * decodes more audio, so requiring a shared text prefix can create two visible
+ * rows for one spoken turn. Exact identity therefore wins before any legacy
+ * text/time heuristic is considered.
+ */
+export function findLivePartialByUtteranceIdentity(
+  rows: OrderedTranscriptLine[],
+  speaker: number | null,
+  utteranceId: string | undefined,
+): number {
+  if (utteranceId === undefined) return -1;
+  const normalizedId = String(utteranceId);
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row.speaker !== speaker) continue;
+    if (!row.isPartial || row.isFinal) continue;
+    if (row.utteranceId !== undefined && String(row.utteranceId) === normalizedId) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /** True when this row carries a real spoken-time key. */
@@ -235,7 +402,7 @@ export function buildTranscriptContext(
     partialSuffix = '(spricht gerade noch)',
   } = options;
 
-  const ordered = inSpokenOrder(rows);
+  const ordered = inSpokenOrder(projectTranscriptTimeline(rows));
   const stable = ordered.filter(
     (entry) => Boolean((entry.text || '').trim()) && entry.isFinal === true && entry.isPartial !== true,
   );
@@ -347,7 +514,7 @@ function gapMs(previous: OrderedTranscriptLine, next: OrderedTranscriptLine): nu
  * interim.
  */
 export function groupIntoBlocks(rows: OrderedTranscriptLine[]): TranscriptBlock[] {
-  const ordered = inSpokenOrder(rows).filter((row) => (row.text || '').trim());
+  const ordered = inSpokenOrder(projectTranscriptTimeline(rows)).filter((row) => (row.text || '').trim());
   const blocks: TranscriptBlock[] = [];
 
   let index = 0;

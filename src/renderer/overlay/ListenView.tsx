@@ -23,10 +23,13 @@ import {
   buildTranscriptContext,
   dropBledMicRows,
   farEndTextOf,
+  findLivePartialByUtteranceIdentity,
   groupIntoBlocks,
   orderingKeyOf,
+  projectTranscriptTimeline,
   shouldReplacePartialText,
   type OrderedTranscriptLine,
+  type TimedTranscriptWord,
 } from '../../main/transcript-order';
 
 type TranscriptLine = OrderedTranscriptLine;
@@ -111,13 +114,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const lastInsightsFetchCountRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
   const ECHO_WINDOW_MS = 3000;
-  /**
-   * Words a partial must already hold before divergent interim text is treated
-   * as a new segment rather than a revision. Below this a partial is still a
-   * fragment ("Wel", "Welcome") that the provider may legitimately rewrite.
-   */
-  const NEW_SEGMENT_MIN_WORDS = 4;
-
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -132,7 +128,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
    * Removing the far end from the microphone AUDIO is the only approach that
    * cannot take the rep's words with it.
    */
-  const visibleTranscripts = transcripts;
+  const visibleTranscripts = useMemo(
+    () => projectTranscriptTimeline(transcripts),
+    [transcripts],
+  );
 
   const isNearDuplicateText = (a: string, b: string) => {
     const an = normalizeTranscriptText(a || '');
@@ -723,7 +722,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         lastMessageAtRef.current = null;
         lastPartialUpdate.current = {};
         pendingPartialUpdates.current = {};
+        finalizedUtterances.current.clear();
         finalizedUtteranceRef.current.clear();
+        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
         finalizedAtRef.current.clear();
         finalizedTextRef.current.clear();
         pendingTurnCompleteRef.current = [];
@@ -814,11 +815,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       let isPartial = false;
       let utteranceId: string | undefined;
       let audioStartMs: number | undefined;
+      let audioEndMs: number | undefined;
+      let timedWords: TimedTranscriptWord[] | undefined;
 
       if (msg.type === 'transcript_segment' && msg.data) {
         const rawAudioStart = Number(msg.data.audio_start_ms);
         if (Number.isFinite(rawAudioStart) && rawAudioStart > 0) {
           audioStartMs = rawAudioStart;
+        }
+        const rawAudioEnd = Number(msg.data.audio_end_ms);
+        if (Number.isFinite(rawAudioEnd) && rawAudioEnd > 0) {
+          audioEndMs = rawAudioEnd;
+        }
+        if (Array.isArray(msg.data.words)) {
+          const parsedWords = msg.data.words
+            .map((word: any): TimedTranscriptWord | null => {
+              const startMs = Number(word?.start_ms);
+              const endMs = Number(word?.end_ms);
+              const wordText = String(word?.text || '').trim();
+              if (!wordText || !Number.isFinite(startMs) || startMs <= 0) return null;
+              return {
+                text: wordText,
+                startMs,
+                endMs: Number.isFinite(endMs) && endMs >= startMs ? endMs : startMs,
+              };
+            })
+            .filter((word: TimedTranscriptWord | null): word is TimedTranscriptWord => word !== null);
+          if (parsedWords.length > 0) timedWords = parsedWords;
         }
         source = msg.data.source || msg._source;
         text = msg.data.text || '';
@@ -902,7 +925,40 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (isFinal) {
         consumePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
       }
+      const providerUtteranceKey = source && normalizedUtteranceId
+        ? `${source}:${sourceGeneration}:${normalizedUtteranceId}`
+        : undefined;
+
+      // Deepgram can emit a late interim after the final for the same provider
+      // utterance. Reject it before projection bookkeeping: reactivating that
+      // key here made an already-settled turn look interruptible again even
+      // though the reducer discarded the visible update later.
+      if (
+        isPartial &&
+        providerUtteranceKey &&
+        finalizedUtterances.current.has(providerUtteranceKey)
+      ) {
+        console.warn(
+          `[ListenView] Dropping late interim for finalized utterance ${normalizedUtteranceId} from ${source}`,
+        );
+        return;
+      }
+
+      // Keep one authoritative snapshot per provider utterance. Cross-source
+      // turn splitting happens later from absolute word times; arrival order
+      // is never used as a proxy for who spoke first.
       const incomingDisplayText = text;
+      const displayAudioStartMs = audioStartMs;
+
+      if (!incomingDisplayText.trim()) {
+        if (isFinal && providerUtteranceKey) {
+          finalizedUtteranceRef.current.set(providerUtteranceKey, normalizeTranscriptText(text));
+          finalizedAtRef.current.set(providerUtteranceKey, messageTimestamp);
+          finalizedUtterances.current.add(providerUtteranceKey);
+        }
+        console.log('[ListenView] ⏭️ Provider update contains no transcript text');
+        return;
+      }
 
       console.log('[ListenView] 📨', 
         msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
@@ -945,6 +1001,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           const reliableUtteranceId = candidateUtteranceId !== undefined
             ? String(candidateUtteranceId)
             : undefined;
+
+          // The backend guarantees one live row per (source, utterance id).
+          // Deepgram can rewrite an interim without retaining a text prefix;
+          // treating that rewrite as a new segment produced duplicate system
+          // transcript rows in the 2026-08-10 real-call trace. Identity is
+          // authoritative; the heuristic below exists only for legacy events
+          // that do not carry an utterance id.
+          const identityIdx = findLivePartialByUtteranceIdentity(
+            rows,
+            spk,
+            reliableUtteranceId,
+          );
+          if (identityIdx !== -1) return identityIdx;
+
           let bestIdx = -1;
           let bestScore = Number.NEGATIVE_INFINITY;
           for (let i = rows.length - 1; i >= 0; i--) {
@@ -955,31 +1025,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             // stays matchable however long it runs.
             const itemTs = item.updatedAt ?? item.timestamp ?? 0;
             if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
-            if (reliableUtteranceId && item.utteranceId && item.utteranceId !== reliableUtteranceId) continue;
-            const sameReliableUtterance = Boolean(
-              reliableUtteranceId &&
-              item.utteranceId &&
-              item.utteranceId === reliableUtteranceId
-            );
+            if (reliableUtteranceId) continue;
             if (!areCompatiblePartialTexts(item.text || '', incomingText)) {
-              // A shared utterance id is not proof of a shared sentence. The id
-              // only advances when the server flushes a turn, so one turn spans
-              // several provider segments: after "Welcome back to your favorite
-              // podcast." the next interim was "Having a hard time", which
-              // overwrote the visible bubble and made the first sentence vanish
-              // until its final arrived.
-              //
-              // A revision shares a prefix; a new segment does not. Once the
-              // existing partial has real content, treat divergent text as the
-              // next segment and let it start its own bubble.
-              const existingWordCount = getWordTokens(item.text || '').length;
-              if (!sameReliableUtterance || existingWordCount >= NEW_SEGMENT_MIN_WORDS) continue;
+              continue;
             }
 
             let score = 0;
-            if (sameReliableUtterance) {
-              score += 10000;
-            }
             score += getSharedPrefixWordCount(item.text || '', incomingText) * 25;
             score -= Math.abs((item.text || '').length - incomingText.length) / 20;
             if (itemTs > 0) {
@@ -1085,7 +1136,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               // matchable while it grows.
               timestamp: existing.timestamp ?? messageTimestamp,
               updatedAt: messageTimestamp,
-              audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
+              audioStartMs: displayAudioStartMs ?? newMessages[targetIdx]?.audioStartMs,
+              audioEndMs: audioEndMs ?? newMessages[targetIdx]?.audioEndMs,
+              words: timedWords ?? newMessages[targetIdx]?.words,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
             newMessages = collapseDuplicatePartialsForUtterance(
@@ -1108,7 +1161,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               isPartial: true,
               timestamp: messageTimestamp,
               updatedAt: messageTimestamp,
-              audioStartMs,
+              audioStartMs: displayAudioStartMs,
+              audioEndMs,
+              words: timedWords,
               utteranceId: normalizedUtteranceId,
             });
             newMessages = collapseDuplicatePartialsForUtterance(
@@ -1138,7 +1193,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (normalizedUtteranceId) {
             const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
             const seenHash = finalizedUtteranceRef.current.get(utteranceKey);
-            if (seenHash && isNearDuplicateText(seenHash, normalizedIncomingText)) {
+            if (seenHash && isNearDuplicateText(seenHash, normalizeTranscriptText(text))) {
               console.log('[ListenView] 🚫 Skipping duplicate FINAL by utterance key:', utteranceKey);
               return prev;
             }
@@ -1204,7 +1259,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               // A finalised turn keeps the position it has held since it began.
               timestamp: newMessages[targetIdx].timestamp ?? messageTimestamp,
               updatedAt: messageTimestamp,
-              audioStartMs: audioStartMs ?? newMessages[targetIdx]?.audioStartMs,
+              audioStartMs: displayAudioStartMs ?? newMessages[targetIdx]?.audioStartMs,
+              audioEndMs: audioEndMs ?? newMessages[targetIdx]?.audioEndMs,
+              words: timedWords ?? newMessages[targetIdx]?.words,
               utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
             };
             logFinalMismatch(text, resolvedFinalText);
@@ -1248,7 +1305,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 isPartial: false,
                 timestamp: messageTimestamp,
                 updatedAt: messageTimestamp,
-                audioStartMs,
+                audioStartMs: displayAudioStartMs,
+                audioEndMs,
+                words: timedWords,
                 utteranceId: normalizedUtteranceId,
               });
               logFinalMismatch(text, incomingDisplayText);
@@ -1257,7 +1316,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
           if (normalizedUtteranceId) {
             const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
-            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(incomingDisplayText));
+            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(text));
             finalizedAtRef.current.set(utteranceKey, now);
           }
           if (normalizedUtteranceId && finalizedUtteranceKey) {
@@ -1935,7 +1994,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           const groups: { speaker: number | null; texts: string[] }[] = [];
           let currentGroup: { speaker: number | null; texts: string[] } | null = null;
           
-          for (const line of transcripts) {
+          for (const line of visibleTranscripts) {
             if (!currentGroup || currentGroup.speaker !== line.speaker) {
               // New speaker - start new group
               if (currentGroup) groups.push(currentGroup);

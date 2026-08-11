@@ -6,6 +6,9 @@ const {
   inSpokenOrder,
   selectEligiblePartial,
   buildTranscriptContext,
+  findLivePartialByUtteranceIdentity,
+  projectTranscriptTimeline,
+  groupIntoBlocks,
   REORDER_WINDOW_MS,
 } = require('../dist/main/transcript-order.js')
 
@@ -232,6 +235,119 @@ test('finalized rows are never selected as the in-flight turn', () => {
 test('blank partials are ignored', () => {
   const now = BASE + 5000
   assert.equal(selectEligiblePartial([partial(0, '   ', BASE + 4000, now)], now), undefined)
+})
+
+// ── provider utterance identity ─────────────────────────────────────────────
+
+test('divergent interim rewrites with the same utterance id own one row', () => {
+  const rows = [
+    { ...partial(0, 'its own? And I think that is the structural problem', BASE, BASE + 100), utteranceId: '6' },
+  ]
+  assert.equal(
+    findLivePartialByUtteranceIdentity(rows, 0, '6'),
+    0,
+    'a text rewrite must update the existing provider utterance, not append a duplicate',
+  )
+})
+
+test('different utterance ids remain different turns', () => {
+  const rows = [
+    { ...partial(0, 'first turn', BASE, BASE + 100), utteranceId: '6' },
+  ]
+  assert.equal(findLivePartialByUtteranceIdentity(rows, 0, '7'), -1)
+})
+
+test('the same utterance id on the other source is not matched', () => {
+  const rows = [
+    { ...partial(0, 'prospect', BASE, BASE + 100), utteranceId: '0' },
+  ]
+  assert.equal(findLivePartialByUtteranceIdentity(rows, 1, '0'), -1)
+})
+
+test('a finalized row is never reopened by utterance identity', () => {
+  const rows = [
+    { ...prospect('finished', BASE), utteranceId: '6' },
+  ]
+  assert.equal(findLivePartialByUtteranceIdentity(rows, 0, '6'), -1)
+})
+
+const timedWords = (tokens, starts) => tokens.map((text, index) => ({
+  text,
+  startMs: BASE + starts[index],
+  endMs: BASE + starts[index] + 80,
+}))
+
+test('one provider utterance is split around a real cross-source interruption', () => {
+  // Arrival order is intentionally wrong. The system provider keeps one
+  // utterance open even though the rep speaks in its middle.
+  const rows = [
+    seller('What blocks new reps today?', BASE + 2200, {
+      audioEndMs: BASE + 2780,
+      words: timedWords(
+        ['What', 'blocks', 'new', 'reps', 'today?'],
+        [2200, 2300, 2400, 2500, 2700],
+      ),
+      utteranceId: 'mic:3',
+    }),
+    prospect('From first day to quarter. Onboarding currently takes 30 days.', BASE + 1000, {
+      audioEndMs: BASE + 3800,
+      words: timedWords(
+        ['From', 'first', 'day', 'to', 'quarter.', 'Onboarding', 'currently', 'takes', '30', 'days.'],
+        [1000, 1100, 1200, 1300, 1400, 1500, 1700, 1900, 3300, 3700],
+      ),
+      utteranceId: 'system:4',
+    }),
+  ]
+
+  const projected = projectTranscriptTimeline(rows)
+  assert.deepEqual(
+    projected.map(({ speaker, text }) => ({ speaker, text })),
+    [
+      { speaker: 0, text: 'From first day to quarter. Onboarding currently takes' },
+      { speaker: 1, text: 'What blocks new reps today?' },
+      { speaker: 0, text: '30 days.' },
+    ],
+  )
+  assert.equal(
+    projected.filter((row) => row.speaker === 0).map((row) => row.text).join(' '),
+    rows[1].text,
+    'projection must neither duplicate nor truncate authoritative provider text',
+  )
+  assert.match(buildTranscriptContext(rows), /Prospect: From first day[\s\S]*User: What blocks[\s\S]*Prospect: 30 days\./)
+  assert.deepEqual(groupIntoBlocks(rows).map(({ speaker, text }) => ({ speaker, text })), [
+    { speaker: 0, text: 'From first day to quarter. Onboarding currently takes' },
+    { speaker: 1, text: 'What blocks new reps today?' },
+    { speaker: 0, text: '30 days.' },
+  ])
+})
+
+test('timeline projection is idempotent', () => {
+  const rows = [
+    prospect('Before after', BASE, {
+      words: timedWords(['Before', 'after'], [0, 2000]),
+    }),
+    seller('Interrupt', BASE + 1000, {
+      words: timedWords(['Interrupt'], [1000]),
+    }),
+  ]
+  const once = projectTranscriptTimeline(rows)
+  assert.deepEqual(projectTranscriptTimeline(once), once)
+})
+
+test('word/text mismatch fails closed without changing authoritative text', () => {
+  const mismatched = prospect('Provider corrected this final.', BASE, {
+    words: timedWords(['Older', 'partial'], [0, 100]),
+  })
+  const interruption = seller('Exactly.', BASE + 500, {
+    words: timedWords(['Exactly.'], [500]),
+  })
+  const projected = projectTranscriptTimeline([mismatched, interruption])
+  assert.deepEqual(textsOf(projected), ['Provider corrected this final.', 'Exactly.'])
+  assert.equal(
+    projected.filter((row) => row.speaker === 0).map((row) => row.text).join(' '),
+    mismatched.text,
+    'a word/text mismatch must preserve the authoritative provider text verbatim',
+  )
 })
 
 // ── a bubble must never visibly shrink ───────────────────────────────────────

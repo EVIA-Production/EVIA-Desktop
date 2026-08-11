@@ -227,6 +227,26 @@ test('partial transcript rendering follows the audio cadence', () => {
   assert.match(listenSource, /PARTIAL_THROTTLE_MS = 100/);
 });
 
+test('late provider interims are rejected before transcript state changes', () => {
+  const providerKeyIndex = listenSource.indexOf('const providerUtteranceKey =');
+  const finalizedGuardIndex = listenSource.indexOf(
+    'finalizedUtterances.current.has(providerUtteranceKey)',
+    providerKeyIndex,
+  );
+  const stateUpdateIndex = listenSource.indexOf(
+    'setTranscripts(prev => {',
+    providerKeyIndex,
+  );
+
+  assert.ok(providerKeyIndex >= 0, 'provider utterance identity must be available');
+  assert.ok(finalizedGuardIndex > providerKeyIndex, 'late-finalized interim guard must exist');
+  assert.ok(
+    finalizedGuardIndex < stateUpdateIndex,
+    'late interim must be rejected before it can reactivate transcript state',
+  );
+  assert.doesNotMatch(listenSource, /continuationAfterConsumedText|freezeInterruptedPartials/);
+});
+
 test('during-call Ask prefers live context before database history', () => {
   const contextBlock = askSource.split('// GLASS PARITY: Fetch transcript context for backend', 2)[1];
   assert.ok(contextBlock.indexOf("currentSessionState === 'during'") < contextBlock.indexOf('getChatTranscripts(chatId'));
@@ -266,9 +286,11 @@ test('bound preset context status reaches the normal Listen window', () => {
   assert.match(listenSource, /presetContextUnavailable/);
 });
 
-test('development builds use production services unless local mode is explicit', () => {
+test('development builds reach production services through the dev-only HTTP proxy', () => {
   assert.match(rendererConfigSource, /VITE_SERVICE_TARGET \|\| 'production'/);
   assert.match(rendererConfigSource, /SERVICE_TARGET === 'local'/);
+  assert.match(rendererConfigSource, /http:\/\/localhost:5174\/__taylos_api/);
+  assert.match(rendererConfigSource, /IS_PRODUCTION[\s\S]*https:\/\/api\.taylos\.ai/);
   assert.match(rendererConfigSource, /https:\/\/api\.taylos\.ai/);
   assert.match(rendererConfigSource, /wss:\/\/backend-rt\.livelydesert-1db1c46d\.westeurope\.azurecontainerapps\.io/);
   assert.match(mainSource, /TAYLOS_SERVICE_TARGET \|\| ''/);
