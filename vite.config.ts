@@ -22,7 +22,19 @@ function copyAudioWorkletAsset() {
 
 export default defineConfig({
   base: './',
-  server: { port: 5174, strictPort: true },
+  server: {
+    port: 5174,
+    strictPort: true,
+    proxy: {
+      '/__taylos_api': {
+        target: 'https://api.taylos.ai',
+        changeOrigin: true,
+        secure: true,
+        headers: { origin: 'https://app.taylos.ai' },
+        rewrite: (path) => path.replace(/^\/__taylos_api/, ''),
+      },
+    },
+  },
   root: 'src/renderer',
   plugins: [copyAudioWorkletAsset()],
   build: {
