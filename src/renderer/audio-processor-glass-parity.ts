@@ -20,11 +20,24 @@ import { aec3WasmBinary } from './aec3/wasm-binary';
 
 const BUFFER_SIZE = 2048;
 
-// Ceiling for the microphone input-latency correction, in ms. Real built-in
-// hardware reports single-digit to low-tens; anything past this is a virtual
-// device or a bad driver number, and applying it verbatim would misalign the
-// reference worse than not correcting at all.
-const MAX_MIC_INPUT_LATENCY_MS = 120;
+// Ceiling for the microphone input-latency correction, in ms.
+//
+// Measured, not guessed. `tools/aec-clock-domain-bench.cjs` drives the real
+// ring and the real canceller and finds a sharp cliff when the correction
+// OVERSHOOTS the true latency:
+//
+//     over-corrected by 40ms   +41.8 dB
+//     over-corrected by 60ms   +41.6 dB
+//     over-corrected by 80ms    +9.0 dB
+//     over-corrected by 100ms   +5.0 dB
+//
+// The boundary is the 60.3ms acoustic delay itself: push the requested window
+// earlier than that and the echo falls out of the history AEC3 can reach, so
+// no filter length recovers it. 40ms keeps a 20ms margin below the cliff while
+// still covering every real built-in figure, which sits in the single digits
+// to low tens. An earlier value of 120 was twice the cliff and would have
+// turned a mis-reporting device into a dead canceller.
+const MAX_MIC_INPUT_LATENCY_MS = 40;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 
 // ──────────────────────────────────────────────────────────────────────────────
