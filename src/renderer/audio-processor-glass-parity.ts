@@ -19,6 +19,12 @@ import {
 import { aec3WasmBinary } from './aec3/wasm-binary';
 
 const BUFFER_SIZE = 2048;
+
+// Ceiling for the microphone input-latency correction, in ms. Real built-in
+// hardware reports single-digit to low-tens; anything past this is a virtual
+// device or a bad driver number, and applying it verbatim would misalign the
+// reference worse than not correcting at all.
+const MAX_MIC_INPUT_LATENCY_MS = 120;
 const AUDIO_CHUNK_DURATION = 0.1; // 100ms chunks
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1305,6 +1311,28 @@ async function setupMicProcessing(
   const micSource = micAudioContext.createMediaStreamSource(stream);
   const micProcessor = micAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
 
+  // How much older than this callback the newest captured sample already is.
+  // `baseLatency` is the render-quantum/driver buffer the platform reports; it
+  // is the only input-side figure WebAudio exposes, and it is what separates
+  // "the sample arrived now" from "the sample was spoken now".
+  //
+  // Clamped rather than trusted: an absurd value from a virtual device would
+  // shift the whole reference alignment, and a wrong constant is exactly the
+  // failure this replaces. Zero is the safe floor - it degrades to the old
+  // arrival-time behaviour rather than inventing a shift.
+  const micInputLatencyMs = Math.min(
+    Math.max((micAudioContext.baseLatency || 0) * 1000, 0),
+    MAX_MIC_INPUT_LATENCY_MS,
+  );
+  console.log(
+    `[AudioCapture] [AEC] mic input latency ${micInputLatencyMs.toFixed(1)}ms ` +
+    `(baseLatency=${((micAudioContext.baseLatency || 0) * 1000).toFixed(1)}ms) - ` +
+    `capture times are corrected by this so mic and system share one clock`,
+  );
+  sendDebugLog(
+    `[AEC] mic input latency ${micInputLatencyMs.toFixed(1)}ms applied to capture timestamps`,
+  );
+
   let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
 
@@ -1402,7 +1430,23 @@ async function setupMicProcessing(
       if (micOriginMs === null) {
         const micPendingMs = (audioBuffer.length / SAMPLE_RATE) * 1000;
         const micChunkMs = (samplesPerChunk / SAMPLE_RATE) * 1000;
-        micOriginMs = performance.now() - micPendingMs - micChunkMs;
+        // Subtracting the buffered duration from performance.now() treats the
+        // NEWEST buffered sample as captured at this instant. It was not: it
+        // left the microphone `baseLatency` earlier, and only reached this
+        // callback after the driver and the AudioContext render quantum.
+        //
+        // That matters now in a way it did not before. The system reference is
+        // stamped with ScreenCaptureKit's real presentation timestamp, so it is
+        // TRUE capture time. Leaving the microphone on arrival time puts the two
+        // sides in different clock domains, and the mic side is systematically
+        // LATE. The window then requested from the reference ring is newer than
+        // the echo it is supposed to cancel, which makes the echo non-causal -
+        // AEC3 cannot model an echo that precedes its entire reference history.
+        //
+        // That is exactly the signature in the 2026-08-12 run: delay pinned at
+        // 0 ms on nearly every line, coherence 0.002-0.085 where the bench
+        // measures 0.95, and long stretches of "REFERENCE UNRELATED TO MIC".
+        micOriginMs = performance.now() - micPendingMs - micChunkMs - micInputLatencyMs;
       }
       const micChunkStartedAtMs = micOriginMs + (micSamplesConsumed / SAMPLE_RATE) * 1000;
       micSamplesConsumed += samplesPerChunk;
