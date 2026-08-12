@@ -25,6 +25,25 @@ test('successful capture follows the only valid lifecycle', () => {
   assert.equal(session.complete(start.snapshot.generation).snapshot.state, 'idle')
 })
 
+test('paused backend sessions can restore review without resurrecting capture', () => {
+  const session = controller()
+  const restored = session.restoreReview()
+
+  assert.equal(restored.accepted, true)
+  assert.equal(restored.snapshot.state, 'review')
+  assert.equal(restored.snapshot.reason, 'backend_review_recovered')
+  assert.equal(session.complete(restored.snapshot.generation).snapshot.state, 'idle')
+})
+
+test('backend review recovery cannot replace active capture state', () => {
+  const session = controller()
+  session.beginStart()
+
+  const restored = session.restoreReview()
+  assert.equal(restored.accepted, false)
+  assert.equal(restored.snapshot.state, 'starting')
+})
+
 test('rapid duplicate start and stop requests are idempotent', () => {
   const session = controller()
   const start = session.beginStart()
