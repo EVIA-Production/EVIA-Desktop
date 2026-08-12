@@ -200,7 +200,7 @@ export class ChatWebSocket {
       console.log('[WS] Platform:', isWindows ? 'Windows' : 'Mac');
       
 // MUP FIX: Use WS_BASE_URL from config (already http/ws protocol handled)
-      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}${platformParam}&sample_rate=24000`;
+      const wsUrl = `${WS_BASE_URL}/ws/transcribe?chat_id=${encodeURIComponent(chatId)}&token=${encodeURIComponent(token)}${sourceParam}${langParam}${platformParam}&sample_rate=24000&capture_protocol=1`;
       const connectionAttempt = new Promise<void>((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
         this.ws = socket;

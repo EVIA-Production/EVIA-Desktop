@@ -181,6 +181,10 @@ test('a client connection timeout does not invalidate a chat', () => {
   assert.doesNotMatch(wsSource, /socket\.close\(4000, 'Connect timeout'\)/);
 });
 
+test('metadata-paired capture explicitly negotiates strict protocol v1', () => {
+  assert.match(wsSource, /sample_rate=24000&capture_protocol=1/);
+});
+
 test('held movement accelerates continuously and eases out on release', () => {
   assert.match(overlayWindowsSource, /function signalHeaderMovement/);
   assert.match(overlayWindowsSource, /function startContinuousHeaderMovement/);
