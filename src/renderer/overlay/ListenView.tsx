@@ -37,7 +37,13 @@ import {
 type TranscriptLine = OrderedTranscriptLine;
 
 type TranscriptAdapterResult =
-  | { event: NormalizedRealtimeTranscriptEvent; reason: null }
+  | {
+      event: NormalizedRealtimeTranscriptEvent;
+      reason: null;
+      captureEndEpochMs: number;
+      providerReceivedAtMs: number | null;
+      serverSentAtMs: number | null;
+    }
   | { event: null; reason: string };
 
 const nonNegativeInteger = (value: unknown): value is number =>
@@ -45,6 +51,20 @@ const nonNegativeInteger = (value: unknown): value is number =>
 
 const finiteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+const percentile = (values: number[], quantile: number): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * quantile) - 1);
+  return Math.round(sorted[Math.max(0, index)] * 10) / 10;
+};
+
+const summarizeLatencies = (values: number[]) => ({
+  count: values.length,
+  p50Ms: percentile(values, 0.5),
+  p95Ms: percentile(values, 0.95),
+  maxMs: values.length > 0 ? Math.round(Math.max(...values) * 10) / 10 : null,
+});
 
 /**
  * Adapt the backend wire contract without inventing identity or timing.
@@ -80,6 +100,7 @@ const adaptServerTranscriptEvent = (message: unknown, chatId: string | null): Tr
     !nonNegativeInteger(data.capture_generation) ||
     !nonNegativeInteger(data.stream_generation) ||
     !nonNegativeInteger(data.seq) ||
+    !finiteNumber(data.session_epoch_ms) ||
     !finiteNumber(data.capture_start_ms) ||
     !finiteNumber(data.capture_end_ms)
   ) {
@@ -122,7 +143,22 @@ const adaptServerTranscriptEvent = (message: unknown, chatId: string | null): Tr
     text,
     isFinal: data.is_final === true,
   });
-  return event ? { event, reason: null } : { event: null, reason: 'invalid-normalized-event' };
+  if (!event) return { event: null, reason: 'invalid-normalized-event' };
+
+  const trace = data.trace && typeof data.trace === 'object'
+    ? data.trace as Record<string, unknown>
+    : null;
+  return {
+    event,
+    reason: null,
+    captureEndEpochMs: data.session_epoch_ms + event.captureEndMs,
+    providerReceivedAtMs: finiteNumber(trace?.provider_received_at_ms)
+      ? trace.provider_received_at_ms
+      : null,
+    serverSentAtMs: finiteNumber(trace?.server_sent_at_ms)
+      ? trace.server_sent_at_ms
+      : null,
+  };
 };
 
 interface ListenViewProps {
@@ -196,6 +232,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
+  const firstPartialLatencyByEventRef = useRef<Map<string, number>>(new Map());
+  const finalLatencyByEventRef = useRef<Map<string, number>>(new Map());
   const [showUndoButton, setShowUndoButton] = useState(false); 
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
@@ -560,6 +598,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     afterInsightsFrozenRef.current = false;
     afterInsightsRequestPendingRef.current = false;
     liveInsightsRefreshQueuedRef.current = false;
+    firstPartialLatencyByEventRef.current.clear();
+    finalLatencyByEventRef.current.clear();
     console.log('[ListenView][Canonical] Reset transcript state:', reason);
   };
 
@@ -623,6 +663,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] Recording stopped; preserving canonical rows unchanged');
+        console.log('[ListenView][LatencySummary]', JSON.stringify({
+          partial: summarizeLatencies([...firstPartialLatencyByEventRef.current.values()]),
+          final: summarizeLatencies([...finalLatencyByEventRef.current.values()]),
+        }));
         stopTimer();
         sessionStateRef.current = 'after';
         isSessionActiveRef.current = false;
@@ -692,6 +736,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       canonicalTranscriptStateRef.current = transition.state;
       setCanonicalTranscriptState(transition.state);
       shouldScrollAfterUpdate.current = true;
+      const renderedAtMs = Date.now();
+      const captureToRenderMs = renderedAtMs - adapted.captureEndEpochMs;
+      const latencyMap = adapted.event.isFinal
+        ? finalLatencyByEventRef.current
+        : firstPartialLatencyByEventRef.current;
+      const isFirstMeasuredRender = !latencyMap.has(adapted.event.eventId);
+      if (isFirstMeasuredRender) {
+        latencyMap.set(adapted.event.eventId, captureToRenderMs);
+        console.log('[ListenView][Latency]', JSON.stringify({
+          kind: adapted.event.isFinal ? 'final' : 'first-partial',
+          eventId: adapted.event.eventId,
+          source: adapted.event.source,
+          captureToRenderMs: Math.round(captureToRenderMs * 10) / 10,
+          providerToRenderMs: adapted.providerReceivedAtMs === null
+            ? null
+            : Math.round((renderedAtMs - adapted.providerReceivedAtMs) * 10) / 10,
+          serverToRenderMs: adapted.serverSentAtMs === null
+            ? null
+            : Math.round((renderedAtMs - adapted.serverSentAtMs) * 10) / 10,
+        }));
+      }
+      if (captureToRenderMs < -50) {
+        console.error('[ListenView][Latency] Capture clock is ahead of renderer wall clock:', {
+          eventId: adapted.event.eventId,
+          captureToRenderMs,
+        });
+      }
       const projection = projectRealtimeTranscriptState(transition.state);
       console.log('[ListenView][Canonical] Accepted event:', {
         eventId: adapted.event.eventId,
