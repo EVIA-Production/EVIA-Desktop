@@ -189,10 +189,58 @@ export class ReferenceRing {
     if (samples.length === 0) return;
     if (this.originMs === null) this.originMs = capturedAtMs;
 
-    for (let i = 0; i < samples.length; i += 1) {
-      this.buffer[(this.writeCursor + i) % this.capacity] = samples[i];
+    // Position by the TIMESTAMP, not by how many samples happen to have been
+    // written so far.
+    //
+    // These two disagree the moment capture time contains a gap, and the far
+    // end is silent for most of a sales call. Appending contiguously while
+    // reading by elapsed time meant one second of unemitted silence pushed
+    // every later read one second off, permanently - measured: a 2s gap put
+    // positionAt at sample 84000 while the audio sat at 36000. A large skew
+    // reads past the write cursor and the canceller is skipped ("reference
+    // window short"); a small one lands in real but unrelated audio, which is
+    // the "REFERENCE UNRELATED TO MIC" verdict with coherence near zero. Both
+    // appear in the 2026-08-12 run.
+    const target = this.positionAt(capturedAtMs);
+    if (target === null) return;
+
+    // A timestamp far behind the retained window, or implausibly ahead, is a
+    // broken clock rather than a gap. Dropping it keeps the mapping intact;
+    // honouring it would move every later read.
+    const oldestRetained = Math.max(0, this.writeCursor - this.capacity);
+    if (target + samples.length <= oldestRetained) return;
+
+    // A jump longer than the ring itself cannot be bridged by zero-filling -
+    // the fill would evict everything including the new audio. Re-anchor
+    // instead of dropping the chunk: dropping it leaves the origin pinned to a
+    // timeline the far end has long left, so every later read misses and the
+    // canceller never recovers for the rest of the call. A silence longer than
+    // the ring is a new stretch of conversation, and it deserves a new anchor.
+    if (target > this.writeCursor + this.capacity) {
+      this.buffer.fill(0);
+      this.writeCursor = 0;
+      this.originMs = capturedAtMs;
+      for (let i = 0; i < samples.length; i += 1) {
+        this.buffer[i % this.capacity] = samples[i];
+      }
+      this.writeCursor = samples.length;
+      return;
     }
-    this.writeCursor += samples.length;
+
+    // A real gap is zero-filled so that position and time stay in step. Silence
+    // is the truthful content for a stretch the far end never played, and it is
+    // what keeps the NEXT read aligned.
+    for (let position = this.writeCursor; position < target; position += 1) {
+      this.buffer[((position % this.capacity) + this.capacity) % this.capacity] = 0;
+    }
+
+    for (let i = 0; i < samples.length; i += 1) {
+      const position = target + i;
+      this.buffer[((position % this.capacity) + this.capacity) % this.capacity] = samples[i];
+    }
+    // Overlapping chunks rewrite in place rather than advancing the cursor, so
+    // a duplicated delivery cannot inflate the timeline.
+    this.writeCursor = Math.max(this.writeCursor, target + samples.length);
   }
 
   /**
