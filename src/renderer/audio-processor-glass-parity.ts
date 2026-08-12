@@ -343,6 +343,9 @@ let lastMicReconnectAttempt = 0;
 let lastSystemReconnectAttempt = 0;
 let isActivelyCapturing = false;
 let macSystemCaptureStartedAt = 0;
+// Reported once per capture session: whether the mic reserve actually covers
+// the measured helper latency. Reset with the rest of the session state.
+let referenceBudgetChecked = false;
 
 async function restartMacSystemAudioPipeline(reason: string) {
   const eviaApi = (window as any).evia;
@@ -611,6 +614,7 @@ function beginCaptureSession(): CaptureSessionTimeline {
   captureTransportReady = false;
   captureStartupError = null;
   preReadyCaptureChunks = [];
+  referenceBudgetChecked = false;
   referenceRing.reset();
   micOriginMs = null;
   micSamplesConsumed = 0;
@@ -638,6 +642,7 @@ function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): vo
   captureTransportReady = false;
   captureStartupError = null;
   preReadyCaptureChunks = [];
+  referenceBudgetChecked = false;
   captureTimeline = null;
   referenceRing.reset();
   micOriginMs = null;
@@ -1175,12 +1180,39 @@ async function startMacSystemAudioCapture(
       const referenceChunk = base64ToFloat32Array(audioData.data);
       const capturedAtPerformanceMs =
         timeline.originPerformanceMs + metadata.capture_start_ms;
+      // How stale this chunk already is when the renderer sees it: the helper
+      // buffered it, ScreenCaptureKit buffered it, and it crossed IPC. With a
+      // real presentation timestamp this is finally MEASURED rather than
+      // assumed, and it is the number the microphone reserve has to cover.
+      const referenceAgeMs = Date.now() - audioData.capturedAtUnixMs;
       if (isFirstSystemChunk) {
         console.log(
           `[AudioCapture] First macOS system-audio chunk after ` +
           `${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms; ` +
-          `timestamp=ScreenCaptureKit (${(Date.now() - audioData.capturedAtUnixMs).toFixed(1)}ms old)`
+          `timestamp=ScreenCaptureKit (${referenceAgeMs.toFixed(1)}ms old)`
         );
+      }
+      // The availability constraint, checked against reality instead of a
+      // constant. A mic chunk is only cancellable if the far-end audio covering
+      // the same instant has already arrived, so the reserve must exceed the
+      // chunk duration plus this age. When it does not, every chunk is skipped
+      // and the telemetry says "reference window short" without ever saying WHY
+      // - the exact invisible failure this pipeline has hit twice.
+      if (!referenceBudgetChecked) {
+        referenceBudgetChecked = true;
+        const chunkMs = (SAMPLE_RATE * AUDIO_CHUNK_DURATION / SAMPLE_RATE) * 1000;
+        const reserveMs = chunkMs * AEC_MIC_RESERVE_CHUNKS;
+        const budgetMs = reserveMs - chunkMs;
+        const verdict = referenceAgeMs <= budgetMs
+          ? `ok - ${(budgetMs - referenceAgeMs).toFixed(0)}ms of headroom`
+          : `INSUFFICIENT - raise AEC_MIC_RESERVE_CHUNKS to at least ` +
+            `${Math.ceil((referenceAgeMs + chunkMs) / chunkMs)}`;
+        const line =
+          `[AEC] reference budget: helper age ${referenceAgeMs.toFixed(0)}ms vs ` +
+          `${budgetMs.toFixed(0)}ms available (reserve ${reserveMs.toFixed(0)}ms - ` +
+          `chunk ${chunkMs.toFixed(0)}ms) -> ${verdict}`;
+        console.log(`[AudioCapture] ${line}`);
+        sendDebugLog(line);
       }
       referenceRing.write(
         referenceChunk,
@@ -2135,6 +2167,7 @@ export async function stopCapture(captureHandle?: any) {
   captureTransportReady = false;
   captureStartupError = null;
   preReadyCaptureChunks = [];
+  referenceBudgetChecked = false;
   macSystemCaptureStartedAt = 0;
   lastMicReconnectAttempt = 0;
   lastSystemReconnectAttempt = 0;
