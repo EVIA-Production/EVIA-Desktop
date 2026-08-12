@@ -1,5 +1,9 @@
 // Create new file with full content
 import { BACKEND_URL, WS_BASE_URL } from '../config/config';
+import {
+  type AudioChunkMetadata,
+  serializeAudioChunkMetaControlEnvelope,
+} from '../../main/capture-timeline';
 
 interface WebSocketMessage {
   type?: string;
@@ -27,6 +31,11 @@ interface WebSocketMessage {
 }
 
 export type BinarySendResult = 'sent' | 'queued' | 'dropped';
+
+type QueuedAudioChunk = {
+  data: ArrayBuffer;
+  metadata: AudioChunkMetadata;
+};
 
 function getBackendHttpBase(): string {
   return BACKEND_URL.replace(/\/$/, '');
@@ -108,6 +117,12 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
   return chatId;
 }
 
+/** Replace a stale capture chat, bounded to one caller-controlled retry. */
+export async function recreateChatId(backendUrl: string, token: string): Promise<string> {
+  localStorage.removeItem('current_chat_id');
+  return getOrCreateChatId(backendUrl, token, true);
+}
+
 export class ChatWebSocket {
   private chatId: string;
   private source?: 'mic' | 'system';
@@ -116,13 +131,13 @@ export class ChatWebSocket {
   private lastAudioLevel: number = 0;
   private silenceThreshold: number = 0.003;
   private audioDetected: boolean = false;
-  private silentChunkStreak: number = 0;
+  private silentDurationMs: number = 0;
   private droppedSilentChunks: number = 0;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connectPromise: Promise<void> | null = null;
   private shouldReconnect: boolean = true;
-  private queue: ArrayBuffer[] = [];
+  private queue: QueuedAudioChunk[] = [];
   private audioActivitySequence: number = 0;
 
   constructor(chatId: string, source?: 'mic' | 'system') {
@@ -317,7 +332,19 @@ export class ChatWebSocket {
     }));
   }
 
-  sendBinaryData(data: ArrayBuffer): BinarySendResult {
+  sendAudioChunk(data: ArrayBuffer, metadata: AudioChunkMetadata): BinarySendResult {
+    if (metadata.source !== this.source) {
+      throw new Error(
+        `Audio source mismatch: socket=${this.source || 'unset'} chunk=${metadata.source}`
+      );
+    }
+    if (metadata.byte_length !== data.byteLength) {
+      throw new Error(
+        `Audio byte length mismatch: metadata=${metadata.byte_length} actual=${data.byteLength}`
+      );
+    }
+    const chunkDurationMs = Math.max(0, metadata.capture_end_ms - metadata.capture_start_ms);
+
     // Check audio levels in the buffer to detect audio
     const int16Data = new Int16Array(data);
     const audioLevel = this.calculateAudioLevel(int16Data);
@@ -328,16 +355,16 @@ export class ChatWebSocket {
     // Preserve a short silence tail so provider endpointing receives the end of
     // an utterance. Activity markers carry no transcript/audio content.
     if (hasAudio) {
-      this.silentChunkStreak = 0;
+      this.silentDurationMs = 0;
       if (!this.audioDetected) {
       console.log(`[Audio Logger] Audio detected - Level: ${audioLevel.toFixed(4)}`);
       this.audioDetected = true;
         this.sendAudioActivity(true, true);
       }
     } else {
-      this.silentChunkStreak++;
-      const HANGOVER_SILENT_CHUNKS = 5; // ~500ms with 100ms chunks
-      if (this.audioDetected && this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
+      this.silentDurationMs += chunkDurationMs;
+      const HANGOVER_MS = 500;
+      if (this.audioDetected && this.silentDurationMs > HANGOVER_MS) {
         console.log(`[Audio Logger] Audio ended - Level dropped to ${audioLevel.toFixed(4)}`);
         this.audioDetected = false;
         this.sendAudioActivity(false, true);
@@ -353,8 +380,8 @@ export class ChatWebSocket {
     // - only sustained silence is dropped
     // Backend/Deepgram keepalive paths keep sessions alive during silence.
     if (!hasAudio) {
-      const HANGOVER_SILENT_CHUNKS = 5;
-      if (this.silentChunkStreak > HANGOVER_SILENT_CHUNKS) {
+      const HANGOVER_MS = 500;
+      if (this.silentDurationMs > HANGOVER_MS) {
         this.droppedSilentChunks++;
         if (this.droppedSilentChunks % 25 === 0) {
           console.log(
@@ -369,9 +396,21 @@ export class ChatWebSocket {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       // Queue speech and its short trailing context, but never let sustained
       // silence displace recoverable speech while a reconnect is in flight.
-      this.queue.push(data);
-      const MAX_QUEUED_AUDIO_FRAMES = 30; // Preserve at most ~3s of unsent audio.
-      while (this.queue.length > MAX_QUEUED_AUDIO_FRAMES) {
+      this.queue.push({ data, metadata });
+      const MAX_QUEUED_AUDIO_MS = 3000;
+      let queuedMs = this.queue.reduce(
+        (total, item) => total + Math.max(0, item.metadata.capture_end_ms - item.metadata.capture_start_ms),
+        0,
+      );
+      while (queuedMs > MAX_QUEUED_AUDIO_MS && this.queue.length > 0) {
+        const dropped = this.queue.shift()!;
+        queuedMs -= Math.max(0, dropped.metadata.capture_end_ms - dropped.metadata.capture_start_ms);
+        console.warn(
+          `[Audio Logger] Dropped stale queued ${dropped.metadata.source} chunk ` +
+          `${dropped.metadata.capture_session_id}/${dropped.metadata.capture_generation}/${dropped.metadata.chunk_seq}`
+        );
+      }
+      while (this.queue.length > 0 && queuedMs > MAX_QUEUED_AUDIO_MS) {
         this.queue.shift();
       }
 
@@ -382,9 +421,17 @@ export class ChatWebSocket {
       return 'queued';
     }
     
-    // Send the data
-    this.ws.send(data);
+    this.sendChunkPair({ data, metadata });
     return 'sent';
+  }
+
+  /**
+   * Legacy naked-PCM transport is deliberately rejected. Without capture
+   * identity and a source-independent interval, provider offsets cannot be
+   * mapped into dialogue order after silence suppression or reconnects.
+   */
+  sendBinaryData(_data: ArrayBuffer): BinarySendResult {
+    throw new Error('sendBinaryData is unsupported; use sendAudioChunk with capture metadata');
   }
 
   sendAudio(chunk: ArrayBuffer) {
@@ -469,6 +516,9 @@ export class ChatWebSocket {
       this.isConnectedFlag = false;
       this.connectionChangeHandlers.forEach(h => h(false));
     }
+    this.queue = [];
+    this.silentDurationMs = 0;
+    this.audioDetected = false;
   }
 
   isConnected(): boolean {
@@ -477,8 +527,18 @@ export class ChatWebSocket {
 
   private flushQueue() {
     while (this.ws?.readyState === WebSocket.OPEN && this.queue.length > 0) {
-      this.ws!.send(this.queue.shift()!);
+      this.sendChunkPair(this.queue.shift()!);
     }
+  }
+
+  private sendChunkPair(chunk: QueuedAudioChunk) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Cannot send audio chunk pair while WebSocket is closed');
+    }
+    // WebSocket preserves send order. Keeping both calls synchronous prevents
+    // another callback from interleaving a control envelope and its PCM body.
+    this.ws.send(serializeAudioChunkMetaControlEnvelope(chunk.metadata));
+    this.ws.send(chunk.data);
   }
   
   // CRITICAL FIX: Error notification system for user feedback

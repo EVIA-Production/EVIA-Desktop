@@ -554,6 +554,17 @@ function App() {
       }
     } catch (error) {
       console.error('[OverlayEntry] Error setting audio capture state:', error)
+      const diagnostic = error instanceof Error
+        ? `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ''}`
+        : String(error)
+      try {
+        ;(window as any).evia?.ipc?.send?.(
+          'debug-log',
+          `[AudioCapture] STARTUP FAILURE: ${diagnostic}`,
+        )
+      } catch {
+        // Diagnostics must never mask the original startup failure.
+      }
       // startCapture mutates module-level audio resources as it progresses. If
       // a later permission, socket, or system-audio step fails, release any
       // resources that were already acquired before allowing another start.

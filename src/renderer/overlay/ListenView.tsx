@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './overlay-glass.css';
-import { getWebSocketInstance, getChatTranscripts } from '../services/websocketService';
+import { getWebSocketInstance } from '../services/websocketService';
 import { fetchInsights, Insight, InsightActionItem } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
@@ -20,19 +20,110 @@ declare global {
 }
 
 import {
-  buildTranscriptContext,
-  dropBledMicRows,
-  farEndTextOf,
-  findLivePartialByUtteranceIdentity,
   groupIntoBlocks,
-  orderingKeyOf,
-  projectTranscriptTimeline,
-  shouldReplacePartialText,
   type OrderedTranscriptLine,
-  type TimedTranscriptWord,
 } from '../../main/transcript-order';
+import {
+  applyRealtimeTranscriptEvent,
+  createRealtimeTranscriptState,
+  currentDownstreamIdentity,
+  isDownstreamResultApplicable,
+  normalizeRealtimeTranscriptEvent,
+  projectRealtimeTranscriptState,
+  type NormalizedRealtimeTranscriptEvent,
+  type RealtimeTranscriptState,
+} from '../../main/realtime-transcript-state';
 
 type TranscriptLine = OrderedTranscriptLine;
+
+type TranscriptAdapterResult =
+  | { event: NormalizedRealtimeTranscriptEvent; reason: null }
+  | { event: null; reason: string };
+
+const nonNegativeInteger = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= 0;
+
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * Adapt the backend wire contract without inventing identity or timing.
+ * Clockless legacy events are deliberately rejected: arrival time cannot
+ * reconstruct order across the independent mic and system streams.
+ */
+const adaptServerTranscriptEvent = (message: unknown, chatId: string | null): TranscriptAdapterResult => {
+  if (!message || typeof message !== 'object') return { event: null, reason: 'invalid-message' };
+  const envelope = message as Record<string, unknown>;
+  if (envelope.type !== 'transcript_segment') return { event: null, reason: 'not-transcript' };
+  if (!envelope.data || typeof envelope.data !== 'object') return { event: null, reason: 'missing-data' };
+  if (!chatId) return { event: null, reason: 'missing-chat-id' };
+
+  const data = envelope.data as Record<string, unknown>;
+  const source = data.source;
+  const forwardedSource = envelope._source;
+  if (source !== 'mic' && source !== 'system') return { event: null, reason: 'invalid-source' };
+  if (forwardedSource !== undefined && forwardedSource !== source) {
+    return { event: null, reason: 'source-mismatch' };
+  }
+  if (data.clock_domain_valid !== true) return { event: null, reason: 'invalid-clock-domain' };
+
+  const sessionId = typeof data.capture_session_id === 'string' ? data.capture_session_id.trim() : '';
+  const utteranceId = data.utterance_id === undefined || data.utterance_id === null
+    ? ''
+    : String(data.utterance_id).trim();
+  const eventId = typeof data.event_id === 'string' ? data.event_id.trim() : '';
+  const text = typeof data.text === 'string' ? data.text.trim() : '';
+  if (!sessionId || !utteranceId || !eventId || !text) {
+    return { event: null, reason: 'missing-canonical-identity-or-text' };
+  }
+  if (
+    !nonNegativeInteger(data.capture_generation) ||
+    !nonNegativeInteger(data.stream_generation) ||
+    !nonNegativeInteger(data.seq) ||
+    !finiteNumber(data.capture_start_ms) ||
+    !finiteNumber(data.capture_end_ms)
+  ) {
+    return { event: null, reason: 'invalid-canonical-metadata' };
+  }
+  if (!Array.isArray(data.words)) return { event: null, reason: 'missing-timed-words' };
+
+  const words = [] as Array<{ text: string; startMs: number; endMs: number }>;
+  for (const candidate of data.words) {
+    if (!candidate || typeof candidate !== 'object') return { event: null, reason: 'invalid-word' };
+    const word = candidate as Record<string, unknown>;
+    const wordText = typeof word.text === 'string' ? word.text.trim() : '';
+    if (
+      !wordText ||
+      !finiteNumber(word.capture_start_ms) ||
+      !finiteNumber(word.capture_end_ms)
+    ) {
+      return { event: null, reason: 'unmapped-word-clock' };
+    }
+    words.push({
+      text: wordText,
+      startMs: word.capture_start_ms,
+      endMs: word.capture_end_ms,
+    });
+  }
+
+  const event = normalizeRealtimeTranscriptEvent({
+    chatId,
+    sessionId,
+    source,
+    captureGeneration: data.capture_generation,
+    streamGeneration: data.stream_generation,
+    utteranceId,
+    eventId,
+    seq: data.seq,
+    captureStartMs: data.capture_start_ms,
+    captureEndMs: data.capture_end_ms,
+    words,
+    clockDomainValid: true,
+    text,
+    isFinal: data.is_final === true,
+  });
+  return event ? { event, reason: null } : { event: null, reason: 'invalid-normalized-event' };
+};
 
 interface ListenViewProps {
   lines: TranscriptLine[];
@@ -42,16 +133,31 @@ interface ListenViewProps {
 }
 
 const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
-  const [transcripts, setTranscripts] = useState<TranscriptLine[]>([]);
+  const [canonicalTranscriptState, setCanonicalTranscriptState] = useState<RealtimeTranscriptState>(
+    createRealtimeTranscriptState,
+  );
+  const canonicalTranscriptStateRef = useRef<RealtimeTranscriptState>(canonicalTranscriptState);
+  const canonicalProjection = useMemo(
+    () => projectRealtimeTranscriptState(canonicalTranscriptState),
+    [canonicalTranscriptState],
+  );
+  const transcripts = useMemo<TranscriptLine[]>(
+    () => canonicalProjection.visibleRows.map(row => ({
+      speaker: row.source === 'mic' ? 1 : 0,
+      text: row.text,
+      isFinal: row.isFinal,
+      isPartial: !row.isFinal,
+      timestamp: row.captureStartMs,
+      updatedAt: row.captureEndMs,
+      audioStartMs: row.captureStartMs,
+      audioEndMs: row.captureEndMs,
+      utteranceId: row.key,
+    })),
+    [canonicalProjection],
+  );
+  const visibleTranscripts = transcripts;
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
-  
-  // -----------------------------------------------------------------------
-  // PARTIAL THROTTLING: Prevent UI flicker from too-frequent updates
-  // -----------------------------------------------------------------------
-  const PARTIAL_THROTTLE_MS = 100; // Match the 100ms audio cadence without redundant paints
-  const lastPartialUpdate = useRef<Record<string, number>>({});
-  const pendingPartialUpdates = useRef<Record<string, {text: string, speaker: number | null, utteranceId?: string}>>({});
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
   // Transcript stays one click away via the header toggle.
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('insights');
@@ -91,7 +197,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false); 
-  const finalTranscriptCountRef = useRef(0); 
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
@@ -104,238 +209,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const transcriptsRef = useRef<TranscriptLine[]>([]);
   const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
   const isSessionActiveRef = useRef(false);
-  const finalizedUtteranceRef = useRef<Map<string, string>>(new Map());
-  const finalizedUtterances = useRef<Set<string>>(new Set());
-  const sourceStreamGenerationRef = useRef<Record<string, number>>({ mic: 0, system: 0 });
-  const finalizedAtRef = useRef<Map<string, number>>(new Map());
-  const finalizedTextRef = useRef<Map<string, number>>(new Map());
-  const pendingTurnCompleteRef = useRef<Array<{ speaker: number | null; utteranceId?: string; text: string; timestamp: number }>>([]);
-  const peakPartialTextRef = useRef<Map<string, string>>(new Map());
-  const lastInsightsFetchCountRef = useRef(0);
+  const lastInsightsProspectRevisionRef = useRef(0);
   const lastInsightsFetchAtRef = useRef(0);
-  const ECHO_WINDOW_MS = 3000;
   const normalizeTranscriptText = (value: string) =>
     value.trim().replace(/\s+/g, ' ').toLowerCase();
-
-  /**
-   * REVERTED: this dropped whole microphone rows that looked like far-end
-   * speech, and a row can hold the rep's own words AND bleed at once, because
-   * accumulating turns merge them. It therefore deleted things the rep actually
-   * said - the one failure that is worse than showing the bleed, since a lost
-   * sentence cannot be recovered by reading more carefully.
-   *
-   * Row-level suppression is the wrong granularity and no threshold fixes that.
-   * Removing the far end from the microphone AUDIO is the only approach that
-   * cannot take the rep's words with it.
-   */
-  const visibleTranscripts = useMemo(
-    () => projectTranscriptTimeline(transcripts),
-    [transcripts],
-  );
-
-  const isNearDuplicateText = (a: string, b: string) => {
-    const an = normalizeTranscriptText(a || '');
-    const bn = normalizeTranscriptText(b || '');
-    if (!an || !bn) return false;
-    if (an === bn) return true;
-    if (an.length > 20 && bn.length > 20 && (an.includes(bn) || bn.includes(an))) return true;
-    return false;
-  };
-
-  const getWordTokens = (value: string) => normalizeTranscriptText(value).split(' ').filter(Boolean);
-
-  const getSharedPrefixWordCount = (a: string, b: string) => {
-    const aWords = getWordTokens(a);
-    const bWords = getWordTokens(b);
-    let idx = 0;
-    while (idx < aWords.length && idx < bWords.length && aWords[idx] === bWords[idx]) {
-      idx += 1;
-    }
-    return idx;
-  };
-
-  const areCompatiblePartialTexts = (existingText: string, incomingText: string) => {
-    const existing = normalizeTranscriptText(existingText || '');
-    const incoming = normalizeTranscriptText(incomingText || '');
-    if (!existing || !incoming) return false;
-    if (existing === incoming) return true;
-    if (existing.length >= 12 && incoming.length >= 12 && (existing.startsWith(incoming) || incoming.startsWith(existing))) {
-      return true;
-    }
-    const sharedPrefixWords = getSharedPrefixWordCount(existing, incoming);
-    if (sharedPrefixWords >= 3) return true;
-    return false;
-  };
-
-  const chooseBestFinalText = (deepgramFinal: string, _peakPartial: string | undefined) => {
-    // Always trust the exact Deepgram final. Peak partials are speculative and
-    // have proven to bleed next-utterance fragments into the previous final.
-    return deepgramFinal;
-  };
-
-  const logFinalMismatch = (deepgramFinal: string, uiFinal: string) => {
-    if (!import.meta.env.DEV) return;
-    if ((deepgramFinal || '').trim() !== (uiFinal || '').trim()) {
-      console.error(`[ListenView] FINAL MISMATCH — DG: "${deepgramFinal}" | UI: "${uiFinal}"`);
-    }
-  };
-
-  const prunePendingTurnCompletions = (nowTs: number) => {
-    pendingTurnCompleteRef.current = pendingTurnCompleteRef.current.filter(item => nowTs - item.timestamp <= 5000);
-  };
-
-  const storePendingTurnComplete = (
-    speaker: number | null,
-    utteranceId: string | undefined,
-    text: string,
-    timestamp: number
-  ) => {
-    if (!text.trim()) return;
-    prunePendingTurnCompletions(timestamp);
-    const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
-    const replacementIdx = pendingTurnCompleteRef.current.findIndex(item =>
-      item.speaker === speaker &&
-      (
-        (normalizedUtteranceId && item.utteranceId === normalizedUtteranceId) ||
-        (!normalizedUtteranceId && Math.abs(timestamp - item.timestamp) <= 1200)
-      )
-    );
-    const nextEntry = { speaker, utteranceId: normalizedUtteranceId, text, timestamp };
-    if (replacementIdx >= 0) {
-      pendingTurnCompleteRef.current[replacementIdx] = nextEntry;
-    } else {
-      pendingTurnCompleteRef.current.push(nextEntry);
-    }
-  };
-
-  const consumePendingTurnComplete = (
-    speaker: number | null,
-    utteranceId: string | undefined,
-    finalText: string,
-    timestamp: number
-  ) => {
-    prunePendingTurnCompletions(timestamp);
-    const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
-    let bestIdx = -1;
-    let bestScore = Number.NEGATIVE_INFINITY;
-
-    for (let idx = 0; idx < pendingTurnCompleteRef.current.length; idx += 1) {
-      const entry = pendingTurnCompleteRef.current[idx];
-      if (entry.speaker !== speaker) continue;
-      if (Math.abs(timestamp - entry.timestamp) > 5000) continue;
-      if (!areCompatiblePartialTexts(entry.text, finalText)) continue;
-      if (normalizedUtteranceId && entry.utteranceId && entry.utteranceId !== normalizedUtteranceId) continue;
-
-      let score = 0;
-      if (normalizedUtteranceId && entry.utteranceId === normalizedUtteranceId) {
-        score += 1000;
-      }
-      score += getSharedPrefixWordCount(entry.text, finalText) * 25;
-      score -= Math.abs(timestamp - entry.timestamp) / 100;
-      score -= Math.abs(entry.text.length - finalText.length) / 20;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = idx;
-      }
-    }
-
-    if (bestIdx === -1) return undefined;
-    const [best] = pendingTurnCompleteRef.current.splice(bestIdx, 1);
-    return chooseBestFinalText(best.text, finalText);
-  };
-
-  const getRecentSpeakerPartialIndices = (
-    rows: TranscriptLine[],
-    speaker: number | null,
-    nowTs: number,
-    windowMs = 4000
-  ) => rows
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) =>
-      item.speaker === speaker &&
-      item.isPartial &&
-      !item.isFinal &&
-      (
-        !item.timestamp ||
-        Math.abs(nowTs - item.timestamp) <= windowMs
-      )
-    )
-    .map(({ idx }) => idx);
-
-  const pruneCompetingSpeakerPartials = (
-    rows: TranscriptLine[],
-    speaker: number | null,
-    keepIdx: number,
-    finalizedText: string,
-    nowTs: number,
-    utteranceId?: string
-  ) => rows.filter((item, idx) => {
-    if (idx === keepIdx) return true;
-    if (item.speaker !== speaker || !item.isPartial || item.isFinal) return true;
-    const itemTs = item.timestamp ?? 0;
-    if (itemTs > nowTs + 250) return true;
-    if (utteranceId && item.utteranceId && item.utteranceId === utteranceId) return false;
-    if (itemTs > 0 && Math.abs(nowTs - itemTs) > 4000) return true;
-    return !areCompatiblePartialTexts(item.text || '', finalizedText);
-  });
-
-  const collapseDuplicatePartialsForUtterance = (
-    rows: TranscriptLine[],
-    speaker: number | null,
-    utteranceId: string | undefined,
-    keepIdx: number,
-  ) => {
-    if (!utteranceId) return rows;
-    return rows.filter((item, idx) => {
-      if (idx === keepIdx) return true;
-      if (item.speaker !== speaker) return true;
-      if (!item.isPartial || item.isFinal) return true;
-      return item.utteranceId !== utteranceId;
-    });
-  };
-
-  const buildTranscriptContextForAsk = (rows: TranscriptLine[], maxChars = 40000) =>
-    buildTranscriptContext(rows, { maxChars });
-
-  useEffect(() => {
-    if (!isSessionActive || sessionState !== 'during' || transcripts.length > 0) return;
-
-    let cancelled = false;
-    const hydrateTimer = setTimeout(async () => {
-      if (cancelled || transcriptsRef.current.length > 0) return;
-
-      const token = await (window as any).evia?.auth?.getToken?.();
-      const chatId = Number(localStorage.getItem('current_chat_id') || '0');
-      if (!token || !chatId) return;
-
-      try {
-        const history = await getChatTranscripts(chatId, token, 200);
-        if (cancelled || !history?.length || transcriptsRef.current.length > 0) return;
-        const hydrated = history
-          .map(entry => ({
-            text: (entry.text || '').trim(),
-            speaker: entry.speaker ?? null,
-            isFinal: true,
-            isPartial: false,
-            timestamp: entry.created_at ? Date.parse(entry.created_at) : Date.now(),
-          }))
-          .filter(entry => entry.text);
-        if (!hydrated.length) return;
-
-        console.warn('[ListenView] 🔄 Hydrating transcript view from persisted history:', hydrated.length, 'entries');
-        setTranscripts(hydrated);
-        finalTranscriptCountRef.current = hydrated.length;
-      } catch (err) {
-        console.warn('[ListenView] ⚠️ Transcript hydration fallback failed:', err);
-      }
-    }, 4000);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(hydrateTimer);
-    };
-  }, [isSessionActive, sessionState, transcripts.length]);
 
   const isStubInsightPayload = (payload: Insight | null | undefined) => {
     if (!payload) return true;
@@ -529,14 +406,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       liveTranscriptApi.clear?.();
       return;
     }
-    const transcriptContext = buildTranscriptContextForAsk(transcripts);
     liveTranscriptApi.set?.({
       chatId,
       sessionState,
-      transcriptContext,
+      transcriptContext: canonicalProjection.context,
       updatedAt: Date.now(),
     });
-  }, [transcripts, sessionState]);
+  }, [canonicalProjection.context, sessionState]);
 
   const schedulePostMeetingInsightsFetch = () => {
     if (afterInsightsFrozenRef.current || afterInsightsRequestPendingRef.current) {
@@ -675,81 +551,90 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
   }, []); // Empty dependency - cleanup on unmount
 
-  // Listen for transcript messages forwarded from Header window via IPC
-  // Header window captures audio, sends to backend via WebSocket, and forwards transcripts here
+  const resetCanonicalTranscript = (reason: string) => {
+    const freshState = createRealtimeTranscriptState();
+    canonicalTranscriptStateRef.current = freshState;
+    setCanonicalTranscriptState(freshState);
+    lastInsightsProspectRevisionRef.current = 0;
+    lastInsightsFetchAtRef.current = 0;
+    afterInsightsFrozenRef.current = false;
+    afterInsightsRequestPendingRef.current = false;
+    liveInsightsRefreshQueuedRef.current = false;
+    console.log('[ListenView][Canonical] Reset transcript state:', reason);
+  };
+
+  // Header owns capture; this view owns one canonical transcript state. Every
+  // visible row and every model-context line is projected from that same state.
   useEffect(() => {
-    console.log('[ListenView] Setting up IPC listener for transcript messages');
+    console.log('[ListenView] Setting up canonical transcript IPC listeners');
+    const eviaIpc = (window as any).evia?.ipc;
+    if (!eviaIpc?.on) {
+      console.error('[ListenView] IPC bridge unavailable; realtime transcript cannot start');
+      return;
+    }
+
+    const resetSessionPresentation = (reason: string) => {
+      (window as any).evia?.liveTranscript?.clear?.();
+      resetCanonicalTranscript(reason);
+      setInsights(null);
+      setInsightsHistory([]);
+      setInsightsIndex(-1);
+      setInsightsRefreshPending(false);
+      setViewMode('insights');
+      setElapsedTime('00:00');
+      setCopyState('idle');
+      setCopiedView(null);
+      setShowUndoButton(false);
+      setIsLoadingInsights(false);
+      setPresetContextWarning(false);
+      setAutoScroll(true);
+      autoScrollRef.current = true;
+      shouldScrollAfterUpdate.current = true;
+      lastInsightsFetchAtRef.current = 0;
+    };
 
     const handleTranscriptMessage = (msg: any) => {
-      console.log('[ListenView] 📨 Received IPC message:', msg.type, '_source:', msg._source);
-
-      // Diagnostics: update last received timestamp and count
-      messageCountRef.current += 1;
-      lastMessageAtRef.current = Date.now();
-      if (messageCountRef.current % 10 === 0) {
-        console.log(`[ListenView] 📈 Received ${messageCountRef.current} transcript messages so far. Last at ${new Date(lastMessageAtRef.current).toISOString()}`);
+      if (!msg || typeof msg !== 'object') {
+        console.warn('[ListenView][Canonical] Rejected non-object transcript message');
+        return;
       }
 
-      // Handle recording_started
+      messageCountRef.current += 1;
+      lastMessageAtRef.current = Date.now();
+      setDiagMessageCount(messageCountRef.current);
+      setDiagLastMessageAgeMs(0);
+
       if (msg.type === 'recording_started') {
-        console.log('[ListenView] ▶️  Recording started - starting timer');
-        (window as any).evia?.liveTranscript?.clear?.();
-        
-        // FIX 2026-01-22: Comprehensive state reset to prevent stale data flicker
-        setTranscripts([]);
+        console.log('[ListenView] Recording started; canonical session is now live');
+        resetSessionPresentation('recording-started');
+        messageCountRef.current = 0;
+        lastMessageAtRef.current = null;
+        sessionStateRef.current = 'during';
+        isSessionActiveRef.current = true;
+        setSessionState('during');
+        setIsSessionActive(true);
+        localStorage.setItem('evia_session_state', 'during');
+        startTimer();
+        requestAnimationFrame(() => {
+          if (viewportRef.current) viewportRef.current.scrollTop = 0;
+        });
+        return;
+      }
+
+      if (msg.type === 'recording_stopped') {
+        console.log('[ListenView] Recording stopped; preserving canonical rows unchanged');
+        stopTimer();
+        sessionStateRef.current = 'after';
+        isSessionActiveRef.current = false;
+        setSessionState('after');
+        setIsSessionActive(false);
+        localStorage.setItem('evia_session_state', 'after');
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
         setInsightsRefreshPending(false);
         setViewMode('insights');
-        setElapsedTime('00:00');
-        setIsSessionActive(true);
-        setSessionState('during');
-        localStorage.setItem('evia_session_state', 'during');
-        setCopyState('idle');
-        setCopiedView(null);
-        setShowUndoButton(false);
-        setIsLoadingInsights(false);
-        setPresetContextWarning(false);
-        
-        // Reset refs
-        finalTranscriptCountRef.current = 0;
-        lastInsightsFetchCountRef.current = 0;
-        lastInsightsFetchAtRef.current = 0;
-        afterInsightsFrozenRef.current = false;
-        afterInsightsRequestPendingRef.current = false;
-        messageCountRef.current = 0;
-        lastMessageAtRef.current = null;
-        lastPartialUpdate.current = {};
-        pendingPartialUpdates.current = {};
-        finalizedUtterances.current.clear();
-        finalizedUtteranceRef.current.clear();
-        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
-        finalizedAtRef.current.clear();
-        finalizedTextRef.current.clear();
-        pendingTurnCompleteRef.current = [];
-        
-        // Enable auto-scroll at session start
-        setAutoScroll(true);
-        autoScrollRef.current = true;
-        shouldScrollAfterUpdate.current = true;
-        
-        console.log('[ListenView] ✅ Full state reset complete - ready for new session');
-        
-        // Force scroll to bottom after DOM updates
-        setTimeout(() => {
-          if (viewportRef.current) {
-            viewportRef.current.scrollTop = 0; // Reset to top first
-          }
-          setTimeout(() => {
-            if (viewportRef.current) {
-              viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-              console.log('[ListenView] 📜 Scrolled to bottom on session start');
-            }
-          }, 50);
-        }, 10);
-        
-        startTimer();
+        schedulePostMeetingInsightsFetch();
         return;
       }
 
@@ -757,758 +642,141 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         const contextAvailable = msg.data?.available !== false;
         setPresetContextWarning(!contextAvailable);
         if (!contextAvailable) {
-          console.warn('[ListenView] Bound preset context is unavailable; preset-dependent AI is paused for this conversation');
+          console.warn('[ListenView] Bound preset context unavailable; preset-dependent AI is paused');
         }
         return;
       }
 
-      // Handle recording_stopped
-      if (msg.type === 'recording_stopped') {
-        console.log('[ListenView] 🛑 Recording stopped - stopping timer');
-        stopTimer();
+      if (msg.type !== 'transcript_segment') {
+        if (msg.type !== 'status' && msg.type !== 'keepalive') {
+          console.debug('[ListenView][Canonical] Ignoring non-transcript message:', msg.type);
+        }
+        return;
+      }
 
-        // Nothing is still being spoken once capture stops, so no bubble may
-        // keep the dimmed "in progress" look. Settle whatever text each partial
-        // reached; dropping them instead would silently lose the last words of
-        // the call, which are usually the ones that matter.
-        setTranscripts(prev => {
-          if (!prev.some(item => item.isPartial && !item.isFinal)) return prev;
-          const settled = prev
-            .filter(item => (item.text || '').trim())
-            .map(item => (
-              item.isPartial && !item.isFinal
-                ? { ...item, isFinal: true, isPartial: false }
-                : item
-            ));
-          console.log('[ListenView] ✅ Settled', settled.length, 'transcript rows on stop');
-          return settled;
+      const storedChatId = localStorage.getItem('current_chat_id');
+      const adapted = adaptServerTranscriptEvent(msg, storedChatId);
+      if (!adapted.event) {
+        console.error('[ListenView][Canonical] Rejected transcript event:', {
+          reason: adapted.reason,
+          source: msg._source ?? msg.data?.source,
+          eventId: msg.data?.event_id,
+          utteranceId: msg.data?.utterance_id,
+          captureSessionId: msg.data?.capture_session_id,
         });
-
-        setIsSessionActive(false);
-        setSessionState('after');
-        localStorage.setItem('evia_session_state', 'after');
-        setInsights(null);
-        setInsightsHistory([]);
-        setInsightsIndex(-1);
-        setInsightsRefreshPending(false);
-
-        console.log('[ListenView] 🔄 Auto-switching to Insights view...');
-        setViewMode('insights');
-        setShowUndoButton(false);
-
-        schedulePostMeetingInsightsFetch();
-
         return;
       }
 
-      // Keepalive
-      if (msg.type === 'keepalive') {
-        console.log('[ListenView] Keepalive ping received - connection healthy');
-        return;
-      }
-
-      // Extract transcript text
-      let text: string | undefined;
-      let source: string | undefined;
-      let speaker: number | null = null;
-      let isFinal = false;
-      let isPartial = false;
-      let utteranceId: string | undefined;
-      let audioStartMs: number | undefined;
-      let audioEndMs: number | undefined;
-      let timedWords: TimedTranscriptWord[] | undefined;
-
-      if (msg.type === 'transcript_segment' && msg.data) {
-        const rawAudioStart = Number(msg.data.audio_start_ms);
-        if (Number.isFinite(rawAudioStart) && rawAudioStart > 0) {
-          audioStartMs = rawAudioStart;
-        }
-        const rawAudioEnd = Number(msg.data.audio_end_ms);
-        if (Number.isFinite(rawAudioEnd) && rawAudioEnd > 0) {
-          audioEndMs = rawAudioEnd;
-        }
-        if (Array.isArray(msg.data.words)) {
-          const parsedWords = msg.data.words
-            .map((word: any): TimedTranscriptWord | null => {
-              const startMs = Number(word?.start_ms);
-              const endMs = Number(word?.end_ms);
-              const wordText = String(word?.text || '').trim();
-              if (!wordText || !Number.isFinite(startMs) || startMs <= 0) return null;
-              return {
-                text: wordText,
-                startMs,
-                endMs: Number.isFinite(endMs) && endMs >= startMs ? endMs : startMs,
-              };
-            })
-            .filter((word: TimedTranscriptWord | null): word is TimedTranscriptWord => word !== null);
-          if (parsedWords.length > 0) timedWords = parsedWords;
-        }
-        source = msg.data.source || msg._source;
-        text = msg.data.text || '';
-        if (source === 'mic') {
-          speaker = 1;
-        } else if (source === 'system') {
-          speaker = 0;
-        } else {
-          speaker = msg.data.speaker ?? null;
-        }
-        isFinal = msg.data.is_final === true;
-        const isTurnComplete = msg.data.is_turn_complete === true; // NEW: Complete bubble flag
-        isPartial = !isFinal;
-        const rawUtterance = msg.data.utterance_id ?? msg.data.utteranceId ?? msg.data.utteranceID;
-        if (rawUtterance !== undefined && rawUtterance !== null) {
-          utteranceId = String(rawUtterance);
-        }
-        
-        // TURN_COMPLETE can arrive before/alongside is_final and previously caused
-        // duplicate or fragmented bubbles. We only finalize on is_final payloads.
-        if (isTurnComplete && text) {
-          console.log('[ListenView] ✅ TURN COMPLETE signal received (awaiting is_final):', text.substring(0, 60), 'speaker:', speaker);
-        }
-      } else if (msg.type === 'status') {
-        source = msg.data?.source || msg._source
-          || (msg.data?.speaker === 1 ? 'mic' : msg.data?.speaker === 0 ? 'system' : undefined);
-        if (source && msg.data && typeof msg.data.dg_open === 'boolean' && msg.data.dg_open === false) {
-          sourceStreamGenerationRef.current[source] = (sourceStreamGenerationRef.current[source] ?? 0) + 1;
-          const sourceSpeaker = source === 'mic' ? 1 : source === 'system' ? 0 : null;
-
-          if (sourceSpeaker !== null) {
-            Object.keys(lastPartialUpdate.current).forEach((key) => {
-              if (key.startsWith(`${sourceSpeaker}:`)) delete lastPartialUpdate.current[key];
-            });
-            Object.keys(pendingPartialUpdates.current).forEach((key) => {
-              if (key.startsWith(`${sourceSpeaker}:`)) delete pendingPartialUpdates.current[key];
-            });
-            pendingTurnCompleteRef.current = pendingTurnCompleteRef.current.filter(item => item.speaker !== sourceSpeaker);
-            setTranscripts(prev => prev.filter(item => !(item.speaker === sourceSpeaker && item.isPartial && !item.isFinal)));
-          }
-
-          console.log(
-            '[ListenView] 🔄 Reset source generation after DG close:',
-            source,
-            '→',
-            sourceStreamGenerationRef.current[source],
-          );
-        }
-        console.log('[ListenView] 📊 CONNECTION STATUS:', msg.data);
-        return;
-      }
-
-      const trace = msg.data?.trace;
-      if (trace && typeof trace === 'object') {
-        const providerReceivedAtMs = Number(trace.provider_received_at_ms || 0);
-        if (providerReceivedAtMs > 0) {
-          console.log(
-            `[ListenView][Trace] source=${source || 'unknown'} final=${isFinal} ` +
-            `provider-to-render=${Math.max(0, Date.now() - providerReceivedAtMs)}ms`
-          );
-        }
-      }
-
-      if (!text) return;
-
-      const normalizedText = text.trim().toLowerCase();
-      if (normalizedText === 'taylos connection ok' || normalizedText === 'evia connection ok') {
-        console.log('[ListenView] 🚫 Filtered connection status message');
-        return;
-      }
-
-      const messageTimestamp = Date.now();
-      const normalizedUtteranceId = utteranceId !== undefined ? String(utteranceId) : undefined;
-      const sourceGeneration = source ? (sourceStreamGenerationRef.current[source] ?? 0) : 0;
-      const finalizedUtteranceKey = source && normalizedUtteranceId
-        ? `${source}:${sourceGeneration}:${normalizedUtteranceId}`
-        : undefined;
-      if (msg.type === 'transcript_segment' && msg.data?.is_turn_complete === true && text) {
-        storePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
-      }
-      if (isFinal) {
-        consumePendingTurnComplete(speaker, normalizedUtteranceId, text, messageTimestamp);
-      }
-      const providerUtteranceKey = source && normalizedUtteranceId
-        ? `${source}:${sourceGeneration}:${normalizedUtteranceId}`
-        : undefined;
-
-      // Deepgram can emit a late interim after the final for the same provider
-      // utterance. Reject it before projection bookkeeping: reactivating that
-      // key here made an already-settled turn look interruptible again even
-      // though the reducer discarded the visible update later.
-      if (
-        isPartial &&
-        providerUtteranceKey &&
-        finalizedUtterances.current.has(providerUtteranceKey)
-      ) {
-        console.warn(
-          `[ListenView] Dropping late interim for finalized utterance ${normalizedUtteranceId} from ${source}`,
-        );
-        return;
-      }
-
-      // Keep one authoritative snapshot per provider utterance. Cross-source
-      // turn splitting happens later from absolute word times; arrival order
-      // is never used as a proxy for who spoke first.
-      const incomingDisplayText = text;
-      const displayAudioStartMs = audioStartMs;
-
-      if (!incomingDisplayText.trim()) {
-        if (isFinal && providerUtteranceKey) {
-          finalizedUtteranceRef.current.set(providerUtteranceKey, normalizeTranscriptText(text));
-          finalizedAtRef.current.set(providerUtteranceKey, messageTimestamp);
-          finalizedUtterances.current.add(providerUtteranceKey);
-        }
-        console.log('[ListenView] ⏭️ Provider update contains no transcript text');
-        return;
-      }
-
-      console.log('[ListenView] 📨', 
-        msg.type === 'transcript_segment' ? 'transcript_segment:' : 'status:',
-        incomingDisplayText.substring(0, 50), 'speaker:', speaker, 'isFinal:', isFinal, 'utt:', normalizedUtteranceId ?? '—'
+      const transition = applyRealtimeTranscriptEvent(
+        canonicalTranscriptStateRef.current,
+        adapted.event,
       );
-
-      const container = viewportRef.current;
-      if (container) {
-        const nearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - SCROLL_THRESHOLD;
-        shouldScrollAfterUpdate.current = autoScrollRef.current || nearBottom;
-        if (nearBottom !== autoScrollRef.current) {
-          autoScrollRef.current = nearBottom;
-        }
+      if (!transition.accepted) {
+        const log = transition.reason === 'stale-seq' || transition.reason === 'finalized-row'
+          ? console.debug
+          : console.error;
+        log('[ListenView][Canonical] Event not accepted:', {
+          reason: transition.reason,
+          source: adapted.event.source,
+          eventId: adapted.event.eventId,
+          tuple: [
+            adapted.event.captureGeneration,
+            adapted.event.streamGeneration,
+            adapted.event.utteranceId,
+          ],
+          seq: adapted.event.seq,
+        });
+        return;
       }
 
-      // Chronological transcript reducer (no fixed speaker slots, no final-merge monoliths)
-      setTranscripts(prev => {
-        // Diagnostics: log sizes to detect when UI updates
-        try {
-          const prevLen = prev.length;
-          // update diag counters optimistically; will be rendered in top-bar
-          setDiagMessageCount(messageCountRef.current);
-          setDiagLastMessageAgeMs(0);
-          console.log('[ListenView] DIAG setTranscripts invoked - prevLen =', prevLen);
-        } catch (err) {
-          console.warn('[ListenView] DIAG logging failed', err);
-        }
-        const normalizedIncomingText = normalizeTranscriptText(incomingDisplayText);
-        const now = messageTimestamp;
-        let newMessages = [...prev];
-        let didMutateRows = false;
-
-        const findMatchingPartialIdx = (
-          rows: typeof newMessages,
-          spk: number | null,
-          candidateUtteranceId: string | undefined,
-          incomingText: string,
-          incomingTs: number
-        ) => {
-          const reliableUtteranceId = candidateUtteranceId !== undefined
-            ? String(candidateUtteranceId)
-            : undefined;
-
-          // The backend guarantees one live row per (source, utterance id).
-          // Deepgram can rewrite an interim without retaining a text prefix;
-          // treating that rewrite as a new segment produced duplicate system
-          // transcript rows in the 2026-08-10 real-call trace. Identity is
-          // authoritative; the heuristic below exists only for legacy events
-          // that do not carry an utterance id.
-          const identityIdx = findLivePartialByUtteranceIdentity(
-            rows,
-            spk,
-            reliableUtteranceId,
-          );
-          if (identityIdx !== -1) return identityIdx;
-
-          let bestIdx = -1;
-          let bestScore = Number.NEGATIVE_INFINITY;
-          for (let i = rows.length - 1; i >= 0; i--) {
-            const item = rows[i];
-            if (item.speaker !== spk) continue;
-            if (!item.isPartial || item.isFinal) continue;
-            // Liveness, not position: a turn that is still being spoken
-            // stays matchable however long it runs.
-            const itemTs = item.updatedAt ?? item.timestamp ?? 0;
-            if (itemTs > 0 && Math.abs(incomingTs - itemTs) > 5000) continue;
-            if (reliableUtteranceId) continue;
-            if (!areCompatiblePartialTexts(item.text || '', incomingText)) {
-              continue;
-            }
-
-            let score = 0;
-            score += getSharedPrefixWordCount(item.text || '', incomingText) * 25;
-            score -= Math.abs((item.text || '').length - incomingText.length) / 20;
-            if (itemTs > 0) {
-              score -= Math.abs(incomingTs - itemTs) / 100;
-            }
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestIdx = i;
-            }
-          }
-          return bestIdx;
-        };
-
-        const removeMicEchoEntries = (rows: typeof newMessages, referenceText: string, ts: number) =>
-          rows.filter(item => {
-            if (item.speaker !== 1) return true;
-            if (!item.text) return true;
-            if (!(item.isFinal || item.isPartial)) return true;
-            const itemTs = item.timestamp ?? 0;
-            if (itemTs > 0 && Math.abs(ts - itemTs) > ECHO_WINDOW_MS) return true;
-            return !isNearDuplicateText(item.text, referenceText);
-          });
-
-        const appendFinalBeforeTrailingPartials = (
-          rows: typeof newMessages,
-          entry: (typeof newMessages)[number]
-        ) => {
-          let insertIdx = rows.length;
-          while (insertIdx > 0) {
-            const tail = rows[insertIdx - 1];
-            if (!(tail.isPartial && !tail.isFinal)) break;
-            insertIdx -= 1;
-          }
-          if (insertIdx === rows.length) {
-            rows.push(entry);
-          } else {
-            rows.splice(insertIdx, 0, entry);
-          }
-        };
-
-        // Just display what Deepgram sends (already accumulated)
-        // Deepgram sends accumulated text in partials: "Hello" → "Hello there" → "Hello there friend"
-        // We display it as-is - no extraction needed!
-        if (isPartial) {
-          if (normalizedUtteranceId && finalizedUtteranceKey && finalizedUtterances.current.has(finalizedUtteranceKey)) {
-            console.warn(`[ListenView] Dropping late interim for finalized utterance ${normalizedUtteranceId} from ${source}`);
-            return prev;
-          }
-          // -----------------------------------------------------------------
-          // THROTTLE PARTIAL UPDATES (prevent flicker)
-          // -----------------------------------------------------------------
-          const speakerKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId ?? 'active'}`;
-          const now = Date.now();
-          const lastUpdate = lastPartialUpdate.current[speakerKey] || 0;
-          
-          // Always store latest text in pending buffer
-          pendingPartialUpdates.current[speakerKey] = { text: incomingDisplayText, speaker, utteranceId: normalizedUtteranceId };
-          
-          // Check if enough time has passed since last update
-          if (now - lastUpdate < PARTIAL_THROTTLE_MS) {
-            // Throttled - skip this update but keep in pending
-            return prev;
-          }
-          
-          // Update timestamp
-          lastPartialUpdate.current[speakerKey] = now;
-          // -----------------------------------------------------------------
-
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
-          if (targetIdx !== -1) {
-            // Update existing partial with new accumulated text
-            const existing = newMessages[targetIdx];
-            if (!shouldReplacePartialText(existing.text || '', incomingDisplayText)) {
-              // A stale interim overtook a newer one. Rendering it would shrink
-              // the visible sentence and then jump back - the flicker a viewer
-              // sees. The newer text is already shown and loses nothing.
-              console.log(
-                '[ListenView] ⏭️ Ignoring stale/shorter interim for speaker', speaker,
-                'utt:', normalizedUtteranceId ?? '∅',
-                '| shown:', (existing.text || '').length, 'ch, incoming:', incomingDisplayText.length, 'ch',
-              );
-              return prev;
-            }
-            if (existing.text === incomingDisplayText) {
-              console.log('[ListenView] ⏭️ Skipping identical partial update for speaker', speaker, 'utt:', normalizedUtteranceId ?? '∅');
-              return prev;
-            }
-            console.log('[ListenView] 🔄 UPDATING partial at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
-            console.log('  ├─ OLD:', existing.text.substring(0, 50));
-            console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
-            console.log('  ⚠️  REASON: Found existing partial for speaker', speaker, 'at index', targetIdx);
-            console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
-
-            newMessages[targetIdx] = {
-              ...newMessages[targetIdx],
-              text: incomingDisplayText,
-              speaker,
-              isFinal: false,
-              isPartial: true,
-              // Keep the moment this turn *started* so it holds its place in
-              // the conversation, and track liveness separately so it stays
-              // matchable while it grows.
-              timestamp: existing.timestamp ?? messageTimestamp,
-              updatedAt: messageTimestamp,
-              audioStartMs: displayAudioStartMs ?? newMessages[targetIdx]?.audioStartMs,
-              audioEndMs: audioEndMs ?? newMessages[targetIdx]?.audioEndMs,
-              words: timedWords ?? newMessages[targetIdx]?.words,
-              utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
-            };
-            newMessages = collapseDuplicatePartialsForUtterance(
-              newMessages,
-              speaker,
-              normalizedUtteranceId,
-              targetIdx,
-            );
-            didMutateRows = true;
-          } else {
-            // No compatible partial found, append a new partial at the end.
-            console.log('[ListenView] ➕ ADDING new partial (utt:', normalizedUtteranceId ?? '∅', ')');
-            console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
-            console.log('  ✅ REASON: No existing partial found for speaker', speaker);
-            console.log('  📊 Current state: prevLen=' + prev.length + ', partials:', prev.filter(t => t.isPartial).length);
-            newMessages.push({
-              text: incomingDisplayText,
-              speaker,
-              isFinal: false,
-              isPartial: true,
-              timestamp: messageTimestamp,
-              updatedAt: messageTimestamp,
-              audioStartMs: displayAudioStartMs,
-              audioEndMs,
-              words: timedWords,
-              utteranceId: normalizedUtteranceId,
-            });
-            newMessages = collapseDuplicatePartialsForUtterance(
-              newMessages,
-              speaker,
-              normalizedUtteranceId,
-              newMessages.length - 1,
-            );
-            didMutateRows = true;
-          }
-        } else if (isFinal) {
-          // FINAL DEDUPE + FREEZE:
-          // - no merging into existing final bubbles
-          // - convert matching partial to final in place, otherwise append
-          let acceptedFinal = false;
-          const WINDOW_MS = 30_000;
-          for (const [key, ts] of finalizedTextRef.current.entries()) {
-            if (now - ts > WINDOW_MS) finalizedTextRef.current.delete(key);
-          }
-          for (const [key, ts] of finalizedAtRef.current.entries()) {
-            if (now - ts > WINDOW_MS) {
-              finalizedAtRef.current.delete(key);
-              finalizedUtteranceRef.current.delete(key);
-            }
-          }
-
-          if (normalizedUtteranceId) {
-            const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
-            const seenHash = finalizedUtteranceRef.current.get(utteranceKey);
-            if (seenHash && isNearDuplicateText(seenHash, normalizeTranscriptText(text))) {
-              console.log('[ListenView] 🚫 Skipping duplicate FINAL by utterance key:', utteranceKey);
-              return prev;
-            }
-          } else {
-            const textKey = `${speaker ?? 'unknown'}:${normalizedIncomingText}`;
-            const seenAt = finalizedTextRef.current.get(textKey);
-            if (seenAt && now - seenAt < 4000) {
-              console.log('[ListenView] 🚫 Skipping duplicate FINAL by text window:', incomingDisplayText.substring(0, 50));
-              return prev;
-            }
-            finalizedTextRef.current.set(textKey, now);
-          }
-
-          // Echo bleeding guard: if same text appears across speakers in a 3s window,
-          // keep system (speaker=0) and drop mic (speaker=1).
-          if (speaker === 1) {
-            const hasRecentSystemMatch = newMessages.some(item => {
-              if (item.speaker !== 0 || !item.isFinal || !item.text) return false;
-              const itemTs = item.timestamp ?? 0;
-              if (itemTs > 0 && Math.abs(now - itemTs) > ECHO_WINDOW_MS) return false;
-              return isNearDuplicateText(item.text, incomingDisplayText);
-            });
-            if (hasRecentSystemMatch) {
-              const filtered = newMessages.filter(item => {
-                if (item.speaker !== 1 || !item.isPartial) return true;
-                if (normalizedUtteranceId && item.utteranceId && item.utteranceId !== normalizedUtteranceId) return true;
-                return !isNearDuplicateText(item.text || '', incomingDisplayText);
-              });
-              console.log('[ListenView] 🚫 Dropping mic final echo (system already has same utterance)');
-              return filtered.length === prev.length ? prev : filtered;
-            }
-          } else if (speaker === 0) {
-            const filtered = removeMicEchoEntries(newMessages, incomingDisplayText, now);
-            if (filtered.length !== newMessages.length) {
-              console.log('[ListenView] 🧹 Removed', newMessages.length - filtered.length, 'mic echo entries; system is authoritative');
-              newMessages = filtered;
-              didMutateRows = true;
-            }
-          }
-
-          // Flush any pending (throttled) partial into state before final comparison
-          const pendingKey = `${speaker ?? 'unknown'}:${normalizedUtteranceId ?? 'active'}`;
-          const pendingPartial = pendingPartialUpdates.current[pendingKey];
-          delete pendingPartialUpdates.current[pendingKey];
-
-          const targetIdx = findMatchingPartialIdx(newMessages, speaker, normalizedUtteranceId, incomingDisplayText, messageTimestamp);
-          if (targetIdx !== -1) {
-            // Freeze existing partial in place as final using the exact Deepgram
-            // final. Do not recover or merge speculative partial text.
-            const peakKey = `${speaker ?? 'x'}-${normalizedUtteranceId ?? 'x'}`;
-            const resolvedFinalText = chooseBestFinalText(incomingDisplayText, pendingPartial?.text);
-            peakPartialTextRef.current.delete(peakKey);
-            console.log('[ListenView] ✅ CONVERTING partial to FINAL at index', targetIdx, 'utt:', normalizedUtteranceId ?? '∅');
-            console.log('  └─ NEW:', resolvedFinalText.substring(0, 80));
-            console.log('  🎯 REASON: Found existing partial for speaker', speaker, 'converting to final');
-            console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
-            newMessages[targetIdx] = {
-              ...newMessages[targetIdx],
-              text: resolvedFinalText,
-              speaker,
-              isFinal: true,
-              isPartial: false,
-              // A finalised turn keeps the position it has held since it began.
-              timestamp: newMessages[targetIdx].timestamp ?? messageTimestamp,
-              updatedAt: messageTimestamp,
-              audioStartMs: displayAudioStartMs ?? newMessages[targetIdx]?.audioStartMs,
-              audioEndMs: audioEndMs ?? newMessages[targetIdx]?.audioEndMs,
-              words: timedWords ?? newMessages[targetIdx]?.words,
-              utteranceId: normalizedUtteranceId ?? newMessages[targetIdx].utteranceId,
-            };
-            logFinalMismatch(text, resolvedFinalText);
-            acceptedFinal = true;
-            didMutateRows = true;
-            newMessages = pruneCompetingSpeakerPartials(
-              newMessages,
-              speaker,
-              targetIdx,
-              resolvedFinalText,
-              messageTimestamp,
-              normalizedUtteranceId,
-            );
-            newMessages = collapseDuplicatePartialsForUtterance(
-              newMessages,
-              speaker,
-              normalizedUtteranceId,
-              targetIdx,
-            );
-          } else {
-            // No compatible partial found: append a new final entry instead of freezing
-            // the newest same-speaker partial. Freezing the newest branch caused transcript
-            // bleeding when Deepgram emitted divergent partial chains for the same speaker.
-              const recentFinals = newMessages
-                .filter(item => item.speaker === speaker && item.isFinal && !item.isPartial)
-                .slice(-10);
-              const isDuplicateRecentFinal = recentFinals.some(item => isNearDuplicateText(item.text, incomingDisplayText));
-              if (isDuplicateRecentFinal) {
-                console.log('[ListenView] 🚫 Skipping duplicate FINAL near recent same-speaker finals');
-                return didMutateRows ? newMessages : prev;
-              }
-
-              console.log('[ListenView] ➕ ADDING new FINAL (no partial found) utt:', normalizedUtteranceId ?? '∅');
-              console.log('  └─ NEW:', incomingDisplayText.substring(0, 50));
-              console.log('  ✅ REASON: No existing partial found for speaker', speaker, '- appending new final bubble');
-              console.log('  📊 Current state: prevLen=' + prev.length + ', finals:', prev.filter(t => t.isFinal).length);
-              appendFinalBeforeTrailingPartials(newMessages, {
-                text: incomingDisplayText,
-                speaker,
-                isFinal: true,
-                isPartial: false,
-                timestamp: messageTimestamp,
-                updatedAt: messageTimestamp,
-                audioStartMs: displayAudioStartMs,
-                audioEndMs,
-                words: timedWords,
-                utteranceId: normalizedUtteranceId,
-              });
-              logFinalMismatch(text, incomingDisplayText);
-              acceptedFinal = true;
-          }
-
-          if (normalizedUtteranceId) {
-            const utteranceKey = `${source ?? speaker ?? 'unknown'}:${sourceGeneration}:${normalizedUtteranceId}`;
-            finalizedUtteranceRef.current.set(utteranceKey, normalizeTranscriptText(text));
-            finalizedAtRef.current.set(utteranceKey, now);
-          }
-          if (normalizedUtteranceId && finalizedUtteranceKey) {
-            finalizedUtterances.current.add(finalizedUtteranceKey);
-          }
-          if (acceptedFinal) {
-            finalTranscriptCountRef.current += 1;
-            didMutateRows = true;
-          }
-        }
-        return didMutateRows ? newMessages : prev;
+      canonicalTranscriptStateRef.current = transition.state;
+      setCanonicalTranscriptState(transition.state);
+      shouldScrollAfterUpdate.current = true;
+      const projection = projectRealtimeTranscriptState(transition.state);
+      console.log('[ListenView][Canonical] Accepted event:', {
+        eventId: adapted.event.eventId,
+        source: adapted.event.source,
+        isFinal: adapted.event.isFinal,
+        seq: adapted.event.seq,
+        captureStartMs: adapted.event.captureStartMs,
+        captureEndMs: adapted.event.captureEndMs,
+        prospectRevision: transition.state.prospectRevision,
+        sellerRevision: transition.state.sellerRevision,
+        visibleRows: projection.visibleRows.length,
+        contextHash: projection.contextHash,
       });
-      // After transcripts state scheduled update, schedule an update of last-message age (ms) DEV-ONLY metric
-      setTimeout(() => {
-        const lastAt = lastMessageAtRef.current;
-        if (lastAt) {
-          setDiagLastMessageAgeMs(Date.now() - lastAt);
-        }
-      }, 60);
     };
 
+    const onTranscript = (payload: any) => handleTranscriptMessage(payload);
 
-    const eviaIpc = (window as any).evia?.ipc;
+    const onClearSession = () => {
+      console.log('[ListenView] Received clear-session');
+      resetSessionPresentation('clear-session');
+      sessionStateRef.current = 'before';
+      isSessionActiveRef.current = false;
+      setSessionState('before');
+      setIsSessionActive(false);
+      localStorage.setItem('evia_session_state', 'before');
+      stopTimer();
+    };
 
-    if (eviaIpc?.on) {
-      // Use named handlers so we can reliably remove them later
-      const onTranscript = (payload: any) => handleTranscriptMessage(payload);
+    const onLanguageChanged = () => {
+      console.log('[ListenView] Language changed; clearing session-derived state');
+      resetSessionPresentation('language-changed');
+    };
 
-      const onClearSession = () => {
-        console.log('[ListenView] 🧹 Received clear-session - resetting all state');
-        (window as any).evia?.liveTranscript?.clear?.();
-        setTranscripts([]);
-        setInsights(null);
-        setInsightsHistory([]);
-        setInsightsIndex(-1);
-        setInsightsRefreshPending(false);
-        setViewMode('insights');
-        setElapsedTime('00:00');
-        setIsSessionActive(false);
-        finalTranscriptCountRef.current = 0;
-        lastInsightsFetchCountRef.current = 0;
-        lastInsightsFetchAtRef.current = 0;
-        afterInsightsFrozenRef.current = false;
-        afterInsightsRequestPendingRef.current = false;
-        finalizedUtterances.current.clear();
-        finalizedUtteranceRef.current.clear();
-        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
-        finalizedAtRef.current.clear();
-        finalizedTextRef.current.clear();
-        pendingTurnCompleteRef.current = [];
-        stopTimer();
-        console.log('[ListenView] ✅ Session cleared');
-      };
+    const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
+      const previousState = sessionStateRef.current;
+      console.log('[ListenView] Session state changed:', newState, '(previous:', previousState, ')');
+      sessionStateRef.current = newState;
+      localStorage.setItem('evia_session_state', newState);
+      setSessionState(newState);
 
-      const onLanguageChanged = (newLang: string) => {
-        console.log('[ListenView] 🌐 Language changed - clearing insights');
-        (window as any).evia?.liveTranscript?.clear?.();
-        setInsights(null);
-        setInsightsHistory([]);
-        setInsightsIndex(-1);
-        setInsightsRefreshPending(false);
-        finalTranscriptCountRef.current = 0;
-        lastInsightsFetchCountRef.current = 0;
-        lastInsightsFetchAtRef.current = 0;
-        afterInsightsFrozenRef.current = false;
-        afterInsightsRequestPendingRef.current = false;
-        finalizedUtterances.current.clear();
-        finalizedUtteranceRef.current.clear();
-        sourceStreamGenerationRef.current = { mic: 0, system: 0 };
-        finalizedAtRef.current.clear();
-        finalizedTextRef.current.clear();
-        pendingTurnCompleteRef.current = [];
-      };
-
-      const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
-        const prevState = sessionStateRef.current;
-        console.log('[ListenView] 📡 Session state changed:', newState, '(prev:', prevState, ')');
-        // CRITICAL FIX: Also update localStorage in THIS window's context
-        // Each Electron window has its own localStorage, so we must sync it here!
-        localStorage.setItem('evia_session_state', newState);
-        setSessionState(newState);
-        if (newState === 'during') {
-          // Only reset for a genuinely NEW session. A new session ALWAYS enters 'during' from
-          // 'before' (idle -> starting). On Done, capture goes recording -> stopping -> review;
-          // 'stopping' re-broadcasts legacy 'during' and (racing with recording_stopped which
-          // may have set 'after' first) previously wiped the just-recorded transcript before the
-          // review stage. Guarding on prevState==='before' preserves it in every ordering.
-          if (prevState !== 'before') return;
-          (window as any).evia?.liveTranscript?.clear?.();
-          // Prevent one-frame flash of stale insights from previous session.
-          setTranscripts([]);
-          setViewMode('insights');
-          setInsights(null);
-          setInsightsHistory([]);
-          setInsightsIndex(-1);
-          setInsightsRefreshPending(false);
-          setIsSessionActive(true);
-          finalTranscriptCountRef.current = 0;
-          lastInsightsFetchCountRef.current = 0;
-          lastInsightsFetchAtRef.current = 0;
-          afterInsightsFrozenRef.current = false;
-          afterInsightsRequestPendingRef.current = false;
-          finalizedUtterances.current.clear();
-          sourceStreamGenerationRef.current = { mic: 0, system: 0 };
-        } else if (newState === 'after') {
-          setIsSessionActive(false);
-          setInsights(null);
-          setInsightsHistory([]);
-          setInsightsIndex(-1);
-          setInsightsRefreshPending(false);
-          setViewMode('insights');
-          schedulePostMeetingInsightsFetch();
-        } else if (newState === 'before') {
-          (window as any).evia?.liveTranscript?.clear?.();
-          setTranscripts([]);
-          setInsights(null);
-          setInsightsHistory([]);
-          setInsightsIndex(-1);
-          setInsightsRefreshPending(false);
-          setViewMode('insights');
-          setIsSessionActive(false);
-          finalTranscriptCountRef.current = 0;
-          lastInsightsFetchCountRef.current = 0;
-          lastInsightsFetchAtRef.current = 0;
-          afterInsightsFrozenRef.current = false;
-          afterInsightsRequestPendingRef.current = false;
-          finalizedUtterances.current.clear();
-          sourceStreamGenerationRef.current = { mic: 0, system: 0 };
+      if (newState === 'during') {
+        isSessionActiveRef.current = true;
+        setIsSessionActive(true);
+        if (previousState === 'before') {
+          resetSessionPresentation('session-state-before-to-during');
         }
-      };
-
-      // Register listeners
-      try {
-        // If removeAllListeners exists on the bridge, clear channels first to avoid duplication
-        if (typeof eviaIpc.removeAllListeners === 'function') {
-          ['transcript-message', 'clear-session', 'language-changed', 'session-state-changed'].forEach(ch => eviaIpc.removeAllListeners(ch));
-        }
-      } catch (err) {
-        // continue silently; not all bridges expose removeAllListeners
-        console.warn('[ListenView] removeAllListeners not available on eviaIpc:', err);
+        return;
       }
 
-      eviaIpc.on('transcript-message', onTranscript);
-      eviaIpc.on('clear-session', onClearSession);
-      eviaIpc.on('language-changed', onLanguageChanged);
-      eviaIpc.on('session-state-changed', onSessionStateChanged);
-
-      console.log('[ListenView] ✅ IPC listeners registered (named handlers)');
-
-      // Cleanup: try removeAllListeners first; otherwise remove the exact handlers
-      return () => {
-        console.log('[ListenView] Cleaning up IPC listeners');
-        const bridge = (window as any).evia?.ipc;
-        if (!bridge) return;
-
-        if (typeof bridge.removeAllListeners === 'function') {
-          try {
-            ['transcript-message', 'clear-session', 'language-changed', 'session-state-changed'].forEach(ch => bridge.removeAllListeners(ch));
-            return;
-          } catch (err) {
-            console.warn('[ListenView] removeAllListeners failed during cleanup:', err);
-          }
-        }
-
-        // Fallback: remove using off/removeListener if provided
-        try {
-          if (typeof bridge.off === 'function') {
-            bridge.off('transcript-message', onTranscript);
-            bridge.off('clear-session', onClearSession);
-            bridge.off('language-changed', onLanguageChanged);
-            bridge.off('session-state-changed', onSessionStateChanged);
-          } else if (typeof bridge.removeListener === 'function') {
-            bridge.removeListener('transcript-message', onTranscript);
-            bridge.removeListener('clear-session', onClearSession);
-            bridge.removeListener('language-changed', onLanguageChanged);
-            bridge.removeListener('session-state-changed', onSessionStateChanged);
-          } else {
-            console.warn('[ListenView] No supported listener removal methods on bridge');
-          }
-        } catch (err) {
-          console.error('[ListenView] Failed to remove IPC listeners via fallback methods:', err);
-        }
-      };
-    }
-
-    // If eviaIpc isn't present or doesn't support `.on`, provide a no-op cleanup
-    return () => {
-      /* no-op cleanup if bridge isn't available */
+      isSessionActiveRef.current = false;
+      setIsSessionActive(false);
+      if (newState === 'after') {
+        setViewMode('insights');
+        schedulePostMeetingInsightsFetch();
+      } else if (newState === 'before') {
+        resetSessionPresentation('session-state-before');
+        stopTimer();
+      }
     };
 
-  }, []);
+    eviaIpc.on('transcript-message', onTranscript);
+    eviaIpc.on('clear-session', onClearSession);
+    eviaIpc.on('language-changed', onLanguageChanged);
+    eviaIpc.on('session-state-changed', onSessionStateChanged);
+    console.log('[ListenView] Canonical IPC listeners registered');
 
+    return () => {
+      const bridge = (window as any).evia?.ipc;
+      if (!bridge) return;
+      const remove = typeof bridge.off === 'function'
+        ? bridge.off.bind(bridge)
+        : typeof bridge.removeListener === 'function'
+          ? bridge.removeListener.bind(bridge)
+          : null;
+      if (!remove) {
+        console.warn('[ListenView] IPC bridge cannot remove named listeners');
+        return;
+      }
+      remove('transcript-message', onTranscript);
+      remove('clear-session', onClearSession);
+      remove('language-changed', onLanguageChanged);
+      remove('session-state-changed', onSessionStateChanged);
+      console.log('[ListenView] Canonical IPC listeners removed');
+    };
+  }, []);
   const latestHistoricalInsight =
     insightsHistory.length > 0
       ? insightsHistory[insightsIndex >= 0 ? insightsIndex : insightsHistory.length - 1]
@@ -1571,11 +839,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
     const currentIsSessionActive = isSessionActiveRef.current;
+    const requestIdentity = currentDownstreamIdentity(canonicalTranscriptStateRef.current);
 
     // DIAGNOSTIC: Log start of fetch
     console.log('[ListenView] 🔍 DIAGNOSTIC: Starting fetchInsightsNow');
     console.log('[ListenView] 🔍 Transcript count (local UI):', currentTranscripts.length);
-    console.log('[ListenView] 🔍 Final transcript count (ref):', finalTranscriptCountRef.current);
+    console.log('[ListenView] 🔍 Canonical revisions:', {
+      prospect: canonicalTranscriptStateRef.current.prospectRevision,
+      seller: canonicalTranscriptStateRef.current.sellerRevision,
+      contextHash: requestIdentity.contextHash,
+    });
     console.log('[ListenView] 🔍 Session state:', currentSessionState);
     console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
 
@@ -1604,7 +877,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           return next;
         });
       }
-      lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
+      lastInsightsProspectRevisionRef.current = requestIdentity.prospectRevision;
       lastInsightsFetchAtRef.current = Date.now();
       if (latestSessionState === 'after') {
         afterInsightsFrozenRef.current = true;
@@ -1629,7 +902,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // Deliberately does not set afterInsightsFrozenRef: freezing here would
     // block a real fetch if rows arrive late. Only the pending flag is cleared,
     // exactly as the finally block below would have done.
-    if (currentTranscripts.length === 0 && finalTranscriptCountRef.current === 0) {
+    if (currentTranscripts.length === 0) {
       console.log('[ListenView] ⏭️ No transcripts captured - skipping insights fetch');
       setInsightsRefreshPending(false);
       if (latestSessionState === 'after' && !afterInsightsFrozenRef.current) {
@@ -1744,6 +1017,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] 🔍 Attempts used:', attempt + 1);
       
       if (fetchedInsights) {
+        if (!isDownstreamResultApplicable(canonicalTranscriptStateRef.current, requestIdentity)) {
+          console.warn('[ListenView] Discarding obsolete insights result:', {
+            requested: requestIdentity,
+            current: currentDownstreamIdentity(canonicalTranscriptStateRef.current),
+          });
+          if (sessionStateRef.current === 'during') liveInsightsRefreshQueuedRef.current = true;
+          return;
+        }
         console.log('[ListenView] ✅ Glass insights received!');
         if (isStubInsightPayload(fetchedInsights)) {
           if (insightsHistoryRef.current.length > 0) {
@@ -1787,7 +1068,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             return next;
           });
         }
-        lastInsightsFetchCountRef.current = finalTranscriptCountRef.current;
+        lastInsightsProspectRevisionRef.current = requestIdentity.prospectRevision;
         lastInsightsFetchAtRef.current = Date.now();
         if (derivedSessionState === 'after') {
           afterInsightsFrozenRef.current = true;
@@ -1819,7 +1100,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             sessionStateRef.current === 'during' &&
             viewModeRef.current === 'insights' &&
             hasGroundedProspectSpeech(transcriptsRef.current) &&
-            finalTranscriptCountRef.current > lastInsightsFetchCountRef.current
+            canonicalTranscriptStateRef.current.prospectRevision > lastInsightsProspectRevisionRef.current
           ) {
             void fetchInsightsNowRef.current();
           }
@@ -1864,7 +1145,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     if (demoModeEnabledRef.current || sessionState !== 'during' || viewMode !== 'insights') return;
     if (!hasGroundedProspectSpeech(transcripts)) return;
-    if (finalTranscriptCountRef.current <= lastInsightsFetchCountRef.current) return;
+    if (canonicalTranscriptState.prospectRevision <= lastInsightsProspectRevisionRef.current) return;
 
     if (liveInsightsRefreshTimerRef.current) clearTimeout(liveInsightsRefreshTimerRef.current);
     liveInsightsRefreshTimerRef.current = setTimeout(() => {
@@ -1879,7 +1160,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         liveInsightsRefreshTimerRef.current = null;
       }
     };
-  }, [transcripts, sessionState, viewMode]);
+  }, [canonicalTranscriptState.prospectRevision, transcripts, sessionState, viewMode]);
 
 
   useEffect(() => {

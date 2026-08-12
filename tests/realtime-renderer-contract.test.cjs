@@ -98,28 +98,25 @@ test('renderer subscribes before starting the macOS native helper', () => {
   );
 });
 
-test('capture sockets and native macOS capture start in parallel without sacrificing the microphone', () => {
-  const startBlock = audioSource.split('export async function startCapture', 2)[1];
+test('capture sockets and native macOS capture start in parallel behind a strict two-source gate', () => {
+  const startBlock = audioSource.split('async function startCaptureInternal', 2)[1];
   assert.ok(startBlock, 'capture startup should exist');
   assert.match(startBlock, /const socketConnectionsPromise = connectCaptureWebSockets\(includeSystemAudio\)/);
   assert.match(startBlock, /const macSystemCapturePromise = includeSystemAudio && isMac/);
   assert.match(startBlock, /Promise\.all\(\[\s*socketConnectionsPromise,\s*macSystemCapturePromise/);
-  assert.match(startBlock, /Optional macOS system audio failed; microphone capture remains active/);
-  assert.match(startBlock, /stopMacSystemAudioCaptureOnly\(eviaApi\)/);
+  assert.match(startBlock, /Required system audio failed/);
   assert.match(startBlock, /systemAudioAvailable/);
   assert.match(startBlock, /systemAudioStatus/);
+  assert.doesNotMatch(startBlock, /Optional macOS system audio failed; microphone capture remains active/);
 });
 
-test('system WebSocket failure is isolated from the required microphone connection', () => {
+test('a two-sided call fails closed unless both capture WebSockets are connected', () => {
   const socketBlock = audioSource.split('async function connectCaptureWebSockets', 2)[1];
   assert.ok(socketBlock, 'capture socket startup should exist');
-  assert.match(socketBlock, /const micConnection = pair\.mic\.connect\(\)/);
-  assert.match(socketBlock, /pair\.system\.connect\(\)[\s\S]*\.catch/);
-  assert.match(socketBlock, /await micConnection/);
-  assert.match(socketBlock, /Promise\.race\(\[\s*systemConnection/);
-  assert.match(socketBlock, /window\.setTimeout\(\(\) => resolve\('socket_timeout'\), 1500\)/);
-  assert.match(socketBlock, /socket_connection_failed/);
-  assert.match(socketBlock, /socket_timeout/);
+  assert.match(socketBlock, /await Promise\.all\(\[pair\.mic\.connect\(\), pair\.system\.connect\(\)\]\)/);
+  assert.match(socketBlock, /Required dual-source WebSocket startup failed/);
+  assert.match(socketBlock, /error\.systemAudioStatus = 'socket_connection_failed'/);
+  assert.doesNotMatch(socketBlock, /systemConnection[\s\S]*\.catch/);
 });
 
 test('late audio callbacks cannot recreate sockets after capture stops', () => {
@@ -127,18 +124,19 @@ test('late audio callbacks cannot recreate sockets after capture stops', () => {
   const micBlock = audioSource.split('micProcessor.onaudioprocess =', 2)[1];
   const systemBlock = audioSource.split('sysProcessor.onaudioprocess =', 2)[1];
 
-  for (const [name, block, socketFactory] of [
-    ['macOS native', macBlock, 'ensureSystemWs'],
-    ['microphone', micBlock, 'ensureMicWs'],
-    ['system stream', systemBlock, 'ensureSystemWs'],
+  for (const [name, block] of [
+    ['macOS native', macBlock],
+    ['microphone', micBlock],
+    ['system stream', systemBlock],
   ]) {
     assert.ok(block, `${name} callback should exist`);
     assert.ok(
-      block.indexOf('if (!isActivelyCapturing) return;') >= 0 &&
-        block.indexOf('if (!isActivelyCapturing) return;') < block.indexOf(socketFactory),
-      `${name} callback must reject late frames before creating a socket`
+      block.indexOf('if (!isCurrentCaptureTimeline(timeline)) return;') >= 0,
+      `${name} callback must reject frames from a stopped or superseded capture generation`
     );
   }
+  const stopBlock = audioSource.split('export async function stopCapture', 2)[1];
+  assert.ok(stopBlock.indexOf('isActivelyCapturing = false') < stopBlock.indexOf('captureTimeline = null'));
 });
 
 test('language changes stop physical capture through the canonical lifecycle', () => {
@@ -223,28 +221,18 @@ test('Done never waits for backend archival before closing the local session', (
   );
 });
 
-test('partial transcript rendering follows the audio cadence', () => {
-  assert.match(listenSource, /PARTIAL_THROTTLE_MS = 100/);
+test('partial transcript rendering uses the same canonical projection as model context', () => {
+  assert.match(listenSource, /const transition = applyRealtimeTranscriptEvent\(/);
+  assert.match(listenSource, /const canonicalProjection = useMemo\([\s\S]*projectRealtimeTranscriptState\(canonicalTranscriptState\)/);
+  assert.match(listenSource, /canonicalProjection\.visibleRows\.map/);
+  assert.match(listenSource, /transcriptContext: canonicalProjection\.context/);
 });
 
 test('late provider interims are rejected before transcript state changes', () => {
-  const providerKeyIndex = listenSource.indexOf('const providerUtteranceKey =');
-  const finalizedGuardIndex = listenSource.indexOf(
-    'finalizedUtterances.current.has(providerUtteranceKey)',
-    providerKeyIndex,
-  );
-  const stateUpdateIndex = listenSource.indexOf(
-    'setTranscripts(prev => {',
-    providerKeyIndex,
-  );
-
-  assert.ok(providerKeyIndex >= 0, 'provider utterance identity must be available');
-  assert.ok(finalizedGuardIndex > providerKeyIndex, 'late-finalized interim guard must exist');
-  assert.ok(
-    finalizedGuardIndex < stateUpdateIndex,
-    'late interim must be rejected before it can reactivate transcript state',
-  );
-  assert.doesNotMatch(listenSource, /continuationAfterConsumedText|freezeInterruptedPartials/);
+  const reducerSource = read('src/main/realtime-transcript-state.ts');
+  assert.match(reducerSource, /if \(existing\.isFinal\) \{\s*return \{ state, accepted: false, reason: 'finalized-row' \}/);
+  assert.match(reducerSource, /if \(event\.seq <= existing\.seq\) \{\s*return \{ state, accepted: false, reason: 'stale-seq' \}/);
+  assert.match(listenSource, /if \(!transition\.accepted\) \{[\s\S]*return;/);
 });
 
 test('during-call Ask prefers live context before database history', () => {
@@ -274,7 +262,8 @@ test('Ask requests carry an end-to-end request trace', () => {
 
 test('audio activity uses content-free control messages with a silence tail', () => {
   assert.match(wsSource, /command: 'audio_activity'/);
-  assert.match(wsSource, /HANGOVER_SILENT_CHUNKS = 5/);
+  assert.match(wsSource, /const HANGOVER_MS = 500/);
+  assert.match(wsSource, /this\.silentDurationMs \+= chunkDurationMs/);
   assert.match(wsSource, /this\.sendAudioActivity\(false, true\)/);
 });
 
@@ -422,6 +411,6 @@ test('Ask renders its complete thinking state before asynchronous context work',
 test('visible live insights refresh after the first grounded prospect line', () => {
   assert.match(listenSource, /liveInsightsRefreshTimerRef/);
   assert.match(listenSource, /hasGroundedProspectSpeech\(transcripts\)/);
-  assert.match(listenSource, /finalTranscriptCountRef\.current <= lastInsightsFetchCountRef\.current/);
+  assert.match(listenSource, /canonicalTranscriptState\.prospectRevision <= lastInsightsProspectRevisionRef\.current/);
   assert.match(listenSource, /void fetchInsightsNowRef\.current\(\)/);
 });

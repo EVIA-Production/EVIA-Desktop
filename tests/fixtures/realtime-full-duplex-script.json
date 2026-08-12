@@ -1,0 +1,198 @@
+{
+  "fixtureVersion": 1,
+  "chatId": "fixture-chat",
+  "sessionId": "fixture-session",
+  "captureGeneration": 42,
+  "expectedProjection": [
+    ["seller", "Start."],
+    ["prospect", "Weber Praezisionstechnik, Martin Weber am Apparat."],
+    ["seller", "Kurz dazwischen."],
+    ["prospect", "Worum geht es konkret?"],
+    ["seller", "Hallo Herr Weber."],
+    ["prospect", "Ja."],
+    ["seller", "Ja."],
+    ["prospect", "Nach dem Reconnect bin ich noch da."]
+  ],
+  "events": [
+    {
+      "id": "seller-start-final",
+      "deliveryBaseMs": 760,
+      "event": {
+        "source": "mic",
+        "streamGeneration": 1,
+        "utteranceId": "0",
+        "eventId": "fixture:mic:1:0",
+        "seq": 2,
+        "captureStartMs": 100,
+        "captureEndMs": 300,
+        "words": [{"text": "Start.", "startMs": 100, "endMs": 300}],
+        "text": "Start.",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "prospect-long-partial",
+      "deliveryBaseMs": 1260,
+      "event": {
+        "source": "system",
+        "streamGeneration": 1,
+        "utteranceId": "0",
+        "eventId": "fixture:system:1:0",
+        "seq": 1,
+        "captureStartMs": 500,
+        "captureEndMs": 1030,
+        "words": [
+          {"text": "Weber", "startMs": 500, "endMs": 610},
+          {"text": "Praezisionstechnik,", "startMs": 620, "endMs": 790},
+          {"text": "Martin", "startMs": 800, "endMs": 900},
+          {"text": "Weber", "startMs": 910, "endMs": 970},
+          {"text": "am", "startMs": 980, "endMs": 1000},
+          {"text": "Apparat.", "startMs": 1010, "endMs": 1030}
+        ],
+        "text": "Weber Praezisionstechnik, Martin Weber am Apparat.",
+        "isFinal": false
+      }
+    },
+    {
+      "id": "prospect-stale-shorter",
+      "deliveryBaseMs": 1310,
+      "event": {
+        "source": "system",
+        "streamGeneration": 1,
+        "utteranceId": "0",
+        "eventId": "fixture:system:1:0",
+        "seq": 2,
+        "captureStartMs": 500,
+        "captureEndMs": 790,
+        "words": [
+          {"text": "Weber", "startMs": 500, "endMs": 610},
+          {"text": "Praezisionstechnik,", "startMs": 620, "endMs": 790}
+        ],
+        "text": "Weber Praezisionstechnik,",
+        "isFinal": false
+      }
+    },
+    {
+      "id": "seller-interruption-final",
+      "deliveryBaseMs": 1840,
+      "event": {
+        "source": "mic",
+        "streamGeneration": 1,
+        "utteranceId": "1",
+        "eventId": "fixture:mic:1:1",
+        "seq": 3,
+        "captureStartMs": 1080,
+        "captureEndMs": 1260,
+        "words": [
+          {"text": "Kurz", "startMs": 1080, "endMs": 1150},
+          {"text": "dazwischen.", "startMs": 1160, "endMs": 1260}
+        ],
+        "text": "Kurz dazwischen.",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "prospect-long-final",
+      "deliveryBaseMs": 2180,
+      "event": {
+        "source": "system",
+        "streamGeneration": 1,
+        "utteranceId": "0",
+        "eventId": "fixture:system:1:0",
+        "seq": 4,
+        "captureStartMs": 500,
+        "captureEndMs": 1540,
+        "words": [
+          {"text": "Weber", "startMs": 500, "endMs": 610},
+          {"text": "Praezisionstechnik,", "startMs": 620, "endMs": 790},
+          {"text": "Martin", "startMs": 800, "endMs": 900},
+          {"text": "Weber", "startMs": 910, "endMs": 970},
+          {"text": "am", "startMs": 980, "endMs": 1000},
+          {"text": "Apparat.", "startMs": 1010, "endMs": 1030},
+          {"text": "Worum", "startMs": 1310, "endMs": 1380},
+          {"text": "geht", "startMs": 1390, "endMs": 1430},
+          {"text": "es", "startMs": 1440, "endMs": 1460},
+          {"text": "konkret?", "startMs": 1470, "endMs": 1540}
+        ],
+        "text": "Weber Praezisionstechnik, Martin Weber am Apparat. Worum geht es konkret?",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "seller-opener-final",
+      "deliveryBaseMs": 2780,
+      "event": {
+        "source": "mic",
+        "streamGeneration": 1,
+        "utteranceId": "2",
+        "eventId": "fixture:mic:1:2",
+        "seq": 4,
+        "captureStartMs": 1650,
+        "captureEndMs": 1900,
+        "words": [
+          {"text": "Hallo", "startMs": 1650, "endMs": 1740},
+          {"text": "Herr", "startMs": 1750, "endMs": 1800},
+          {"text": "Weber.", "startMs": 1810, "endMs": 1900}
+        ],
+        "text": "Hallo Herr Weber.",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "prospect-ja-final",
+      "deliveryBaseMs": 2860,
+      "event": {
+        "source": "system",
+        "streamGeneration": 1,
+        "utteranceId": "1",
+        "eventId": "fixture:system:1:1",
+        "seq": 5,
+        "captureStartMs": 2020,
+        "captureEndMs": 2120,
+        "words": [{"text": "Ja.", "startMs": 2020, "endMs": 2120}],
+        "text": "Ja.",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "seller-ja-final",
+      "deliveryBaseMs": 3020,
+      "event": {
+        "source": "mic",
+        "streamGeneration": 1,
+        "utteranceId": "3",
+        "eventId": "fixture:mic:1:3",
+        "seq": 5,
+        "captureStartMs": 2200,
+        "captureEndMs": 2300,
+        "words": [{"text": "Ja.", "startMs": 2200, "endMs": 2300}],
+        "text": "Ja.",
+        "isFinal": true
+      }
+    },
+    {
+      "id": "prospect-reconnect-final",
+      "deliveryBaseMs": 4080,
+      "event": {
+        "source": "system",
+        "streamGeneration": 2,
+        "utteranceId": "0",
+        "eventId": "fixture:system:2:0",
+        "seq": 1,
+        "captureStartMs": 3000,
+        "captureEndMs": 3400,
+        "words": [
+          {"text": "Nach", "startMs": 3000, "endMs": 3060},
+          {"text": "dem", "startMs": 3070, "endMs": 3110},
+          {"text": "Reconnect", "startMs": 3120, "endMs": 3200},
+          {"text": "bin", "startMs": 3210, "endMs": 3240},
+          {"text": "ich", "startMs": 3250, "endMs": 3280},
+          {"text": "noch", "startMs": 3290, "endMs": 3330},
+          {"text": "da.", "startMs": 3340, "endMs": 3400}
+        ],
+        "text": "Nach dem Reconnect bin ich noch da.",
+        "isFinal": true
+      }
+    }
+  ]
+}

@@ -1,11 +1,21 @@
 // Glass parity: Audio capture using ScriptProcessorNode (reliable, no CSP issues)
-import { getWebSocketInstance, getOrCreateChatId, closeWebSocketInstance } from './services/websocketService';
+import {
+  getWebSocketInstance,
+  getOrCreateChatId,
+  recreateChatId,
+  closeWebSocketInstance,
+} from './services/websocketService';
 import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
 import { ReferenceRing, SYSTEM_CAPTURE_ASSUMED_LATENCY_MS } from '../main/aec-reference';
 import { AecTelemetry, describeReport } from '../main/aec-telemetry';
 import { Aec3Canceller, AEC3_MAX_TRACKABLE_DELAY_MS } from '../main/aec3-canceller';
+import {
+  type AudioChunkMetadata,
+  type CaptureSource,
+  CaptureSessionTimeline,
+} from '../main/capture-timeline';
 import { aec3WasmBinary } from './aec3/wasm-binary';
 
 const BUFFER_SIZE = 2048;
@@ -567,6 +577,167 @@ let systemAudioContext: AudioContext | null = null;
 let systemAudioProcessor: ScriptProcessorNode | null = null;
 let systemStream: MediaStream | null = null;
 
+// One identity and one monotonic clock for both physical capture paths.
+let captureTimeline: CaptureSessionTimeline | null = null;
+let nextCaptureGeneration = 0;
+let captureTransportReady = false;
+let captureStartupError: Error | null = null;
+type BufferedCaptureChunk = {
+  source: CaptureSource;
+  data: ArrayBuffer;
+  metadata: AudioChunkMetadata;
+};
+let preReadyCaptureChunks: BufferedCaptureChunk[] = [];
+const MAX_PRE_READY_CAPTURE_MS = 3000;
+const MAX_PRE_READY_CAPTURE_BYTES =
+  SAMPLE_RATE * 2 * 2 * (MAX_PRE_READY_CAPTURE_MS / 1000);
+const FIRST_CAPTURE_CHUNK_TIMEOUT_MS = 5000;
+
+function isCurrentCaptureTimeline(timeline: CaptureSessionTimeline): boolean {
+  return captureTimeline === timeline && isActivelyCapturing;
+}
+
+function beginCaptureSession(): CaptureSessionTimeline {
+  if (isActivelyCapturing || captureTimeline) {
+    throw new Error('[AudioCapture] Cannot start a new capture over an active session');
+  }
+
+  captureTransportReady = false;
+  captureStartupError = null;
+  preReadyCaptureChunks = [];
+  referenceRing.reset();
+  micOriginMs = null;
+  micSamplesConsumed = 0;
+  aecTelemetry = null;
+  aecSkippedChunks = 0;
+  lastSkipWarningAtMs = 0;
+  aec3LoadFailed = false;
+
+  const timeline = new CaptureSessionTimeline({
+    generation: nextCaptureGeneration++,
+    epochUnixMs: Date.now(),
+    originPerformanceMs: performance.now(),
+  });
+  captureTimeline = timeline;
+  isActivelyCapturing = true;
+  console.log(`[AudioCapture] Capture identity ${timeline.id}/${timeline.generation}`);
+  return timeline;
+}
+
+function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): void {
+  if (expectedTimeline && captureTimeline && captureTimeline !== expectedTimeline) {
+    return;
+  }
+  isActivelyCapturing = false;
+  captureTransportReady = false;
+  captureStartupError = null;
+  preReadyCaptureChunks = [];
+  captureTimeline = null;
+  referenceRing.reset();
+  micOriginMs = null;
+  micSamplesConsumed = 0;
+  aecTelemetry = null;
+  aecSkippedChunks = 0;
+  lastSkipWarningAtMs = 0;
+  aec3LoadFailed = false;
+}
+
+function requireCaptureTimeline(): CaptureSessionTimeline {
+  if (!captureTimeline) {
+    throw new Error('[AudioCapture] Capture timeline is not initialized');
+  }
+  return captureTimeline;
+}
+
+function sendCaptureChunk(
+  source: CaptureSource,
+  data: ArrayBuffer,
+  metadata: AudioChunkMetadata,
+): ReturnType<ReturnType<typeof getWebSocketInstance>['sendAudioChunk']> | 'buffered' {
+  const timeline = requireCaptureTimeline();
+  if (
+    metadata.capture_session_id !== timeline.id ||
+    metadata.capture_generation !== timeline.generation ||
+    metadata.source !== source ||
+    metadata.byte_length !== data.byteLength
+  ) {
+    throw new Error('[AudioCapture] Refusing chunk with stale or inconsistent metadata');
+  }
+  if (captureStartupError) throw captureStartupError;
+
+  if (!captureTransportReady) {
+    preReadyCaptureChunks.push({ source, data, metadata });
+    const earliestStartMs = Math.min(
+      ...preReadyCaptureChunks.map(item => item.metadata.capture_start_ms),
+    );
+    const latestEndMs = Math.max(
+      ...preReadyCaptureChunks.map(item => item.metadata.capture_end_ms),
+    );
+    const bufferedBytes = preReadyCaptureChunks.reduce(
+      (total, item) => total + item.data.byteLength,
+      0,
+    );
+    if (
+      latestEndMs - earliestStartMs > MAX_PRE_READY_CAPTURE_MS ||
+      bufferedBytes > MAX_PRE_READY_CAPTURE_BYTES
+    ) {
+      captureStartupError = new Error(
+        `[AudioCapture] Startup exceeded its bounded audio buffer; opening was not released`
+      );
+      throw captureStartupError;
+    }
+    return 'buffered';
+  }
+
+  const ws = source === 'mic'
+    ? ensureMicWs()
+    : ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+  if (!ws) throw new Error(`[AudioCapture] ${source} WebSocket unavailable`);
+  return ws.sendAudioChunk(data, metadata);
+}
+
+function releaseCaptureTransport(): void {
+  if (captureStartupError) throw captureStartupError;
+  const buffered = [...preReadyCaptureChunks];
+  buffered
+    .sort((a, b) => {
+      const timeDelta = a.metadata.capture_start_ms - b.metadata.capture_start_ms;
+      if (timeDelta !== 0) return timeDelta;
+      if (a.source !== b.source) return a.source === 'system' ? -1 : 1;
+      return a.metadata.chunk_seq - b.metadata.chunk_seq;
+    })
+    .forEach((chunk) => {
+      const ws = chunk.source === 'mic'
+        ? ensureMicWs()
+        : ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+      if (!ws) throw new Error(`[AudioCapture] ${chunk.source} WebSocket unavailable at release`);
+      ws.sendAudioChunk(chunk.data, chunk.metadata);
+    });
+  preReadyCaptureChunks = [];
+  captureTransportReady = true;
+}
+
+async function waitForFirstCaptureChunk(
+  firstChunk: Promise<void>,
+  source: CaptureSource,
+): Promise<void> {
+  let timeoutId: number | undefined;
+  try {
+    await Promise.race([
+      firstChunk,
+      new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error(
+            `[AudioCapture] Timed out waiting for first ${source} PCM chunk`,
+          ));
+        }, FIRST_CAPTURE_CHUNK_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // AEC (Acoustic Echo Cancellation) - WebRTC AEC3
 //
@@ -880,41 +1051,28 @@ async function connectCaptureWebSockets(
     }
 
     if (!pair.system) {
-      await pair.mic.connect();
-      return {
-        systemAudioSocketAvailable: false,
-        systemAudioStatus: 'socket_unavailable',
+      const error = new Error('[AudioCapture] Required system-audio WebSocket unavailable') as Error & {
+        systemAudioStatus?: SystemAudioStartupStatus;
       };
+      error.systemAudioStatus = 'socket_unavailable';
+      throw error;
     }
 
-    // Start both handshakes together. Only the microphone promise is required.
-    const micConnection = pair.mic.connect();
-    const systemConnection = pair.system.connect()
-      .then(() => 'ready' as const)
-      .catch((error) => {
-        console.warn(
-          '[AudioCapture] Optional system-audio WebSocket failed; continuing with microphone:',
-          error
-        );
-        return 'socket_connection_failed' as const;
-      });
-
-    await micConnection;
-    // System audio is optional. A stalled secondary socket must never delay a
-    // healthy microphone session or make the Listen control appear frozen.
-    const systemConnectionStatus = await Promise.race([
-      systemConnection,
-      new Promise<'socket_timeout'>((resolve) => {
-        window.setTimeout(() => resolve('socket_timeout'), 1500);
-      }),
-    ]);
-    const systemConnected = systemConnectionStatus === 'ready';
-    if (!systemConnected) {
-      closeCaptureWebSocket('system');
+    // A two-sided call is not ready until both transports are open. Silently
+    // degrading to mic-only fabricates a complete-looking session while the
+    // prospect is absent, which is worse than a visible startup failure.
+    try {
+      await Promise.all([pair.mic.connect(), pair.system.connect()]);
+    } catch (cause) {
+      const error = new Error('[AudioCapture] Required dual-source WebSocket startup failed', {
+        cause,
+      }) as Error & { systemAudioStatus?: SystemAudioStartupStatus };
+      error.systemAudioStatus = 'socket_connection_failed';
+      throw error;
     }
     return {
-      systemAudioSocketAvailable: systemConnected,
-      systemAudioStatus: systemConnectionStatus,
+      systemAudioSocketAvailable: true,
+      systemAudioStatus: 'ready',
     };
   };
 
@@ -924,16 +1082,12 @@ async function connectCaptureWebSockets(
     connectionStatus = await connectPair(pair);
   } catch (error) {
     console.error('[AudioCapture] Required microphone WebSocket connection failed:', error);
-    if (localStorage.getItem('current_chat_id')) {
-      throw error;
-    }
-
-    console.log('[AudioCapture] Recreating the chat once for both capture sockets...');
+    console.log('[AudioCapture] Replacing the stale capture chat and retrying once...');
     closeCaptureWebSocket('mic');
     if (includeSystemAudio) closeCaptureWebSocket('system');
 
     const token = await getActiveAuthToken();
-    const newChatId = await getOrCreateChatId(BACKEND_URL, token, true);
+    const newChatId = await recreateChatId(BACKEND_URL, token);
     console.log('[AudioCapture] Recreated capture chat:', newChatId);
 
     pair = createPair();
@@ -946,7 +1100,10 @@ async function connectCaptureWebSockets(
   return connectionStatus;
 }
 
-async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
+async function startMacSystemAudioCapture(
+  eviaApi: any,
+  timeline: CaptureSessionTimeline,
+): Promise<void> {
   if (!eviaApi?.systemAudio) {
     const error = new Error('macOS system audio API is unavailable') as Error & {
       systemAudioStatus?: SystemAudioStartupStatus;
@@ -962,11 +1119,18 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
   }
 
   macSystemCaptureStartedAt = Date.now();
+  let settleFirstChunk: (() => void) | null = null;
+  let rejectFirstChunk: ((error: Error) => void) | null = null;
+  let firstChunkSettled = false;
+  const firstValidChunk = new Promise<void>((resolve, reject) => {
+    settleFirstChunk = resolve;
+    rejectFirstChunk = reject;
+  });
   const systemAudioHandler = eviaApi.systemAudio.onData((audioData: {
     data: string;
     capturedAtUnixMs?: number;
   }) => {
-    if (!isActivelyCapturing) return;
+    if (!isCurrentCaptureTimeline(timeline)) return;
 
     try {
       updateWsActivity('system');
@@ -977,6 +1141,17 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
+      if (typeof audioData.capturedAtUnixMs !== 'number' || !Number.isFinite(audioData.capturedAtUnixMs)) {
+        throw new Error('[AudioCapture] System audio chunk is missing its capture PTS');
+      }
+
+      const metadata = timeline.createSystemFromEpochPts({
+        capturedAtUnixMs: audioData.capturedAtUnixMs,
+        observedAtUnixMs: Date.now(),
+        observedAtPerformanceMs: performance.now(),
+        sampleRate: SAMPLE_RATE,
+        byteLength: bytes.byteLength,
+      });
 
       if (DEBUG_SAVE_AUDIO) {
         debugAudioBuffers.system.push(new Int16Array(bytes.buffer.slice(0)));
@@ -988,28 +1163,17 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
       // canceller has no far-end signal on the platform we ship first.
       // Stamp when this chunk's FIRST sample was CAPTURED, not when it arrived.
       // ScreenCaptureKit's presentation timestamp crosses the helper and IPC as
-      // Unix time, so renderer receipt delay is included in the age below. The
-      // fixed assumption remains only for compatibility with an older helper.
+      // Unix time, so the timeline has already validated and mapped the PTS to
+      // the same session scale used by the microphone. There is deliberately no
+      // receipt-time fallback: a foreign/implausible clock must fail startup.
       const referenceChunk = base64ToFloat32Array(audioData.data);
-      const referenceChunkMs = (referenceChunk.length / SAMPLE_RATE) * 1000;
-      const measuredAgeMs = typeof audioData.capturedAtUnixMs === 'number'
-        && Number.isFinite(audioData.capturedAtUnixMs)
-        ? Date.now() - audioData.capturedAtUnixMs
-        : Number.NaN;
-      const capturedAtPerformanceMs = Number.isFinite(measuredAgeMs)
-        && measuredAgeMs >= 0
-        && measuredAgeMs <= 5000
-        ? performance.now() - measuredAgeMs
-        : performance.now() - referenceChunkMs - SYSTEM_CAPTURE_ASSUMED_LATENCY_MS;
+      const capturedAtPerformanceMs =
+        timeline.originPerformanceMs + metadata.capture_start_ms;
       if (isFirstSystemChunk) {
-        const timestampSource = Number.isFinite(measuredAgeMs)
-          && measuredAgeMs >= 0
-          && measuredAgeMs <= 5000
-          ? `ScreenCaptureKit (${measuredAgeMs.toFixed(1)}ms old)`
-          : `fallback (${SYSTEM_CAPTURE_ASSUMED_LATENCY_MS + referenceChunkMs}ms old)`;
         console.log(
           `[AudioCapture] First macOS system-audio chunk after ` +
-          `${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms; timestamp=${timestampSource}`
+          `${pipelineMetrics.lastSystemChunkTime - macSystemCaptureStartedAt}ms; ` +
+          `timestamp=ScreenCaptureKit (${(Date.now() - audioData.capturedAtUnixMs).toFixed(1)}ms old)`
         );
       }
       referenceRing.write(
@@ -1022,16 +1186,22 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
         systemAudioBuffer.shift();
       }
 
-      const ws = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
-      if (ws?.sendBinaryData) {
-        const sendResult = ws.sendBinaryData(bytes.buffer);
-        if (sendResult === 'sent') {
-          pipelineMetrics.systemChunksSent++;
-        }
+      const pcm = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const sendResult = sendCaptureChunk('system', pcm, metadata);
+      if (sendResult === 'sent') {
+        pipelineMetrics.systemChunksSent++;
+      }
+      if (!firstChunkSettled) {
+        firstChunkSettled = true;
+        settleFirstChunk?.();
       }
     } catch (error) {
       console.error('[AudioCapture] Error processing system audio data:', error);
       pipelineMetrics.errorsEncountered++;
+      if (!firstChunkSettled) {
+        firstChunkSettled = true;
+        rejectFirstChunk?.(error instanceof Error ? error : new Error(String(error)));
+      }
     }
   });
 
@@ -1074,6 +1244,8 @@ async function startMacSystemAudioCapture(eviaApi: any): Promise<void> {
       typeof result.readyInMs === 'number' ? ` after ${result.readyInMs}ms` : ''
     }`
   );
+  await waitForFirstCaptureChunk(firstValidChunk, 'system');
+  console.log('[AudioCapture] First timestamped system-audio chunk is ready');
   startMacSystemHealthCheck();
 }
 
@@ -1113,7 +1285,10 @@ function convertFloat32ToInt16(float32Array: Float32Array): Int16Array {
 }
 
 // Glass parity: Setup microphone processing with ScriptProcessorNode + AEC
-async function setupMicProcessing(stream: MediaStream) {
+async function setupMicProcessing(
+  stream: MediaStream,
+  timeline: CaptureSessionTimeline,
+) {
   // ──────────────────────────────────────────────────────────────────────────
   // Bring up the echo canceller before the first microphone frame arrives.
   // ──────────────────────────────────────────────────────────────────────────
@@ -1136,9 +1311,16 @@ async function setupMicProcessing(stream: MediaStream) {
   let frameCounter = 0;
   let totalAudioLevel = 0;
   let silentFrames = 0;
+  let settleFirstChunk: (() => void) | null = null;
+  let rejectFirstChunk: ((error: Error) => void) | null = null;
+  let firstChunkSettled = false;
+  const firstChunk = new Promise<void>((resolve, reject) => {
+    settleFirstChunk = resolve;
+    rejectFirstChunk = reject;
+  });
 
   micProcessor.onaudioprocess = (e) => {
-    if (!isActivelyCapturing) return;
+    if (!isCurrentCaptureTimeline(timeline)) return;
 
     // CRITICAL FIX: NO ALERTS IN AUDIO CALLBACK! (blocks audio thread)
     // Log diagnostic info instead
@@ -1343,39 +1525,45 @@ async function setupMicProcessing(stream: MediaStream) {
 
       // v1.0.0 FIX: Direct WebSocket send (no IPC routing!)
       // Taylos uses renderer-based WebSockets (unlike Glass which uses main process)
-      const ws = ensureMicWs();
       updateWsActivity('mic');
-      // sendBinaryData owns connection-aware buffering. Calling it while a
-      // reconnect is in flight preserves up to three seconds of speech.
-      if (ws?.sendBinaryData) {
-        try {
-          const sendResult = ws.sendBinaryData(pcm16.buffer);
-          if (sendResult === 'sent') {
-            // WINDOWS FIX: Track pipeline metrics
-            pipelineMetrics.micChunksSent++;
-            pipelineMetrics.lastMicChunkTime = Date.now();
-
-            // Log status every 100 chunks for monitoring
-            if (pipelineMetrics.micChunksSent % 100 === 0) {
-              const elapsed = (Date.now() - pipelineMetrics.sessionStart) / 1000;
-              console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
-            }
-          }
-        } catch (error) {
-          console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
-          try {
-            const eviaIpc = (window as any).evia?.ipc;
-            if (eviaIpc?.send) {
-              eviaIpc.send('debug-log', `[AudioCapture] ❌ SEND FAILED: ${error}`);
-            }
-          } catch { }
+      // sendAudioChunk owns connection-aware metadata+binary buffering. Always
+      // create metadata first; a missing socket is a visible transport failure,
+      // never permission to emit an unpaired binary frame or drop silently.
+      try {
+        const captureEndPerformanceMs = micChunkStartedAtMs + (samplesPerChunk / SAMPLE_RATE) * 1000;
+        const metadata = timeline.createFromMonotonicInterval({
+          source: 'mic',
+          startPerformanceMs: micChunkStartedAtMs,
+          endPerformanceMs: captureEndPerformanceMs,
+          sampleRate: SAMPLE_RATE,
+          byteLength: pcm16.byteLength,
+        });
+        const sendResult = sendCaptureChunk('mic', pcm16.buffer, metadata);
+        if (!firstChunkSettled) {
+          firstChunkSettled = true;
+          settleFirstChunk?.();
         }
-      } else {
-        console.error('[AudioCapture] ❌ Mic WebSocket not ready');
+        if (sendResult === 'sent') {
+          // WINDOWS FIX: Track pipeline metrics
+          pipelineMetrics.micChunksSent++;
+          pipelineMetrics.lastMicChunkTime = Date.now();
+
+          // Log status every 100 chunks for monitoring
+          if (pipelineMetrics.micChunksSent % 100 === 0) {
+            const elapsed = (Date.now() - pipelineMetrics.sessionStart) / 1000;
+            console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
+          }
+        }
+      } catch (error) {
+        console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
+        if (!firstChunkSettled) {
+          firstChunkSettled = true;
+          rejectFirstChunk?.(error instanceof Error ? error : new Error(String(error)));
+        }
         try {
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', '[AudioCapture] ❌ MIC WS NOT READY!');
+            eviaIpc.send('debug-log', `[AudioCapture] ❌ SEND FAILED: ${error}`);
           }
         } catch { }
       }
@@ -1401,11 +1589,14 @@ async function setupMicProcessing(stream: MediaStream) {
     // Ignore
   }
 
-  return { context: micAudioContext, processor: micProcessor };
+  return { context: micAudioContext, processor: micProcessor, firstChunk };
 }
 
 // Glass parity: Setup system audio processing with ScriptProcessorNode
-function setupSystemAudioProcessing(stream: MediaStream) {
+function setupSystemAudioProcessing(
+  stream: MediaStream,
+  timeline: CaptureSessionTimeline,
+) {
   const sysAudioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
   const sysSource = sysAudioContext.createMediaStreamSource(stream);
   const sysProcessor = sysAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
@@ -1413,9 +1604,16 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   let audioBuffer: number[] = [];
   const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION; // 2400 samples
   let lastSilenceWarningAt = 0;
+  let settleFirstChunk: (() => void) | null = null;
+  let rejectFirstChunk: ((error: Error) => void) | null = null;
+  let firstChunkSettled = false;
+  const firstChunk = new Promise<void>((resolve, reject) => {
+    settleFirstChunk = resolve;
+    rejectFirstChunk = reject;
+  });
 
   sysProcessor.onaudioprocess = (e) => {
-    if (!isActivelyCapturing) return;
+    if (!isCurrentCaptureTimeline(timeline)) return;
 
     const inputData = e.inputBuffer.getChannelData(0);
 
@@ -1465,9 +1663,10 @@ function setupSystemAudioProcessing(stream: MediaStream) {
       // acoustic delay cannot be cancelled at all.
       const sysPendingMs = (audioBuffer.length / SAMPLE_RATE) * 1000;
       const sysChunkMs = (samplesPerChunk / SAMPLE_RATE) * 1000;
+      const sysChunkStartedAtPerformanceMs = performance.now() - sysPendingMs - sysChunkMs;
       referenceRing.write(
         float32Chunk,
-        performance.now() - sysPendingMs - sysChunkMs - SYSTEM_CAPTURE_ASSUMED_LATENCY_MS,
+        sysChunkStartedAtPerformanceMs - SYSTEM_CAPTURE_ASSUMED_LATENCY_MS,
       );
 
       // Add to system audio buffer (for AEC reference)
@@ -1490,25 +1689,32 @@ function setupSystemAudioProcessing(stream: MediaStream) {
         debugAudioBuffers.system.push(new Int16Array(pcm16));
       }
 
-      const chatId = localStorage.getItem('current_chat_id') || undefined;
-      const ws = ensureSystemWs(chatId);
       updateWsActivity('system');
       pipelineMetrics.lastSystemChunkTime = Date.now();
-      if (ws && ws.sendBinaryData) {
-        try {
-          const sendResult = ws.sendBinaryData(pcm16.buffer);
-          if (sendResult !== 'sent') {
-            return;
-          }
+      try {
+        const metadata = timeline.createFromMonotonicInterval({
+          source: 'system',
+          startPerformanceMs: sysChunkStartedAtPerformanceMs,
+          endPerformanceMs: sysChunkStartedAtPerformanceMs + sysChunkMs,
+          sampleRate: SAMPLE_RATE,
+          byteLength: pcm16.byteLength,
+        });
+        const sendResult = sendCaptureChunk('system', pcm16.buffer, metadata);
+        if (!firstChunkSettled) {
+          firstChunkSettled = true;
+          settleFirstChunk?.();
+        }
+        if (sendResult === 'sent') {
           // WINDOWS FIX: Track pipeline metrics
           pipelineMetrics.systemChunksSent++;
-
-        } catch (error) {
-          console.error('[AudioCapture] Failed to send SYSTEM chunk:', error);
-          pipelineMetrics.errorsEncountered++;
         }
-      } else {
-        console.error('[AudioCapture] System WebSocket not ready');
+      } catch (error) {
+        console.error('[AudioCapture] Failed to send SYSTEM chunk:', error);
+        pipelineMetrics.errorsEncountered++;
+        if (!firstChunkSettled) {
+          firstChunkSettled = true;
+          rejectFirstChunk?.(error instanceof Error ? error : new Error(String(error)));
+        }
       }
     }
   };
@@ -1516,14 +1722,14 @@ function setupSystemAudioProcessing(stream: MediaStream) {
   sysSource.connect(sysProcessor);
   sysProcessor.connect(sysAudioContext.destination); // Required for processing to work!
 
-  return { context: sysAudioContext, processor: sysProcessor };
+  return { context: sysAudioContext, processor: sysProcessor, firstChunk };
 }
 
 // v1.0.0 FIX: No IPC routing needed for mic audio
 // Taylos uses renderer-based WebSockets (direct send from onaudioprocess)
 
 // Glass parity: Start capture with explicit permission checks
-export async function startCapture(includeSystemAudio = false) {
+async function startCaptureInternal(includeSystemAudio = false) {
   const captureStartupStartedAt = performance.now();
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
 
@@ -1568,7 +1774,7 @@ export async function startCapture(includeSystemAudio = false) {
     console.log('[AudioDebug] ═══════════════════════════════════════');
   }
 
-  isActivelyCapturing = true;
+  const timeline = beginCaptureSession();
   macSystemCaptureStartedAt = 0;
 
   // WINDOWS FIX: Reset pipeline metrics for new session
@@ -1686,40 +1892,15 @@ export async function startCapture(includeSystemAudio = false) {
     throw new Error(`Microphone permission denied: ${error.message}`);
   }
 
-  // Step 2: Setup mic audio processing (with AEC) - GLASS PARITY (line 465)
-  console.log('[AudioCapture] Setting up mic audio processing...');
-  const micSetup = await setupMicProcessing(micStream);
-  micAudioContext = micSetup.context;
-  micAudioProcessor = micSetup.processor;
-
-  // Step 3: Resume mic AudioContext (required by browsers)
-  if (micAudioContext.state === 'suspended') {
-    await micAudioContext.resume();
-    console.log('[AudioCapture] Mic AudioContext resumed');
-  }
-
-  // getUserMedia must remain first, but the two network handshakes and native
-  // macOS system capture are independent after the microphone graph exists.
-  // Starting them together removes serialized launch latency while the socket
-  // queues preserve the first audio frames until their connections open.
+  // getUserMedia remains first. Network and native system capture can then
+  // start concurrently, but the microphone processing graph is intentionally
+  // held until the required far-end path has produced timestamped audio.
   const eviaApi = (window as any).evia;
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
   const socketConnectionsPromise = connectCaptureWebSockets(includeSystemAudio);
   const macSystemCapturePromise = includeSystemAudio && isMac
-    ? startMacSystemAudioCapture(eviaApi)
+    ? startMacSystemAudioCapture(eviaApi, timeline)
         .then(() => ({ available: true, status: 'ready' as SystemAudioStartupStatus }))
-        .catch((error) => {
-          console.warn(
-            '[AudioCapture] Optional macOS system audio failed; microphone capture remains active:',
-            error
-          );
-          return {
-            available: false,
-            status: (
-              error?.systemAudioStatus || 'capture_failed'
-            ) as SystemAudioStartupStatus,
-          };
-        })
     : Promise.resolve({
         available: false,
         status: includeSystemAudio
@@ -1743,9 +1924,7 @@ export async function startCapture(includeSystemAudio = false) {
       ? socketStatus.systemAudioStatus
       : macSystemStatus.status;
 
-    if (!systemAudioAvailable) {
-      await stopMacSystemAudioCaptureOnly(eviaApi);
-    }
+    if (!systemAudioAvailable) throw new Error(`[AudioCapture] Required system audio failed: ${systemAudioStatus}`);
   }
 
   // Step 5: Setup system audio if requested (platform-specific approach)
@@ -1798,7 +1977,7 @@ export async function startCapture(includeSystemAudio = false) {
           }
 
           // Setup WebAudio processing (same as Mac uses via setupSystemAudioProcessing)
-          const sysSetup = setupSystemAudioProcessing(systemStream);
+          const sysSetup = setupSystemAudioProcessing(systemStream, timeline);
           systemAudioContext = sysSetup.context;
           systemAudioProcessor = sysSetup.processor;
 
@@ -1806,6 +1985,7 @@ export async function startCapture(includeSystemAudio = false) {
           if (systemAudioContext.state === 'suspended') {
             await systemAudioContext.resume();
           }
+          await waitForFirstCaptureChunk(sysSetup.firstChunk, 'system');
 
           console.log('[AudioCapture] 🪟 ✅ Windows native loopback audio capture started successfully');
           if (eviaIpc?.send) {
@@ -1826,11 +2006,7 @@ export async function startCapture(includeSystemAudio = false) {
           if (eviaIpc?.send) {
             eviaIpc.send('debug-log', `[AudioCapture] 🪟 ❌ Native loopback failed: ${loopbackErr.message}`);
           }
-          // Continue without system audio on Windows if loopback fails
-          console.warn('[AudioCapture] 🪟 Continuing with mic-only capture on Windows');
-          systemAudioAvailable = false;
-          systemAudioStatus = 'capture_failed';
-          closeCaptureWebSocket('system');
+          throw loopbackErr;
         }
       }
       // ════════════════════════════════════════════════════════════════════════
@@ -1841,10 +2017,11 @@ export async function startCapture(includeSystemAudio = false) {
           `[AudioCapture] macOS system audio status: ${systemAudioStatus}`
         );
       } else {
-        console.warn('[AudioCapture] System audio not supported on this platform');
+        console.error('[AudioCapture] System audio not supported on this platform');
         systemAudioAvailable = false;
         systemAudioStatus = 'unsupported';
         closeCaptureWebSocket('system');
+        throw new Error('[AudioCapture] Required system audio is unsupported on this platform');
       }
     } catch (error: any) {
       console.error('[AudioCapture] System audio capture failed:', error);
@@ -1853,15 +2030,27 @@ export async function startCapture(includeSystemAudio = false) {
         message: error.message,
       });
 
-      console.warn('[AudioCapture] ⚠️  Continuing with mic-only capture');
       systemAudioAvailable = false;
       systemAudioStatus = 'capture_failed';
       closeCaptureWebSocket('system');
       if ((window as any)?.platformInfo?.isMac) {
         console.warn('[AudioCapture] Please ensure Screen Recording permission is granted in System Settings');
       }
+      throw error;
     }
   }
+
+  console.log('[AudioCapture] Setting up mic audio processing after required transports are ready...');
+  const micSetup = await setupMicProcessing(micStream, timeline);
+  micAudioContext = micSetup.context;
+  micAudioProcessor = micSetup.processor;
+  if (micAudioContext.state === 'suspended') {
+    await micAudioContext.resume();
+    console.log('[AudioCapture] Mic AudioContext resumed');
+  }
+  await waitForFirstCaptureChunk(micSetup.firstChunk, 'mic');
+
+  releaseCaptureTransport();
 
   const startupReadyInMs = Math.round(performance.now() - captureStartupStartedAt);
   console.log(`[AudioCapture] Capture started successfully after ${startupReadyInMs}ms`);
@@ -1883,12 +2072,25 @@ export async function startCapture(includeSystemAudio = false) {
   };
 }
 
+export async function startCapture(includeSystemAudio = false) {
+  try {
+    return await startCaptureInternal(includeSystemAudio);
+  } catch (error) {
+    console.error('[AudioCapture] Startup failed; rolling back the capture session:', error);
+    await stopCapture();
+    throw error;
+  }
+}
+
 // Stop capture and cleanup
 export async function stopCapture(captureHandle?: any) {
   console.log('[AudioCapture] Stopping capture...');
 
   // WINDOWS FIX (2025-12-09): Mark capture as inactive
   isActivelyCapturing = false;
+  captureTransportReady = false;
+  captureStartupError = null;
+  preReadyCaptureChunks = [];
   macSystemCaptureStartedAt = 0;
   lastMicReconnectAttempt = 0;
   lastSystemReconnectAttempt = 0;
@@ -1906,6 +2108,16 @@ export async function stopCapture(captureHandle?: any) {
   micRawDebugBuffer = [];
   referenceDebugBuffer = [];
 
+  const cleanupErrors: unknown[] = [];
+  const cleanup = async (label: string, action: () => void | Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      cleanupErrors.push(error);
+      console.warn(`[AudioCapture] Cleanup failed (${label}):`, error);
+    }
+  };
+
   try {
     // WINDOWS FIX: Stop health check timers
     stopWindowsHealthCheck('mic');
@@ -1914,20 +2126,24 @@ export async function stopCapture(captureHandle?: any) {
 
     // Stop mic processor
     if (micAudioProcessor) {
-      micAudioProcessor.disconnect();
+      await cleanup('mic processor', () => micAudioProcessor?.disconnect());
       micAudioProcessor = null;
     }
 
     // Close mic audio context
     if (micAudioContext) {
-      await micAudioContext.close();
+      await cleanup('mic context', () => micAudioContext?.close());
       micAudioContext = null;
     }
 
     // Stop all mic tracks
     if (micStream) {
       micStream.getTracks().forEach((track: MediaStreamTrack) => {
-        track.stop();
+        try {
+          track.stop();
+        } catch (error) {
+          cleanupErrors.push(error);
+        }
         console.log(`[AudioCapture] Stopped MIC track: ${track.label}`);
       });
       micStream = null;
@@ -1936,26 +2152,30 @@ export async function stopCapture(captureHandle?: any) {
     // FIX: Properly close mic WebSocket (disconnect AND remove from map to prevent double handlers)
     if (micWsInstance) {
       const chatId = localStorage.getItem('current_chat_id') || '';
-      closeWebSocketInstance(chatId, 'mic');
+      await cleanup('mic WebSocket', () => closeWebSocketInstance(chatId, 'mic'));
       micWsInstance = null;
     }
 
     // Stop system audio processor
     if (systemAudioProcessor) {
-      systemAudioProcessor.disconnect();
+      await cleanup('system processor', () => systemAudioProcessor?.disconnect());
       systemAudioProcessor = null;
     }
 
     // Close system audio context
     if (systemAudioContext) {
-      await systemAudioContext.close();
+      await cleanup('system context', () => systemAudioContext?.close());
       systemAudioContext = null;
     }
 
     // Stop all system tracks
     if (systemStream) {
       systemStream.getTracks().forEach((track: MediaStreamTrack) => {
-        track.stop();
+        try {
+          track.stop();
+        } catch (error) {
+          cleanupErrors.push(error);
+        }
         console.log(`[AudioCapture] Stopped SYSTEM track: ${track.label}`);
       });
       systemStream = null;
@@ -1964,7 +2184,7 @@ export async function stopCapture(captureHandle?: any) {
     // FIX: Properly close system WebSocket (disconnect AND remove from map to prevent double handlers)
     if (systemWsInstance) {
       const chatId = localStorage.getItem('current_chat_id') || '';
-      closeWebSocketInstance(chatId, 'system');
+      await cleanup('system WebSocket', () => closeWebSocketInstance(chatId, 'system'));
       systemWsInstance = null;
     }
 
@@ -1977,6 +2197,7 @@ export async function stopCapture(captureHandle?: any) {
     // would align the next call's mic against the previous call's timeline,
     // which is precisely the misalignment this rewrite exists to remove.
     referenceRing.reset();
+    captureTimeline = null;
     micOriginMs = null;
     micSamplesConsumed = 0;
     aecTelemetry = null;
@@ -2025,7 +2246,11 @@ export async function stopCapture(captureHandle?: any) {
     // Clean up window flags
     (window as any)._systemAudioIsWindows = undefined;
     (window as any)._systemAudioUsingLoopback = undefined;
-    console.log('[AudioCapture] Capture stopped successfully (mic + system)');
+    if (cleanupErrors.length === 0) {
+      console.log('[AudioCapture] Capture stopped successfully (mic + system)');
+    } else {
+      console.warn(`[AudioCapture] Capture stopped with ${cleanupErrors.length} cleanup error(s)`);
+    }
 
     // Diagnostic disk I/O comes last so it cannot keep capture resources alive.
     if (debugAudioToSave) {
@@ -2065,6 +2290,20 @@ export async function stopCapture(captureHandle?: any) {
     }
   } catch (error) {
     console.error('[AudioCapture] Error stopping capture:', error);
+  } finally {
+    micAudioProcessor = null;
+    micAudioContext = null;
+    micStream = null;
+    micWsInstance = null;
+    systemAudioProcessor = null;
+    systemAudioContext = null;
+    systemStream = null;
+    systemWsInstance = null;
+    systemAudioBuffer = [];
+    (window as any)._systemAudioHandler = null;
+    (window as any)._systemAudioIsWindows = undefined;
+    (window as any)._systemAudioUsingLoopback = undefined;
+    resetCaptureSessionState();
   }
 }
 
@@ -2121,134 +2360,85 @@ export async function startCaptureWithStreams(
   }
   // ═══════════════════════════════════════════════════════════════════════════════
 
-  // Validate mic stream
   if (!providedMicStream || providedMicStream.getAudioTracks().length === 0) {
     throw new Error('[AudioCapture] No microphone stream provided');
   }
 
-  // Bind globals so cleanup works
-  micStream = providedMicStream;
-  systemStream = providedSystemStream || null;
+  const timeline = beginCaptureSession();
+  pipelineMetrics.sessionStart = Date.now();
+  pipelineMetrics.micChunksSent = 0;
+  pipelineMetrics.systemChunksSent = 0;
+  pipelineMetrics.errorsEncountered = 0;
+  pipelineMetrics.lastMicChunkTime = 0;
+  pipelineMetrics.lastSystemChunkTime = 0;
+  pipelineMetrics.platform = (window as any).platformInfo?.platform || 'unknown';
 
-  // Setup mic processing first
-  const micSetup = await setupMicProcessing(micStream);
-  micAudioContext = micSetup.context;
-  micAudioProcessor = micSetup.processor;
-  if (micAudioContext.state === 'suspended') {
-    await micAudioContext.resume();
-  }
-
-  // Ensure Mic WS and connect (with chat auto-create fallback similar to startCapture)
-  let micWs = ensureMicWs();
-  if (!micWs) {
-    throw new Error('[AudioCapture] No valid chat_id - cannot start mic capture');
-  }
   try {
-    await micWs.connect();
-  } catch (error) {
-    const currentChatId = localStorage.getItem('current_chat_id');
-    if (!currentChatId) {
-      // chat cleared due to 403/404 -> create a new one and reconnect
-      const backendUrl = BACKEND_URL;
-      const token = await getActiveAuthToken();
-      const newChatId = await getOrCreateChatId(backendUrl, token, true);
-      console.log('[AudioCapture] Recreated chat for mic:', newChatId);
-      closeWebSocketInstance(micWsInstance?.chatId || '', 'mic');
-      micWsInstance = null;
-      micWs = ensureMicWs();
-      if (!micWs) throw error;
-      await micWs.connect();
-    } else {
-      throw error;
-    }
-  }
+    micStream = providedMicStream;
+    systemStream = providedSystemStream || null;
+    const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
 
-  const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
-
-  // ════════════════════════════════════════════════════════════════════════
-  // WINDOWS: Use native loopback via getDisplayMedia (GLASS PARITY!)
-  // ════════════════════════════════════════════════════════════════════════
-  if (isWindows) {
-    try {
-      console.log('[AudioCapture] 🪟 Windows: Using native Electron loopback (Glass approach)');
-
-      // Ensure system websocket
-      let sysWs = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
-      if (!sysWs) {
-        const backendUrl = BACKEND_URL;
-        const token = await getActiveAuthToken();
-        const newChatId = await getOrCreateChatId(backendUrl, token, true);
-        closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
-        systemWsInstance = null;
-        sysWs = ensureSystemWs(newChatId?.toString());
-      }
-      if (sysWs) {
-        try { await sysWs.connect(); } catch (err) { console.warn('[AudioCapture] System WS connect failed:', err); }
-      }
-
-      // Get system audio using native Electron loopback (same as Glass!)
+    // This entry point represents a two-sided call. Absence of the prospect
+    // channel must never be reported as a successful mic-only capture.
+    if (!systemStream && isWindows) {
+      console.log('[AudioCapture] Windows: acquiring required native loopback stream');
       systemStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true  // Triggers Electron's native loopback
+        audio: true,
       });
-
-      const audioTracks = systemStream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        throw new Error('No audio track in native loopback stream');
-      }
-
-      console.log(`[AudioCapture] 🪟 Got ${audioTracks.length} system audio track(s)`);
-
-      // Setup WebAudio processing
-      const sysSetup = setupSystemAudioProcessing(systemStream);
-      systemAudioContext = sysSetup.context;
-      systemAudioProcessor = sysSetup.processor;
-
-      if (systemAudioContext.state === 'suspended') {
-        await systemAudioContext.resume();
-      }
-
       (window as any)._systemAudioIsWindows = true;
       (window as any)._systemAudioUsingLoopback = true;
+    }
+    if (!systemStream || systemStream.getAudioTracks().length === 0) {
+      throw new Error('[AudioCapture] Required system-audio stream is absent');
+    }
 
-      console.log('[AudioCapture] 🪟 ✅ Windows native loopback audio started');
-    } catch (e) {
-      console.warn('[AudioCapture] 🪟 Failed to start Windows native loopback:', e);
+    // Start the far-end graph first. Its opening frames are retained under the
+    // bounded startup buffer while both WebSockets establish one chat session.
+    const systemSetup = setupSystemAudioProcessing(systemStream, timeline);
+    systemAudioContext = systemSetup.context;
+    systemAudioProcessor = systemSetup.processor;
+    if (systemAudioContext.state === 'suspended') {
+      await systemAudioContext.resume();
     }
-  } else if (systemStream && systemStream.getAudioTracks().length > 0) {
-    // Non-Windows: If system stream was provided, setup its processing and WS too
-    const sysSetup = setupSystemAudioProcessing(systemStream);
-    systemAudioContext = sysSetup.context;
-    systemAudioProcessor = sysSetup.processor;
 
-    let sysWs = ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
-    if (!sysWs) {
-      console.warn('[AudioCapture] No valid chat_id for system audio; attempting reconnect after chat create');
-      const backendUrl = BACKEND_URL;
-      const token = await getActiveAuthToken();
-      const newChatId = await getOrCreateChatId(backendUrl, token, true);
-      closeWebSocketInstance(systemWsInstance?.chatId || '', 'system');
-      systemWsInstance = null;
-      sysWs = ensureSystemWs(newChatId?.toString());
+    const socketBarrier = connectCaptureWebSockets(true);
+    await Promise.all([
+      socketBarrier,
+      waitForFirstCaptureChunk(systemSetup.firstChunk, 'system'),
+    ]);
+
+    // Only after the prospect path is physically producing timestamped PCM do
+    // we start the microphone graph. Release still waits for its first frame,
+    // so neither side can appear to start before the other is transport-ready.
+    const micSetup = await setupMicProcessing(micStream, timeline);
+    micAudioContext = micSetup.context;
+    micAudioProcessor = micSetup.processor;
+    if (micAudioContext.state === 'suspended') {
+      await micAudioContext.resume();
     }
-    if (sysWs) {
-      try {
-        await sysWs.connect();
-      } catch (err) {
-        console.warn('[AudioCapture] System WS connect failed:', err);
-      }
-    }
-  } else {
-    console.log('[AudioCapture] No system stream provided; starting mic-only');
+    await waitForFirstCaptureChunk(micSetup.firstChunk, 'mic');
+
+    releaseCaptureTransport();
+    console.log(
+      `[AudioCapture] startCaptureWithStreams ready: ${timeline.id}/${timeline.generation}`,
+    );
+    return {
+      micAudioContext,
+      micAudioProcessor,
+      micStream,
+      systemAudioContext,
+      systemAudioProcessor,
+      systemStream,
+      captureSessionId: timeline.id,
+      captureGeneration: timeline.generation,
+      systemAudioAvailable: true,
+      systemAudioStatus: 'ready' as SystemAudioStartupStatus,
+    };
+  } catch (error) {
+    console.error('[AudioCapture] Required dual-source startup failed:', error);
+    await stopCapture();
+    resetCaptureSessionState(timeline);
+    throw error;
   }
-
-  console.log('[AudioCapture] startCaptureWithStreams initialized');
-  return {
-    micAudioContext,
-    micAudioProcessor,
-    micStream,
-    systemAudioContext,
-    systemAudioProcessor,
-    systemStream,
-  };
 }
