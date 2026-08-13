@@ -49,8 +49,6 @@ const summarizeLatencies = (values: number[]) => ({
   maxMs: values.length > 0 ? Math.round(Math.max(...values) * 10) / 10 : null,
 });
 
-};
-
 interface ListenViewProps {
   lines: TranscriptLine[];
   followLive: boolean;
