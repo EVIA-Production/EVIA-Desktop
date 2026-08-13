@@ -388,6 +388,9 @@ const EviaBar: React.FC<EviaBarProps> = ({
                 return;
               }
               localStorage.removeItem('current_chat_id');
+              // Completing a genuinely orphaned session is deliberate; clear
+              // the shared fallback too so the next call starts fresh.
+              try { (window as any).evia?.prefs?.set?.({ current_chat_id: null }); } catch { }
               (window as any).evia?.liveTranscript?.clear?.();
               (window as any).evia?.ipc?.send?.('clear-session');
             } else {

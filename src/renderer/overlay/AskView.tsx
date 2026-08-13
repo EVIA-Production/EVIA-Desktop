@@ -543,6 +543,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // cannot inherit stale language/session context from the previous chat.
       try {
         localStorage.removeItem('current_chat_id');
+        // And the shared store, or getOrCreateChatId re-adopts the old chat.
+        (window as any).evia?.prefs?.set?.({ current_chat_id: null });
       } catch {}
       console.log('[AskView] ✅ State cleared due to language change');
     };

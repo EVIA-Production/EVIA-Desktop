@@ -101,6 +101,10 @@ function syncAuthTokenToLocalStorage(token: string | null, reason: string) {
 
     localStorage.removeItem('auth_token')
     localStorage.removeItem('current_chat_id')
+    // Also the shared store: getOrCreateChatId falls back to main-process prefs
+    // so an ACCIDENTAL key loss cannot fragment a live call across chats. A
+    // logout is not accidental and must not survive in that fallback.
+    try { (window as any).evia?.prefs?.set?.({ current_chat_id: null }) } catch { }
     console.log(`[OverlayEntry] 🔐 Cleared auth token + chat_id from localStorage (${reason})`)
   } catch (error) {
     console.error('[OverlayEntry] ❌ Failed to sync auth token state:', error)
@@ -282,6 +286,9 @@ const handleToggleLanguage = async (captureHandleRef: any, setIsCapturing: (val:
   const oldChatId = localStorage.getItem('current_chat_id');
   if (oldChatId) {
     localStorage.removeItem('current_chat_id');
+    // Deliberate: a language switch must start a new chat, so the shared
+    // prefs fallback has to be cleared too or the old chat would be adopted.
+    try { (window as any).evia?.prefs?.set?.({ current_chat_id: null }) } catch { }
     console.log(`[OverlayEntry] 🧹 Cleared chat_id ${oldChatId} to force new chat with new language: ${newLang}`);
   }
   
