@@ -175,11 +175,81 @@ test('the capture session pins its chat id once, and releases it', () => {
   assert.match(reset, /resetCaptureSendFailures\(\)/);
 });
 
+// ── the remembered chat id must not outlive its session ───────────────────────
+
+const {
+  applyRealtimeTranscriptEvent,
+  createRealtimeTranscriptState,
+} = require('../dist/main/realtime-transcript-state.js');
+
+const transcriptEvent = (overrides = {}) => ({
+  chatId: 'chat-1',
+  sessionId: 'session-1',
+  source: 'system',
+  captureGeneration: 3,
+  streamGeneration: 7,
+  utteranceId: 'utterance-1',
+  eventId: 'event-1',
+  seq: 1,
+  captureStartMs: 1000,
+  captureEndMs: 1400,
+  words: [{ text: 'Hallo', startMs: 1000, endMs: 1400 }],
+  clockDomainValid: true,
+  text: 'Hallo',
+  isFinal: false,
+  ...overrides,
+});
+
+test('binding the reducer to a stale chat id rejects the whole call', () => {
+  // Why ListenView must release its remembered id at a session boundary. The
+  // reducer binds state.chatId to the FIRST event it accepts and then refuses
+  // every event carrying a different one, with no recovery path. So labelling
+  // one early segment of a NEW call with the PREVIOUS call's chat id is not a
+  // cosmetic slip - it empties the transcript for the rest of the session.
+  let state = createRealtimeTranscriptState();
+  state = applyRealtimeTranscriptEvent(state, transcriptEvent({ chatId: 'chat-OLD' })).state;
+
+  const next = applyRealtimeTranscriptEvent(
+    state,
+    transcriptEvent({ chatId: 'chat-NEW', eventId: 'event-2', utteranceId: 'utterance-2', seq: 2 }),
+  );
+  assert.equal(next.accepted, false);
+  assert.equal(next.reason, 'different-session');
+});
+
+test('a session boundary releases the remembered chat id', () => {
+  const start = listenView.indexOf('const resetSessionPresentation = (reason: string) => {');
+  assert.notEqual(start, -1, 'missing resetSessionPresentation');
+  const body = listenView.slice(start, listenView.indexOf('\n    };', start));
+  assert.match(
+    body,
+    /lastKnownChatIdRef\.current = null/,
+    'the next call would inherit this one\'s chat id and reject its own transcript',
+  );
+});
+
+test('the transcript falls back to the last chat id seen, not to dropping the row', () => {
+  const start = listenView.indexOf('const storedChatId = localStorage.getItem');
+  assert.notEqual(start, -1);
+  const body = listenView.slice(start, listenView.indexOf('applyRealtimeTranscriptEvent(', start));
+  assert.match(body, /if \(storedChatId\) lastKnownChatIdRef\.current = storedChatId/);
+  assert.match(body, /adaptServerTranscriptEvent\(msg, chatIdForEvent\)/);
+  // The reason must reach the terminal; requiring the Listen window's DevTools
+  // is why a 100% rejection rate survived two sessions undiagnosed.
+  assert.match(body, /transcript REJECTED/);
+});
+
 // ── the reconciler that completed live sessions ───────────────────────────────
 
 const eviaBar = fs.readFileSync(
   process.env.EVIA_BAR_PATH ||
     path.join(__dirname, '..', 'src', 'renderer', 'overlay', 'EviaBar.tsx'),
+  'utf8',
+);
+
+const listenView = fs.readFileSync(
+  process.env.LISTEN_VIEW_PATH ||
+    path.join(__dirname, '..', 'src', 'renderer', 'overlay', 'ListenView.tsx'),
   'utf8',
 );
 

@@ -536,6 +536,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       autoScrollRef.current = true;
       shouldScrollAfterUpdate.current = true;
       lastInsightsFetchAtRef.current = 0;
+      // A session boundary releases the remembered chat id. Carrying it across
+      // would be worse than the blank transcript it exists to prevent: the
+      // reducer binds state.chatId to the FIRST event it accepts and then
+      // rejects every event with a different one as `different-session`, with
+      // no recovery. So a new call whose first segment arrived while the key
+      // was momentarily absent would bind to the PREVIOUS chat and reject the
+      // whole call. Within one session the id cannot change, which is exactly
+      // where the fallback is wanted; across sessions it must never apply.
+      lastKnownChatIdRef.current = null;
+      rejectionReportRef.current.clear();
     };
 
     const handleTranscriptMessage = (msg: any) => {
