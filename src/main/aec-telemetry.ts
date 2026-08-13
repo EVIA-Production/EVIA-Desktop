@@ -300,3 +300,129 @@ export function describeReport(report: AecReport): string {
   }
   return `[AEC] ${parts.join(' ')} -> ${verdict}`;
 }
+
+/**
+ * What a whole call says about the canceller, as one answer.
+ *
+ * The per-window line above is the right tool while watching a call, but it is
+ * the wrong tool for deciding whether AEC works. In the 2026-08-12 acceptance
+ * run 89% of the lines read "mic silent" or "REFERENCE SILENT" - both correct,
+ * both meaningless - and the handful of informative lines were buried among
+ * them. The run was read as an AEC failure. Re-measured offline from the saved
+ * tracks, the reference was intact and there was simply no echo: mic-to-system
+ * correlation 0.042, far end audible in 11% of frames. Nothing was broken and
+ * nothing was proven.
+ *
+ * A window only carries information when BOTH sides have audio. Cancellation is
+ * undefined otherwise. Everything below is computed over those windows alone.
+ */
+export interface AecSessionSummary {
+  totalWindows: number;
+  /** Windows where mic and reference both carried audio - the only usable ones. */
+  usableWindows: number;
+  micActiveWindows: number;
+  referenceActiveWindows: number;
+  medianCoherence: number;
+  medianErleDb: number;
+  bestErleDb: number;
+  medianDelayMs: number;
+}
+
+const SIGNAL_FLOOR_DB = -45;
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+export class AecSessionAccumulator {
+  private readonly usable: AecReport[] = [];
+  private total = 0;
+  private micActive = 0;
+  private referenceActive = 0;
+
+  add(report: AecReport): void {
+    this.total += 1;
+    const micHasAudio = report.micLevelDb > SIGNAL_FLOOR_DB;
+    const refHasAudio =
+      report.refLevelDb > SIGNAL_FLOOR_DB && report.referenceGapRatio <= 0.25;
+    if (micHasAudio) this.micActive += 1;
+    if (refHasAudio) this.referenceActive += 1;
+    if (micHasAudio && refHasAudio) this.usable.push(report);
+  }
+
+  summarise(): AecSessionSummary {
+    return {
+      totalWindows: this.total,
+      usableWindows: this.usable.length,
+      micActiveWindows: this.micActive,
+      referenceActiveWindows: this.referenceActive,
+      medianCoherence: median(this.usable.map((r) => r.coherence)),
+      medianErleDb: median(this.usable.map((r) => r.erleDb)),
+      bestErleDb: this.usable.reduce((best, r) => Math.max(best, r.erleDb), 0),
+      medianDelayMs: median(this.usable.map((r) => r.delayMs)),
+    };
+  }
+}
+
+/**
+ * The one line worth reading after a call, plus what to do about it.
+ *
+ * "Untestable" is a first-class outcome here, deliberately. Reporting a failure
+ * when the call simply contained no echo is what sent this project chasing the
+ * canceller for days while the reference was fine.
+ */
+export function describeSessionVerdict(summary: AecSessionSummary): string {
+  const lines = [
+    '[AEC] ===== SESSION VERDICT =====',
+    `[AEC] windows: ${summary.totalWindows} total, ${summary.micActiveWindows} with mic audio, ` +
+      `${summary.referenceActiveWindows} with far-end audio, ${summary.usableWindows} usable (both)`,
+  ];
+
+  if (summary.usableWindows < 3) {
+    lines.push(
+      '[AEC] UNTESTABLE - the two sides were almost never audible at the same time.',
+      '[AEC]   This is not an AEC failure and not an AEC success. Nothing was measured.',
+      summary.referenceActiveWindows < 3
+        ? '[AEC]   The far end barely played. Have it talk continuously for 20-30s.'
+        : '[AEC]   Let the far end talk while you stay quiet, then talk over it once.',
+    );
+    return lines.join('\n');
+  }
+
+  lines.push(
+    `[AEC] over usable windows: median coherence ${summary.medianCoherence.toFixed(3)}, ` +
+      `median ERLE ${summary.medianErleDb.toFixed(1)}dB, best ${summary.bestErleDb.toFixed(1)}dB, ` +
+      `median delay ${summary.medianDelayMs.toFixed(0)}ms`,
+  );
+
+  if (summary.medianCoherence < 0.02) {
+    // The distinction that matters most, and the one the per-window line cannot
+    // make: no echo reaching the mic at all looks identical to a broken
+    // canceller, window by window.
+    lines.push(
+      '[AEC] NO ECHO REACHED THE MIC - the far end is not coming back through the room.',
+      '[AEC]   Almost always headphones, or output routed to another device.',
+      '[AEC]   AEC has nothing to cancel here; it is neither working nor broken.',
+      '[AEC]   To actually test it: built-in speakers, ~50% volume.',
+    );
+  } else if (summary.medianCoherence < 0.15) {
+    lines.push(
+      '[AEC] ECHO PRESENT BUT WEAKLY LINEAR - speaker distortion or heavy processing.',
+      `[AEC]   Cancelling ${summary.medianErleDb.toFixed(1)}dB. Lower the output volume and retry.`,
+    );
+  } else if (summary.medianErleDb < 6) {
+    lines.push(
+      '[AEC] REAL DEFECT - echo is present and linear, and it is NOT being cancelled.',
+      `[AEC]   coherence ${summary.medianCoherence.toFixed(3)} says the reference matches the echo,`,
+      `[AEC]   yet only ${summary.medianErleDb.toFixed(1)}dB is removed. This one is worth reporting.`,
+    );
+  } else if (summary.medianErleDb < 15) {
+    lines.push(`[AEC] WORKING, PARTIALLY - ${summary.medianErleDb.toFixed(1)}dB removed.`);
+  } else {
+    lines.push(`[AEC] WORKING - ${summary.medianErleDb.toFixed(1)}dB of echo removed.`);
+  }
+  return lines.join('\n');
+}

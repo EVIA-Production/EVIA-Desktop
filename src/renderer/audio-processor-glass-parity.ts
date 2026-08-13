@@ -9,7 +9,12 @@ import { BACKEND_URL } from './config/config';
 
 const SAMPLE_RATE = 24000; // Glass parity
 import { ReferenceRing, SYSTEM_CAPTURE_ASSUMED_LATENCY_MS } from '../main/aec-reference';
-import { AecTelemetry, describeReport } from '../main/aec-telemetry';
+import {
+  AecTelemetry,
+  AecSessionAccumulator,
+  describeReport,
+  describeSessionVerdict,
+} from '../main/aec-telemetry';
 import { Aec3Canceller, AEC3_MAX_TRACKABLE_DELAY_MS } from '../main/aec3-canceller';
 import {
   type AudioChunkMetadata,
@@ -632,6 +637,7 @@ function beginCaptureSession(): CaptureSessionTimeline {
   micOriginMs = null;
   micSamplesConsumed = 0;
   aecTelemetry = null;
+  aecSession = null;
   aecSkippedChunks = 0;
   lastSkipWarningAtMs = 0;
   aec3LoadFailed = false;
@@ -654,6 +660,9 @@ function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): vo
   isActivelyCapturing = false;
   captureTransportReady = false;
   captureStartupError = null;
+  // Released with the session: the next call binds its own chat rather than
+  // inheriting this one's.
+  captureChatId = null;
   preReadyCaptureChunks = [];
   referenceBudgetChecked = false;
   captureTimeline = null;
@@ -661,6 +670,7 @@ function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): vo
   micOriginMs = null;
   micSamplesConsumed = 0;
   aecTelemetry = null;
+  aecSession = null;
   aecSkippedChunks = 0;
   lastSkipWarningAtMs = 0;
   aec3LoadFailed = false;
@@ -716,7 +726,16 @@ function sendCaptureChunk(
   const ws = source === 'mic'
     ? ensureMicWs()
     : ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
-  if (!ws) throw new Error(`[AudioCapture] ${source} WebSocket unavailable`);
+  if (!ws) {
+    // Name the cause in the message itself. "WebSocket unavailable" repeated a
+    // hundred times told us nothing about WHY on 2026-08-12, and the branch
+    // that logs the reason sits in a window whose console nobody was reading.
+    const chatId = localStorage.getItem('current_chat_id');
+    const why = !chatId || chatId === '0'
+      ? `no current_chat_id (value=${JSON.stringify(chatId)})`
+      : 'socket factory returned nothing despite a valid chat id';
+    throw new Error(`[AudioCapture] ${source} WebSocket unavailable - ${why}`);
+  }
   return ws.sendAudioChunk(data, metadata);
 }
 
@@ -788,6 +807,7 @@ let micOriginMs: number | null = null;
 let micSamplesConsumed = 0;
 /** Measures what the canceller actually does. Set up per session. */
 let aecTelemetry: AecTelemetry | null = null;
+let aecSession: AecSessionAccumulator | null = null;
 /** Chunks the canceller was skipped for, so a skip can never be invisible. */
 let aecSkippedChunks = 0;
 let lastSkipWarningAtMs = 0;
@@ -918,10 +938,34 @@ function runAecSync(micF32: Float32Array, sysF32: Float32Array): Float32Array {
   }
 }
 
+/**
+ * The chat this capture session streams to, pinned for its whole lifetime.
+ *
+ * `current_chat_id` lives in localStorage and at least six paths in OTHER
+ * windows delete it while a call is running - `recreateChatId` clears it and
+ * then awaits a backend round trip, the auth sync clears it with the token, the
+ * language switch clears it deliberately, EviaBar and AskView clear it on their
+ * own flows. The audio pipeline re-read that key on EVERY chunk, so any of them
+ * turned the microphone socket to null mid-call and every following chunk was
+ * dropped with "mic WebSocket unavailable" - which is the reported failure:
+ * hundreds of those lines while system audio kept flowing.
+ *
+ * A capture session belongs to the chat it started with. Rebinding it halfway
+ * through a call would split one conversation across two chats even if the
+ * socket survived, so pinning is the correct behaviour and not merely a guard.
+ */
+let captureChatId: string | null = null;
+
+/** The chat id capture is bound to, falling back to localStorage before start. */
+function activeChatId(): string {
+  if (captureChatId) return captureChatId;
+  return (localStorage.getItem('current_chat_id') || '0').toString();
+}
+
 // Ensure WebSocket for microphone (source=mic, speaker=1)
 function ensureMicWs() {
   try {
-    const cid = (localStorage.getItem('current_chat_id') || '0').toString();
+    const cid = activeChatId();
     if (!cid || cid === '0') {
       console.error('[AudioCapture] No chat_id available');
       return null;
@@ -973,7 +1017,7 @@ function ensureMicWs() {
 function ensureSystemWs(chatId?: string) {
   try {
     // FIX: Use provided chatId or fall back to localStorage
-    const cid = chatId || (localStorage.getItem('current_chat_id') || '0').toString();
+    const cid = chatId || activeChatId();
     if (!cid || cid === '0') {
       console.error('[AudioCapture] ❌ No chat_id available for system audio WebSocket');
       console.error('[AudioCapture] Ensure getOrCreateChatId() is called before startCapture()');
@@ -1020,7 +1064,10 @@ function closeCaptureWebSocket(source: 'mic' | 'system') {
   const instance = source === 'mic' ? micWsInstance : systemWsInstance;
   if (!instance) return;
 
-  closeWebSocketInstance(instance.chatId || localStorage.getItem('current_chat_id') || '', source);
+  // Close the instance under the id it was OPENED with. Looking the key up
+  // again mid-teardown can miss the entry entirely once localStorage has moved
+  // on, leaving a live socket in the registry for the next session to inherit.
+  closeWebSocketInstance(instance.chatId || activeChatId(), source);
   if (source === 'mic') {
     micWsInstance = null;
   } else {
@@ -1112,6 +1159,10 @@ async function connectCaptureWebSockets(
 
     const token = await getActiveAuthToken();
     const newChatId = await recreateChatId(BACKEND_URL, token);
+    // Adopt it for the session. recreateChatId REMOVES the key and only writes
+    // the replacement after a backend round trip, so anything still reading
+    // localStorage during that window sees nothing.
+    captureChatId = newChatId;
     console.log('[AudioCapture] Recreated capture chat:', newChatId);
 
     pair = createPair();
@@ -1546,6 +1597,8 @@ async function setupMicProcessing(
             const maxLagSamples = Math.round((AEC3_MAX_TRACKABLE_DELAY_MS / 1000) * SAMPLE_RATE);
             const report = aecTelemetry.report(performance.now(), maxLagSamples);
             if (report) {
+              if (!aecSession) aecSession = new AecSessionAccumulator();
+              aecSession.add(report);
               const skipNote = aecSkippedChunks > 0 ? ` skipped=${aecSkippedChunks}` : '';
               aecSkippedChunks = 0;
               const line = `${describeReport(report)}${skipNote}`;
@@ -1820,6 +1873,15 @@ function setupSystemAudioProcessing(
 // Glass parity: Start capture with explicit permission checks
 async function startCaptureInternal(includeSystemAudio = false) {
   const captureStartupStartedAt = performance.now();
+
+  // Bind the chat for this session before any socket exists. Everything
+  // downstream resolves through activeChatId(), so a later localStorage change
+  // in another window cannot strand the microphone transport mid-call.
+  const boundChatId = (localStorage.getItem('current_chat_id') || '').trim();
+  captureChatId = boundChatId && boundChatId !== '0' ? boundChatId : null;
+  sendDebugLog(
+    `[AudioCapture] capture bound to chat_id=${captureChatId ?? 'NONE (will resolve at connect)'}`,
+  );
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
 
   // AUDIO DEBUG: Check IMMEDIATELY at function start
@@ -2286,6 +2348,17 @@ export async function stopCapture(captureHandle?: any) {
     // The reference clock is per session. Carrying an origin across sessions
     // would align the next call's mic against the previous call's timeline,
     // which is precisely the misalignment this rewrite exists to remove.
+    // One answer for the whole call, before the counters are dropped. The
+    // per-window lines cannot distinguish "no echo reached the mic" from "the
+    // canceller is broken", and reading them window by window is how a call
+    // with no echo in it was mistaken for an AEC failure.
+    if (aecSession) {
+      const verdict = describeSessionVerdict(aecSession.summarise());
+      console.log(verdict);
+      sendDebugLog(verdict);
+      aecSession = null;
+    }
+
     referenceRing.reset();
     captureTimeline = null;
     micOriginMs = null;
