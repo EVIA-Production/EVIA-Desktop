@@ -613,7 +613,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         return;
       }
 
-      const storedChatId = localStorage.getItem('current_chat_id');
+      // The capture session stamps every segment with the chat it is actually
+      // streaming to. Prefer it over the global key, which Ask moves during a
+      // live call (observed 1604 -> 1608 -> 1609 -> 1613 inside one 30s
+      // recording while capture stayed pinned to 1605). Labelling rows with a
+      // chat the audio never went to is what makes the reducer reject the rest
+      // of the call as `different-session`.
+      const capturedChatId = typeof msg._chatId === 'string' && msg._chatId && msg._chatId !== '0'
+        ? msg._chatId
+        : null;
+      const storedChatId = capturedChatId ?? localStorage.getItem('current_chat_id');
       if (storedChatId) lastKnownChatIdRef.current = storedChatId;
       // Fall back to the last id we saw rather than dropping the segment: the
       // key is global and deleted by paths that know nothing about this call.

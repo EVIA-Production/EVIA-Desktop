@@ -15,7 +15,7 @@
  * untested.
  */
 import {
-  normalizeRealtimeTranscriptEvent,
+  normalizeRealtimeTranscriptEventWithReason,
   type NormalizedRealtimeTranscriptEvent,
 } from './realtime-transcript-state';
 
@@ -101,7 +101,7 @@ export const adaptServerTranscriptEvent = (
     });
   }
 
-  const event = normalizeRealtimeTranscriptEvent({
+  const normalized = normalizeRealtimeTranscriptEventWithReason({
     chatId,
     sessionId,
     source,
@@ -117,7 +117,11 @@ export const adaptServerTranscriptEvent = (
     text,
     isFinal: data.is_final === true,
   });
-  if (!event) return { event: null, reason: 'invalid-normalized-event' };
+  const event = normalized.event;
+  // Carry the specific predicate. "invalid-normalized-event" names the function
+  // that refused, not the fault, and that is all the console could say while
+  // every live mic segment was being dropped.
+  if (!event) return { event: null, reason: `invalid-normalized-event: ${normalized.reason}` };
 
   const trace = data.trace && typeof data.trace === 'object'
     ? data.trace as Record<string, unknown>

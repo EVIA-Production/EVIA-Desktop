@@ -200,6 +200,90 @@ const transcriptEvent = (overrides = {}) => ({
   ...overrides,
 });
 
+const {
+  normalizeRealtimeTranscriptEvent,
+  normalizeRealtimeTranscriptEventWithReason,
+} = require('../dist/main/realtime-transcript-state.js');
+
+test('a word outside the proven window no longer deletes the whole utterance', () => {
+  // The exact shape that emptied Bene's 2026-08-13 call: real speech, valid
+  // clock, one boundary word ending 3ms past the utterance it belongs to.
+  const event = normalizeRealtimeTranscriptEvent(transcriptEvent({
+    text: 'Ja genau das haben wir auch gedacht',
+    captureStartMs: 1000,
+    captureEndMs: 1400,
+    words: [
+      { text: 'Ja', startMs: 1000, endMs: 1100 },
+      { text: 'genau', startMs: 1100, endMs: 1403 },
+    ],
+  }));
+  assert.ok(event, 'the utterance survives');
+  assert.equal(event.words.length, 2, 'no word is dropped');
+  assert.deepEqual(event.words.map(w => w.text), ['Ja', 'genau']);
+  assert.equal(event.words[1].endMs, 1400, 'the stray word is clamped into the proven window');
+  assert.equal(event.text, 'Ja genau das haben wir auch gedacht');
+});
+
+test('an inverted or zero-width word is repaired, not fatal', () => {
+  // Deepgram emits start == end for short function words, and the backend
+  // copies mapped capture times through without max(start, end).
+  const event = normalizeRealtimeTranscriptEvent(transcriptEvent({
+    words: [
+      { text: 'und', startMs: 1200, endMs: 1200 },
+      { text: 'ja', startMs: 1300, endMs: 1250 },
+    ],
+  }));
+  assert.ok(event, 'the utterance survives a degenerate word');
+  assert.equal(event.words[0].endMs, 1200);
+  assert.ok(event.words[1].endMs >= event.words[1].startMs);
+});
+
+test('genuine integrity failures are still refused, and now say why', () => {
+  // The repair must not become a licence to accept unprovable events.
+  const bad = normalizeRealtimeTranscriptEventWithReason(
+    transcriptEvent({ captureStartMs: -5 }),
+  );
+  assert.equal(bad.event, null);
+  assert.match(bad.reason, /captureStartMs-negative/);
+
+  const inverted = normalizeRealtimeTranscriptEventWithReason(
+    transcriptEvent({ captureStartMs: 2000, captureEndMs: 1000 }),
+  );
+  assert.equal(inverted.event, null);
+  assert.match(inverted.reason, /captureEnd-before-captureStart/);
+
+  const noText = normalizeRealtimeTranscriptEventWithReason(transcriptEvent({ text: '   ' }));
+  assert.equal(noText.event, null);
+  assert.match(noText.reason, /text-not-a-nonempty-string/);
+});
+
+test('the adapter carries the precise predicate, not just the function name', () => {
+  const { adaptServerTranscriptEvent } = require('../dist/main/realtime-transcript-adapter.js');
+  const result = adaptServerTranscriptEvent({
+    type: 'transcript_segment',
+    _source: 'mic',
+    data: {
+      source: 'mic',
+      clock_domain_valid: true,
+      capture_session_id: 'c98f2151',
+      utterance_id: 1,
+      event_id: 'c98f2151:1:mic:1:1',
+      text: 'Hallo',
+      capture_generation: 1,
+      stream_generation: 1,
+      seq: 1,
+      session_epoch_ms: 100,
+      capture_start_ms: 2000,
+      capture_end_ms: 1000,
+      words: [{ text: 'Hallo', capture_start_ms: 2000, capture_end_ms: 2100 }],
+    },
+  }, 'chat-1');
+  assert.equal(result.event, null);
+  // "invalid-normalized-event" alone is what the console could say while every
+  // live mic segment was being dropped. It names the function, not the fault.
+  assert.match(result.reason, /invalid-normalized-event: captureEnd-before-captureStart/);
+});
+
 test('binding the reducer to a stale chat id rejects the whole call', () => {
   // Why ListenView must release its remembered id at a session boundary. The
   // reducer binds state.chatId to the FIRST event it accepts and then refuses
@@ -228,15 +312,31 @@ test('a session boundary releases the remembered chat id', () => {
   );
 });
 
-test('the transcript falls back to the last chat id seen, not to dropping the row', () => {
-  const start = listenView.indexOf('const storedChatId = localStorage.getItem');
-  assert.notEqual(start, -1);
+test('the transcript labels rows with the capture session chat, not the global key', () => {
+  const start = listenView.indexOf('const capturedChatId =');
+  assert.notEqual(start, -1, 'ListenView ignores the chat id the capture session stamped');
   const body = listenView.slice(start, listenView.indexOf('applyRealtimeTranscriptEvent(', start));
+  // Precedence matters: Ask moves current_chat_id during a live call, so the
+  // stamped id must WIN over localStorage, not merely be a fallback for it.
+  assert.match(body, /msg\._chatId/);
+  assert.match(body, /capturedChatId \?\? localStorage\.getItem\('current_chat_id'\)/);
   assert.match(body, /if \(storedChatId\) lastKnownChatIdRef\.current = storedChatId/);
   assert.match(body, /adaptServerTranscriptEvent\(msg, chatIdForEvent\)/);
   // The reason must reach the terminal; requiring the Listen window's DevTools
   // is why a 100% rejection rate survived two sessions undiagnosed.
   assert.match(body, /transcript REJECTED/);
+});
+
+test('both capture sockets stamp forwarded segments with the pinned chat', () => {
+  const mic = functionBody('function ensureMicWs()', '// Ensure WebSocket for system audio');
+  const system = functionBody('function ensureSystemWs()', 'function closeCaptureWebSocket(');
+  for (const [name, body] of Object.entries({ mic, system })) {
+    assert.match(
+      body,
+      /_chatId: activeChatId\(\)/,
+      `${name} forwards transcripts without saying which chat produced them`,
+    );
+  }
 });
 
 // ── the reconciler that completed live sessions ───────────────────────────────

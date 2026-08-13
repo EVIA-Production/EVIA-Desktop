@@ -1023,8 +1023,12 @@ function ensureMicWs() {
 
         if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
           if (eviaIpc?.send) {
-            // Tag message with _source: 'mic' (speaker 1)
-            eviaIpc.send('transcript-message', { ...msg, _source: 'mic' });
+            // Tag with the CAPTURE SESSION's chat, not whatever localStorage
+            // currently holds. Ask creates and clears chats mid-call, so the
+            // global key moved 1604 -> 1608 -> 1609 -> 1613 inside one 30s
+            // recording while capture stayed correctly pinned to 1605. The
+            // transcript belongs to the capture session that produced it.
+            eviaIpc.send('transcript-message', { ...msg, _source: 'mic', _chatId: activeChatId() });
           } else {
             console.error('[AudioCapture] ❌ IPC not available for forwarding');
           }
@@ -1078,8 +1082,9 @@ function ensureSystemWs() {
         if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
           // Forward to Listen window via IPC with source tag
           if (eviaIpc?.send) {
-            // Tag message with _source: 'system' (speaker 0)
-            eviaIpc.send('transcript-message', { ...msg, _source: 'system' });
+            // Same pinning as the mic path: the capture session's chat, never
+            // the mutable global key.
+            eviaIpc.send('transcript-message', { ...msg, _source: 'system', _chatId: activeChatId() });
           }
         }
       });

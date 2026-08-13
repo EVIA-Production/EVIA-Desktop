@@ -131,13 +131,17 @@ function normalizeWords(value: unknown): NormalizedTranscriptWord[] | null {
     if (
       text === null ||
       !finiteNumber(word.startMs) ||
-      !finiteNumber(word.endMs) ||
-      word.startMs < 0 ||
-      word.endMs < word.startMs
+      !finiteNumber(word.endMs)
     ) {
       return null;
     }
-    words.push({ text, startMs: word.startMs, endMs: word.endMs });
+    // Order and sign are repaired, not fatal. The backend applies max(start,
+    // end) to the PROVIDER times but copies the mapped capture times through
+    // untouched, so a zero-width or inverted capture interval reaches us intact.
+    // Deepgram emits start == end routinely for short words. Killing the whole
+    // utterance over one of them is what emptied the transcript before.
+    const startMs = Math.max(word.startMs, 0);
+    words.push({ text, startMs, endMs: Math.max(word.endMs, startMs) });
   }
   return words;
 }
@@ -151,7 +155,23 @@ function normalizeWords(value: unknown): NormalizedTranscriptWord[] | null {
 export function normalizeRealtimeTranscriptEvent(
   input: unknown,
 ): NormalizedRealtimeTranscriptEvent | null {
-  if (!input || typeof input !== 'object') return null;
+  return normalizeRealtimeTranscriptEventWithReason(input).event;
+}
+
+/**
+ * Same gate, but it says which predicate refused.
+ *
+ * `normalizeRealtimeTranscriptEvent` returning bare null covers seventeen
+ * different rejections. On 2026-08-13 every live mic segment failed here and
+ * the console could only report `invalid-normalized-event`, which names the
+ * function rather than the fault. A gate that drops user speech has to be able
+ * to say what it objected to.
+ */
+export function normalizeRealtimeTranscriptEventWithReason(
+  input: unknown,
+): { event: NormalizedRealtimeTranscriptEvent | null; reason: string | null } {
+  const no = (reason: string) => ({ event: null, reason });
+  if (!input || typeof input !== 'object') return no('not-an-object');
   const raw = input as Record<string, unknown>;
   const chatId = requiredString(raw.chatId);
   const sessionId = requiredString(raw.sessionId);
@@ -164,32 +184,48 @@ export function normalizeRealtimeTranscriptEvent(
     ? null
     : requiredString(raw.eventId);
 
-  if (
-    chatId === null ||
-    sessionId === null ||
-    utteranceId === null ||
-    text === null ||
-    words === null ||
-    (raw.eventId !== null && raw.eventId !== undefined && eventId === null) ||
-    (raw.source !== 'mic' && raw.source !== 'system') ||
-    !nonNegativeInteger(raw.captureGeneration) ||
-    !nonNegativeInteger(raw.streamGeneration) ||
-    !nonNegativeInteger(raw.seq) ||
-    !finiteNumber(captureStartMs) ||
-    !finiteNumber(captureEndMs) ||
-    captureStartMs < 0 ||
-    captureEndMs < captureStartMs ||
-    typeof raw.clockDomainValid !== 'boolean' ||
-    typeof raw.isFinal !== 'boolean'
-  ) {
-    return null;
+  if (chatId === null) return no('chatId-not-a-nonempty-string');
+  if (sessionId === null) return no('sessionId-not-a-nonempty-string');
+  if (utteranceId === null) return no('utteranceId-not-a-nonempty-string');
+  if (text === null) return no('text-not-a-nonempty-string');
+  if (words === null) return no('words-malformed-or-word-end-before-start');
+  if (raw.eventId !== null && raw.eventId !== undefined && eventId === null) {
+    return no('eventId-present-but-not-a-nonempty-string');
   }
-
-  if (words.some(word => word.startMs < captureStartMs || word.endMs > captureEndMs)) {
-    return null;
+  if (raw.source !== 'mic' && raw.source !== 'system') return no('source-not-mic-or-system');
+  if (!nonNegativeInteger(raw.captureGeneration)) return no('captureGeneration-not-a-non-negative-integer');
+  if (!nonNegativeInteger(raw.streamGeneration)) return no('streamGeneration-not-a-non-negative-integer');
+  if (!nonNegativeInteger(raw.seq)) return no('seq-not-a-non-negative-integer');
+  if (!finiteNumber(captureStartMs)) return no('captureStartMs-not-finite');
+  if (!finiteNumber(captureEndMs)) return no('captureEndMs-not-finite');
+  if (captureStartMs < 0) return no(`captureStartMs-negative (${captureStartMs})`);
+  if (captureEndMs < captureStartMs) {
+    return no(`captureEnd-before-captureStart (${captureStartMs}..${captureEndMs})`);
   }
+  if (typeof raw.clockDomainValid !== 'boolean') return no('clockDomainValid-not-a-boolean');
+  if (typeof raw.isFinal !== 'boolean') return no('isFinal-not-a-boolean');
 
-  return {
+  // Words outside the utterance window are REPAIRED, not fatal.
+  //
+  // The utterance interval is the proven quantity: the backend maps it against
+  // the capture ledger and fails closed if it cannot. Per-word capture times
+  // are derived from the same ledger word by word, so a boundary word can land
+  // a millisecond outside the interval its own utterance proved. Discarding the
+  // turn for that is the identical defect already fixed once on the backend in
+  // abcb62da - one bad word must not delete everything spoken alongside it.
+  //
+  // Clamping keeps the proven window authoritative and loses no dialogue. It
+  // costs at most a few ms of word-level position on the boundary word, which
+  // is invisible in a transcript and strictly better than the row not existing.
+  const repaired = words.map(word => {
+    const startMs = Math.min(Math.max(word.startMs, captureStartMs), captureEndMs);
+    const endMs = Math.min(Math.max(word.endMs, startMs), captureEndMs);
+    return startMs === word.startMs && endMs === word.endMs
+      ? word
+      : { text: word.text, startMs, endMs };
+  });
+
+  return { reason: null, event: {
     chatId,
     sessionId,
     source: raw.source,
@@ -200,11 +236,11 @@ export function normalizeRealtimeTranscriptEvent(
     seq: raw.seq,
     captureStartMs,
     captureEndMs,
-    words,
+    words: repaired,
     clockDomainValid: raw.clockDomainValid,
     text,
     isFinal: raw.isFinal,
-  };
+  } };
 }
 
 /** Full source identity. Provider utterance ids alone are not globally unique. */
