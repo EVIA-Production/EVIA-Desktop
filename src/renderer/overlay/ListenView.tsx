@@ -578,10 +578,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] Recording stopped; preserving canonical rows unchanged');
-        console.log('[ListenView][LatencySummary]', JSON.stringify({
+        const latencySummary = JSON.stringify({
           partial: summarizeLatencies([...firstPartialLatencyByEventRef.current.values()]),
           final: summarizeLatencies([...finalLatencyByEventRef.current.values()]),
-        }));
+        });
+        console.log('[ListenView][LatencySummary]', latencySummary);
+        // To the terminal as well. This is the only measured end-to-end number
+        // the product produces, and it was invisible: a renderer console.log in
+        // a window nobody opens. "Physically perfect latency" is a claim that
+        // needs a measurement at the end of every call, not an estimate.
+        eviaIpc?.send?.('debug-log', `[ListenView] latency ${latencySummary}`);
         stopTimer();
         sessionStateRef.current = 'after';
         isSessionActiveRef.current = false;
