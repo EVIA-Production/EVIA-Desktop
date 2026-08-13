@@ -132,7 +132,6 @@ export class ChatWebSocket {
   private silenceThreshold: number = 0.003;
   private audioDetected: boolean = false;
   private silentDurationMs: number = 0;
-  private droppedSilentChunks: number = 0;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -374,25 +373,29 @@ export class ChatWebSocket {
     // Update last audio level
     this.lastAudioLevel = audioLevel;
 
-    // Silence suppression with hangover:
-    // - speech starts immediately
-    // - a short tail after speech is preserved
-    // - only sustained silence is dropped
-    // Backend/Deepgram keepalive paths keep sessions alive during silence.
-    if (!hasAudio) {
-      const HANGOVER_MS = 500;
-      if (this.silentDurationMs > HANGOVER_MS) {
-        this.droppedSilentChunks++;
-        if (this.droppedSilentChunks % 25 === 0) {
-          console.log(
-            `[Audio Logger] Dropped ${this.droppedSilentChunks} sustained-silence chunks for ${this.source || 'unknown'} ` +
-            `(threshold=${this.silenceThreshold.toFixed(4)}, current=${audioLevel.toFixed(4)})`
-          );
-        }
-        return 'dropped';
-      }
-    }
-
+    // NO SILENCE SUPPRESSION. Every captured frame is transmitted.
+    //
+    // This used to drop any chunk whose RMS fell below `silenceThreshold` once
+    // 500ms of "silence" had accumulated. The threshold is 0.003 for the mic,
+    // and RMS here is normalised to 0..1, so the gate sat at -50.5 dBFS. In the
+    // 2026-08-13 session the microphone measured -53, -55, -56, -57, -58 and
+    // -59 dBFS across most telemetry windows: a normal speaking voice on a
+    // MacBook Air's built-in mic lives BELOW that gate. The user's speech was
+    // being classified as silence and deleted before it ever reached Deepgram.
+    //
+    // Three reported symptoms, one cause:
+    //   - "only 10% was transcribed"  - quiet speech never left the machine
+    //   - "everything in one bubble"  - Deepgram closes an utterance when it
+    //     HEARS silence. Deleting the silence removes the endpointing cue, so
+    //     words minutes apart arrive adjacent and merge into one utterance.
+    //   - finals arriving 10-15s late  - the same missing endpoint.
+    //
+    // It also bought nothing: Deepgram streaming is billed by connection time,
+    // not by bytes, so suppressing audio saved no money and cost the product
+    // its transcript. A voice-activity decision belongs to the transcriber,
+    // which has a real VAD; an amplitude threshold in the transport layer is
+    // guessing at speech with the one signal that cannot distinguish a quiet
+    // talker from an empty room.
     if (this.ws?.readyState !== WebSocket.OPEN) {
       // Queue speech and its short trailing context, but never let sustained
       // silence displace recoverable speech while a reconnect is in flight.

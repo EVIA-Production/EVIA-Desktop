@@ -339,6 +339,33 @@ test('both capture sockets stamp forwarded segments with the pinned chat', () =>
   }
 });
 
+// ── no layer between the microphone and the transcriber may delete audio ──────
+
+test('the transport never drops a captured frame', () => {
+  const ws = fs.readFileSync(
+    process.env.WEBSOCKET_SERVICE_PATH ||
+      path.join(__dirname, '..', 'src', 'renderer', 'services', 'websocketService.ts'),
+    'utf8',
+  );
+  // The gate sat at RMS 0.003, and RMS here is normalised to 0..1, so it cut
+  // everything below -50.5 dBFS. The 2026-08-13 session measured the mic at
+  // -53..-59 dBFS across most windows: a normal speaking voice on a MacBook Air
+  // lives BELOW that gate, so the user's speech was deleted as "silence".
+  //
+  // It also removed the cue Deepgram uses to END an utterance, which is why
+  // everything merged into one bubble and finals arrived 10-15s late.
+  assert.doesNotMatch(
+    ws,
+    /return 'dropped'/,
+    'audio is being discarded before it reaches the transcriber',
+  );
+  assert.doesNotMatch(ws, /droppedSilentChunks/, 'silence suppression is back');
+  // Voice activity is the transcriber's decision - it has a real VAD and
+  // vad_events is enabled. An amplitude threshold in the transport cannot tell
+  // a quiet talker from an empty room.
+  assert.match(ws, /NO SILENCE SUPPRESSION/);
+});
+
 // ── the reconciler that completed live sessions ───────────────────────────────
 
 const eviaBar = fs.readFileSync(
