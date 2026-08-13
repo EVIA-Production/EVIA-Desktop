@@ -341,6 +341,29 @@ const EviaBar: React.FC<EviaBarProps> = ({
           const data = await response.json();
           console.log('[EviaBar] ✅ Backend session status:', data.status);
           if (data.status === 'during' || data.status === 'after') {
+            // Re-check the guard. It was true when this ran, but two network
+            // round trips to Azure have happened since, and this function is
+            // triggered by `chat-changed` - which fires when a call CREATES its
+            // chat. startCapture needs ~3.5s to leave 'idle' (mic permission
+            // ~1.6s, then the helper), so the guard passes, the user's call
+            // starts underneath us, the backend correctly answers 'during', and
+            // we then complete the LIVE session, delete its chat id and
+            // broadcast clear-session. That strands both capture sockets and
+            // wipes the transcript ~5s into the call, which is exactly the
+            // 2026-08-12 failure: SEND FAILED 5.5s after startCapture.
+            //
+            // "Orphaned" is only meaningful while capture is idle. Refs, not
+            // state, so this reads the value now rather than at closure time.
+            if (captureSessionRef.current.state !== 'idle' || isListeningRef.current) {
+              console.log(
+                '[EviaBar] ⏭️ Capture became active while reconciling - leaving the live session alone',
+              );
+              (window as any).evia?.ipc?.send?.(
+                'debug-log',
+                '[EviaBar] ⏭️ Skipped completing a session that went live mid-reconcile',
+              );
+              return;
+            }
             console.warn('[EviaBar] ⚠️ Completing orphaned backend session without changing capture UI');
             const completionResponse = await fetch(`${baseUrl}/session/complete`, {
               method: 'POST',
@@ -354,6 +377,16 @@ const EviaBar: React.FC<EviaBarProps> = ({
               }),
             });
             if (completionResponse.ok) {
+              // One more round trip, one more chance for a call to have begun.
+              // Deleting the chat id and broadcasting clear-session are the two
+              // actions that actually empty a live transcript, so they get the
+              // last possible check rather than the first.
+              if (captureSessionRef.current.state !== 'idle' || isListeningRef.current) {
+                console.log(
+                  '[EviaBar] ⏭️ Capture went live during completion - keeping chat id and transcript',
+                );
+                return;
+              }
               localStorage.removeItem('current_chat_id');
               (window as any).evia?.liveTranscript?.clear?.();
               (window as any).evia?.ipc?.send?.('clear-session');

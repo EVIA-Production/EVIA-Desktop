@@ -117,6 +117,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const insightsRequestInFlightRef = useRef(false);
   const liveInsightsRefreshQueuedRef = useRef(false);
   const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
+  /**
+   * The last chat id this view actually saw, so a transcript survives the key
+   * blinking out from under it.
+   *
+   * `current_chat_id` is a global localStorage key that nine code paths delete,
+   * one of them a WebSocket close handler that fires mid-call. The adapter
+   * refuses any event without a chat id, so a single deletion rejected EVERY
+   * following segment as `missing-chat-id` and emptied the transcript for the
+   * rest of the call - segments that were themselves perfectly well-formed.
+   *
+   * The id is only used to LABEL the event; the adapter never checks it against
+   * the message. Remembering the last one we saw therefore costs no correctness
+   * and removes a whole class of blank transcripts.
+   */
+  const lastKnownChatIdRef = useRef<string | null>(null);
+  /** Distinct rejection reasons already reported to the terminal, with counts. */
+  const rejectionReportRef = useRef<Map<string, { count: number; lastMs: number }>>(new Map());
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
@@ -587,7 +604,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
 
       const storedChatId = localStorage.getItem('current_chat_id');
-      const adapted = adaptServerTranscriptEvent(msg, storedChatId);
+      if (storedChatId) lastKnownChatIdRef.current = storedChatId;
+      // Fall back to the last id we saw rather than dropping the segment: the
+      // key is global and deleted by paths that know nothing about this call.
+      const chatIdForEvent = storedChatId ?? lastKnownChatIdRef.current;
+      const adapted = adaptServerTranscriptEvent(msg, chatIdForEvent);
       if (!adapted.event) {
         // The reason goes in the MESSAGE, not only the payload: a console
         // collapses the object to "Object", which is exactly how 100% of
@@ -599,6 +620,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           utteranceId: msg.data?.utterance_id,
           captureSessionId: msg.data?.capture_session_id,
         });
+        // Also to the terminal. This console belongs to the Listen WINDOW, so
+        // reading it means knowing to open that window's DevTools first - which
+        // is why a 100% rejection rate went undiagnosed for two sessions. One
+        // line per distinct reason per 2s keeps a rejected call self-evident
+        // from the same terminal that shows capture.
+        const reason = String(adapted.reason);
+        const seen = rejectionReportRef.current.get(reason) ?? { count: 0, lastMs: 0 };
+        seen.count += 1;
+        const nowMs = Date.now();
+        if (seen.count === 1 || nowMs - seen.lastMs >= 2000) {
+          seen.lastMs = nowMs;
+          const tally = seen.count > 1 ? ` (x${seen.count})` : '';
+          eviaIpc?.send?.(
+            'debug-log',
+            `[ListenView] ❌ transcript REJECTED${tally}: ${reason} ` +
+            `(source=${msg._source ?? msg.data?.source}, chat=${JSON.stringify(chatIdForEvent)})`,
+          );
+        }
+        rejectionReportRef.current.set(reason, seen);
         return;
       }
 

@@ -16,6 +16,7 @@ import {
   describeSessionVerdict,
 } from '../main/aec-telemetry';
 import { Aec3Canceller, AEC3_MAX_TRACKABLE_DELAY_MS } from '../main/aec3-canceller';
+import { CaptureSendFailureReporter } from '../main/capture-send-failures';
 import {
   type AudioChunkMetadata,
   type CaptureSource,
@@ -641,6 +642,7 @@ function beginCaptureSession(): CaptureSessionTimeline {
   aecSkippedChunks = 0;
   lastSkipWarningAtMs = 0;
   aec3LoadFailed = false;
+  resetCaptureSendFailures();
 
   const timeline = new CaptureSessionTimeline({
     generation: nextCaptureGeneration++,
@@ -663,6 +665,7 @@ function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): vo
   // Released with the session: the next call binds its own chat rather than
   // inheriting this one's.
   captureChatId = null;
+  resetCaptureSendFailures();
   preReadyCaptureChunks = [];
   referenceBudgetChecked = false;
   captureTimeline = null;
@@ -723,17 +726,23 @@ function sendCaptureChunk(
     return 'buffered';
   }
 
-  const ws = source === 'mic'
-    ? ensureMicWs()
-    : ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+  const ws = source === 'mic' ? ensureMicWs() : ensureSystemWs();
   if (!ws) {
     // Name the cause in the message itself. "WebSocket unavailable" repeated a
     // hundred times told us nothing about WHY on 2026-08-12, and the branch
     // that logs the reason sits in a window whose console nobody was reading.
-    const chatId = localStorage.getItem('current_chat_id');
-    const why = !chatId || chatId === '0'
-      ? `no current_chat_id (value=${JSON.stringify(chatId)})`
-      : 'socket factory returned nothing despite a valid chat id';
+    //
+    // Report the id the socket actually resolves through, plus BOTH inputs to
+    // it. Reading only localStorage here mislabels a factory failure as a
+    // missing id whenever the session pin is holding and the key is gone -
+    // which sends the next reader to the wrong branch of the handoff.
+    const resolved = activeChatId();
+    const inputs =
+      `pin=${JSON.stringify(captureChatId)} ` +
+      `localStorage=${JSON.stringify(localStorage.getItem('current_chat_id'))}`;
+    const why = resolved === '0'
+      ? `no chat id (${inputs})`
+      : `socket factory returned nothing for chat ${resolved} (${inputs})`;
     throw new Error(`[AudioCapture] ${source} WebSocket unavailable - ${why}`);
   }
   return ws.sendAudioChunk(data, metadata);
@@ -750,9 +759,7 @@ function releaseCaptureTransport(): void {
       return a.metadata.chunk_seq - b.metadata.chunk_seq;
     })
     .forEach((chunk) => {
-      const ws = chunk.source === 'mic'
-        ? ensureMicWs()
-        : ensureSystemWs(localStorage.getItem('current_chat_id') || undefined);
+      const ws = chunk.source === 'mic' ? ensureMicWs() : ensureSystemWs();
       if (!ws) throw new Error(`[AudioCapture] ${chunk.source} WebSocket unavailable at release`);
       ws.sendAudioChunk(chunk.data, chunk.metadata);
     });
@@ -890,6 +897,24 @@ function sendDebugLog(line: string): void {
 }
 
 /**
+ * Every source reports its send failures through here, so no source can fail
+ * silently. Only the microphone used to reach the terminal; the two system
+ * catches wrote to `console.error`, which this renderer never forwards. That
+ * asymmetry - not any mic-specific defect - is why 2026-08-12 read as "the mic
+ * socket is broken but system audio works fine". See capture-send-failures.ts.
+ */
+const captureSendFailures = new CaptureSendFailureReporter();
+
+function resetCaptureSendFailures(): void {
+  captureSendFailures.reset();
+}
+
+function reportCaptureSendFailure(source: CaptureSource, error: unknown): void {
+  const line = captureSendFailures.record(source, error, performance.now());
+  if (line) sendDebugLog(line);
+}
+
+/**
  * 🎯 Convert base64 PCM to Float32Array - Glass Parity
  */
 function base64ToFloat32Array(base64: string): Float32Array {
@@ -1014,10 +1039,16 @@ function ensureMicWs() {
 }
 
 // Ensure WebSocket for system audio (source=system, speaker=0)
-function ensureSystemWs(chatId?: string) {
+//
+// Takes no chat id on purpose. Every call site used to pass
+// `localStorage.getItem('current_chat_id')`, which OVERRODE the session pin at
+// exactly the moment the pin exists to survive: if the key had moved on while
+// this socket was closed, system audio reconnected to a different chat than the
+// microphone and split one conversation in half. Both sources resolve through
+// activeChatId() so a capture session can only ever address one chat.
+function ensureSystemWs() {
   try {
-    // FIX: Use provided chatId or fall back to localStorage
-    const cid = chatId || activeChatId();
+    const cid = activeChatId();
     if (!cid || cid === '0') {
       console.error('[AudioCapture] ❌ No chat_id available for system audio WebSocket');
       console.error('[AudioCapture] Ensure getOrCreateChatId() is called before startCapture()');
@@ -1100,9 +1131,7 @@ async function connectCaptureWebSockets(
 ): Promise<CaptureSocketConnectionStatus> {
   const createPair = () => {
     const mic = ensureMicWs();
-    const system = includeSystemAudio
-      ? ensureSystemWs(localStorage.getItem('current_chat_id') || undefined)
-      : null;
+    const system = includeSystemAudio ? ensureSystemWs() : null;
 
     if (!mic) {
       throw new Error('[AudioCapture] No valid chat_id - cannot create microphone WebSocket');
@@ -1299,6 +1328,7 @@ async function startMacSystemAudioCapture(
       }
     } catch (error) {
       console.error('[AudioCapture] Error processing system audio data:', error);
+      reportCaptureSendFailure('system', error);
       pipelineMetrics.errorsEncountered++;
       if (!firstChunkSettled) {
         firstChunkSettled = true;
@@ -1694,20 +1724,24 @@ async function setupMicProcessing(
           if (pipelineMetrics.micChunksSent % 100 === 0) {
             const elapsed = (Date.now() - pipelineMetrics.sessionStart) / 1000;
             console.log(`[Pipeline] Status: ${pipelineMetrics.micChunksSent} mic chunks, ${pipelineMetrics.systemChunksSent} system chunks, ${elapsed.toFixed(0)}s elapsed, platform=${pipelineMetrics.platform}`);
+            // Forwarded, because "no SEND FAILED appeared" is not evidence that
+            // audio is flowing - in this renderer a silent path and a working
+            // path look identical from the terminal. A rising count for BOTH
+            // sources is the positive proof; roughly one line per 10s of call.
+            sendDebugLog(
+              `transport ok: mic ${pipelineMetrics.micChunksSent} chunks sent, ` +
+              `system ${pipelineMetrics.systemChunksSent} chunks sent, ` +
+              `${elapsed.toFixed(0)}s elapsed, chat=${activeChatId()}`,
+            );
           }
         }
       } catch (error) {
         console.error('[AudioCapture] ❌ Failed to send MIC chunk:', error);
+        reportCaptureSendFailure('mic', error);
         if (!firstChunkSettled) {
           firstChunkSettled = true;
           rejectFirstChunk?.(error instanceof Error ? error : new Error(String(error)));
         }
-        try {
-          const eviaIpc = (window as any).evia?.ipc;
-          if (eviaIpc?.send) {
-            eviaIpc.send('debug-log', `[AudioCapture] ❌ SEND FAILED: ${error}`);
-          }
-        } catch { }
       }
     }
   };
@@ -1852,6 +1886,7 @@ function setupSystemAudioProcessing(
         }
       } catch (error) {
         console.error('[AudioCapture] Failed to send SYSTEM chunk:', error);
+        reportCaptureSendFailure('system', error);
         pipelineMetrics.errorsEncountered++;
         if (!firstChunkSettled) {
           firstChunkSettled = true;
