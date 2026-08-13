@@ -430,8 +430,18 @@ function timedWordsMatchText(row: CanonicalTranscriptRow): boolean {
   );
 }
 
+/**
+ * A pause long enough that the provider itself would have ended the turn.
+ *
+ * Deepgram's `endpointing` is 400ms for German, 300ms otherwise: past that
+ * silence it closes the utterance. So a gap of at least this much between two
+ * atoms of the same speaker is a turn boundary by the transcriber's own
+ * definition, not a guess of ours.
+ */
+const TURN_CONTINUATION_MS = 400;
+
 function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjectionRow[] {
-  type ProjectionAtom = CanonicalProjectionRow & { order: number };
+  type ProjectionAtom = CanonicalProjectionRow & { order: number; identityKey: string };
   const atoms: ProjectionAtom[] = [];
   let order = 0;
 
@@ -440,6 +450,7 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
       row.words.forEach((word, wordIndex) => {
         atoms.push({
           key: `${row.identityKey}:word:${wordIndex}`,
+          identityKey: row.identityKey,
           source: row.source,
           role: roleOf(row.source),
           text: word.text.trim(),
@@ -457,6 +468,7 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
     // atomic rather than manufacturing, duplicating, or dropping words.
     atoms.push({
       key: row.identityKey,
+      identityKey: row.identityKey,
       source: row.source,
       role: roleOf(row.source),
       text: row.text,
@@ -473,19 +485,41 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
     left.order - right.order
   ));
 
+  // Group atoms into turns.
+  //
+  // This used to merge EVERY consecutive atom of the same source into one row,
+  // with no gap and no utterance boundary, so a new bubble began only when the
+  // speaker alternated. In the 2026-08-13 call the far end produced no
+  // transcript at all, so seven separate microphone utterances spanning a whole
+  // minute collapsed into a single ever-growing bubble - the reported "all ONE
+  // blue bubble, no turn order / separation". Two people talking in turn hid
+  // the defect; one person talking exposed it immediately.
+  //
+  // A turn continues while the atoms belong to the same provider utterance
+  // (that is how word atoms rejoin into a sentence), or while the silence
+  // between them is shorter than the provider's own endpointing threshold.
+  // Anything longer is a turn boundary by Deepgram's definition.
   const projected: CanonicalProjectionRow[] = [];
+  let tailIdentityKey: string | null = null;
   for (const atom of atoms) {
     if (!atom.text) continue;
     const tail = projected[projected.length - 1];
-    if (tail && tail.source === atom.source) {
+    const continuesTurn =
+      tail !== undefined &&
+      tail.source === atom.source &&
+      (atom.identityKey === tailIdentityKey ||
+        atom.captureStartMs - tail.captureEndMs < TURN_CONTINUATION_MS);
+    if (continuesTurn) {
       tail.text = `${tail.text} ${atom.text}`.trim();
       tail.captureEndMs = Math.max(tail.captureEndMs, atom.captureEndMs);
       tail.isFinal = tail.isFinal && atom.isFinal;
       tail.key = `${tail.key}|${atom.key}`;
+      tailIdentityKey = atom.identityKey;
       continue;
     }
-    const { order: _order, ...row } = atom;
+    const { order: _order, identityKey: _identityKey, ...row } = atom;
     projected.push(row);
+    tailIdentityKey = atom.identityKey;
   }
   return projected;
 }

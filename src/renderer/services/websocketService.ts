@@ -61,6 +61,41 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
     chatId = null;
   }
 
+  // Before minting a new chat, ask the SHARED store.
+  //
+  // localStorage is per window, and nine code paths delete this key. Every one
+  // of those deletions used to become a brand new chat: in the 2026-08-13 call
+  // capture was pinned to 1622 while other windows walked 1629 -> 0 -> 1641.
+  // The transcript went to 1622 and Ask then asked about 1641, an empty chat -
+  // which is why the answer read "Das Gespräch ist bereits beendet" in the
+  // middle of a live call. It had no transcript to see, so it inferred there
+  // was nothing left to say.
+  //
+  // `prefs` lives in the main process and is already written on every chat
+  // creation, so it is the one view of "which chat is this call" that a window
+  // reload or a stray removeItem cannot destroy.
+  // Never on forceCreate: recreateChatId exists precisely to mint a new chat,
+  // and adopting the old one here would silently defeat it.
+  if (!chatId && !forceCreate) {
+    try {
+      const shared = await (window as any).evia?.prefs?.get?.();
+      const sharedChatId = shared?.current_chat_id;
+      if (
+        sharedChatId &&
+        String(sharedChatId) !== '0' &&
+        Number.isInteger(Number(sharedChatId)) &&
+        Number(sharedChatId) <= int32Max
+      ) {
+        chatId = String(sharedChatId);
+        localStorage.setItem('current_chat_id', chatId);
+        console.log('[Chat] Adopted live chat id from shared prefs:', chatId);
+        return chatId;
+      }
+    } catch (error) {
+      console.warn('[Chat] Shared prefs unavailable; falling back to creation', error);
+    }
+  }
+
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       console.log(`[Chat] Attempt ${attempt + 1} to create chat`);
@@ -115,6 +150,27 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
 
   if (!chatId) throw new Error('Failed to create chat after retries');
   return chatId;
+}
+
+/**
+ * End this chat everywhere, deliberately.
+ *
+ * `localStorage.removeItem('current_chat_id')` alone is no longer enough:
+ * getOrCreateChatId falls back to the shared main-process prefs so that an
+ * ACCIDENTAL loss of the key (a window reload, a socket close handler, an auth
+ * resync) cannot fragment a live call across several chats. That fallback must
+ * not outlive a session the user actually finished, or the next call would be
+ * appended to the previous one. Deliberate endings - Done, language change,
+ * logout, completing an orphaned session - clear both.
+ */
+export async function clearChatIdEverywhere(reason: string): Promise<void> {
+  localStorage.removeItem('current_chat_id');
+  try {
+    await (window as any).evia?.prefs?.set?.({ current_chat_id: null });
+    console.log(`[Chat] Cleared chat id from localStorage and shared prefs (${reason})`);
+  } catch (error) {
+    console.warn('[Chat] Could not clear shared prefs chat id', error);
+  }
 }
 
 /** Replace a stale capture chat, bounded to one caller-controlled retry. */

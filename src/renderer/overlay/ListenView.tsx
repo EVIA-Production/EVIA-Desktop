@@ -20,6 +20,8 @@ declare global {
 }
 
 import {
+  dropBledMicRows,
+  farEndTextOf,
   groupIntoBlocks,
   type OrderedTranscriptLine,
 } from '../../main/transcript-order';
@@ -65,8 +67,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     () => projectRealtimeTranscriptState(canonicalTranscriptState),
     [canonicalTranscriptState],
   );
-  const transcripts = useMemo<TranscriptLine[]>(
-    () => canonicalProjection.visibleRows.map(row => ({
+  const transcripts = useMemo<TranscriptLine[]>(() => {
+    const rows = canonicalProjection.visibleRows.map(row => ({
       speaker: row.source === 'mic' ? 1 : 0,
       text: row.text,
       isFinal: row.isFinal,
@@ -76,9 +78,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       audioStartMs: row.captureStartMs,
       audioEndMs: row.captureEndMs,
       utteranceId: row.key,
-    })),
-    [canonicalProjection],
-  );
+    }));
+    // Sweep far-end speech off the mic side.
+    //
+    // The canonical-clock rewrite replaced this component wholesale and carried
+    // only `groupIntoBlocks` across; `dropBledMicRows`/`farEndTextOf` were left
+    // behind. So the loudspeaker's echo kept being transcribed on the mic
+    // stream with nothing left to remove it - "everything system transcribed is
+    // displayed on mic" - which is the exact problem the rewrite existed to
+    // solve. AEC attenuates the echo in the signal; this removes whatever still
+    // survived into the text.
+    //
+    // This is the conservative post-37ad608 filter: a run of at least
+    // BLED_MIN_RUN_WORDS (4) words covering BLED_MIN_RUN_COVERAGE (30%) of the
+    // row. An earlier, greedier version deleted the rep's own words and was
+    // reverted; that tuning is deliberately preserved here.
+    return dropBledMicRows(rows, farEndTextOf(rows));
+  }, [canonicalProjection]);
   const visibleTranscripts = transcripts;
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);

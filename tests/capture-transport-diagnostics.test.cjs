@@ -339,6 +339,66 @@ test('both capture sockets stamp forwarded segments with the pinned chat', () =>
   }
 });
 
+// ── what the canonical rewrite left behind ────────────────────────────────────
+
+test('turns are separated, not merged into one endless bubble', () => {
+  const { projectRealtimeTranscriptState, createRealtimeTranscriptState, applyRealtimeTranscriptEvent } =
+    require('../dist/main/realtime-transcript-state.js');
+
+  // Two mic utterances 5 seconds apart. Before the fix, projectionRows merged
+  // every consecutive atom of the SAME SOURCE with no gap and no utterance
+  // check, so a new bubble began only when the speaker alternated. With the far
+  // end producing no transcript, an entire call collapsed into one row.
+  let state = createRealtimeTranscriptState();
+  state = applyRealtimeTranscriptEvent(state, transcriptEvent({
+    source: 'mic', utteranceId: '0', eventId: 'e0', seq: 1, isFinal: true,
+    text: 'Guten Tag', captureStartMs: 1000, captureEndMs: 1500,
+    words: [{ text: 'Guten', startMs: 1000, endMs: 1200 }, { text: 'Tag', startMs: 1200, endMs: 1500 }],
+  })).state;
+  state = applyRealtimeTranscriptEvent(state, transcriptEvent({
+    source: 'mic', utteranceId: '1', eventId: 'e1', seq: 2, isFinal: true,
+    text: 'Wie geht es', captureStartMs: 6000, captureEndMs: 6600,
+    words: [
+      { text: 'Wie', startMs: 6000, endMs: 6200 },
+      { text: 'geht', startMs: 6200, endMs: 6400 },
+      { text: 'es', startMs: 6400, endMs: 6600 },
+    ],
+  })).state;
+
+  const rows = projectRealtimeTranscriptState(state).visibleRows;
+  assert.equal(rows.length, 2, 'a 4.5s pause is a turn boundary, not one bubble');
+  assert.equal(rows[0].text, 'Guten Tag');
+  assert.equal(rows[1].text, 'Wie geht es');
+});
+
+test('words inside one utterance still join into a single row', () => {
+  const { projectRealtimeTranscriptState, createRealtimeTranscriptState, applyRealtimeTranscriptEvent } =
+    require('../dist/main/realtime-transcript-state.js');
+  // The turn split must not fragment a sentence into one bubble per word.
+  let state = createRealtimeTranscriptState();
+  state = applyRealtimeTranscriptEvent(state, transcriptEvent({
+    source: 'mic', utteranceId: '0', eventId: 'e0', seq: 1, isFinal: true,
+    text: 'Das ist gut', captureStartMs: 1000, captureEndMs: 2000,
+    words: [
+      { text: 'Das', startMs: 1000, endMs: 1300 },
+      { text: 'ist', startMs: 1300, endMs: 1600 },
+      { text: 'gut', startMs: 1600, endMs: 2000 },
+    ],
+  })).state;
+  const rows = projectRealtimeTranscriptState(state).visibleRows;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].text, 'Das ist gut');
+});
+
+test('the bleed filter is wired into what the user actually sees', () => {
+  // The rewrite carried only groupIntoBlocks across from transcript-order and
+  // left dropBledMicRows/farEndTextOf behind, so loudspeaker echo transcribed
+  // on the mic stream had nothing left to remove it.
+  assert.match(listenView, /dropBledMicRows,/);
+  assert.match(listenView, /farEndTextOf,/);
+  assert.match(listenView, /return dropBledMicRows\(rows, farEndTextOf\(rows\)\)/);
+});
+
 // ── no layer between the microphone and the transcriber may delete audio ──────
 
 test('the transport never drops a captured frame', () => {

@@ -785,8 +785,13 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
         // FIX #CRITICAL: Clear chat_id so next session creates NEW chat instead of reusing old one
         // This ensures each "Listen → Done" cycle creates a separate session
-        localStorage.removeItem('current_chat_id');
-        console.log('[EviaBar] 🗑️ Cleared chat_id from localStorage - next session will create new chat');
+        // Both stores: getOrCreateChatId now falls back to shared prefs so an
+        // ACCIDENTAL key loss cannot fragment a live call, and a finished
+        // session must not survive in that fallback.
+        {
+          const { clearChatIdEverywhere } = await import('../services/websocketService');
+          await clearChatIdEverywhere('session_done');
+        }
         
         await captureApi.complete(current.generation);
         setIsListenActive(false);
