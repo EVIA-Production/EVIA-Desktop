@@ -28,29 +28,12 @@ import {
   createRealtimeTranscriptState,
   currentDownstreamIdentity,
   isDownstreamResultApplicable,
-  normalizeRealtimeTranscriptEvent,
   projectRealtimeTranscriptState,
-  type NormalizedRealtimeTranscriptEvent,
   type RealtimeTranscriptState,
 } from '../../main/realtime-transcript-state';
+import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
 
 type TranscriptLine = OrderedTranscriptLine;
-
-type TranscriptAdapterResult =
-  | {
-      event: NormalizedRealtimeTranscriptEvent;
-      reason: null;
-      captureEndEpochMs: number;
-      providerReceivedAtMs: number | null;
-      serverSentAtMs: number | null;
-    }
-  | { event: null; reason: string };
-
-const nonNegativeInteger = (value: unknown): value is number =>
-  Number.isInteger(value) && (value as number) >= 0;
-
-const finiteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value);
 
 const percentile = (values: number[], quantile: number): number | null => {
   if (values.length === 0) return null;
@@ -66,99 +49,6 @@ const summarizeLatencies = (values: number[]) => ({
   maxMs: values.length > 0 ? Math.round(Math.max(...values) * 10) / 10 : null,
 });
 
-/**
- * Adapt the backend wire contract without inventing identity or timing.
- * Clockless legacy events are deliberately rejected: arrival time cannot
- * reconstruct order across the independent mic and system streams.
- */
-const adaptServerTranscriptEvent = (message: unknown, chatId: string | null): TranscriptAdapterResult => {
-  if (!message || typeof message !== 'object') return { event: null, reason: 'invalid-message' };
-  const envelope = message as Record<string, unknown>;
-  if (envelope.type !== 'transcript_segment') return { event: null, reason: 'not-transcript' };
-  if (!envelope.data || typeof envelope.data !== 'object') return { event: null, reason: 'missing-data' };
-  if (!chatId) return { event: null, reason: 'missing-chat-id' };
-
-  const data = envelope.data as Record<string, unknown>;
-  const source = data.source;
-  const forwardedSource = envelope._source;
-  if (source !== 'mic' && source !== 'system') return { event: null, reason: 'invalid-source' };
-  if (forwardedSource !== undefined && forwardedSource !== source) {
-    return { event: null, reason: 'source-mismatch' };
-  }
-  if (data.clock_domain_valid !== true) return { event: null, reason: 'invalid-clock-domain' };
-
-  const sessionId = typeof data.capture_session_id === 'string' ? data.capture_session_id.trim() : '';
-  const utteranceId = data.utterance_id === undefined || data.utterance_id === null
-    ? ''
-    : String(data.utterance_id).trim();
-  const eventId = typeof data.event_id === 'string' ? data.event_id.trim() : '';
-  const text = typeof data.text === 'string' ? data.text.trim() : '';
-  if (!sessionId || !utteranceId || !eventId || !text) {
-    return { event: null, reason: 'missing-canonical-identity-or-text' };
-  }
-  if (
-    !nonNegativeInteger(data.capture_generation) ||
-    !nonNegativeInteger(data.stream_generation) ||
-    !nonNegativeInteger(data.seq) ||
-    !finiteNumber(data.session_epoch_ms) ||
-    !finiteNumber(data.capture_start_ms) ||
-    !finiteNumber(data.capture_end_ms)
-  ) {
-    return { event: null, reason: 'invalid-canonical-metadata' };
-  }
-  if (!Array.isArray(data.words)) return { event: null, reason: 'missing-timed-words' };
-
-  const words = [] as Array<{ text: string; startMs: number; endMs: number }>;
-  for (const candidate of data.words) {
-    if (!candidate || typeof candidate !== 'object') return { event: null, reason: 'invalid-word' };
-    const word = candidate as Record<string, unknown>;
-    const wordText = typeof word.text === 'string' ? word.text.trim() : '';
-    if (
-      !wordText ||
-      !finiteNumber(word.capture_start_ms) ||
-      !finiteNumber(word.capture_end_ms)
-    ) {
-      return { event: null, reason: 'unmapped-word-clock' };
-    }
-    words.push({
-      text: wordText,
-      startMs: word.capture_start_ms,
-      endMs: word.capture_end_ms,
-    });
-  }
-
-  const event = normalizeRealtimeTranscriptEvent({
-    chatId,
-    sessionId,
-    source,
-    captureGeneration: data.capture_generation,
-    streamGeneration: data.stream_generation,
-    utteranceId,
-    eventId,
-    seq: data.seq,
-    captureStartMs: data.capture_start_ms,
-    captureEndMs: data.capture_end_ms,
-    words,
-    clockDomainValid: true,
-    text,
-    isFinal: data.is_final === true,
-  });
-  if (!event) return { event: null, reason: 'invalid-normalized-event' };
-
-  const trace = data.trace && typeof data.trace === 'object'
-    ? data.trace as Record<string, unknown>
-    : null;
-  return {
-    event,
-    reason: null,
-    captureEndEpochMs: data.session_epoch_ms + event.captureEndMs,
-    providerReceivedAtMs: finiteNumber(trace?.provider_received_at_ms)
-      ? trace.provider_received_at_ms
-      : null,
-    serverSentAtMs: finiteNumber(trace?.server_sent_at_ms)
-      ? trace.server_sent_at_ms
-      : null,
-  };
 };
 
 interface ListenViewProps {
@@ -701,7 +591,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const storedChatId = localStorage.getItem('current_chat_id');
       const adapted = adaptServerTranscriptEvent(msg, storedChatId);
       if (!adapted.event) {
-        console.error('[ListenView][Canonical] Rejected transcript event:', {
+        // The reason goes in the MESSAGE, not only the payload: a console
+        // collapses the object to "Object", which is exactly how 100% of
+        // segments were rejected on 2026-08-13 without anyone learning why.
+        console.error(`[ListenView][Canonical] Rejected transcript event: ${adapted.reason}`, {
           reason: adapted.reason,
           source: msg._source ?? msg.data?.source,
           eventId: msg.data?.event_id,
