@@ -38,7 +38,8 @@
     "postinstall": "electron-builder install-app-deps",
     "start": "npm run dev",
     "package": "echo 'Use electron-builder via build script'",
-    "make": "echo 'Use electron-builder via build script'"
+    "make": "echo 'Use electron-builder via build script'",
+    "aec:gate": "python3 tools/aec-hardware-gate.py"
   },
   "dependencies": {
     "@ennuicastr/webrtcaec3.js": "^0.3.0",
