@@ -703,9 +703,52 @@ ipcMain.handle('auth:checkTokenValidity', async () => {
   }
 });
 
+/**
+ * Stop everything that is physically capturing, right now.
+ *
+ * `captureSessionController.reset('logout')` only mutates an in-memory state
+ * snapshot to 'idle'; its single subscriber broadcasts that snapshot. Nothing
+ * in that chain touches the ScreenCaptureKit helper or the renderer's
+ * getUserMedia track, so before this existed a logged-out Taylos kept
+ * recording the microphone and the system output - including the other party
+ * on the call, who never consented to a logged-out app.
+ *
+ * The renderer owns the mic track and the sockets, so it is asked first; the
+ * helper is then stopped from here regardless, because the window may already
+ * be gone and a stranded helper process would keep the screen-recording
+ * indicator lit with nobody able to turn it off.
+ */
+async function stopAllPhysicalCapture(reason: string): Promise<void> {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.webContents.send('capture:force-stop', { reason });
+    } catch (error) {
+      console.warn('[Capture] Failed to send capture:force-stop to window:', error);
+    }
+  });
+
+  const results = await Promise.allSettled([
+    systemAudioMacService.stop(),
+    systemAudioWindowsService.stop(),
+  ]);
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error(
+        `[Capture] ❌ ${index === 0 ? 'mac' : 'windows'} audio helper failed to stop on ${reason}:`,
+        result.reason,
+      );
+    }
+  });
+  console.log(`[Capture] 🛑 Physical capture stopped (${reason})`);
+}
+
 // Logout handler (Phase 4: HeaderController integration)
 ipcMain.handle('auth:logout', async () => {
   try {
+    // Before the state reset, not after: reset() flips the snapshot to 'idle',
+    // and a renderer that sees 'idle' first may decide it has nothing to stop.
+    await stopAllPhysicalCapture('logout');
     captureSessionController.reset('logout');
     await headerController.handleLogout();
     broadcastAuthTokenChanged(null);

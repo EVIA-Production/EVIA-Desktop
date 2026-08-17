@@ -162,7 +162,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const lastMessageAtRef = useRef<number | null>(null);
   const firstPartialLatencyByEventRef = useRef<Map<string, number>>(new Map());
   const finalLatencyByEventRef = useRef<Map<string, number>>(new Map());
-  const [showUndoButton, setShowUndoButton] = useState(false); 
   // UI diagnostics state to show counts and last message age
   const [diagMessageCount, setDiagMessageCount] = useState(0);
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
@@ -172,6 +171,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const afterInsightsFrozenRef = useRef(false);
   const afterInsightsRequestPendingRef = useRef(false);
   const viewModeRef = useRef<'transcript' | 'insights'>(viewMode);
+  // Set whenever the user picks a view themselves. A session STARTING must
+  // not take that choice away: pressing Listen, switching to transcript while
+  // the button is still grey, and then having the flip to 'during' throw you
+  // back to insights is the reported bug. Cleared on a genuine session reset,
+  // where returning to insights is correct.
+  const userSelectedViewRef = useRef(false);
   const transcriptsRef = useRef<TranscriptLine[]>([]);
   const sessionStateRef = useRef<'before' | 'during' | 'after'>(sessionState);
   const isSessionActiveRef = useRef(false);
@@ -541,6 +546,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       return;
     }
 
+    // Reasons that mean "this session is starting", as opposed to "throw the
+    // session data away". Only the latter may override a deliberate view choice.
+    const SESSION_START_REASONS = new Set([
+      'recording-started',
+      'session-state-before-to-during',
+    ]);
+
     const resetSessionPresentation = (reason: string) => {
       (window as any).evia?.liveTranscript?.clear?.();
       resetCanonicalTranscript(reason);
@@ -548,11 +560,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setInsightsHistory([]);
       setInsightsIndex(-1);
       setInsightsRefreshPending(false);
-      setViewMode('insights');
+      if (SESSION_START_REASONS.has(reason) && userSelectedViewRef.current) {
+        console.log(`[ListenView] keeping user-selected view through ${reason}`);
+      } else {
+        setViewMode('insights');
+        userSelectedViewRef.current = false;
+      }
       setElapsedTime('00:00');
       setCopyState('idle');
       setCopiedView(null);
-      setShowUndoButton(false);
       setIsLoadingInsights(false);
       setPresetContextWarning(false);
       setAutoScroll(true);
@@ -1275,6 +1291,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
     console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
+    userSelectedViewRef.current = true;
     setViewMode(newMode);
     
     // FIX 2026-01-22: Always enable auto-scroll when switching to transcript view
@@ -1286,11 +1303,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setTimeout(() => {
         scrollToBottom(false);
       }, 50);
-    }
-
-    // Hide undo button when manually toggling (user has control)
-    if (showUndoButton) {
-      setShowUndoButton(false);
     }
 
     // Glass parity: Reset copy state when switching views (only show "Copied X" for the view that was actually copied)
@@ -1411,26 +1423,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           </div>
           <div className="bar-controls">
             {/* DEBUG: WAV recorder button */}
-            {/* TASK 1: Undo button (shown for 10s after auto-switch) */}
-            {showUndoButton && viewMode === 'insights' && (
-              <button
-                className="toggle-button" 
-                onClick={() => {
-                  setViewMode('transcript');
-                  setShowUndoButton(false);
-                }}
-                style={{ 
-                  background: 'rgba(255, 193, 7, 0.15)',
-                  borderLeft: '2px solid rgba(255, 193, 7, 0.5)'
-                }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 7v6h6" />
-                  <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
-                </svg>
-                <span>Undo</span>
-              </button>
-            )}
             <button className="toggle-button" onClick={toggleView}>
               {viewMode === 'insights' ? (
                 <>

@@ -368,11 +368,33 @@ function App() {
       window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
     }
 
+    // The renderer owns the getUserMedia track, so only it can release the
+    // microphone. Logging out used to leave that track live: the capture
+    // controller's reset() flips an in-memory snapshot and nothing downstream
+    // touched the hardware, so a logged-out Taylos kept recording both sides of
+    // the call. The main process now demands a stop and this is where it lands.
+    const handleForceStopCapture = async (payload?: { reason?: string }) => {
+      const reason = payload?.reason || 'unknown'
+      console.log(`[OverlayEntry] 🛑 Force-stopping capture (${reason})`)
+      try {
+        await stopCapture(captureHandleRef.current ?? undefined)
+      } catch (error) {
+        console.error('[OverlayEntry] Force-stop failed to release capture:', error)
+      } finally {
+        // Cleared even if stopCapture threw: a stale handle would make the next
+        // start believe capture is already running and skip acquiring the mic.
+        captureHandleRef.current = null
+        setIsCapturing(false)
+      }
+    }
+
     eviaIpc.on('language-changed', handleCrossWindowLanguageChange)
+    eviaIpc.on('capture:force-stop', handleForceStopCapture)
     console.log('[OverlayEntry] ✅ Registered cross-window language listener')
-    
+
     return () => {
       eviaIpc.off?.('language-changed', handleCrossWindowLanguageChange)
+      eviaIpc.off?.('capture:force-stop', handleForceStopCapture)
       console.log('[OverlayEntry] 🧹 Cleaned up language listener')
     }
   }, [])
