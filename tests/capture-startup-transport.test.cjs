@@ -23,12 +23,12 @@ test('provided-stream startup uses one timeline and a strict two-sided barrier',
   )
 
   const begin = body.indexOf('const timeline = beginCaptureSession()')
+  const socketBarrier = body.indexOf('await connectCaptureWebSockets(true)')
+  const release = body.indexOf('releaseCaptureTransport()')
   const systemSetup = body.indexOf('setupSystemAudioProcessing(systemStream, timeline)')
-  const socketBarrier = body.indexOf('const socketBarrier = connectCaptureWebSockets(true)')
   const firstSystem = body.indexOf("waitForFirstCaptureChunk(systemSetup.firstChunk, 'system')")
   const micSetup = body.indexOf('setupMicProcessing(micStream, timeline)')
   const firstMic = body.indexOf("waitForFirstCaptureChunk(micSetup.firstChunk, 'mic')")
-  const release = body.indexOf('releaseCaptureTransport()')
 
   for (const [label, offset] of Object.entries({
     begin,
@@ -41,12 +41,12 @@ test('provided-stream startup uses one timeline and a strict two-sided barrier',
   })) {
     assert.ok(offset >= 0, `missing ${label}`)
   }
-  assert.ok(begin < systemSetup)
-  assert.ok(systemSetup < socketBarrier)
-  assert.ok(socketBarrier < firstSystem)
+  assert.ok(begin < socketBarrier)
+  assert.ok(socketBarrier < release)
+  assert.ok(release < systemSetup)
+  assert.ok(systemSetup < firstSystem)
   assert.ok(firstSystem < micSetup)
   assert.ok(micSetup < firstMic)
-  assert.ok(firstMic < release)
   assert.match(body, /Required system-audio stream is absent/)
   assert.doesNotMatch(body, /starting mic-only|continuing with microphone/)
   assert.match(body, /await stopCapture\(\)/)

@@ -89,13 +89,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // solve. AEC attenuates the echo in the signal; this removes whatever still
     // survived into the text.
     //
-    // This is the conservative post-37ad608 filter: a run of at least
-    // BLED_MIN_RUN_WORDS (4) words covering BLED_MIN_RUN_COVERAGE (30%) of the
-    // row. An earlier, greedier version deleted the rep's own words and was
-    // reverted; that tuning is deliberately preserved here.
+    // Long rows still use the conservative post-37ad608 run threshold. Short
+    // rows require strong text agreement and overlap on the shared capture
+    // clock; mixed rows lose only an echoed sentence prefix. This keeps real
+    // short replies and non-overlapping repetitions intact.
     return dropBledMicRows(rows, farEndTextOf(rows));
   }, [canonicalProjection]);
   const visibleTranscripts = transcripts;
+  const filteredTranscriptContext = useMemo(
+    () => transcripts
+      .filter(row => (row.text || '').trim())
+      .map(row => `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${row.text.trim()}`)
+      .join('\n'),
+    [transcripts],
+  );
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
@@ -358,7 +365,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   }, [autoScroll]);
 
   useEffect(() => {
-    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const chatId = Number(canonicalTranscriptState.chatId ?? lastKnownChatIdRef.current ?? '0');
     const liveTranscriptApi = (window as any).evia?.liveTranscript;
     if (!liveTranscriptApi) return;
     if (!chatId || Number.isNaN(chatId)) {
@@ -368,10 +375,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     liveTranscriptApi.set?.({
       chatId,
       sessionState,
-      transcriptContext: canonicalProjection.context,
+      transcriptContext: filteredTranscriptContext,
       updatedAt: Date.now(),
     });
-  }, [canonicalProjection.context, sessionState]);
+  }, [filteredTranscriptContext, canonicalTranscriptState.chatId, sessionState]);
 
   const schedulePostMeetingInsightsFetch = () => {
     if (afterInsightsFrozenRef.current || afterInsightsRequestPendingRef.current) {
@@ -862,6 +869,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       eviaIpc.send('ask:send-and-submit', { 
         text: outboundPrompt,
         sessionState: insightSessionState,
+        chatId: canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current,
+        transcriptContext: filteredTranscriptContext,
       });
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
@@ -971,7 +980,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const ttftStart = Date.now();
     
     // Get auth credentials once
-    const chatId = Number(localStorage.getItem('current_chat_id') || '0');
+    const chatId = Number(
+      canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? '0'
+    );
     const eviaAuth = (window as any).evia?.auth as { getToken: () => Promise<string | null> } | undefined;
     let token: string | null | undefined;
     try {

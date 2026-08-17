@@ -122,6 +122,50 @@ test('short mic rows are never judged this way', () => {
   assert.equal(isBledFromFarEnd('better ratings in some', SYSTEM), false)
 })
 
+test('a short mic echo is removed only when it overlaps the matching far end', () => {
+  const rows = [
+    row(0, 'Kaffee Americano. Eine Tasse Kaffee.', { audioStartMs: 1000, audioEndMs: 2600 }),
+    row(1, 'Kaffee amerikano.', { audioStartMs: 1100, audioEndMs: 2100 }),
+  ]
+  const swept = dropBledMicRows(rows, farEndTextOf(rows))
+  assert.deepEqual(swept.map(item => item.speaker), [0])
+})
+
+test('the same short words in a later genuine turn survive', () => {
+  const rows = [
+    row(0, 'Kaffee Americano. Eine Tasse Kaffee.', { audioStartMs: 1000, audioEndMs: 2200 }),
+    row(1, 'Kaffee Americano.', { audioStartMs: 2600, audioEndMs: 3400 }),
+  ]
+  const swept = dropBledMicRows(rows, farEndTextOf(rows))
+  assert.equal(swept.length, 2)
+})
+
+test('an overlapping echoed sentence is trimmed without deleting the genuine suffix', () => {
+  const rows = [
+    row(0, 'Wir brauchen etwas zu trinken. Was möchtest Du', { audioStartMs: 1000, audioEndMs: 4000 }),
+    row(1, 'Möchtest Du trinken? Ich möchte gerne', { audioStartMs: 2600, audioEndMs: 4800 }),
+  ]
+  const swept = dropBledMicRows(rows, farEndTextOf(rows))
+  assert.equal(swept.length, 2)
+  assert.equal(swept[1].text, 'Ich möchte gerne')
+})
+
+test('genuine short overlapping speech with different words survives', () => {
+  const rows = [
+    row(0, 'Kaffee Americano. Eine Tasse Kaffee.', { audioStartMs: 1000, audioEndMs: 2600 }),
+    row(1, 'Ich hab Durst.', { audioStartMs: 1800, audioEndMs: 2500 }),
+  ]
+  assert.equal(dropBledMicRows(rows, farEndTextOf(rows)).length, 2)
+})
+
+test('one-word overlap survives because it is not enough evidence', () => {
+  const rows = [
+    row(0, 'Ich brauche Wasser.', { audioStartMs: 1000, audioEndMs: 2200 }),
+    row(1, 'Wasser.', { audioStartMs: 1500, audioEndMs: 2100 }),
+  ]
+  assert.equal(dropBledMicRows(rows, farEndTextOf(rows)).length, 2)
+})
+
 test('an empty far end removes nothing', () => {
   const rows = BLED.map((t) => row(1, t))
   assert.equal(dropBledMicRows(rows, '').length, rows.length)

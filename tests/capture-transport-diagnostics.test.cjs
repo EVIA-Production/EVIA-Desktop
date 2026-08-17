@@ -167,8 +167,9 @@ test('the unavailable-socket message names the resolved id and both inputs', () 
 
 test('the capture session pins its chat id once, and releases it', () => {
   const start = functionBody('async function startCaptureInternal(', 'AUDIO DEBUG: Check IMMEDIATELY');
-  assert.match(start, /captureChatId = boundChatId && boundChatId !== '0' \? boundChatId : null/);
+  assert.match(start, /captureChatId = await getOrCreateChatId\(BACKEND_URL, authToken\)/);
   assert.match(start, /capture bound to chat_id=/);
+  assert.doesNotMatch(start, /localStorage\.getItem\('current_chat_id'\)/);
 
   const reset = functionBody('function resetCaptureSessionState(', 'function requireCaptureTimeline(');
   assert.match(reset, /captureChatId = null/, 'the next call must bind its own chat');

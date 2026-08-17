@@ -215,3 +215,64 @@ test('events from another chat or session cannot leak into this state', () => {
   assert.equal(otherChat.state, state)
   assert.equal(otherSession.state, state)
 })
+
+test('timed partials remain one stable visible bubble while text grows', () => {
+  const words = [
+    { text: 'This', startMs: 1000, endMs: 1100 },
+    { text: 'is', startMs: 1100, endMs: 1180 },
+    { text: 'one', startMs: 1180, endMs: 1280 },
+    { text: 'live', startMs: 1280, endMs: 1400 },
+    { text: 'turn', startMs: 1400, endMs: 1520 },
+  ]
+  let state = apply(createRealtimeTranscriptState(), base({
+    text: 'This is one',
+    captureEndMs: 1280,
+    words: words.slice(0, 3),
+  }))
+  const first = projectRealtimeTranscriptState(state).visibleRows
+  state = apply(state, base({ seq: 2, text: 'This is one live turn', captureEndMs: 1520, words }))
+  const second = projectRealtimeTranscriptState(state).visibleRows
+
+  assert.equal(first.length, 1)
+  assert.equal(second.length, 1)
+  assert.equal(first[0].key, second[0].key)
+  assert.doesNotMatch(second[0].key, /:word:/)
+})
+
+test('a proven opposite-source interruption splits only at its clean timed-word gap', () => {
+  let state = apply(createRealtimeTranscriptState(), base({
+    eventId: 'prospect-long',
+    utteranceId: 'prospect-long',
+    captureStartMs: 1000,
+    captureEndMs: 3800,
+    text: 'This takes thirty seconds',
+    words: [
+      { text: 'This', startMs: 1000, endMs: 1200 },
+      { text: 'takes', startMs: 1800, endMs: 1980 },
+      { text: 'thirty', startMs: 3300, endMs: 3500 },
+      { text: 'seconds', startMs: 3500, endMs: 3780 },
+    ],
+    isFinal: true,
+  }))
+  state = apply(state, base({
+    source: 'mic',
+    eventId: 'seller-interruption',
+    utteranceId: 'seller-interruption',
+    captureStartMs: 2200,
+    captureEndMs: 2780,
+    text: 'One question',
+    words: [
+      { text: 'One', startMs: 2200, endMs: 2400 },
+      { text: 'question', startMs: 2400, endMs: 2780 },
+    ],
+    isFinal: true,
+  }))
+
+  const rows = projectRealtimeTranscriptState(state).visibleRows
+  assert.deepEqual(rows.map(row => [row.source, row.text]), [
+    ['system', 'This takes'],
+    ['mic', 'One question'],
+    ['system', 'thirty seconds'],
+  ])
+  assert.equal(rows.some(row => row.key.includes(':word:')), false)
+})

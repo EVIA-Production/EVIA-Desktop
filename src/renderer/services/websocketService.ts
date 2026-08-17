@@ -13,6 +13,7 @@ interface WebSocketMessage {
   sequence?: number;
   client_ts_ms?: number;
   data?: {
+    dg_open?: boolean;
     text?: string;
     speaker?: number | null;
     is_final?: boolean;
@@ -44,15 +45,19 @@ function getBackendHttpBase(): string {
 export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
   let chatId = localStorage.getItem('current_chat_id');
 
-  // somehow i had an invalid chatid (over int32 large)
   const int32Max = 2147483647;
-  if (chatId && (!Number.isInteger(Number(chatId)) || Number(chatId) > int32Max)){
-    console.log("[Chat] Removing invalid chat ID")
+  const validChatId = (value: unknown): string | null => {
+    const normalized = String(value ?? '').trim();
+    const numeric = Number(normalized);
+    return normalized && normalized !== '0' && Number.isInteger(numeric) && numeric <= int32Max
+      ? normalized
+      : null;
+  };
+
+  chatId = validChatId(chatId);
+  if (!chatId && localStorage.getItem('current_chat_id')) {
+    console.log('[Chat] Removing invalid chat ID');
     localStorage.removeItem('current_chat_id');
-    chatId = null;
-  } else if (chatId && !forceCreate) {
-    console.log('[Chat] Reusing existing chat id', chatId);
-    return chatId;
   }
   
   if (forceCreate) {
@@ -76,22 +81,42 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
   // reload or a stray removeItem cannot destroy.
   // Never on forceCreate: recreateChatId exists precisely to mint a new chat,
   // and adopting the old one here would silently defeat it.
-  if (!chatId && !forceCreate) {
+  if (!forceCreate) {
     try {
       const shared = await (window as any).evia?.prefs?.get?.();
-      const sharedChatId = shared?.current_chat_id;
-      if (
-        sharedChatId &&
-        String(sharedChatId) !== '0' &&
-        Number.isInteger(Number(sharedChatId)) &&
-        Number(sharedChatId) <= int32Max
-      ) {
-        chatId = String(sharedChatId);
+      // `prefs:get` returns `{ ok, data }`. Reading the envelope itself made
+      // every child window miss the active call and mint its own chat.
+      const sharedState = shared?.data ?? shared;
+      const sharedHasChatId = Boolean(
+        sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'current_chat_id')
+      );
+      const sharedChatId = validChatId(sharedState?.current_chat_id);
+
+      if (sharedChatId) {
+        if (chatId && chatId !== sharedChatId) {
+          console.warn(`[Chat] Replacing divergent local chat ${chatId} with shared active chat ${sharedChatId}`);
+        }
+        chatId = sharedChatId;
         localStorage.setItem('current_chat_id', chatId);
         console.log('[Chat] Adopted live chat id from shared prefs:', chatId);
         return chatId;
       }
+
+      // An explicit null is a deliberate session boundary. Do not resurrect a
+      // stale per-window key after Done, logout, language change, or a restart.
+      if (sharedHasChatId) {
+        localStorage.removeItem('current_chat_id');
+        chatId = null;
+      } else if (chatId) {
+        await (window as any).evia?.prefs?.set?.({ current_chat_id: chatId });
+        console.log('[Chat] Promoted local chat id into shared prefs:', chatId);
+        return chatId;
+      }
     } catch (error) {
+      if (chatId) {
+        console.warn('[Chat] Shared prefs unavailable; reusing valid local chat', error);
+        return chatId;
+      }
       console.warn('[Chat] Shared prefs unavailable; falling back to creation', error);
     }
   }
@@ -204,13 +229,24 @@ export class ChatWebSocket {
 
   async connect(attempt: number = 1): Promise<void> {
     try {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        console.warn('WebSocket already connected');
+      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnectedFlag) {
+        console.warn('WebSocket provider already ready');
         return;
       }
 
-      if (this.ws?.readyState === WebSocket.CONNECTING && this.connectPromise) {
+      if (this.connectPromise) {
         return this.connectPromise;
+      }
+
+      // An OPEN browser transport is not sufficient: the backend still has to
+      // open and prime Deepgram. Never inherit a transport whose provider-ready
+      // attempt already failed or timed out.
+      if (
+        this.ws &&
+        (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)
+      ) {
+        this.ws.close(1000, 'Replacing unready transport');
+        this.ws = null;
       }
       
       this.shouldReconnect = true;
@@ -235,13 +271,14 @@ export class ChatWebSocket {
       }
       
       console.log('[WS] ✅ Got auth token (length:', token.length, 'chars)');
-      const backendUrl = getBackendHttpBase();
-      const chatId = await getOrCreateChatId(backendUrl, token);
+      // The socket owns the chat passed to its constructor. A reconnect is a
+      // transport replacement inside the same capture session, never a reason
+      // to consult mutable cross-window storage or move one speaker elsewhere.
+      const chatId = this.chatId.trim();
       if (!chatId) {
-        console.error('[WS] Missing chat ID even after creation');
-        throw new Error('Missing chat ID after creation');
+        console.error('[WS] Missing constructor-bound chat ID');
+        throw new Error('Missing constructor-bound chat ID');
       }
-      this.chatId = chatId;
       const sourceParam = this.source ? `&source=${this.source}` : '';
       // FIX: Get current language from i18n for backend transcription
       const i18nModule = await import('../i18n/i18n');
@@ -261,7 +298,7 @@ export class ChatWebSocket {
         this.ws = socket;
         socket.binaryType = 'arraybuffer';
         let settled = false;
-        let opened = false;
+        let providerReadyEver = false;
         const resolveOnce = () => {
           if (settled) return;
           settled = true;
@@ -273,27 +310,16 @@ export class ChatWebSocket {
           reject(error);
         };
         const timeout = setTimeout(() => {
-          if (socket.readyState === WebSocket.CONNECTING) {
-            // A client timeout is not evidence that the chat is invalid.
-            // Reserve application close codes for backend-declared failures.
-            socket.close(1000, 'Connect timeout');
+          if (
+            socket.readyState === WebSocket.CONNECTING ||
+            socket.readyState === WebSocket.OPEN
+          ) {
+            socket.close(1000, 'Provider ready timeout');
           }
-          rejectOnce(new Error('Connect timeout'));
-        }, 10000);
+          rejectOnce(new Error('Provider ready timeout'));
+        }, 15000);
         socket.onopen = () => {
-          console.log('[WS Debug] Connected for chatId:', this.chatId, 'URL:', wsUrl);
-          clearTimeout(timeout);
-          opened = true;
-          if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-          }
-          this.isConnectedFlag = true;
-          this.reconnectAttempts = 0;
-          this.connectionChangeHandlers.forEach(h => h(true));
-          this.sendAudioActivity(this.audioDetected, true);
-          this.flushQueue();
-          resolveOnce();
+          console.log('[WS Debug] Transport open; waiting for Deepgram readiness:', this.chatId);
         };
         socket.onclose = (event) => {
           clearTimeout(timeout);
@@ -301,18 +327,23 @@ export class ChatWebSocket {
           if (this.ws === socket) {
             this.ws = null;
           }
+          const wasReady = this.isConnectedFlag || providerReadyEver;
           this.isConnectedFlag = false;
-          this.connectionChangeHandlers.forEach(h => h(false));
+          if (wasReady) {
+            this.connectionChangeHandlers.forEach(h => h(false));
+          }
           
-          // FIX: Detect auth/not found errors (close code 1008 = policy violation, 4xxx = app errors)
+          // Detect auth/not-found errors without deleting the session binding.
+          // The capture owner may replace a genuinely stale chat during its one
+          // bounded startup retry; a socket close cannot rebind half a call.
           if (event.code === 1008 || (event.code >= 4000 && event.code < 5000)) {
             console.error('[WS] Auth/not found error detected - chat may not exist');
-            // Clear invalid chat_id and signal for recreation
-            localStorage.removeItem('current_chat_id');
           }
 
-          if (!opened) {
-            rejectOnce(new Error(`WebSocket closed before open (${event.code}): ${event.reason || 'no reason'}`));
+          if (!providerReadyEver) {
+            rejectOnce(new Error(
+              `WebSocket closed before provider ready (${event.code}): ${event.reason || 'no reason'}`
+            ));
           } else if (this.shouldReconnect) {
             this.scheduleReconnect();
           }
@@ -320,7 +351,11 @@ export class ChatWebSocket {
         socket.onerror = (ev: Event) => {
           clearTimeout(timeout);
           console.error('[WS] Error:', ev);
+          const wasReady = this.isConnectedFlag || providerReadyEver;
           this.isConnectedFlag = false;
+          if (wasReady) {
+            this.connectionChangeHandlers.forEach(h => h(false));
+          }
           const errorMsg = (ev as ErrorEvent).message || 'Unknown error';
           
           // CRITICAL FIX: Emit user-facing error notification
@@ -333,6 +368,48 @@ export class ChatWebSocket {
             let payload: any = event.data;
             if (typeof payload === 'string') {
               payload = JSON.parse(payload);
+            }
+
+            const statusData = payload?.type === 'status' && typeof payload?.data === 'object'
+              ? payload.data
+              : null;
+            if (statusData?.dg_open === true) {
+              const becameReady = !this.isConnectedFlag;
+              providerReadyEver = true;
+              this.isConnectedFlag = true;
+              clearTimeout(timeout);
+              if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
+              }
+              this.reconnectAttempts = 0;
+              if (becameReady) {
+                this.connectionChangeHandlers.forEach(h => h(true));
+              }
+              console.log('[WS Debug] Deepgram provider ready for chatId:', this.chatId);
+              this.sendAudioActivity(this.audioDetected, true);
+              this.flushQueue();
+              resolveOnce();
+            } else if (statusData?.dg_open === false) {
+              const wasReady = this.isConnectedFlag;
+              this.isConnectedFlag = false;
+              if (wasReady) {
+                this.connectionChangeHandlers.forEach(h => h(false));
+              }
+            }
+
+            if (payload?.type === 'error' && !providerReadyEver && !settled) {
+              const detail = typeof payload?.data === 'string'
+                ? payload.data
+                : payload?.error || 'Deepgram provider startup failed';
+              clearTimeout(timeout);
+              rejectOnce(new Error(String(detail)));
+              if (
+                socket.readyState === WebSocket.CONNECTING ||
+                socket.readyState === WebSocket.OPEN
+              ) {
+                socket.close(1000, 'Provider startup failed');
+              }
             }
             this.messageHandlers.forEach((handler) => handler(payload));
           } catch (e) {
@@ -375,7 +452,7 @@ export class ChatWebSocket {
 
   private sendAudioActivity(active: boolean, force: boolean = false) {
     if (!force && active === this.audioDetected) return;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isConnectedFlag) return;
 
     this.audioActivitySequence += 1;
     this.ws.send(JSON.stringify({
@@ -452,7 +529,7 @@ export class ChatWebSocket {
     // which has a real VAD; an amplitude threshold in the transport layer is
     // guessing at speech with the one signal that cannot distinguish a quiet
     // talker from an empty room.
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN || !this.isConnectedFlag) {
       // Queue speech and its short trailing context, but never let sustained
       // silence displace recoverable speech while a reconnect is in flight.
       this.queue.push({ data, metadata });
@@ -473,8 +550,11 @@ export class ChatWebSocket {
         this.queue.shift();
       }
 
-      const socketIsConnecting = this.ws?.readyState === WebSocket.CONNECTING;
-      if (!socketIsConnecting && !this.isConnectedFlag && this.shouldReconnect) {
+      const socketNeedsReconnect =
+        !this.ws ||
+        this.ws.readyState === WebSocket.CLOSING ||
+        this.ws.readyState === WebSocket.CLOSED;
+      if (socketNeedsReconnect && !this.isConnectedFlag && this.shouldReconnect) {
         this.scheduleReconnect();
       }
       return 'queued';
@@ -585,14 +665,18 @@ export class ChatWebSocket {
   }
 
   private flushQueue() {
-    while (this.ws?.readyState === WebSocket.OPEN && this.queue.length > 0) {
+    while (
+      this.ws?.readyState === WebSocket.OPEN &&
+      this.isConnectedFlag &&
+      this.queue.length > 0
+    ) {
       this.sendChunkPair(this.queue.shift()!);
     }
   }
 
   private sendChunkPair(chunk: QueuedAudioChunk) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('Cannot send audio chunk pair while WebSocket is closed');
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isConnectedFlag) {
+      throw new Error('Cannot send audio chunk pair before the provider is ready');
     }
     // WebSocket preserves send order. Keeping both calls synchronous prevents
     // another callback from interleaving a control envelope and its PCM body.

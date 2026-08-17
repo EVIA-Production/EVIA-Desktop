@@ -1914,13 +1914,13 @@ function setupSystemAudioProcessing(
 async function startCaptureInternal(includeSystemAudio = false) {
   const captureStartupStartedAt = performance.now();
 
-  // Bind the chat for this session before any socket exists. Everything
-  // downstream resolves through activeChatId(), so a later localStorage change
-  // in another window cannot strand the microphone transport mid-call.
-  const boundChatId = (localStorage.getItem('current_chat_id') || '').trim();
-  captureChatId = boundChatId && boundChatId !== '0' ? boundChatId : null;
+  // Resolve through the shared owner once, then bind both sockets and every
+  // reconnect to that immutable id for this capture generation.
+  const authToken = await getActiveAuthToken();
+  if (!authToken) throw new Error('[AudioCapture] Missing auth token before chat binding');
+  captureChatId = await getOrCreateChatId(BACKEND_URL, authToken);
   sendDebugLog(
-    `[AudioCapture] capture bound to chat_id=${captureChatId ?? 'NONE (will resolve at connect)'}`,
+    `[AudioCapture] capture bound to chat_id=${captureChatId}`,
   );
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
 
@@ -2083,26 +2083,23 @@ async function startCaptureInternal(includeSystemAudio = false) {
     throw new Error(`Microphone permission denied: ${error.message}`);
   }
 
-  // getUserMedia remains first. Network and native system capture can then
-  // start concurrently, but the microphone processing graph is intentionally
-  // held until the required far-end path has produced timestamped audio.
+  // A browser WebSocket OPEN event is not transcription readiness. Wait until
+  // both backend providers report dg_open=true, then release transport before
+  // starting any physical audio source. This prevents startup audio from being
+  // accumulated locally and replayed to Deepgram in a catch-up burst.
   const eviaApi = (window as any).evia;
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
-  const socketConnectionsPromise = connectCaptureWebSockets(includeSystemAudio);
-  const macSystemCapturePromise = includeSystemAudio && isMac
-    ? startMacSystemAudioCapture(eviaApi, timeline)
+  const socketStatus = await connectCaptureWebSockets(includeSystemAudio);
+  releaseCaptureTransport();
+  const macSystemStatus = includeSystemAudio && isMac
+    ? await startMacSystemAudioCapture(eviaApi, timeline)
         .then(() => ({ available: true, status: 'ready' as SystemAudioStartupStatus }))
-    : Promise.resolve({
+    : {
         available: false,
         status: includeSystemAudio
           ? ('unsupported' as SystemAudioStartupStatus)
           : ('not_requested' as SystemAudioStartupStatus),
-      });
-
-  const [socketStatus, macSystemStatus] = await Promise.all([
-    socketConnectionsPromise,
-    macSystemCapturePromise,
-  ]);
+      };
   let systemAudioAvailable = false;
   let systemAudioStatus: SystemAudioStartupStatus = includeSystemAudio
     ? socketStatus.systemAudioStatus
@@ -2240,8 +2237,6 @@ async function startCaptureInternal(includeSystemAudio = false) {
     console.log('[AudioCapture] Mic AudioContext resumed');
   }
   await waitForFirstCaptureChunk(micSetup.firstChunk, 'mic');
-
-  releaseCaptureTransport();
 
   const startupReadyInMs = Math.round(performance.now() - captureStartupStartedAt);
   console.log(`[AudioCapture] Capture started successfully after ${startupReadyInMs}ms`);
@@ -2596,8 +2591,12 @@ export async function startCaptureWithStreams(
       throw new Error('[AudioCapture] Required system-audio stream is absent');
     }
 
-    // Start the far-end graph first. Its opening frames are retained under the
-    // bounded startup buffer while both WebSockets establish one chat session.
+    // Establish and prime both transcription providers before physical audio
+    // starts. Normal startup therefore sends live frames directly and leaves
+    // the bounded pre-ready buffer empty.
+    await connectCaptureWebSockets(true);
+    releaseCaptureTransport();
+
     const systemSetup = setupSystemAudioProcessing(systemStream, timeline);
     systemAudioContext = systemSetup.context;
     systemAudioProcessor = systemSetup.processor;
@@ -2605,11 +2604,7 @@ export async function startCaptureWithStreams(
       await systemAudioContext.resume();
     }
 
-    const socketBarrier = connectCaptureWebSockets(true);
-    await Promise.all([
-      socketBarrier,
-      waitForFirstCaptureChunk(systemSetup.firstChunk, 'system'),
-    ]);
+    await waitForFirstCaptureChunk(systemSetup.firstChunk, 'system');
 
     // Only after the prospect path is physically producing timestamped PCM do
     // we start the microphone graph. Release still waits for its first frame,
@@ -2622,7 +2617,6 @@ export async function startCaptureWithStreams(
     }
     await waitForFirstCaptureChunk(micSetup.firstChunk, 'mic');
 
-    releaseCaptureTransport();
     console.log(
       `[AudioCapture] startCaptureWithStreams ready: ${timeline.id}/${timeline.generation}`,
     );

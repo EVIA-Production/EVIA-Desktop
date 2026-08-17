@@ -98,12 +98,15 @@ test('renderer subscribes before starting the macOS native helper', () => {
   );
 });
 
-test('capture sockets and native macOS capture start in parallel behind a strict two-source gate', () => {
+test('both Deepgram providers are ready before macOS physical capture starts', () => {
   const startBlock = audioSource.split('async function startCaptureInternal', 2)[1];
   assert.ok(startBlock, 'capture startup should exist');
-  assert.match(startBlock, /const socketConnectionsPromise = connectCaptureWebSockets\(includeSystemAudio\)/);
-  assert.match(startBlock, /const macSystemCapturePromise = includeSystemAudio && isMac/);
-  assert.match(startBlock, /Promise\.all\(\[\s*socketConnectionsPromise,\s*macSystemCapturePromise/);
+  const providerBarrier = startBlock.indexOf('await connectCaptureWebSockets(includeSystemAudio)');
+  const release = startBlock.indexOf('releaseCaptureTransport()');
+  const nativeCapture = startBlock.indexOf('await startMacSystemAudioCapture(eviaApi, timeline)');
+  assert.ok(providerBarrier >= 0, 'provider readiness barrier must exist');
+  assert.ok(providerBarrier < release, 'transport releases only after provider readiness');
+  assert.ok(release < nativeCapture, 'physical capture starts only after live transport release');
   assert.match(startBlock, /Required system audio failed/);
   assert.match(startBlock, /systemAudioAvailable/);
   assert.match(startBlock, /systemAudioStatus/);
@@ -170,15 +173,19 @@ test('capture shutdown cleans resources before optional debug export', () => {
   );
 });
 
-test('a WebSocket policy close before open rejects the active connection attempt', () => {
-  assert.match(wsSource, /if \(!opened\) \{/);
-  assert.match(wsSource, /WebSocket closed before open/);
+test('WebSocket startup resolves only after the transcription provider is ready', () => {
+  assert.match(wsSource, /Transport open; waiting for Deepgram readiness/);
+  assert.match(wsSource, /statusData\?\.dg_open === true/);
+  assert.match(wsSource, /WebSocket closed before provider ready/);
+  assert.match(wsSource, /payload\?\.type === 'error' && !providerReadyEver && !settled/);
+  assert.match(wsSource, /this\.ws\?\.readyState !== WebSocket\.OPEN \|\| !this\.isConnectedFlag/);
+  assert.match(wsSource, /this\.isConnectedFlag &&\s*this\.queue\.length > 0/);
   assert.match(wsSource, /private connectPromise: Promise<void> \| null = null/);
 });
 
-test('a client connection timeout does not invalidate a chat', () => {
-  assert.match(wsSource, /socket\.close\(1000, 'Connect timeout'\)/);
-  assert.doesNotMatch(wsSource, /socket\.close\(4000, 'Connect timeout'\)/);
+test('a provider-readiness timeout does not invalidate a chat', () => {
+  assert.match(wsSource, /socket\.close\(1000, 'Provider ready timeout'\)/);
+  assert.doesNotMatch(wsSource, /socket\.close\(4000, 'Provider ready timeout'\)/);
 });
 
 test('metadata-paired capture explicitly negotiates strict protocol v1', () => {
@@ -225,11 +232,12 @@ test('Done never waits for backend archival before closing the local session', (
   );
 });
 
-test('partial transcript rendering uses the same canonical projection as model context', () => {
+test('partial transcript rendering and model context use the same bleed-filtered projection', () => {
   assert.match(listenSource, /const transition = applyRealtimeTranscriptEvent\(/);
   assert.match(listenSource, /const canonicalProjection = useMemo\([\s\S]*projectRealtimeTranscriptState\(canonicalTranscriptState\)/);
   assert.match(listenSource, /canonicalProjection\.visibleRows\.map/);
-  assert.match(listenSource, /transcriptContext: canonicalProjection\.context/);
+  assert.match(listenSource, /const filteredTranscriptContext = useMemo/);
+  assert.match(listenSource, /transcriptContext: filteredTranscriptContext/);
 });
 
 test('late provider interims are rejected before transcript state changes', () => {
@@ -242,6 +250,39 @@ test('late provider interims are rejected before transcript state changes', () =
 test('during-call Ask prefers live context before database history', () => {
   const contextBlock = askSource.split('// GLASS PARITY: Fetch transcript context for backend', 2)[1];
   assert.ok(contextBlock.indexOf("currentSessionState === 'during'") < contextBlock.indexOf('getChatTranscripts(chatId'));
+});
+
+test('one canonical chat owns capture reconnects, Ask, live context, and Insights', () => {
+  assert.match(wsSource, /const sharedState = shared\?\.data \?\? shared/);
+  assert.match(wsSource, /Replacing divergent local chat/);
+
+  const socketConnect = wsSource
+    .split('async connect(attempt: number = 1): Promise<void> {', 2)[1]
+    .split('sendAudioChunk(', 1)[0];
+  assert.match(socketConnect, /const chatId = this\.chatId\.trim\(\)/);
+  assert.doesNotMatch(socketConnect, /getOrCreateChatId\(/);
+  assert.doesNotMatch(socketConnect, /localStorage\.removeItem\('current_chat_id'\)/);
+
+  const askStart = askSource
+    .split('const startStream = async', 2)[1]
+    .split('// GLASS PARITY: Fetch transcript context for backend', 1)[0];
+  assert.match(askStart, /chatIdOverrideRef\.current/);
+  assert.match(askStart, /getOrCreateChatId\(baseUrl\.replace/);
+  assert.doesNotMatch(askStart, /fetch\(`\$\{baseUrl\.replace\([^\n]+\/chat\//);
+
+  assert.match(
+    listenSource,
+    /Number\(canonicalTranscriptState\.chatId \?\? lastKnownChatIdRef\.current \?\? '0'\)/,
+  );
+  assert.match(
+    listenSource,
+    /chatId: canonicalTranscriptStateRef\.current\.chatId \?\? lastKnownChatIdRef\.current/,
+  );
+  assert.match(listenSource, /transcriptContext: filteredTranscriptContext/);
+  assert.match(
+    listenSource,
+    /canonicalTranscriptStateRef\.current\.chatId \?\? lastKnownChatIdRef\.current \?\? '0'/,
+  );
 });
 
 test('stub insights are rejected and live refreshes replace atomically', () => {
@@ -262,6 +303,18 @@ test('Ask requests carry an end-to-end request trace', () => {
   assert.match(streamSource, /request_id: requestId/);
   assert.match(streamSource, /client_started_at_ms: clientStartedAtMs/);
   assert.match(streamSource, /route\?\.type === 'request_trace'/);
+});
+
+test('Ask language is explicit and capture startup cannot erase visible content', () => {
+  assert.match(streamSource, /const payload: any = \{[\s\S]*language,/);
+  const clearHandler = askSource.split('const handleClearSession = () => {', 2)[1]
+    .split('// SESSION STATE:', 1)[0];
+  assert.doesNotMatch(clearHandler, /setResponse\(''\)/);
+
+  const stateHandler = askSource.split('const handleSessionStateChanged =', 2)[1]
+    .split('// FIX: Clear state on language change', 1)[0];
+  assert.doesNotMatch(stateHandler, /setResponse\(''\)/);
+  assert.match(askSource, /const handleSessionClosed = \(\) => \{[\s\S]*setResponse\(''\)/);
 });
 
 test('audio activity uses content-free control messages with a silence tail', () => {

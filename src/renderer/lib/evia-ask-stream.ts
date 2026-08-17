@@ -132,6 +132,13 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
                   )
                   continue
                 }
+                if (route?.type === 'provider_error') {
+                  const reason = String(route?.reason || 'suggestion_unavailable')
+                  console.error(`[Ask][ProviderError] reason=${reason}`)
+                  try { errorHandler(new Error(`SUGGESTION_UNAVAILABLE:${reason}`)) } catch {}
+                  try { controller.abort() } catch {}
+                  return
+                }
                 const provider = String(route?.provider || 'unknown')
                 const model = String(route?.model || 'unknown')
                 const reason = String(route?.reason || 'unknown')

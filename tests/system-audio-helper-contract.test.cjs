@@ -52,6 +52,11 @@ test('system-audio helper source and Electron share a typed protocol', () => {
   assert.match(serviceSource, /audio\\\/float32/)
   assert.match(swiftSource, /CMSampleBufferGetPresentationTimeStamp/)
   assert.match(swiftSource, /capturedAtUnixMs/)
+  assert.match(swiftSource, /sampleHandlerQueue: audioSampleQueue/)
+  assert.doesNotMatch(
+    swiftSource,
+    /addStreamOutput\(output, type: \.audio, sampleHandlerQueue: \.global\(\)\)/,
+  )
   assert.match(serviceSource, /capturedAtUnixMs/)
   assert.match(read('src/main/preload.ts'), /capturedAtUnixMs/)
   assert.match(read('src/renderer/audio-processor-glass-parity.ts'), /capturedAtPerformanceMs/)

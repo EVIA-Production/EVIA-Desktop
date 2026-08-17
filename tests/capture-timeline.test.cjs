@@ -160,27 +160,110 @@ test('a new capture generation resets source sequences and identity', () => {
   assert.equal(secondChunk.capture_generation, 8)
 })
 
-test('timeline makes no continuity or non-overlap assumptions', () => {
+test('timeline preserves gaps and allows overlap between different sources', () => {
   const session = timeline()
-  const later = session.createFromMonotonicInterval({
+  const firstMic = session.createFromMonotonicInterval({
+    source: 'mic',
+    startPerformanceMs: 10_100,
+    endPerformanceMs: 10_200,
+    sampleRate: 24_000,
+    byteLength: 4_800,
+  })
+  const overlappingSystem = session.createFromMonotonicInterval({
+    source: 'system',
+    startPerformanceMs: 10_150,
+    endPerformanceMs: 10_170,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+  const gappedMic = session.createFromMonotonicInterval({
     source: 'mic',
     startPerformanceMs: 10_300,
     endPerformanceMs: 10_400,
     sampleRate: 24_000,
     byteLength: 4_800,
   })
-  const overlappingEarlier = session.createFromMonotonicInterval({
+
+  assert.equal(firstMic.capture_start_ms, 100)
+  assert.equal(overlappingSystem.capture_start_ms, 150)
+  assert.equal(gappedMic.capture_start_ms, 300)
+})
+
+test('timeline snaps harmless same-source clock jitter to a non-overlapping boundary', () => {
+  const session = timeline()
+  const first = session.createSystemFromEpochPts({
+    capturedAtUnixMs: 1_800_000_000_120,
+    observedAtUnixMs: 1_800_000_000_145,
+    observedAtPerformanceMs: 10_145,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+  const jittered = session.createSystemFromEpochPts({
+    capturedAtUnixMs: 1_800_000_000_139.75,
+    observedAtUnixMs: 1_800_000_000_165,
+    observedAtPerformanceMs: 10_165,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+
+  assert.equal(first.capture_end_ms, 140)
+  assert.equal(jittered.capture_start_ms, first.capture_end_ms)
+  assert.equal(jittered.capture_end_ms, 160)
+  assert.equal(jittered.chunk_seq, 1)
+})
+
+test('default timeline snaps observed 5.021ms ScreenCaptureKit jitter but rejects 50ms reversal', () => {
+  const session = timeline()
+  session.createFromMonotonicInterval({
+    source: 'system',
+    startPerformanceMs: 10_100,
+    endPerformanceMs: 10_120,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+  const snapped = session.createFromMonotonicInterval({
+    source: 'system',
+    startPerformanceMs: 10_114.979,
+    endPerformanceMs: 10_134.979,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+  assert.equal(snapped.capture_start_ms, 120)
+  assert.equal(snapped.capture_end_ms, 140)
+
+  assert.throws(
+    () => session.createFromMonotonicInterval({
+      source: 'system',
+      startPerformanceMs: 10_090,
+      endPerformanceMs: 10_110,
+      sampleRate: 24_000,
+      byteLength: 960,
+    }),
+    /system capture interval moved backwards by 50\.000ms/,
+  )
+})
+
+test('timeline fails closed for a genuine same-source reversal', () => {
+  const session = timeline({ maxCaptureClockJitterMs: 5 })
+  session.createFromMonotonicInterval({
     source: 'mic',
-    startPerformanceMs: 10_250,
-    endPerformanceMs: 10_350,
+    startPerformanceMs: 10_300,
+    endPerformanceMs: 10_400,
     sampleRate: 24_000,
     byteLength: 4_800,
   })
 
-  assert.equal(later.chunk_seq, 0)
-  assert.equal(overlappingEarlier.chunk_seq, 1)
-  assert.equal(overlappingEarlier.capture_start_ms, 250)
-  assert.equal(overlappingEarlier.capture_end_ms, 350)
+  assert.throws(
+    () =>
+      session.createFromMonotonicInterval({
+        source: 'mic',
+        startPerformanceMs: 10_350,
+        endPerformanceMs: 10_450,
+        sampleRate: 24_000,
+        byteLength: 4_800,
+      }),
+    /mic capture interval moved backwards by 50\.000ms/,
+  )
 })
 
 test('audio_chunk_meta control envelope serializes without changing metadata', () => {

@@ -17,6 +17,18 @@ func sanitized(_ value: String) -> String {
 final class AudioDumper: NSObject {
     private var stream: SCStream?
     private var output: StreamOutput?
+    // ScreenCaptureKit does not promise FIFO delivery when callbacks share a
+    // concurrent global queue. The capture protocol assigns each audio buffer
+    // a strictly increasing sequence and interval, so serialize audio at the
+    // source instead of trying to repair genuinely reordered buffers later.
+    private let audioSampleQueue = DispatchQueue(
+        label: "ai.taylos.system-audio.capture",
+        qos: .userInitiated
+    )
+    private let screenSampleQueue = DispatchQueue(
+        label: "ai.taylos.system-video.discard",
+        qos: .utility
+    )
 
     func start() async throws {
         writeStatus("{\"status\":\"starting\",\"message\":\"Requesting screen recording permissions\"}")
@@ -58,10 +70,10 @@ final class AudioDumper: NSObject {
         self.stream = stream
         self.output = output
 
-        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: .global())
+        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: audioSampleQueue)
         // Keeping a no-op screen output attached avoids missing audio callbacks
         // on affected macOS builds. Screen frames are discarded.
-        try? stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .global())
+        try? stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: screenSampleQueue)
 
         do {
             try await stream.startCapture()

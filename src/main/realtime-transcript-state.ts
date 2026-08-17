@@ -446,26 +446,60 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
   let order = 0;
 
   for (const row of sequence) {
-    if (row.words.length > 0 && timedWordsMatchText(row)) {
-      row.words.forEach((word, wordIndex) => {
+    // Keep a provider utterance atomic from its first partial onward. The old
+    // projection emitted one React row per timed word, sorted those rows, then
+    // merged them again. Every partial therefore flashed a screen full of
+    // one-word bubbles before collapsing into the final turn.
+    //
+    // Timed words are used only when they prove that a complete opposite-source
+    // utterance occurred in a clean gap between two words. That is the one case
+    // where splitting is required to preserve real dialogue order.
+    const splitIndices = new Set<number>();
+    if (row.words.length > 1 && timedWordsMatchText(row)) {
+      for (const opposite of sequence) {
+        if (
+          opposite.source === row.source ||
+          opposite.captureEndMs <= row.captureStartMs ||
+          opposite.captureStartMs >= row.captureEndMs
+        ) {
+          continue;
+        }
+        for (let wordIndex = 1; wordIndex < row.words.length; wordIndex += 1) {
+          const before = row.words[wordIndex - 1];
+          const after = row.words[wordIndex];
+          if (
+            before.endMs <= opposite.captureStartMs &&
+            after.startMs >= opposite.captureEndMs
+          ) {
+            splitIndices.add(wordIndex);
+            break;
+          }
+        }
+      }
+    }
+
+    if (splitIndices.size > 0) {
+      const boundaries = [0, ...Array.from(splitIndices).sort((a, b) => a - b), row.words.length];
+      for (let partIndex = 0; partIndex < boundaries.length - 1; partIndex += 1) {
+        const words = row.words.slice(boundaries[partIndex], boundaries[partIndex + 1]);
+        if (words.length === 0) continue;
         atoms.push({
-          key: `${row.identityKey}:word:${wordIndex}`,
+          key: `${row.identityKey}:part:${partIndex}`,
           identityKey: row.identityKey,
           source: row.source,
           role: roleOf(row.source),
-          text: word.text.trim(),
+          text: words.map(word => word.text.trim()).filter(Boolean).join(' '),
           isFinal: row.isFinal,
-          captureStartMs: word.startMs,
-          captureEndMs: word.endMs,
+          captureStartMs: words[0].startMs,
+          captureEndMs: words[words.length - 1].endMs,
           order: order++,
         });
-      });
+      }
       continue;
     }
 
-    // Fail closed when provider words no longer exactly represent the accepted
-    // text (for example after a correction or bleed filter). Keep the row
-    // atomic rather than manufacturing, duplicating, or dropping words.
+    // This also fails closed when provider words no longer exactly represent
+    // accepted text (for example after a correction or bleed filter).
     atoms.push({
       key: row.identityKey,
       identityKey: row.identityKey,
@@ -513,7 +547,8 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
       tail.text = `${tail.text} ${atom.text}`.trim();
       tail.captureEndMs = Math.max(tail.captureEndMs, atom.captureEndMs);
       tail.isFinal = tail.isFinal && atom.isFinal;
-      tail.key = `${tail.key}|${atom.key}`;
+      // Preserve the first row's React key while a live turn grows. Changing
+      // the key on every word/update remounted the bubble and caused flicker.
       tailIdentityKey = atom.identityKey;
       continue;
     }

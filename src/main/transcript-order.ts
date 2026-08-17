@@ -605,6 +605,9 @@ export function groupIntoBlocks(rows: OrderedTranscriptLine[]): TranscriptBlock[
 export const BLED_MIN_RUN_WORDS = 4;
 export const BLED_MIN_RUN_COVERAGE = 0.3;
 export const BLED_MIN_WORDS = 8;
+export const SHORT_BLED_MIN_WORDS = 2;
+export const SHORT_BLED_MAX_WORDS = 7;
+export const SHORT_BLED_MIN_OVERLAP = 0.45;
 
 const BLED_WORD_RE = /[^\p{L}\p{N}\s]/gu;
 
@@ -614,6 +617,101 @@ function bledWords(value: string): string[] {
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = new Array<number>(right.length + 1);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    for (let index = 0; index < current.length; index += 1) previous[index] = current[index];
+  }
+
+  return previous[right.length];
+}
+
+function approximatelySameWord(left: string, right: string): boolean {
+  if (left === right) return true;
+  const longest = Math.max(left.length, right.length);
+  if (longest < 5) return false;
+  return editDistance(left, right) <= (longest >= 8 ? 2 : 1);
+}
+
+function shortWordsCoveredBy(text: string, reference: string): boolean {
+  const words = bledWords(text);
+  const source = bledWords(reference);
+  if (words.length < SHORT_BLED_MIN_WORDS || words.length > SHORT_BLED_MAX_WORDS) return false;
+  if (source.length < words.length) return false;
+
+  const used = new Set<number>();
+  return words.every((word) => {
+    const match = source.findIndex(
+      (candidate, index) => !used.has(index) && approximatelySameWord(word, candidate),
+    );
+    if (match < 0) return false;
+    used.add(match);
+    return true;
+  });
+}
+
+function rowInterval(row: OrderedTranscriptLine): { start: number; end: number } | null {
+  const start = row.audioStartMs ?? row.timestamp;
+  const end = row.audioEndMs ?? row.updatedAt ?? start;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || (end as number) < (start as number)) {
+    return null;
+  }
+  return { start: start as number, end: end as number };
+}
+
+function temporalOverlapRatio(left: OrderedTranscriptLine, right: OrderedTranscriptLine): number {
+  const leftInterval = rowInterval(left);
+  const rightInterval = rowInterval(right);
+  if (!leftInterval || !rightInterval) return 0;
+  const overlap = Math.max(
+    0,
+    Math.min(leftInterval.end, rightInterval.end) - Math.max(leftInterval.start, rightInterval.start),
+  );
+  const shortest = Math.min(
+    Math.max(1, leftInterval.end - leftInterval.start),
+    Math.max(1, rightInterval.end - rightInterval.start),
+  );
+  return overlap / shortest;
+}
+
+function isShortTimedBleed(
+  micText: string,
+  micRow: OrderedTranscriptLine,
+  farEndRows: OrderedTranscriptLine[],
+): boolean {
+  return farEndRows.some((farEndRow) => (
+    temporalOverlapRatio(micRow, farEndRow) >= SHORT_BLED_MIN_OVERLAP &&
+    shortWordsCoveredBy(micText, farEndRow.text || '')
+  ));
+}
+
+function trimShortBledPrefix<T extends OrderedTranscriptLine>(
+  row: T,
+  farEndRows: OrderedTranscriptLine[],
+): T | null {
+  let remaining = (row.text || '').trim();
+
+  while (remaining) {
+    const sentence = remaining.match(/^(.+?[.!?])(?:\s+|$)([\s\S]*)$/);
+    if (!sentence || !sentence[2].trim()) break;
+    if (!isShortTimedBleed(sentence[1], row, farEndRows)) break;
+    remaining = sentence[2].trim();
+  }
+
+  if (!remaining || isShortTimedBleed(remaining, row, farEndRows)) return null;
+  return remaining === (row.text || '').trim() ? row : { ...row, text: remaining, words: undefined };
 }
 
 /** Longest run of consecutive words `text` shares with `reference`. */
@@ -667,9 +765,20 @@ export function dropBledMicRows<T extends OrderedTranscriptLine>(
   farEndText: string,
 ): T[] {
   if (!farEndText.trim()) return rows;
-  return rows.filter(
-    (row) => row.speaker !== 1 || !isBledFromFarEnd(row.text || '', farEndText),
+  const farEndRows = rows.filter(
+    (row) => row.speaker === 0 && (row.text || '').trim(),
   );
+  const filtered: T[] = [];
+  for (const row of rows) {
+    if (row.speaker !== 1) {
+      filtered.push(row);
+      continue;
+    }
+    if (isBledFromFarEnd(row.text || '', farEndText)) continue;
+    const trimmed = trimShortBledPrefix(row, farEndRows);
+    if (trimmed) filtered.push(trimmed);
+  }
+  return filtered;
 }
 
 /** Everything the far end has said, for use as the comparison window. */

@@ -28,6 +28,7 @@ export type CaptureSessionTimelineOptions = {
   maxPtsAgeMs?: number
   maxFuturePtsSkewMs?: number
   maxClockDomainSkewMs?: number
+  maxCaptureClockJitterMs?: number
 }
 
 export type PcmChunkShape = {
@@ -52,6 +53,10 @@ export type SystemEpochPtsAudioChunk = PcmChunkShape & {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SAMPLE_DURATION_EPSILON_MS = 0.001
+// ScreenCaptureKit timestamps have shown harmless callback jitter just above
+// 5ms. Ten milliseconds is still only half of one 20ms system-audio frame and
+// remains far below a genuine clock reversal.
+const DEFAULT_MAX_CAPTURE_CLOCK_JITTER_MS = 10
 
 function assertFiniteNonNegative(name: string, value: number): void {
   if (!Number.isFinite(value) || value < 0) {
@@ -109,9 +114,11 @@ function normalizeChunkShape(shape: PcmChunkShape): {
 /**
  * One clock domain and identity for a single physical capture generation.
  *
- * The timeline does not require chunks to be contiguous or non-overlapping.
- * It only certifies that every accepted chunk can be compared on the same
- * session-relative scale and that its PCM shape matches its interval exactly.
+ * Chunks from different sources may overlap, but each source must advance
+ * chronologically. Capture APIs report timestamps through clock conversions
+ * that can jitter by a few milliseconds, so a small overlap is snapped to the
+ * previous boundary. Larger reversals fail closed instead of relabelling
+ * out-of-order audio as chronological.
  */
 export class CaptureSessionTimeline {
   readonly id: string
@@ -122,9 +129,14 @@ export class CaptureSessionTimeline {
   private readonly maxPtsAgeMs: number
   private readonly maxFuturePtsSkewMs: number
   private readonly maxClockDomainSkewMs: number
+  private readonly maxCaptureClockJitterMs: number
   private readonly nextSequence: Record<CaptureSource, number> = {
     mic: 0,
     system: 0,
+  }
+  private readonly lastCaptureEndMs: Record<CaptureSource, number | null> = {
+    mic: null,
+    system: null,
   }
 
   constructor(options: CaptureSessionTimelineOptions) {
@@ -144,6 +156,8 @@ export class CaptureSessionTimeline {
     this.maxPtsAgeMs = options.maxPtsAgeMs ?? 10_000
     this.maxFuturePtsSkewMs = options.maxFuturePtsSkewMs ?? 100
     this.maxClockDomainSkewMs = options.maxClockDomainSkewMs ?? 250
+    this.maxCaptureClockJitterMs =
+      options.maxCaptureClockJitterMs ?? DEFAULT_MAX_CAPTURE_CLOCK_JITTER_MS
 
     assertSessionId(this.id)
     if (!Number.isSafeInteger(this.generation) || this.generation < 0) {
@@ -154,6 +168,7 @@ export class CaptureSessionTimeline {
     assertFiniteNonNegative('maxPtsAgeMs', this.maxPtsAgeMs)
     assertFiniteNonNegative('maxFuturePtsSkewMs', this.maxFuturePtsSkewMs)
     assertFiniteNonNegative('maxClockDomainSkewMs', this.maxClockDomainSkewMs)
+    assertFiniteNonNegative('maxCaptureClockJitterMs', this.maxCaptureClockJitterMs)
   }
 
   createFromMonotonicInterval(chunk: MonotonicAudioChunk): AudioChunkMetadata {
@@ -222,14 +237,27 @@ export class CaptureSessionTimeline {
       throw new RangeError('captureEndMs must not precede captureStartMs')
     }
 
+    const previousEndMs = this.lastCaptureEndMs[source]
+    let normalizedStartMs = captureStartMs
+    if (previousEndMs !== null && captureStartMs < previousEndMs) {
+      const overlapMs = previousEndMs - captureStartMs
+      if (overlapMs > this.maxCaptureClockJitterMs) {
+        throw new RangeError(
+          `${source} capture interval moved backwards by ${overlapMs.toFixed(3)}ms`,
+        )
+      }
+      normalizedStartMs = previousEndMs
+    }
+    const normalizedEndMs = normalizedStartMs + shape.durationMs
+
     const metadata: AudioChunkMetadata = {
       schema_version: 1,
       capture_session_id: this.id,
       capture_generation: this.generation,
       source,
       chunk_seq: this.nextSequence[source],
-      capture_start_ms: captureStartMs,
-      capture_end_ms: captureEndMs,
+      capture_start_ms: normalizedStartMs,
+      capture_end_ms: normalizedEndMs,
       session_epoch_ms: this.epochUnixMs,
       sample_rate: shape.sampleRate,
       channel_count: shape.channelCount,
@@ -239,6 +267,7 @@ export class CaptureSessionTimeline {
     }
 
     this.nextSequence[source] += 1
+    this.lastCaptureEndMs[source] = normalizedEndMs
     return metadata
   }
 }

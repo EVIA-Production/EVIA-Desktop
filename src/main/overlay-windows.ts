@@ -119,6 +119,7 @@ type PersistedState = {
   visible?: WindowVisibility
   autoUpdate?: boolean  // User preference for automatic updates
   shortcuts?: ShortcutConfig  // User-customized keyboard shortcuts
+  current_chat_id?: string | null
 }
 let persistedState: PersistedState = {}
 
