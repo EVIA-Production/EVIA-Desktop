@@ -26,6 +26,7 @@ type AskSendPayload = {
   text: string;
   sessionState?: string;
   transcriptContext?: string;
+  chatId?: number | string;
 };
 
 type AskSessionState = 'before' | 'during' | 'after';
@@ -104,6 +105,23 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // A direct answer and an optional spoken line are different products:
       // information for the seller, then exact words for the prospect.
       .replace(/\s*→\s*(Say|Sag)\s*:\s*/i, (_match, label: string) => `\n\n---\n\n**${label}:** `)
+      // The backend appends a grounded next step as "---\n[Action: ...]". It is
+      // not noise to strip: the divider is the line between what to SAY and what
+      // to DO, and both belong on screen. Rendered as markdown it becomes a rule
+      // plus a bold label instead of literal brackets, which is what shipped to
+      // a live English call as "... ---\n[Action: End meeting - goal achieved]".
+      .replace(
+        /\n*\s*---\s*\n*\s*\[(?:Action|Aktion):\s*([^\]\n]+)\]\s*/gi,
+        (_m, body: string) =>
+          `\n\n---\n\n**${i18n.getLanguage() === 'de' ? 'Aktion' : 'Action'}:** ${body.trim()}\n`,
+      )
+      // An action the model emitted without the divider still gets one, so the
+      // separation is consistent however the model formatted it.
+      .replace(
+        /\s*\[(?:Action|Aktion):\s*([^\]\n]+)\]\s*/gi,
+        (_m, body: string) =>
+          `\n\n---\n\n**${i18n.getLanguage() === 'de' ? 'Aktion' : 'Action'}:** ${body.trim()}\n`,
+      )
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
@@ -186,6 +204,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
   const liveTranscriptOverrideRef = useRef<string | null>(null);
+  const chatIdOverrideRef = useRef<string | null>(null);
   const startStreamRef = useRef<((captureScreenshot?: boolean, overridePrompt?: string) => Promise<void>) | null>(null);
   const focusInputWithRetryRef = useRef<(() => void) | null>(null);
   const cancelActiveStreamRef = useRef<((reason: string) => void) | null>(null);
@@ -392,10 +411,12 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const incomingPrompt = typeof payload === 'string' ? payload : payload.text;
       const explicitSessionState = typeof payload === 'object' ? payload.sessionState : undefined;
       const transcriptContext = typeof payload === 'object' ? payload.transcriptContext : undefined;
+      const explicitChatId = typeof payload === 'object' ? payload.chatId : undefined;
       const signature = JSON.stringify([
         incomingPrompt.trim(),
         explicitSessionState || '',
         transcriptContext || '',
+        explicitChatId || '',
       ]);
       const now = Date.now();
 
@@ -424,6 +445,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setSessionState(explicitSessionState as 'before' | 'during' | 'after');
       }
       liveTranscriptOverrideRef.current = transcriptContext || null;
+      chatIdOverrideRef.current = explicitChatId ? String(explicitChatId) : null;
       
       setPrompt(incomingPrompt);
       setShowTextInput(true);
@@ -465,6 +487,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       ttftLoggedRef.current = false;
       setErrorToast(null);
       liveTranscriptOverrideRef.current = null;
+      chatIdOverrideRef.current = null;
       lastResponseRef.current = '';
       storedContentHeightRef.current = 58;
       if (restartStreamTimeoutRef.current) {
@@ -493,6 +516,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       setErrorToast(null);
       setIsLoadingFirstToken(false);
       liveTranscriptOverrideRef.current = null;
+      chatIdOverrideRef.current = null;
       console.log('[AskView] ✅ Stream cancelled, content preserved');
     };
 
@@ -504,18 +528,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       localStorage.setItem('evia_session_state', newState);
       setSessionState(newState);
 
-      if (newState === 'before') {
-        // Hard reset between sessions so no previous response/height is restored.
-        setResponse('');
-        setResponseHistory([]);
-        setResponseIndex(-1);
-        setCurrentQuestion('');
-        setPrompt('');
-        setIsStreaming(false);
-        setIsLoadingFirstToken(false);
-        lastResponseRef.current = '';
-        storedContentHeightRef.current = 58;
-      }
+      // A failed/aborted capture also transitions back to `before`. Preserve
+      // the visible answer in that case; only the explicit `session:closed`
+      // event above is allowed to clear Ask content.
     };
 
     // FIX: Clear state on language change (fixes Test 3 failure)
@@ -538,6 +553,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       lastResponseRef.current = '';
       storedContentHeightRef.current = 58;
       liveTranscriptOverrideRef.current = null;
+      chatIdOverrideRef.current = null;
 
       // Force a fresh chat after language switch so follow-up suggestions
       // cannot inherit stale language/session context from the previous chat.
@@ -957,52 +973,25 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
     }
 
-    let chatId = Number(localStorage.getItem('current_chat_id') || '0');
-    if (!chatId || Number.isNaN(chatId)) {
-      try {
-        const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ language }),
-        });
-        
-        if (res.status === 401) {
-          showError('Authentication expired. Please reconnect.', true);
-          resetPendingRequest();
-          return;
-        }
-        
-        if (!res.ok) {
-          showError(`Failed to create chat session (HTTP ${res.status}). Reconnect?`, true);
-          resetPendingRequest();
-          return;
-        }
-        
-        const data = await res.json();
-        chatId = Number(data?.id);
-        if (chatId && !Number.isNaN(chatId)) {
-          try {
-            localStorage.setItem('current_chat_id', String(chatId));
-          } catch {}
-          try {
-            await (window as any).evia?.prefs?.set?.({ current_chat_id: String(chatId) });
-          } catch {}
-        } else {
-          showError('Invalid chat session. Please reconnect.', true);
-          resetPendingRequest();
-          return;
-        }
-      } catch (e: any) {
-        const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network');
-        showError(
-          isNetworkError 
-            ? 'Network error. Check connection and reconnect?' 
-            : 'Failed to create chat session. Reconnect?',
-          true
-        );
-        resetPendingRequest();
-        return;
+    const explicitChatId = chatIdOverrideRef.current;
+    chatIdOverrideRef.current = null;
+    let chatId = Number(explicitChatId || '0');
+    try {
+      if (!chatId || Number.isNaN(chatId)) {
+        const { getOrCreateChatId } = await import('../services/websocketService');
+        chatId = Number(await getOrCreateChatId(baseUrl.replace(/\/$/, ''), token));
       }
+      if (!chatId || Number.isNaN(chatId)) throw new Error('Invalid canonical chat id');
+    } catch (e: any) {
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network');
+      showError(
+        isNetworkError
+          ? 'Network error. Check connection and reconnect?'
+          : 'Failed to resolve chat session. Reconnect?',
+        true
+      );
+      resetPendingRequest();
+      return;
     }
 
     // GLASS PARITY: Fetch transcript context for backend
@@ -1227,8 +1216,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const errorMsg = e?.message || String(e);
       const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
       const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network');
+      const isSuggestionUnavailable = errorMsg.includes('SUGGESTION_UNAVAILABLE');
       
-      if (is401) {
+      if (isSuggestionUnavailable) {
+        showError(
+          language === 'de'
+            ? 'Gerade ist kein verlässlicher Vorschlag verfügbar. Bitte erneut versuchen.'
+            : 'No reliable suggestion is available right now. Please try again.',
+          true,
+        );
+      } else if (is401) {
         showError('Authentication expired. Please reconnect.', true);
       } else if (isNetwork) {
         showError('Network connection lost. Reconnect?', true);
