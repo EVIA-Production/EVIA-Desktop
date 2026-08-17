@@ -1,3 +1,16 @@
+/**
+ * Where the query came from. The backend cannot recover this from the text:
+ * a summary bullet the user taps and a question the user types are both just
+ * strings, and reading one as the other is how "Wie steht es um das Budget?"
+ * came back as a definition instead of a line to say. Only the client knows,
+ * because each origin enters through a different handler.
+ */
+export type AskQuerySource =
+  | 'user_typed'      // typed into the ask box
+  | 'quick_action'    // pressed a button whose prompt we authored
+  | 'insight_click'   // tapped a bullet Taylos summarised from the transcript
+  | 'shortcut'        // pressed the next-step keyboard shortcut
+
 export type StreamAskParams = {
   baseUrl: string
   chatId: number
@@ -11,6 +24,7 @@ export type StreamAskParams = {
   screenshotRef?: string
   requestId?: string
   clientStartedAtMs?: number
+  querySource?: AskQuerySource
 }
 
 export type StreamAskHandle = {
@@ -21,7 +35,7 @@ export type StreamAskHandle = {
   abort: () => void
 }
 
-export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessionState, token, tokenType = 'Bearer', signal, screenshotRef, requestId, clientStartedAtMs }: StreamAskParams): StreamAskHandle {
+export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessionState, token, tokenType = 'Bearer', signal, screenshotRef, requestId, clientStartedAtMs, querySource }: StreamAskParams): StreamAskHandle {
   const url = `${baseUrl.replace(/\/$/, '')}/ask`
   const headers: Record<string, string> = {
     'Authorization': `${tokenType} ${token}`,
@@ -37,6 +51,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     stream: true,
     request_id: requestId,
     client_started_at_ms: clientStartedAtMs,
+    query_source: querySource,
   }
   
   // SESSION STATE: Add session state for context-aware responses

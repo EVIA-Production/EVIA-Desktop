@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
-import { streamAsk } from '../lib/evia-ask-stream';
+import { streamAsk, type AskQuerySource } from '../lib/evia-ask-stream';
 import { i18n } from '../i18n/i18n';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
@@ -27,6 +27,7 @@ type AskSendPayload = {
   sessionState?: string;
   transcriptContext?: string;
   chatId?: number | string;
+  querySource?: AskQuerySource;
 };
 
 type AskSessionState = 'before' | 'during' | 'after';
@@ -203,9 +204,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
+  const lastQuerySourceRef = useRef<AskQuerySource>('user_typed');
   const liveTranscriptOverrideRef = useRef<string | null>(null);
   const chatIdOverrideRef = useRef<string | null>(null);
-  const startStreamRef = useRef<((captureScreenshot?: boolean, overridePrompt?: string) => Promise<void>) | null>(null);
+  const startStreamRef = useRef<((captureScreenshot?: boolean, overridePrompt?: string, querySource?: AskQuerySource) => Promise<void>) | null>(null);
   const focusInputWithRetryRef = useRef<(() => void) | null>(null);
   const cancelActiveStreamRef = useRef<((reason: string) => void) | null>(null);
 
@@ -412,6 +414,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const explicitSessionState = typeof payload === 'object' ? payload.sessionState : undefined;
       const transcriptContext = typeof payload === 'object' ? payload.transcriptContext : undefined;
       const explicitChatId = typeof payload === 'object' ? payload.chatId : undefined;
+      // ListenView says which control was pressed. A bare string is an older
+      // sender, and 'insight_click' is the right reading of it: every existing
+      // producer of this channel is an insights control.
+      const incomingQuerySource: AskQuerySource =
+        (typeof payload === 'object' ? payload.querySource : undefined) ?? 'insight_click';
       const signature = JSON.stringify([
         incomingPrompt.trim(),
         explicitSessionState || '',
@@ -456,7 +463,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         }
         restartStreamTimeoutRef.current = setTimeout(() => {
           restartStreamTimeoutRef.current = null;
-          startStreamRef.current?.(false, incomingPrompt);
+          startStreamRef.current?.(false, incomingPrompt, incomingQuerySource);
           setTimeout(() => {
             focusInputWithRetryRef.current?.();
           }, 100);
@@ -566,7 +573,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     };
 
     const handleShortcutNextStep = () => {
-      startStream();
+      startStream(false, undefined, 'shortcut');
     };
 
     const handleShortcutPreviousResponse = () => {
@@ -781,7 +788,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
       restartStreamTimeoutRef.current = setTimeout(() => {
         restartStreamTimeoutRef.current = null;
-        startStreamRef.current?.();
+        // A retried insight click is still an insight click. Re-sending it as
+        // 'user_typed' would flip the backend's reading of the same request.
+        startStreamRef.current?.(false, undefined, lastQuerySourceRef.current);
       }, 100);
     }
   };
@@ -839,7 +848,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     return 'before';
   };
 
-  const startStream = async (captureScreenshot: boolean = false, overridePrompt?: string) => {
+  const startStream = async (
+    captureScreenshot: boolean = false,
+    overridePrompt?: string,
+    // Defaults to the box because that is the only origin that reaches
+    // startStream without going through a caller that knows better: the form,
+    // the Enter key, the submit button. Every other entry point states its own.
+    querySource: AskQuerySource = 'user_typed',
+  ) => {
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
     if (!actualPrompt.trim() || streamRef.current || deterministicDemoTimerRef.current) return;
@@ -855,6 +871,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const cachedSessionState = (localStorage.getItem('evia_session_state') as AskSessionState) || 'before';
 
     lastPromptRef.current = actualPrompt;
+    lastQuerySourceRef.current = querySource;
     setCurrentQuestion(actualPrompt);
     setErrorToast(null);
     setShowTextInput(true);
@@ -1088,6 +1105,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       screenshotRef,
       requestId,
       clientStartedAtMs,
+      querySource,
     });
     streamRef.current = handle;
 

@@ -7,6 +7,7 @@ import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from '../demo-scenario';
+import type { AskQuerySource } from '../lib/evia-ask-stream';
 
 declare global {
   interface Window {
@@ -855,7 +856,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // 2. Determine current session state (after recording stops, isSessionActive = false)
   // 3. Send to AskView via IPC with 'ask:send-and-submit' channel INCLUDING session state
   // 4. AskView receives it, populates input, updates session state, and auto-submits
-  const handleInsightClick = (insightText: string, promptOverride?: string) => {
+  const handleInsightClick = (
+    insightText: string,
+    promptOverride?: string,
+    // A summary bullet and a quick-action button reach the backend as the same
+    // kind of string, and they mean opposite things: the bullet is an excerpt
+    // of the seller's own call that they are pointing at, the button is a
+    // request we wrote for them to press. Only this component still knows
+    // which control was clicked, so it is the last place that can say.
+    querySource: AskQuerySource = 'insight_click',
+  ) => {
     const outboundPrompt = (promptOverride || insightText || '').trim();
     console.log('[ListenView] 📨 Insight clicked:', outboundPrompt.substring(0, 50));
     
@@ -887,6 +897,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         sessionState: insightSessionState,
         chatId: canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current,
         transcriptContext: filteredTranscriptContext,
+        querySource,
       });
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
@@ -1610,7 +1621,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 	                {getInsightActions(displayedInsights).map((action, idx) => (
 	                  <p
                     key={`action-${idx}`}
-                    onClick={() => handleInsightClick(action.label, action.prompt)}
+                    onClick={() => handleInsightClick(action.label, action.prompt, 'quick_action')}
                     style={{
                       fontSize: '12px',
                       lineHeight: '1.4',
@@ -1672,7 +1683,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
                 <p
-                  onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'))}
+                  onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'), 'quick_action')}
                   style={{
                     fontSize: '12px',
                     lineHeight: '1.4',
