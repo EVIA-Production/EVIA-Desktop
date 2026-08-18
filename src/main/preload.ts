@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld('evia', {
     getToken: () => ipcRenderer.invoke('auth:getToken'),
     logout: () => ipcRenderer.invoke('auth:logout'),
     checkTokenValidity: () => ipcRenderer.invoke('auth:checkTokenValidity'),  // NEW: Check token expiry
+    refresh: () => ipcRenderer.invoke('auth:refresh'),  // Silent session renewal
     validate: () => ipcRenderer.invoke('auth:validate')  // UI IMPROVEMENT: Proactive auth validation
   },
   presets: {

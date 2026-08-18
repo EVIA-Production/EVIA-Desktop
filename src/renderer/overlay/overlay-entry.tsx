@@ -497,7 +497,17 @@ function App() {
         console.log('[OverlayEntry] 🔐 Checking token validity (local) before starting session...');
         const eviaAuth = (window as any).evia?.auth;
         if (eviaAuth?.checkTokenValidity) {
-          const tokenStatus = await eviaAuth.checkTokenValidity();
+          let tokenStatus = await eviaAuth.checkTokenValidity();
+          // A token that lapses mid-call costs the seller the call. Renewing
+          // here is cheap and turns "expiring_soon" into a non-event instead
+          // of a login prompt thirty seconds into a conversation.
+          if (tokenStatus?.reason === 'expiring_soon' || tokenStatus?.valid === false) {
+            const renewed = await eviaAuth.refresh?.();
+            if (renewed?.ok) {
+              tokenStatus = await eviaAuth.checkTokenValidity();
+              console.log('[OverlayEntry] 🔄 Session renewed before session start');
+            }
+          }
           if (!tokenStatus || tokenStatus.valid === false) {
             console.error('[OverlayEntry] ❌ Token invalid/expired - cannot start session:', tokenStatus?.reason);
             showToast('Please login to start recording', 'error');

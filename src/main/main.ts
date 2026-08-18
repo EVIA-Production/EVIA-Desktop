@@ -653,6 +653,60 @@ ipcMain.handle('presets:deactivate', async (_event, presetId: unknown) => {
 });
 
 // NEW: Check if token is valid and not expired
+/**
+ * Renew the session silently, so an active user is never asked to sign in.
+ *
+ * Tokens last 24h and nothing renewed them. checkTokenValidity even returned
+ * "expiring_soon - refresh recommended" and no caller acted on it, so every
+ * user was pushed back to a username and password on a fixed cycle no matter
+ * how continuously they were using the product. Reported 2026-08-18 as having
+ * to sign in several times a day.
+ *
+ * The renewed token replaces the stored one in the OS keychain. A failure here
+ * is deliberately silent: the existing token is still valid for hours, and the
+ * next attempt will retry. Only a genuinely lapsed token reaches a login
+ * prompt, because /refresh/ rejects one that has already expired.
+ */
+async function refreshAuthTokenSilently(reason: string): Promise<boolean> {
+  try {
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) return false;
+
+    const res = await fetch(`${getBackendHttpBase()}/refresh/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      console.warn(`[Auth] refresh (${reason}) rejected: HTTP ${res.status}`);
+      return false;
+    }
+    const body: any = await res.json();
+    const next = body?.access_token;
+    if (typeof next !== 'string' || !next) return false;
+
+    await keytar.setPassword('taylos', 'token', next);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && !win.isDestroyed()) {
+        try { win.webContents.send('auth:token-refreshed', { token: next }); } catch { }
+      }
+    });
+    console.log(`[Auth] ✅ session renewed (${reason})`);
+    return true;
+  } catch (error) {
+    console.warn(`[Auth] refresh (${reason}) failed:`, error);
+    return false;
+  }
+}
+
+// Renew on launch, then every six hours. Well inside the 24h window, so a
+// laptop asleep for a weekend still wakes with hours of validity left and
+// renews before anyone notices.
+const AUTH_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+setTimeout(() => { void refreshAuthTokenSilently('startup'); }, 3000);
+setInterval(() => { void refreshAuthTokenSilently('interval'); }, AUTH_REFRESH_INTERVAL_MS);
+
+ipcMain.handle('auth:refresh', async () => ({ ok: await refreshAuthTokenSilently('explicit') }));
+
 ipcMain.handle('auth:checkTokenValidity', async () => {
   try {
     const token = await keytar.getPassword('taylos', 'token');

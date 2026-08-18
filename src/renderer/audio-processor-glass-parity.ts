@@ -1911,14 +1911,46 @@ function setupSystemAudioProcessing(
 // Taylos uses renderer-based WebSockets (direct send from onaudioprocess)
 
 // Glass parity: Start capture with explicit permission checks
+/**
+ * Stage timing for capture start.
+ *
+ * Reported 2026-08-18 as "the latency between pressing listen and the session
+ * starting to listen is far too high". The start path is three heavy serial
+ * awaits - getUserMedia, the capture websockets, and the macOS helper spawn -
+ * and nothing recorded which of them costs what, so any optimisation would
+ * have been a guess. Renderer console.log does not reach the terminal, so this
+ * goes through debug-log like every other durable diagnostic.
+ */
+function captureStartTimer() {
+  const t0 = performance.now();
+  let last = t0;
+  const marks: string[] = [];
+  return {
+    mark(stage: string) {
+      const now = performance.now();
+      marks.push(`${stage}=${Math.round(now - last)}ms`);
+      last = now;
+    },
+    done() {
+      const total = Math.round(performance.now() - t0);
+      const line = `[CAPTURE-START] total=${total}ms ${marks.join(' ')}`;
+      console.log(line);
+      try { (window as any).evia?.ipc?.send?.('debug-log', line); } catch { }
+    },
+  };
+}
+
 async function startCaptureInternal(includeSystemAudio = false) {
+  const startTimer = captureStartTimer();
   const captureStartupStartedAt = performance.now();
 
   // Resolve through the shared owner once, then bind both sockets and every
   // reconnect to that immutable id for this capture generation.
   const authToken = await getActiveAuthToken();
+  startTimer.mark('token');
   if (!authToken) throw new Error('[AudioCapture] Missing auth token before chat binding');
   captureChatId = await getOrCreateChatId(BACKEND_URL, authToken);
+  startTimer.mark('chat');
   sendDebugLog(
     `[AudioCapture] capture bound to chat_id=${captureChatId}`,
   );
@@ -2089,7 +2121,9 @@ async function startCaptureInternal(includeSystemAudio = false) {
   // accumulated locally and replayed to Deepgram in a catch-up burst.
   const eviaApi = (window as any).evia;
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
+  startTimer.mark('mic');
   const socketStatus = await connectCaptureWebSockets(includeSystemAudio);
+  startTimer.mark('sockets');
   releaseCaptureTransport();
   const macSystemStatus = includeSystemAudio && isMac
     ? await startMacSystemAudioCapture(eviaApi, timeline)
