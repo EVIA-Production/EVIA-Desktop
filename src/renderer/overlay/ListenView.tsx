@@ -8,7 +8,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from '../demo-scenario';
 import type { AskQuerySource } from '../lib/evia-ask-stream';
-import { prefetchSuggestion, resetSuggestionPrefetch } from '../lib/suggestion-prefetch';
+import { prefetchSuggestion, prefetchOpener, resetSuggestionPrefetch } from '../lib/suggestion-prefetch';
 import { BACKEND_URL } from '../config/config';
 
 declare global {
@@ -609,6 +609,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] Recording started; canonical session is now live');
         resetSessionPresentation('recording-started');
         resetSuggestionPrefetch();
+        // The first click of a call has no prospect turn behind it, so it was
+        // the one click that always paid the full round trip plus generation.
+        void (async () => {
+          try {
+            const token = await (window as any).evia?.auth?.getToken?.();
+            const chatId = canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current;
+            if (!token || !chatId) return;
+            await prefetchOpener({
+              baseUrl: BACKEND_URL,
+              chatId: Number(chatId),
+              token,
+              language: i18n.getLanguage() as 'de' | 'en',
+              question: i18n.t('overlay.listen.whatToSayNextPrompt'),
+            });
+          } catch {
+            // Speculative work must never disturb a call.
+          }
+        })();
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
         sessionStateRef.current = 'during';
@@ -783,7 +801,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // The prospect just stopped talking, which is precisely when the seller
       // is about to want a line. Generate it now so the click is a lookup
       // rather than a round trip plus a generation. Speaker 0 is the far end.
-      if (adapted.event.isFinal && adapted.event.source === 'system' && isSessionActiveRef.current) {
+      if (adapted.event.isFinal && isSessionActiveRef.current) {
         void (async () => {
           try {
             const token = await (window as any).evia?.auth?.getToken?.();

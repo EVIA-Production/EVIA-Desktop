@@ -17,11 +17,23 @@ const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'src', ...p), 
 const mod = read('renderer', 'lib', 'suggestion-prefetch.ts');
 const listen = read('renderer', 'overlay', 'ListenView.tsx');
 
-test('it fires when the prospect stops talking, not on every event', () => {
-  // Speaker 0 / system is the far end; a final marks the end of their turn.
-  assert.match(listen, /adapted\.event\.isFinal && adapted\.event\.source === 'system'/);
-  // Never outside a live session.
-  assert.match(listen, /isSessionActiveRef\.current/);
+test('it fires on a completed turn from EITHER side, not on partials', () => {
+  // Prospect-only coverage left two common clicks paying full price: the first
+  // click of a call, and a click right after the seller speaks - their own
+  // words change the transcript and therefore the fingerprint.
+  assert.match(listen, /adapted\.event\.isFinal && isSessionActiveRef\.current/);
+  // Partials must not trigger it - a fast exchange would fire constantly.
+  assert.match(listen, /isFinal/);
+});
+
+test('the first click of a call is covered too', () => {
+  // The one click guaranteed to have no prior turn behind it.
+  assert.match(mod, /export async function prefetchOpener/);
+  assert.match(listen, /prefetchOpener\(/);
+  // Armed at recording start, right after the session state is reset.
+  const resetAt = listen.indexOf('resetSuggestionPrefetch()');
+  const openerAt = listen.indexOf('prefetchOpener(');
+  assert.ok(resetAt !== -1 && openerAt > resetAt);
 });
 
 test('it sends prefetch:true and never renders the result', () => {

@@ -18,8 +18,14 @@
  * never be served. One more prospect word and it misses. The worst case here
  * is a wasted generation, never a stale line in a live call.
  *
- * Cost is bounded by only firing on a prospect turn ending, and never twice for
- * the same transcript.
+ * Coverage matters as much as the mechanism. Firing only on a PROSPECT turn
+ * left two common clicks paying full price: the first click of a call, before
+ * anyone has said anything, and a click right after the seller speaks, because
+ * their own words change the transcript and therefore the fingerprint. So a
+ * final from EITHER side arms it, and the session start arms the opener.
+ *
+ * Cost stays bounded by the same three guards: never twice for the same
+ * transcript, one generation in flight, and a cooldown between them.
  */
 
 const PREFETCH_MIN_TRANSCRIPT_CHARS = 40
@@ -33,6 +39,51 @@ export function resetSuggestionPrefetch(): void {
   lastPrefetchedTranscript = ''
   lastPrefetchAt = 0
   inFlight = false
+}
+
+/**
+ * Arm the opener before the call has a transcript.
+ *
+ * The first click of a call is the one click guaranteed to have no prospect
+ * turn behind it, so it was the one click that always paid the full round trip
+ * plus generation. An empty transcript is a legitimate context - it is exactly
+ * what the before-call opener path expects - so it gets its own entry point
+ * rather than being filtered out by the minimum-length guard.
+ */
+export async function prefetchOpener(
+  input: Omit<PrefetchInput, 'transcript'>,
+): Promise<'sent' | 'skipped'> {
+  if (!input.chatId || !input.token) return 'skipped'
+  if (inFlight) return 'skipped'
+  inFlight = true
+  lastPrefetchedTranscript = ''
+  lastPrefetchAt = Date.now()
+  try {
+    await fetch(`${input.baseUrl.replace(/\/$/, '')}/ask`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: input.chatId,
+        prompt: '',
+        prompt_override: input.question,
+        transcript: '',
+        language: input.language,
+        session_state: 'during',
+        stream: true,
+        prefetch: true,
+        query_source: 'quick_action',
+      }),
+    })
+    console.log('[Prefetch] opener armed before the first word')
+    return 'sent'
+  } catch {
+    return 'skipped'
+  } finally {
+    inFlight = false
+  }
 }
 
 export type PrefetchInput = {
