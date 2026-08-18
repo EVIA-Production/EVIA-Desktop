@@ -8,6 +8,8 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from '../demo-scenario';
 import type { AskQuerySource } from '../lib/evia-ask-stream';
+import { prefetchSuggestion, resetSuggestionPrefetch } from '../lib/suggestion-prefetch';
+import { BACKEND_URL } from '../config/config';
 
 declare global {
   interface Window {
@@ -104,6 +106,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       .join('\n'),
     [transcripts],
   );
+  // The event handler is registered once, so it cannot close over the latest
+  // transcript. A ref keeps the prefetch grounded in what was just said.
+  const prefetchTranscriptRef = useRef('');
+  prefetchTranscriptRef.current = filteredTranscriptContext;
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
@@ -602,6 +608,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (msg.type === 'recording_started') {
         console.log('[ListenView] Recording started; canonical session is now live');
         resetSessionPresentation('recording-started');
+        resetSuggestionPrefetch();
         messageCountRef.current = 0;
         lastMessageAtRef.current = null;
         sessionStateRef.current = 'during';
@@ -772,6 +779,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         visibleRows: projection.visibleRows.length,
         contextHash: projection.contextHash,
       });
+
+      // The prospect just stopped talking, which is precisely when the seller
+      // is about to want a line. Generate it now so the click is a lookup
+      // rather than a round trip plus a generation. Speaker 0 is the far end.
+      if (adapted.event.isFinal && adapted.event.source === 'system' && isSessionActiveRef.current) {
+        void (async () => {
+          try {
+            const token = await (window as any).evia?.auth?.getToken?.();
+            const chatId = canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current;
+            if (!token || !chatId) return;
+            await prefetchSuggestion({
+              baseUrl: BACKEND_URL,
+              chatId: Number(chatId),
+              token,
+              transcript: prefetchTranscriptRef.current,
+              language: i18n.getLanguage() as 'de' | 'en',
+              question: i18n.t('overlay.listen.whatToSayNextPrompt'),
+            });
+          } catch {
+            // Speculative work must never disturb a live call.
+          }
+        })();
+      }
     };
 
     const onTranscript = (payload: any) => handleTranscriptMessage(payload);
