@@ -15,6 +15,14 @@ export interface NormalizedTranscriptWord {
   startMs: number;
   /** End on the same timeline. */
   endMs: number;
+  /**
+   * Recogniser confidence, when the backend sent one.
+   *
+   * Optional on purpose: an older backend omits it, and a missing score must
+   * read as "no reason to doubt" rather than "uncertain" - otherwise every
+   * word from an older build would be marked and the signal would be noise.
+   */
+  confidence?: number;
 }
 
 export interface NormalizedRealtimeTranscriptEvent {
@@ -65,6 +73,15 @@ export interface CanonicalProjectionRow {
   isFinal: boolean;
   captureStartMs: number;
   captureEndMs: number;
+  /**
+   * Words the recogniser was unsure of, for the PROMPT only.
+   *
+   * Kept as a separate field rather than marked inside `text`, because `text`
+   * is what the seller reads on screen and a transcript peppered with markers
+   * is worse than one that is occasionally wrong. The prompt context adds the
+   * markers when it assembles its own copy.
+   */
+  uncertainWords?: string[];
 }
 
 export interface RealtimeTranscriptProjection {
@@ -121,6 +138,28 @@ function requiredString(value: unknown): string | null {
   return normalized ? normalized : null;
 }
 
+/**
+ * Deepgram scores below this are worth doubting.
+ *
+ * 0.6 is deliberately low. The cost of a false positive is one extra
+ * clarifying question; the cost of a false negative is Taylos quoting a word
+ * the prospect never said. But marking too much makes the signal meaningless,
+ * so this sits well below normal conversational scores rather than near them.
+ */
+const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
+export function lowConfidenceWords(words: NormalizedTranscriptWord[]): string[] {
+  const flagged: string[] = [];
+  for (const word of words) {
+    // undefined means the backend sent no score - no reason to doubt.
+    if (typeof word.confidence !== 'number') continue;
+    if (word.confidence >= LOW_CONFIDENCE_THRESHOLD) continue;
+    const text = word.text.trim();
+    if (text && !flagged.includes(text)) flagged.push(text);
+  }
+  return flagged;
+}
+
 function normalizeWords(value: unknown): NormalizedTranscriptWord[] | null {
   if (!Array.isArray(value)) return null;
   const words: NormalizedTranscriptWord[] = [];
@@ -141,7 +180,12 @@ function normalizeWords(value: unknown): NormalizedTranscriptWord[] | null {
     // Deepgram emits start == end routinely for short words. Killing the whole
     // utterance over one of them is what emptied the transcript before.
     const startMs = Math.max(word.startMs, 0);
-    words.push({ text, startMs, endMs: Math.max(word.endMs, startMs) });
+    words.push({
+      text,
+      startMs,
+      endMs: Math.max(word.endMs, startMs),
+      confidence: finiteNumber(word.confidence) ? (word.confidence as number) : undefined,
+    });
   }
   return words;
 }
@@ -490,6 +534,7 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
           role: roleOf(row.source),
           text: words.map(word => word.text.trim()).filter(Boolean).join(' '),
           isFinal: row.isFinal,
+          uncertainWords: lowConfidenceWords(words),
           captureStartMs: words[0].startMs,
           captureEndMs: words[words.length - 1].endMs,
           order: order++,
@@ -507,6 +552,7 @@ function projectionRows(sequence: CanonicalTranscriptRow[]): CanonicalProjection
       role: roleOf(row.source),
       text: row.text,
       isFinal: row.isFinal,
+      uncertainWords: lowConfidenceWords(row.words),
       captureStartMs: row.captureStartMs,
       captureEndMs: row.captureEndMs,
       order: order++,

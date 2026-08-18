@@ -82,7 +82,7 @@ export const adaptServerTranscriptEvent = (
   }
   if (!Array.isArray(data.words)) return { event: null, reason: 'missing-timed-words' };
 
-  const words = [] as Array<{ text: string; startMs: number; endMs: number }>;
+  const words = [] as Array<{ text: string; startMs: number; endMs: number; confidence?: number }>;
   for (const candidate of data.words) {
     if (!candidate || typeof candidate !== 'object') return { event: null, reason: 'invalid-word' };
     const word = candidate as Record<string, unknown>;
@@ -98,6 +98,9 @@ export const adaptServerTranscriptEvent = (
       text: wordText,
       startMs: word.capture_start_ms,
       endMs: word.capture_end_ms,
+      // Optional on purpose: an older backend does not send it, and a missing
+      // score must read as "no reason to doubt", never as "uncertain".
+      confidence: finiteNumber(word.confidence) ? (word.confidence as number) : undefined,
     });
   }
 

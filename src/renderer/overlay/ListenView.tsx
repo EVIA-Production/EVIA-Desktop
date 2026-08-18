@@ -102,7 +102,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const filteredTranscriptContext = useMemo(
     () => transcripts
       .filter(row => (row.text || '').trim())
-      .map(row => `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${row.text.trim()}`)
+      .map(row => {
+        // Mark words the recogniser was unsure of, for the PROMPT copy only.
+        // The visible transcript above stays clean: a screen peppered with
+        // markers is worse than one that is occasionally wrong, and the seller
+        // can hear what was said. Taylos cannot, so it gets the warning.
+        let text = row.text.trim();
+        for (const uncertain of (row as any).uncertainWords || []) {
+          text = text.replace(
+            new RegExp(`\\b${uncertain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
+            `${uncertain}\u2047`,
+          );
+        }
+        return `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${text}`;
+      })
       .join('\n'),
     [transcripts],
   );
