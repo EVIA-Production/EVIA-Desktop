@@ -7,6 +7,7 @@ import SettingsView from './SettingsView'
 import ShortcutsView from './ShortcutsView'
 import { i18n } from '../i18n/i18n'
 import { startCapture, stopCapture } from '../audio-processor-glass-parity'
+import { startConnectionWarmup, stopConnectionWarmup } from '../lib/connection-warmup'
 import '../overlay/overlay-glass.css'
 import '../overlay/liquid-glass.css'
 import { getWebSocketInstance } from '../services/websocketService'
@@ -376,6 +377,7 @@ function App() {
     const handleForceStopCapture = async (payload?: { reason?: string }) => {
       const reason = payload?.reason || 'unknown'
       console.log(`[OverlayEntry] 🛑 Force-stopping capture (${reason})`)
+      stopConnectionWarmup()
       try {
         await stopCapture(captureHandleRef.current ?? undefined)
       } catch (error) {
@@ -511,6 +513,9 @@ function App() {
         console.log('[OverlayEntry] 🔍 Getting auth token from keytar...')
         const token = await (window as any).evia?.auth?.getToken?.()
         const backend = BACKEND_URL
+        // Before anything slow: the handshake costs ~530ms from far away and
+        // is otherwise paid by the seller's first suggestion, mid-call.
+        startConnectionWarmup(backend)
         
         if (!token) {
           console.error('[OverlayEntry] ❌ No auth token found - user must login first')
