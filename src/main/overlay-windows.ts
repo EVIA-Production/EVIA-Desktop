@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import { headerController } from './header-controller'
 import { OverlayVisibilityController } from './overlay-visibility-controller'
+import { disposeTray, initTray, setTrayLanguage, syncTray } from './tray'
 import {
   applyWindowMaterial,
   getRequestedMaterialMode,
@@ -138,6 +139,14 @@ ipcMain.handle('demo:is-enabled', () => ({ enabled: isDemoMode }))
 // macOS/Windows may hide child windows with their parent; that must not erase
 // which windows Show/Hide is expected to restore.
 const overlayVisibility = new OverlayVisibilityController()
+
+// The menu-bar icon is the discoverable way back from a hidden overlay; the
+// hotkey only helps someone who already knows it exists. Restoring goes through
+// handleHeaderToggle so the icon and Cmd+\ cannot drift apart.
+initTray(() => {
+  if (overlayVisibility.isUiHidden()) handleHeaderToggle()
+})
+overlayVisibility.observeUiHidden(syncTray)
 
 function getWindowIconPath(): string {
   const iconFile = process.platform === 'darwin' ? 'icon-mac.png' : 'icon.ico'
@@ -1884,6 +1893,7 @@ function registerShortcuts() {
   // Re-registration is safe only after this process has acquired ownership.
   if (ownsRegisteredShortcuts) {
     globalShortcut.unregisterAll()
+    disposeTray()
     ownsRegisteredShortcuts = false
   }
 
@@ -2056,6 +2066,7 @@ function unregisterShortcuts() {
 
   try {
     globalShortcut.unregisterAll()
+    disposeTray()
   } catch (error) {
     // Cleanup must never turn an otherwise clean exit into an uncaught crash.
     console.warn('[Shortcuts] Failed to unregister during shutdown:', error)
@@ -2828,6 +2839,7 @@ ipcMain.on('session:closed', () => {
 
 // REACTIVE I18N: Broadcast language changes to ALL windows
 ipcMain.on('language-changed', (_event, newLanguage: string) => {
+  setTrayLanguage(newLanguage)
   console.log('[Main] 🌐 Broadcasting language change to all windows:', newLanguage)
 
   // Broadcast to header window

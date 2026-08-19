@@ -5,6 +5,18 @@ export type OverlayVisibility = Partial<Record<OverlayFeature, boolean>>
 export class OverlayVisibilityController {
   private desired = new Set<OverlayFeature>()
   private uiHidden = false
+  /**
+   * Notified whenever the UI goes hidden or comes back. The menu-bar restore
+   * icon is a pure function of this flag, and hanging it off the state itself
+   * means a future sixth call site cannot forget to keep it in sync - which is
+   * how the icon would silently stop appearing.
+   */
+  private onUiHiddenChange: ((uiHidden: boolean) => void) | null = null
+
+  observeUiHidden(listener: (uiHidden: boolean) => void): void {
+    this.onUiHiddenChange = listener
+    listener(this.uiHidden)
+  }
 
   set(visibility: OverlayVisibility): void {
     this.desired.clear()
@@ -26,12 +38,16 @@ export class OverlayVisibilityController {
   }
 
   hideUi(): OverlayFeature[] {
+    const changed = !this.uiHidden
     this.uiHidden = true
+    if (changed) this.onUiHiddenChange?.(true)
     return this.getDesiredNames()
   }
 
   showUi(): OverlayFeature[] {
+    const changed = this.uiHidden
     this.uiHidden = false
+    if (changed) this.onUiHiddenChange?.(false)
     return this.getDesiredNames()
   }
 
