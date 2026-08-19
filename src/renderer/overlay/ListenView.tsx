@@ -37,6 +37,7 @@ import {
   type RealtimeTranscriptState,
 } from '../../main/realtime-transcript-state';
 import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
+import { buildTranscriptContext, transcriptContextFromState } from '../../main/transcript-context';
 
 type TranscriptLine = OrderedTranscriptLine;
 
@@ -99,30 +100,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return dropBledMicRows(rows, farEndTextOf(rows));
   }, [canonicalProjection]);
   const visibleTranscripts = transcripts;
+  // Built by the same pure function the prefetch uses, so the string the model
+  // gets on a click is byte-identical to the one it was prefetched against.
   const filteredTranscriptContext = useMemo(
-    () => transcripts
-      .filter(row => (row.text || '').trim())
-      .map(row => {
-        // Mark words the recogniser was unsure of, for the PROMPT copy only.
-        // The visible transcript above stays clean: a screen peppered with
-        // markers is worse than one that is occasionally wrong, and the seller
-        // can hear what was said. Taylos cannot, so it gets the warning.
-        let text = row.text.trim();
-        for (const uncertain of (row as any).uncertainWords || []) {
-          text = text.replace(
-            new RegExp(`\\b${uncertain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`),
-            `${uncertain}\u2047`,
-          );
-        }
-        return `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${text}`;
-      })
-      .join('\n'),
+    () => buildTranscriptContext(transcripts as any),
     [transcripts],
   );
-  // The event handler is registered once, so it cannot close over the latest
-  // transcript. A ref keeps the prefetch grounded in what was just said.
-  const prefetchTranscriptRef = useRef('');
-  prefetchTranscriptRef.current = filteredTranscriptContext;
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
@@ -824,7 +807,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               baseUrl: BACKEND_URL,
               chatId: Number(chatId),
               token,
-              transcript: prefetchTranscriptRef.current,
+              transcript: transcriptContextFromState(transition.state),
               language: i18n.getLanguage() as 'de' | 'en',
               question: i18n.t('overlay.listen.whatToSayNextPrompt'),
             });

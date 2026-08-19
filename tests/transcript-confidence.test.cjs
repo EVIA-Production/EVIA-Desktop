@@ -42,9 +42,19 @@ test('the threshold is low enough to stay meaningful', () => {
 test('markers reach the prompt copy and never the screen', () => {
   // row.text is what the seller reads. A transcript peppered with markers is
   // worse than one that is occasionally wrong - and the seller HEARD the call.
-  assert.match(listen, /uncertainWords/);
-  assert.match(listen, /\\u2047/);
-  const ctx = listen.indexOf('const filteredTranscriptContext');
-  const block = listen.slice(ctx, ctx + 1400);
+  //
+  // The marking moved out of ListenView into src/main/transcript-context.ts so
+  // the speculative prefetch and the click could share one builder; before
+  // that they produced different strings and no prefetch was ever claimable.
+  // The behaviour asserted here is unchanged - only its address.
+  const contextSrc = read('main', 'transcript-context.ts');
+  assert.match(contextSrc, /uncertainWords/);
+  assert.match(contextSrc, /\u2047/);
+  const ctx = contextSrc.indexOf('export function buildTranscriptContext');
+  assert.notEqual(ctx, -1, 'the prompt-copy builder must be named');
+  const block = contextSrc.slice(ctx, ctx + 1400);
   assert.match(block, /uncertainWords/, 'the prompt copy must add markers');
+  // And the visible rows must still be built without them.
+  assert.doesNotMatch(listen, /uncertainWords/,
+    'the screen copy must not gain markers');
 });
