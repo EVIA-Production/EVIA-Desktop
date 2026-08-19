@@ -27,6 +27,7 @@
  */
 
 import { app, nativeImage, Tray } from 'electron'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 type TrayLanguage = 'de' | 'en'
@@ -54,11 +55,16 @@ function currentLanguage(): TrayLanguage {
 
 function trayIconPath(): string {
   // `...Template` is not decoration: macOS only auto-inverts the glyph for
-  // light and dark menu bars when the name carries that suffix.
+  // light and dark menu bars when the name carries that suffix. Electron finds
+  // the @2x/@3x siblings itself by looking next to this file - and @2x is the
+  // one a Retina menu bar actually draws.
   const file = 'trayTemplate.png'
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', file)
-    : path.join(__dirname, '..', '..', 'src', 'main', 'assets', file)
+  const inAsar = path.join(__dirname, '..', '..', 'src', 'main', 'assets', file)
+  if (!app.isPackaged) return inAsar
+  // Prefer the unpacked copy, but fall back into the asar rather than losing
+  // the only visible way back if asarUnpack ever stops matching this glob.
+  const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', file)
+  return existsSync(unpacked) ? unpacked : inAsar
 }
 
 export function setTrayLanguage(next: string | null | undefined): void {

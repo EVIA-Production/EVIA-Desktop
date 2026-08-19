@@ -19,6 +19,11 @@ files:
   - "!dist/*.zip"
   - "!dist/mac*/**"
 asarUnpack:
+  # The tray glyph is the discoverable way back from a hidden overlay. Unpacked
+  # so it is a real file on disk: nativeImage resolves the @2x/@3x siblings by
+  # looking next to the base file, and a recovery path should not depend on
+  # asar-patched fs working.
+  - "src/main/assets/trayTemplate*.png"
   - "src/main/assets/SystemAudioDump"
   - "src/main/assets/WASAPILoopback.exe"
   - "native/macos-liquid-glass/build/Release/taylos_liquid_glass.node"
