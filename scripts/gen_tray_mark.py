@@ -21,7 +21,12 @@ import math
 import numpy as np
 from PIL import Image
 
-MARK_SPAN = 0.77          # fraction of the canvas the mark occupies
+# Fraction of the canvas the mark occupies. 0.77 left a quarter of the tile
+# as dead margin, so next to OpenAI's and Docker's edge-to-edge marks the
+# Taylos glyph read as the small one in the row - measured solid extent was
+# 12px of a 16px tile. macOS crowds a template image that touches the edge,
+# so 0.94 is the largest span that still leaves a pixel of air at @1x.
+MARK_SPAN = 0.94
 CORE_R    = 0.316
 
 # (radius from centre, half-width) straight off the measurement, out to the
@@ -62,3 +67,24 @@ def render(px: int, ss: int = 16) -> Image.Image:
     out = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     out.putalpha(img)     # black shape + alpha == macOS template image
     return out
+
+
+# Entry point. The first version of this file only defined render() and was
+# driven from an inline snippet, so the assets could not be regenerated without
+# reconstructing that snippet. Keep it runnable:
+#     python3 scripts/gen_tray_mark.py
+if __name__ == "__main__":
+    import pathlib
+
+    out_dir = pathlib.Path(__file__).resolve().parent.parent / "src" / "main" / "assets"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for px, name in ((16, "trayTemplate.png"),
+                     (32, "trayTemplate@2x.png"),
+                     (48, "trayTemplate@3x.png")):
+        image = render(px)
+        image.save(out_dir / name)
+        alpha = image.getchannel("A")
+        solid = alpha.point(lambda v: 255 if v >= 128 else 0).getbbox()
+        print(f"{name:<22} {px}x{px}  solid extent "
+              f"{solid[2] - solid[0]}x{solid[3] - solid[1]} "
+              f"({100 * (solid[2] - solid[0]) / px:.0f}% of tile)")
