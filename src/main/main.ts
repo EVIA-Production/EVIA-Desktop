@@ -895,7 +895,12 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 // while still allowing user interaction
 ipcMain.handle('window:set-click-through', async (_event, enabled: boolean) => {
   try {
-    const { getHeaderWindow, getAllChildWindows } = await import('./overlay-windows');
+    const { getHeaderWindow, getAllChildWindows, setContentProtectionEnabled } =
+      await import('./overlay-windows');
+    // Record it FIRST. The loop below only reaches windows that exist right
+    // now; without the stored flag the next window to open came up
+    // unprotected while the user believed the overlay was hidden.
+    setContentProtectionEnabled(enabled);
     const headerWin = getHeaderWindow();
     const childWins = getAllChildWindows();
     

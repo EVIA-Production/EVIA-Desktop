@@ -341,7 +341,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       }
     });
   }
-  headerWindow.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
+  headerWindow.setContentProtection(contentProtectionEnabled) // inherit the choice; OFF until the user turns it on
   headerWindow.setIgnoreMouseEvents(false)
 
   void loadRendererView(headerWindow, 'overlay', 'overlay', 'header')
@@ -560,7 +560,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // WINDOWS FIX (2025-12-10): Use 'screen-saver' level on ALL platforms
   // This is the highest always-on-top level - prevents windows from going behind others
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.setContentProtection(false) // Glass parity: OFF by default, user toggles via Settings
+  win.setContentProtection(contentProtectionEnabled) // inherit the choice; OFF until the user turns it on
 
   // Glass parity: All windows are interactive by default (windowManager.js:287)
   win.setIgnoreMouseEvents(false)
@@ -2859,6 +2859,27 @@ ipcMain.on('language-changed', (_event, newLanguage: string) => {
   // geometry. Its resize IPC is the sole authority for dependent placement;
   // speculative timers here replay stale dimensions and visibly lag the bar.
 })
+
+/**
+ * Whether the user has turned incognito on.
+ *
+ * Every window used to be created with `setContentProtection(false)` and the
+ * choice lived nowhere. The toggle in Settings walks the windows that exist AT
+ * THAT MOMENT, so any window opened afterwards - the Ask panel, an insights
+ * window - came up unprotected while the user believed the whole overlay was
+ * hidden. Partial invisibility is worse than none: the failure is silent, and
+ * the seller only finds out from the person on the other end of the share.
+ */
+let contentProtectionEnabled = false
+
+export function isContentProtectionEnabled(): boolean {
+  return contentProtectionEnabled
+}
+
+/** Remember the choice so windows created LATER inherit it. */
+export function setContentProtectionEnabled(enabled: boolean): void {
+  contentProtectionEnabled = enabled
+}
 
 function getHeaderWindow(): BrowserWindow | null {
   return headerWindow && !headerWindow.isDestroyed() ? headerWindow : null
