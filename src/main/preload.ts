@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('evia', {
       settingsAnchorX,
     }),
     adjustWindowHeight: (winName: 'listen' | 'ask' | 'settings' | 'shortcuts', height: number) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    exportTranscript: (markdown: string, suggestedName?: string) => ipcRenderer.invoke('transcript:export', { markdown, suggestedName }),
     adjustAskHeight: (height: number) => ipcRenderer.invoke('adjust-window-height', { winName: 'ask', height }),
     showSettingsWindow: (buttonRightX?: number) => ipcRenderer.send('show-settings-window', buttonRightX),
     hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),

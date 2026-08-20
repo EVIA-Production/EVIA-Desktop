@@ -1381,6 +1381,51 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     setIsHovering(hovering);
   };
 
+  /**
+   * Write the call transcript to a file the rep picks.
+   *
+   * Copy already existed, but a clipboard does not survive the next copy and
+   * the record is wanted after the call, not during it. Markdown because it
+   * opens in anything and keeps the speaker structure readable.
+   */
+  const handleExportTranscript = async () => {
+    const lang = i18n.getLanguage();
+    const meLabel = lang === 'de' ? 'Ich' : 'Me';
+    const themLabel = lang === 'de' ? 'Gegenüber' : 'Them';
+    const rows = visibleTranscripts.filter(line => (line.text || '').trim());
+    if (rows.length === 0) return;
+
+    const groups: { speaker: number | null; texts: string[] }[] = [];
+    let current: { speaker: number | null; texts: string[] } | null = null;
+    for (const line of rows) {
+      if (!current || current.speaker !== line.speaker) {
+        if (current) groups.push(current);
+        current = { speaker: line.speaker, texts: [line.text.trim()] };
+      } else {
+        current.texts.push(line.text.trim());
+      }
+    }
+    if (current) groups.push(current);
+
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const title = lang === 'de' ? 'Transkript' : 'Transcript';
+    const body = groups
+      .map(g => `**${g.speaker === 1 ? meLabel : themLabel}:** ${g.texts.join(' ')}`)
+      .join('\n\n');
+    const markdown = `# ${title} — ${now.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')}\n\n${body}\n`;
+
+    try {
+      const res = await (window as any).api?.listenView?.exportTranscript?.(markdown, `taylos-${title.toLowerCase()}-${stamp}`);
+      if (res?.ok) showToast(lang === 'de' ? 'Transkript gespeichert' : 'Transcript saved', 'success');
+      else if (res?.error && res.error !== 'canceled') {
+        showToast(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Could not save transcript', 'error');
+      }
+    } catch {
+      showToast(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Could not save transcript', 'error');
+    }
+  };
+
   const handleCopy = async () => {
     if (copyState === 'copied') return;
 
@@ -1497,6 +1542,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 </>
               )}
             </button>
+            {viewMode === 'transcript' && visibleTranscripts.length > 0 && (
+              <button
+                className="copy-button"
+                onClick={handleExportTranscript}
+                title={i18n.getLanguage() === 'de' ? 'Transkript als Datei speichern' : 'Save transcript to a file'}
+              >
+                <svg className="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M12 15V3" />
+                </svg>
+              </button>
+            )}
             <button
               className={`copy-button ${copyState === 'copied' ? 'copied' : ''}`}
               onClick={handleCopy}

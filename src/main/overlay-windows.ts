@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { headerController } from './header-controller'
+import { promises as fsPromises } from 'node:fs'
 import { OverlayVisibilityController } from './overlay-visibility-controller'
 import { disposeTray, initTray, setTrayLanguage, syncTray } from './tray'
 import {
@@ -138,6 +139,12 @@ ipcMain.handle('demo:is-enabled', () => ({ enabled: isDemoMode }))
 // Desired visibility is independent from transient BrowserWindow visibility.
 // macOS/Windows may hide child windows with their parent; that must not erase
 // which windows Show/Hide is expected to restore.
+// A window the user has sized by hand, and the guard that keeps our own
+// setBounds calls from being mistaken for that. Both are cleared on a session
+// reset, where returning to the default size is correct.
+const userResizedWindows = new Set<FeatureName>()
+const programmaticResize = new Set<FeatureName>()
+
 const overlayVisibility = new OverlayVisibilityController()
 
 // The menu-bar icon is the discoverable way back from a hidden overlay; the
@@ -522,12 +529,20 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // WINDOWS FIX (2025-12-05): Use different window type on Windows for better always-on-top behavior
   const isWindows = process.platform === 'win32'
 
+  // Reported 2026-08-06: "Das in Call Fenster beliebig verkleinern /
+  // vergrössern zu können hilft sehr im Alltag." The live window is the one a
+  // rep keeps on screen for a whole call next to a CRM and a video grid, so it
+  // is the one that has to fit their desk rather than ours. The others are
+  // transient and stay fixed.
+  const isUserResizable = name === 'listen'
+
   const win = new BrowserWindow({
     parent: isShortcuts ? undefined : parent, // Shortcuts has no parent so it can be moved
     show: false,
     frame: false,
     ...materialWindowOptions(surface),
-    resizable: false,
+    resizable: isUserResizable,
+    ...(isUserResizable ? { minWidth: 320, minHeight: 180 } : {}),
     movable: isShortcuts, // Only shortcuts window is movable
     minimizable: false,
     maximizable: false,
@@ -731,6 +746,18 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         overlayVisibility.hide('settings')
         saveState({ visible: overlayVisibility.getDesiredVisibility() })
       }, 0)
+    })
+  }
+
+  if (isUserResizable) {
+    // Electron cannot tell a drag from a setBounds, so the programmatic path
+    // marks itself and this only records what is left: the user's own drag.
+    win.on('resize', () => {
+      if (programmaticResize.has(name)) return
+      if (!userResizedWindows.has(name)) {
+        console.log(`[overlay-windows] 📐 ${name} resized by the user - auto-height yields from here`)
+      }
+      userResizedWindows.add(name)
     })
   }
 
@@ -2310,6 +2337,51 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
   }
 })
 
+/**
+ * Save the call transcript to a file the rep chooses.
+ *
+ * Reported 2026-08-13: "Eine Option transkripte zu exportieren (z.B. als .md
+ * Datei) wäre eine gute Ergänzung." Copy to clipboard already existed, but a
+ * clipboard does not survive the next copy, and a rep who wants the record
+ * wants it after the call, in their own notes.
+ *
+ * The renderer builds the markdown - it is the only side that knows the
+ * speaker labels and the active language - and this only handles the dialog
+ * and the write, so no transcript text is ever persisted by us anywhere else.
+ */
+ipcMain.handle('transcript:export', async (_event, payload: { markdown?: string; suggestedName?: string }) => {
+  const markdown = String(payload?.markdown || '')
+  if (!markdown.trim()) {
+    return { ok: false, error: 'empty_transcript' }
+  }
+  const safeName = String(payload?.suggestedName || 'taylos-transkript')
+    .replace(/[^\w.\- ]+/g, '')
+    .slice(0, 80) || 'taylos-transkript'
+  try {
+    const parent = childWindows.get('listen')
+    const result = await dialog.showSaveDialog(
+      parent && !parent.isDestroyed() ? parent : undefined as any,
+      {
+        title: 'Transkript speichern',
+        defaultPath: `${safeName}.md`,
+        filters: [
+          { name: 'Markdown', extensions: ['md'] },
+          { name: 'Text', extensions: ['txt'] },
+        ],
+      },
+    )
+    if (result.canceled || !result.filePath) {
+      return { ok: false, error: 'canceled' }
+    }
+    await fsPromises.writeFile(result.filePath, markdown, 'utf8')
+    console.log('[transcript] exported to', result.filePath)
+    return { ok: true, path: result.filePath }
+  } catch (error) {
+    console.error('[transcript] ❌ export failed', error)
+    return { ok: false, error: 'write_failed' }
+  }
+})
+
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
   const win = childWindows.get(winName)
   if (!win || win.isDestroyed()) {
@@ -2330,14 +2402,23 @@ ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: 
     return { ok: false, error: 'bounds_unavailable' }
   }
 
+  // Once the rep has sized this window themselves, growing it back on every
+  // new suggestion is the app arguing with them mid-call.
+  if (userResizedWindows.has(winName)) {
+    return { ok: true, skipped: 'user_resized' }
+  }
+
   const newBounds = { ...currentBounds, height: Math.round(height) }
 
   console.log(`[IPC] 📏 adjust-window-height: ${winName} ${currentBounds.height}px → ${newBounds.height}px`)
   try {
+    programmaticResize.add(winName)
     win.setBounds(newBounds)
   } catch (error) {
     console.error(`[IPC] ❌ adjust-window-height: Failed to set bounds for '${winName}'`, error)
     return { ok: false, error: 'bounds_update_failed' }
+  } finally {
+    programmaticResize.delete(winName)
   }
 
   // CRITICAL: Re-run layout so flipped windows (above header) keep their bottom anchor.
