@@ -1,7 +1,7 @@
 import './demo-bootstrap'
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow } from './overlay-windows'
+import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
 import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
@@ -320,16 +320,50 @@ function registerAutoUpdater() {
     return;
   }
 
-  // Download updates in the background to remove manual "Download" friction.
-  autoUpdater.autoDownload = true;
+  // NOT autoDownload.
+  //
+  // A ~200 MB download starting mid-call is not free: the rep who reported the
+  // update popups also reported "bei instabilem Internet bricht die
+  // Transkription ab", and the updater was competing with the audio socket for
+  // exactly that bandwidth. Downloads now start only when the rep is idle.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  /** Nothing open but the header bar, and no capture in any state. */
+  const safeToInterrupt = (): boolean => {
+    try {
+      if (captureSessionController.getSnapshot().state !== 'idle') return false
+      return onlyHeaderBarIsVisible()
+    } catch {
+      return false  // if we cannot tell, do not interrupt
+    }
+  };
+
+  let pendingUpdateInfo: { version?: string } | null = null;
+  let promptTimer: NodeJS.Timeout | null = null;
+
+  const promptWhenIdle = (): void => {
+    if (!pendingUpdateInfo) return;
+    if (!safeToInterrupt()) return;              // try again on the next tick
+    if (promptTimer) { clearInterval(promptTimer); promptTimer = null; }
+    const info = pendingUpdateInfo;
+    pendingUpdateInfo = null;
+    showUpdateReadyDialog(info);
+  };
 
   autoUpdater.on('error', (err) => {
     console.error('[Updater] ❌', err);
   });
 
   autoUpdater.on('update-available', (info) => {
-    console.log('[Updater] Update available, downloading automatically:', info.version);
+    // Hold the download until the rep is idle, so it never competes with a
+    // live audio socket for a shaky connection.
+    if (safeToInterrupt()) {
+      console.log('[Updater] Update available, downloading now (idle):', info.version);
+      autoUpdater.downloadUpdate().catch((err) => console.error('[Updater] download failed:', err));
+    } else {
+      console.log('[Updater] Update available, deferred - rep is mid-session:', info.version);
+    }
   });
 
   autoUpdater.on('update-downloaded', (info) => {
@@ -338,6 +372,13 @@ function registerAutoUpdater() {
       pendingInstallVersion: info.version,
       pendingInstallRecordedAt: new Date().toISOString(),
     });
+    // Never prompt into a call. Park it and wait for a genuinely idle moment.
+    pendingUpdateInfo = { version: info.version };
+    if (!promptTimer) promptTimer = setInterval(promptWhenIdle, 30 * 1000);
+    promptWhenIdle();
+  });
+
+  function showUpdateReadyDialog(info: { version?: string }): void {
     const isGerman = app.getLocale().toLowerCase().startsWith('de')
     dialog.showMessageBox({
       type: 'info',
@@ -350,9 +391,15 @@ function registerAutoUpdater() {
     }).then((res) => {
       if (res.response === 0) {
         autoUpdater.quitAndInstall();
+      } else {
+        // "Spaeter" means later, not "ask me again in five minutes". It
+        // installs on quit anyway (autoInstallOnAppQuit), so there is nothing
+        // to chase - and being asked again mid-afternoon is the actual
+        // complaint.
+        console.log('[Updater] Postponed by the user; will install on quit.');
       }
     });
-  });
+  }
 
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {

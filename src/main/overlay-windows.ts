@@ -2953,6 +2953,27 @@ ipcMain.on('language-changed', (_event, newLanguage: string) => {
  */
 let contentProtectionEnabled = false
 
+/**
+ * Is the rep doing nothing but idling on the bar?
+ *
+ * Reported 2026-08-20: "Seit ein paar Tagen kommen staendig Popups 'Update
+ * verfuegbar'. Wenn man das wegklickt weil man z.B. im Call ist taucht es nach
+ * wenigen Minuten wieder auf und die Transkription bricht teilweise ab."
+ *
+ * An update prompt is an interruption, and the only moment it is not one is
+ * when nothing is open but the header. `captureSessionController` alone is not
+ * enough: preparing a call and reviewing one afterwards both leave Listen open
+ * with capture idle, and both are moments the rep is working.
+ */
+export function onlyHeaderBarIsVisible(): boolean {
+  if (overlayVisibility.getDesiredNames().length > 0) return false
+  for (const [, win] of childWindows) {
+    if (win && !win.isDestroyed() && win.isVisible()) return false
+  }
+  return true
+}
+
+
 export function isContentProtectionEnabled(): boolean {
   return contentProtectionEnabled
 }

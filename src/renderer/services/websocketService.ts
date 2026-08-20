@@ -329,6 +329,7 @@ export class ChatWebSocket {
           }
           const wasReady = this.isConnectedFlag || providerReadyEver;
           this.isConnectedFlag = false;
+          this.emitLiveState(false);
           if (wasReady) {
             this.connectionChangeHandlers.forEach(h => h(false));
           }
@@ -353,6 +354,7 @@ export class ChatWebSocket {
           console.error('[WS] Error:', ev);
           const wasReady = this.isConnectedFlag || providerReadyEver;
           this.isConnectedFlag = false;
+          this.emitLiveState(false);
           if (wasReady) {
             this.connectionChangeHandlers.forEach(h => h(false));
           }
@@ -377,6 +379,7 @@ export class ChatWebSocket {
               const becameReady = !this.isConnectedFlag;
               providerReadyEver = true;
               this.isConnectedFlag = true;
+              this.emitLiveState(true);
               clearTimeout(timeout);
               if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
@@ -393,6 +396,7 @@ export class ChatWebSocket {
             } else if (statusData?.dg_open === false) {
               const wasReady = this.isConnectedFlag;
               this.isConnectedFlag = false;
+              this.emitLiveState(false);
               if (wasReady) {
                 this.connectionChangeHandlers.forEach(h => h(false));
               }
@@ -440,6 +444,17 @@ export class ChatWebSocket {
   private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
   private connectionChangeHandlers: ((connected: boolean) => void)[] = [];
   private errorNotificationHandlers: ((error: string) => void)[] = [];
+  /**
+   * Whether audio is actually reaching the server right now.
+   *
+   * Reported 2026-08-20: "Wenn die Transkription abbricht sieht man das nicht.
+   * Es laeuft einfach weiter und sieht optisch so aus als wenn es aufnimmt, am
+   * Ende fehlt aber das Transkript." The UI could not show the problem because
+   * nothing ever told it - the socket knew, and kept it to itself. A rep who
+   * can see the gap can repeat the sentence; one who cannot loses the call.
+   */
+  private liveHandlers: ((live: boolean) => void)[] = [];
+  private lastLiveEmit: boolean | null = null;
 
   sendMessage(message: WebSocketMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -618,19 +633,22 @@ export class ChatWebSocket {
     // Audio callbacks can arrive every ~100 ms while disconnected. Preserve
     // the first scheduled retry instead of postponing it on every chunk.
     if (this.reconnectTimer) return;
-    
-    // CRITICAL FIX: Cap exponential backoff at 32 seconds + max 10 attempts
-    const MAX_RECONNECT_ATTEMPTS = 10;
-    const MAX_DELAY = 32000;
-    
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error(`[WS] ❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`);
-      this.emitErrorNotification('Connection lost. Please check your network and restart recording.');
-      return;
-    }
-    
+
+    // Retry for as long as the rep is still recording. Only Stop ends it.
+    //
+    // Reported 2026-08-20: "Bei instabilem Internet / kurzem Disconnect bricht
+    // die Transkription ab." It did, permanently: ten attempts with backoff
+    // capped at 32 s gave up after about three minutes and never tried again,
+    // so a tunnel or a lift ended the transcript for the rest of the call. The
+    // rep is still talking; there is no moment where the right answer is to
+    // stop trying to record them.
+    //
+    // The cap is now on the DELAY, not on the number of attempts, so a long
+    // outage costs one retry every 15 s instead of silence.
+    const MAX_DELAY = 15000;
+
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), MAX_DELAY);
-    console.log(`[WS] 🔄 Scheduling reconnect attempt ${this.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
+    console.log(`[WS] 🔄 Scheduling reconnect attempt ${this.reconnectAttempts + 1} in ${delay}ms`);
     
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -653,6 +671,7 @@ export class ChatWebSocket {
       this.ws.close(1000, 'User stopped');
       this.ws = null;
       this.isConnectedFlag = false;
+      this.emitLiveState(false);
       this.connectionChangeHandlers.forEach(h => h(false));
     }
     this.queue = [];
@@ -685,6 +704,26 @@ export class ChatWebSocket {
   }
   
   // CRITICAL FIX: Error notification system for user feedback
+  /** Fires on every transition between "audio is flowing" and "it is not". */
+  onLiveStateChange(handler: (live: boolean) => void) {
+    this.liveHandlers.push(handler);
+    // Report the current truth immediately, so a late subscriber is not left
+    // showing a stale green state.
+    try { handler(this.isConnectedFlag); } catch { /* handler owns its errors */ }
+    return () => {
+      this.liveHandlers = this.liveHandlers.filter(h => h !== handler);
+    };
+  }
+
+  private emitLiveState(live: boolean) {
+    if (this.lastLiveEmit === live) return;
+    this.lastLiveEmit = live;
+    console.log(`[WS] ${live ? '🟢 audio is reaching the server' : '🔴 audio is NOT reaching the server'}`);
+    this.liveHandlers.forEach(h => {
+      try { h(live); } catch (err) { console.error('[WS] live-state handler failed:', err); }
+    });
+  }
+
   onErrorNotification(handler: (error: string) => void) {
     this.errorNotificationHandlers.push(handler);
     return () => {

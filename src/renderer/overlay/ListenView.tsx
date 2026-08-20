@@ -110,6 +110,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const viewportRef = useRef<HTMLDivElement>(null);
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
   // Transcript stays one click away via the header toggle.
+  // Is audio actually reaching the server? Null until the socket first reports.
+  //
+  // Reported 2026-08-20: "Wenn die Transkription abbricht sieht man das nicht.
+  // Es laeuft einfach weiter und sieht optisch so aus als wenn es aufnimmt, am
+  // Ende fehlt aber das Transkript." Silence about a failure is worse than the
+  // failure: the rep keeps talking into a recorder that stopped recording.
+  const [captureLive, setCaptureLive] = useState<boolean | null>(null);
   const [viewMode, setViewMode] = useState<'transcript' | 'insights'>('insights');
   const [isHovering, setIsHovering] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
@@ -1388,6 +1395,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
    * the record is wanted after the call, not during it. Markdown because it
    * opens in anything and keeps the speaker structure readable.
    */
+  useEffect(() => {
+    const ws = getWebSocketInstance?.();
+    if (!ws?.onLiveStateChange) return;
+    const off = ws.onLiveStateChange((live: boolean) => setCaptureLive(live));
+    return () => { try { off?.(); } catch { /* unmounting */ } };
+  }, []);
+
   const handleExportTranscript = async () => {
     const lang = i18n.getLanguage();
     const meLabel = lang === 'de' ? 'Ich' : 'Me';
@@ -1571,6 +1585,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </button>
           </div>
         </div>
+        {isSessionActive && captureLive === false && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '7px 12px', margin: '0 8px 6px',
+              borderRadius: 8,
+              background: 'rgba(220, 38, 38, 0.16)',
+              border: '1px solid rgba(248, 113, 113, 0.55)',
+              color: '#fecaca', fontSize: 12, fontWeight: 600,
+            }}
+          >
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#f87171', flex: '0 0 auto',
+            }} />
+            <span>
+              {i18n.getLanguage() === 'de'
+                ? 'Keine Verbindung – es wird gerade nichts aufgezeichnet. Verbindungsversuch läuft.'
+                : 'No connection – nothing is being recorded right now. Reconnecting.'}
+            </span>
+          </div>
+        )}
         <div className="glass-scroll" ref={viewportRef}>
           {presetContextWarning && (
             <div className="listen-context-warning" role="status">
