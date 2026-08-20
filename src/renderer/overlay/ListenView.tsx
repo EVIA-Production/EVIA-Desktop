@@ -1416,7 +1416,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const markdown = `# ${title} — ${now.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')}\n\n${body}\n`;
 
     try {
-      const res = await (window as any).api?.listenView?.exportTranscript?.(markdown, `taylos-${title.toLowerCase()}-${stamp}`);
+      // Preload exposes this on window.evia.windows, same as AskView's
+      // adjustAskHeight. window.api.listenView was never bridged, so the
+      // button silently no-op'd: optional chaining returned undefined, no
+      // dialog, no toast.
+      const res = await (window as any).evia?.windows?.exportTranscript?.(
+        markdown,
+        `taylos-${title.toLowerCase()}-${stamp}`,
+      );
       if (res?.ok) showToast(lang === 'de' ? 'Transkript gespeichert' : 'Transcript saved', 'success');
       else if (res?.error && res.error !== 'canceled') {
         showToast(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Could not save transcript', 'error');
