@@ -548,7 +548,19 @@ export class ChatWebSocket {
       // Queue speech and its short trailing context, but never let sustained
       // silence displace recoverable speech while a reconnect is in flight.
       this.queue.push({ data, metadata });
-      const MAX_QUEUED_AUDIO_MS = 3000;
+      // Hold the whole outage, not three seconds of it.
+      //
+      // Reported 2026-08-20: "am Ende fehlt aber das Transkript." Reconnecting
+      // was never enough on its own - at 3 s, a twenty-second lift ride threw
+      // away seventeen seconds of the prospect talking before the socket was
+      // even back, so the gap was unrecoverable by the time it could be sent.
+      //
+      // This is the practical answer to "offline transcription": the audio does
+      // not need to be transcribed locally, it needs to not be discarded. Two
+      // minutes covers a lift, a tunnel or a wifi handover, and costs about
+      // 4 MB - 16 kHz mono 16-bit is ~32 KB/s. The cap stays, because an
+      // unbounded queue during a long outage would grow until the tab died.
+      const MAX_QUEUED_AUDIO_MS = 120000;
       let queuedMs = this.queue.reduce(
         (total, item) => total + Math.max(0, item.metadata.capture_end_ms - item.metadata.capture_start_ms),
         0,
