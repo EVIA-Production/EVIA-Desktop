@@ -99,3 +99,78 @@ test('the prefetch call site reads the event state, never a render-lagged ref', 
   assert.ok(!/prefetchTranscriptRef/.test(listen),
     'a render-assigned ref lags the handler by one final and guarantees a miss');
 });
+
+
+// ── The other half of the contract: the two payloads ─────────────────────────
+//
+// The transcript string matching is necessary but not sufficient. The server
+// builds the cache key from THREE things (backend ask.py):
+//
+//   _context_fingerprint(session_state,
+//                        body.transcript or (body.prompt if body.prompt_override else ""),
+//                        prompt_override)
+//
+// and the prefetch and the click are built by two different files that have
+// never been compared. A mismatch in ANY component is a silent 100% miss: no
+// error, no log, just a feature that quietly does nothing - which is exactly
+// how the render-lagged ref survived a release.
+
+const I18N_DE = require('../src/renderer/i18n/de.json');
+const I18N_EN = require('../src/renderer/i18n/en.json');
+
+/** What suggestion-prefetch.ts posts. */
+function prefetchPayload(transcript, question) {
+  return {
+    prompt: transcript,
+    prompt_override: question,
+    transcript,
+    session_state: 'during',
+  };
+}
+
+/** What evia-ask-stream.ts posts on a click. `transcript` field is never set. */
+function clickPayload(transcript, question) {
+  const payload = { prompt: transcript || question, session_state: 'during' };
+  if (transcript && question && transcript !== question) payload.prompt_override = question;
+  return payload;
+}
+
+/** The server's own resolution, mirrored from backend/api/routes/ask.py. */
+function serverFingerprintInputs(body) {
+  return [
+    body.session_state || 'during',
+    body.transcript || (body.prompt_override ? body.prompt : ''),
+    body.prompt_override || '',
+  ];
+}
+
+test('the prefetch and the click produce the same cache key', () => {
+  const transcript = 'Prospect: Wir haben schon eine Agentur.\nSeller: Verstehe.';
+  // ListenView trims the clicked prompt; the prefetch does not. Reproduce both.
+  const asked = I18N_DE.overlay.listen.whatToSayNextPrompt;
+  const pre = serverFingerprintInputs(prefetchPayload(transcript, asked));
+  const click = serverFingerprintInputs(clickPayload(transcript, asked.trim()));
+  assert.deepEqual(pre, click,
+    'prefetch and click disagree on a fingerprint component - every prefetch would miss');
+});
+
+test('a stray space in a translation cannot silently kill the prefetch', () => {
+  // ListenView sends (promptOverride || insightText || '').trim() on the click
+  // and the raw string on the prefetch, so surrounding whitespace in the
+  // translation makes the two disagree. Nothing would report it.
+  for (const [name, bundle] of [['de', I18N_DE], ['en', I18N_EN]]) {
+    const q = bundle.overlay.listen.whatToSayNextPrompt;
+    assert.equal(q, q.trim(), `${name}: whatToSayNextPrompt has surrounding whitespace`);
+    assert.ok(q.length > 0, `${name}: whatToSayNextPrompt is empty`);
+  }
+});
+
+test('one more prospect word must MISS - the safety property, not a bug', () => {
+  // The fingerprint covering the transcript is what makes a stale suggestion
+  // impossible to serve. A test that only proves hits would happily pass on a
+  // cache that serves the wrong answer.
+  const asked = I18N_DE.overlay.listen.whatToSayNextPrompt;
+  const a = serverFingerprintInputs(clickPayload('Prospect: Wir haben schon eine Agentur.', asked));
+  const b = serverFingerprintInputs(clickPayload('Prospect: Wir haben schon eine Agentur. Und?', asked));
+  assert.notDeepEqual(a, b, 'a changed transcript must produce a different key');
+});
