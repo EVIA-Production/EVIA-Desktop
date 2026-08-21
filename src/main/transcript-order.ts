@@ -671,10 +671,39 @@ function rowInterval(row: OrderedTranscriptLine): { start: number; end: number }
   return { start: start as number, end: end as number };
 }
 
+/**
+ * How late a microphone row's timestamps sit relative to the far-end row it is
+ * echoing.
+ *
+ * The far end is stamped with ScreenCaptureKit's presentation timestamp - true
+ * capture time. The microphone is stamped from `performance.now()` inside the
+ * audio callback minus the samples still buffered, which does not account for
+ * `baseLatency`, the driver, or the render quantum. `aec-clock-domain.test.cjs`
+ * records the bench for this: the microphone timestamps LATE, never early.
+ *
+ * That lateness is harmless for AEC3, which searches its own reference history.
+ * It is NOT harmless here: a bled row slides past the far-end row it came from,
+ * the overlap ratio falls under SHORT_BLED_MIN_OVERLAP, and the bleed survives.
+ * Every short bleed reported from the 2026-08-20 call was 2-7 words - the short
+ * path - and none were removed.
+ *
+ * Widening only the EARLY edge encodes the measured direction. The word test in
+ * `shortWordsCoveredBy` stays untouched and keeps doing the safety work: every
+ * word of the microphone row must still appear in the far-end row, so a genuine
+ * short reply is only ever dropped if the prospect said those exact words in a
+ * neighbouring window.
+ */
+export const MIC_LATENESS_TOLERANCE_MS = 400;
+
 function temporalOverlapRatio(left: OrderedTranscriptLine, right: OrderedTranscriptLine): number {
   const leftInterval = rowInterval(left);
   const rightInterval = rowInterval(right);
   if (!leftInterval || !rightInterval) return 0;
+  // `left` is the microphone row at every call site; pull its early edge back
+  // by the measured lateness rather than pretending the clocks agree.
+  if (left.speaker === 1) {
+    leftInterval.start -= MIC_LATENESS_TOLERANCE_MS;
+  }
   const overlap = Math.max(
     0,
     Math.min(leftInterval.end, rightInterval.end) - Math.max(leftInterval.start, rightInterval.start),
@@ -702,15 +731,34 @@ function trimShortBledPrefix<T extends OrderedTranscriptLine>(
   farEndRows: OrderedTranscriptLine[],
 ): T | null {
   let remaining = (row.text || '').trim();
+  let trimmedAnything = false;
 
   while (remaining) {
     const sentence = remaining.match(/^(.+?[.!?])(?:\s+|$)([\s\S]*)$/);
     if (!sentence || !sentence[2].trim()) break;
     if (!isShortTimedBleed(sentence[1], row, farEndRows)) break;
     remaining = sentence[2].trim();
+    trimmedAnything = true;
   }
 
   if (!remaining || isShortTimedBleed(remaining, row, farEndRows)) return null;
+
+  // A one-word remnant cannot be judged on its own: SHORT_BLED_MIN_WORDS is 2,
+  // so "Stopp." survives forever no matter what surrounds it. That is how
+  // "Das mach noch mal. Stopp." stayed on screen as the seller - the first
+  // sentence was correctly stripped as bleed and the last word could not be.
+  //
+  // Only once a trim has already fired do we know the row WAS the far end
+  // talking, so a leftover word that the far end also said in the same window
+  // is the tail of that same bleed, not something the seller said.
+  if (trimmedAnything && bledWords(remaining).length < SHORT_BLED_MIN_WORDS) {
+    const covered = farEndRows.some((farEndRow) => (
+      temporalOverlapRatio(row, farEndRow) >= SHORT_BLED_MIN_OVERLAP &&
+      bledWords(remaining).every((word) =>
+        bledWords(farEndRow.text || '').some((candidate) => approximatelySameWord(word, candidate)))
+    ));
+    if (covered) return null;
+  }
   return remaining === (row.text || '').trim() ? row : { ...row, text: remaining, words: undefined };
 }
 
