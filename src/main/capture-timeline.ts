@@ -53,10 +53,24 @@ export type SystemEpochPtsAudioChunk = PcmChunkShape & {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SAMPLE_DURATION_EPSILON_MS = 0.001
-// ScreenCaptureKit timestamps have shown harmless callback jitter just above
-// 5ms. Ten milliseconds is still only half of one 20ms system-audio frame and
-// remains far below a genuine clock reversal.
-const DEFAULT_MAX_CAPTURE_CLOCK_JITTER_MS = 10
+// Jitter this far back is CLAMPED, not dropped.
+//
+// The old value was 10 ms, on the belief that ScreenCaptureKit jitter sits
+// "just above 5ms". Measured on a real machine 2026-08-22: 24 rejections in a
+// single session, backwards movement of 5 / 10 / 15 / 18 / 27 / 46.8 ms -
+// median 10.0, exactly on the threshold. Every rejection threw away a chunk of
+// the PROSPECT's voice, and the mic side had none, so the loss was one-sided.
+//
+// The consequences are visible in the same log: the AEC reference reads
+// -120 dBFS (digital silence) with "REFERENCE UNRELATED TO MIC", because the
+// far-end audio it needs kept being discarded.
+//
+// Real callback jitter is not a clock reversal and must never cost audio. The
+// existing clamp - start the interval at the previous end - already handles it
+// correctly; it was simply gated too tightly. 250 ms matches
+// maxClockDomainSkewMs and still catches a genuine reset, which is the only
+// thing worth throwing for.
+const DEFAULT_MAX_CAPTURE_CLOCK_JITTER_MS = 250
 
 function assertFiniteNonNegative(name: string, value: number): void {
   if (!Number.isFinite(value) || value < 0) {

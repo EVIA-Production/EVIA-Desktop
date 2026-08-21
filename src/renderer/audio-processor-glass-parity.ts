@@ -1949,7 +1949,10 @@ function captureStartTimer() {
         .filter(([, v]) => v !== null && v !== undefined)
         .map(([k, v]) => `${k}=${typeof v === 'number' ? Math.round(v) : v}`)
         .join(' ');
-      const line = `[CAPTURE-START] total=${total}ms ${marks.join(' ')}${tail ? ' ' + tail : ''}`;
+      // Prefixed [AudioCapture] so overlay-windows' debug-log filter records it
+      // in audio-diagnostics.log - it only keeps [AudioCapture]/[MIC-DIAGNOSTIC]/
+      // [Recovery], and this line was being dropped for lacking one.
+      const line = `[AudioCapture] [CAPTURE-START] total=${total}ms ${marks.join(' ')}${tail ? ' ' + tail : ''}`;
       console.log(line);
       try { (window as any).evia?.ipc?.send?.('debug-log', line); } catch { }
     },
