@@ -17,7 +17,18 @@ import { BACKEND_URL } from '../config/config'
 import { initPostHog, identifyUser, trackError } from '../services/posthogService'
 
 // Initialize PostHog analytics
-initPostHog()
+// Analytics must never be on the critical path to a recording.
+//
+// This ran at module scope, so posthog.init() and its network setup happened
+// BEFORE the overlay rendered and before Listen could do anything. Deferred to
+// an idle callback: the rep pressing Listen is the product, analytics is
+// bookkeeping, and bookkeeping waits.
+const startAnalytics = () => { try { initPostHog() } catch { /* never block the app */ } }
+if (typeof (window as any).requestIdleCallback === 'function') {
+  ;(window as any).requestIdleCallback(startAnalytics, { timeout: 5000 })
+} else {
+  setTimeout(startAnalytics, 3000)
+}
 
 type AudioStartFailureKind =
   | 'microphone_permission'

@@ -44,7 +44,27 @@ export function initPostHog() {
     bootstrap: {
       distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
     },
-  });
+
+    // ── Session replay OFF, and this is a privacy fix before it is a speed fix ──
+    //
+    // `autocapture: false` does NOT disable session recording; that defaults on.
+    // So this overlay was loading rrweb and recording the DOM of a live sales
+    // call - which is the prospect's words, verbatim, sent to a third party.
+    // The standing rule in this project is that raw transcripts never leave our
+    // systems, and this was the one path that broke it.
+    disable_session_recording: true,
+    disable_surveys: true,
+
+    // Each of these pulls a separate remote script at startup. On the reporting
+    // user's network all five failed with ERR_CONNECTION_CLOSED, and a failing
+    // fetch is not free - it costs DNS, a TCP attempt and a timeout, on the
+    // renderer that is trying to start a recording. `advanced_disable_decide`
+    // is the one that matters: without it posthog calls /decide on boot and
+    // loads whatever that response asks for.
+    advanced_disable_decide: true,
+    capture_dead_clicks: false,
+    capture_exceptions: false,
+  } as any);
   
   initialized = true;
     console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
