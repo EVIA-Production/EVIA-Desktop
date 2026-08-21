@@ -13,6 +13,7 @@
  */
 
 import { app, systemPreferences } from 'electron';
+import { clearCachedAuthToken } from './auth-token-cache'
 import * as keytar from 'keytar';
 import { 
   createWelcomeWindow, 
@@ -103,14 +104,14 @@ export class HeaderController {
             const now = Math.floor(Date.now() / 1000);
             if (exp <= now) {
               console.log('[HeaderController] ⚠️ Token expired, removing and treating as no token');
-              await keytar.deletePassword('taylos', 'token');
+              await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
               hasToken = false; // Treat expired token as no token
             }
           }
         }
       } catch (err) {
         console.warn('[HeaderController] Failed to validate token, removing:', err);
-        await keytar.deletePassword('taylos', 'token');
+        await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
         hasToken = false; // Treat invalid token as no token
       }
     }
@@ -356,7 +357,7 @@ export class HeaderController {
     console.log('[HeaderController] 🚪 Logging out...');
     
     try {
-      await keytar.deletePassword('taylos', 'token');
+      await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
       this.permissionsCompleted = false;
       this.savePersistedState();
       
@@ -454,7 +455,7 @@ export class HeaderController {
         console.log('[HeaderController] ❌ Invalid token format');
         if (this.currentState === 'ready') {
           console.log('[HeaderController] ⚠️ Redirecting to welcome (invalid format)');
-          await keytar.deletePassword('taylos', 'token'); // Remove invalid token
+          await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken()); // Remove invalid token
           await this.transitionTo('welcome');
         }
         return false;
@@ -472,7 +473,7 @@ export class HeaderController {
           console.log('[HeaderController] ❌ Token expired', -timeUntilExpiry, 'seconds ago');
           if (this.currentState === 'ready') {
             console.log('[HeaderController] ⚠️ Redirecting to welcome (expired token)');
-            await keytar.deletePassword('taylos', 'token'); // Remove expired token
+            await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken()); // Remove expired token
             await this.transitionTo('welcome');
           }
           return false;
@@ -495,7 +496,7 @@ export class HeaderController {
       console.error('[HeaderController] ❌ Failed to decode JWT:', decodeError);
       if (this.currentState === 'ready') {
         console.log('[HeaderController] ⚠️ Redirecting to welcome (decode error)');
-        await keytar.deletePassword('taylos', 'token'); // Remove corrupted token
+        await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken()); // Remove corrupted token
         await this.transitionTo('welcome');
       }
       return false;
@@ -636,7 +637,7 @@ export class HeaderController {
     console.log('[HeaderController] 🔄 Resetting all state...');
     
     try {
-      await keytar.deletePassword('taylos', 'token');
+      await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
       this.permissionsCompleted = false;
       this.savePersistedState();
       

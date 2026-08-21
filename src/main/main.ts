@@ -1,6 +1,7 @@
 import './demo-bootstrap'
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { getCachedAuthToken, setCachedAuthToken, clearCachedAuthToken } from './auth-token-cache'
 import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
 import os from 'os'
 import path from 'path'
@@ -559,6 +560,7 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
     if (!res.ok) throw new Error('Login failed');
     const data = await res.json();
     await keytar.setPassword('taylos', 'token', data.access_token);
+    setCachedAuthToken(data.access_token);
     broadcastAuthTokenChanged(data.access_token);
     return {success: true};
   } catch (err: unknown) {
@@ -566,8 +568,25 @@ ipcMain.handle('auth:login', async (_event, {username, password}) => {
   }
 });
 
+/**
+ * Every suggestion click read the OS Keychain through an IPC round trip.
+ * Measured in a real call 2026-08-20: the renderer's "Context preparation" was
+ * 429/357/499 ms on early clicks against 32-140 ms once warm - and that sits
+ * directly on the DURING path, where latency is the product.
+ *
+ * A token does not change between clicks. It changes on login, refresh and
+ * logout, and all of those invalidate through auth-token-cache.
+ */
+async function readAuthToken(): Promise<string | null> {
+  const { token, loaded } = getCachedAuthToken();
+  if (loaded) return token;
+  const fresh = await keytar.getPassword('taylos', 'token');
+  setCachedAuthToken(fresh);
+  return fresh;
+}
+
 ipcMain.handle('auth:getToken', async () => {
-  return await keytar.getPassword('taylos', 'token');
+  return await readAuthToken();
 });
 
 ipcMain.handle('presets:list', async () => {
@@ -732,6 +751,7 @@ async function refreshAuthTokenSilently(reason: string): Promise<boolean> {
     if (typeof next !== 'string' || !next) return false;
 
     await keytar.setPassword('taylos', 'token', next);
+    setCachedAuthToken(next);
     BrowserWindow.getAllWindows().forEach((win) => {
       if (win && !win.isDestroyed()) {
         try { win.webContents.send('auth:token-refreshed', { token: next }); } catch { }
