@@ -34,6 +34,7 @@ import {
 export interface ContextRow {
   speaker: number
   text: string
+  isFinal?: boolean
   uncertainWords?: string[]
 }
 
@@ -58,7 +59,19 @@ export function buildTranscriptContext(rows: readonly ContextRow[]): string {
       for (const uncertain of row.uncertainWords || []) {
         text = text.replace(new RegExp(`\\b${escapeForRegExp(uncertain)}\\b`), `${uncertain}⁇`)
       }
-      return `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${text}`
+      // A row still being spoken is marked, because a half sentence means two
+      // opposite things and the model cannot tell them apart:
+      //
+      //   truncated + finished  -> the prospect was cut off, hand the turn back
+      //   truncated + still talking -> the recogniser simply has not caught up
+      //
+      // Measured 2026-08-20: the rep clicked while the prospect was mid
+      // sentence and got "Entschuldigung, Sie waren mitten im Satz" - an
+      // apology for an interruption that never happened. The rep times the
+      // click to land when they need to speak, so this is the normal case,
+      // not an edge case.
+      const stillSpeaking = row.isFinal === false ? ' […spricht noch]' : ''
+      return `${row.speaker === 1 ? 'Seller' : 'Prospect'}: ${text}${stillSpeaking}`
     })
     .join('\n')
 }

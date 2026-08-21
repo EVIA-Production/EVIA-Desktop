@@ -1,6 +1,18 @@
 // Insights service for fetching and normalizing insights payloads.
 import { BACKEND_URL } from '../config/config';
 
+/**
+ * Set when the server returns 429. Every caller checks this before spending a
+ * request, so one rate limit pauses the whole app instead of each caller
+ * discovering it separately - and expensively.
+ */
+let rateLimitedUntilMs = 0;
+
+/** Is the server currently telling us to back off? */
+export function insightsRateLimited(): boolean {
+  return Date.now() < rateLimitedUntilMs;
+}
+
 export interface InsightActionItem {
   label: string;
   icon?: string;
@@ -237,6 +249,19 @@ export async function fetchInsights({
 
       if (!response.ok) {
         // Only retry on 5xx errors (server issues), not 4xx (client errors)
+        // A rate limit is not a transient error - it is the server telling us to
+        // stop. Retrying it is how a 20/min budget turned into a storm: the
+        // client refreshed on every prospect utterance, each refresh retried
+        // three times, and every 429 triggered three more. Measured 2026-08-20:
+        // the live loop starved the POST-CALL insights fetch, so the rep got no
+        // summary at all.
+        if (response.status === 429) {
+          const retryAfter = Number(response.headers.get('Retry-After') || '0');
+          const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 30000;
+          rateLimitedUntilMs = Date.now() + waitMs;
+          console.warn(`[Insights] 🛑 Rate limited; pausing all insight fetches for ${Math.round(waitMs / 1000)}s`);
+          return null;
+        }
         if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
           console.warn(`[Insights] ⚠️ Server error ${response.status}, retrying in ${RETRY_DELAYS[attempt]}ms...`);
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));

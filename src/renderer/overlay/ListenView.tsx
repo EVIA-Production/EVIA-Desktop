@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
-import { fetchInsights, Insight, InsightActionItem } from '../services/insightsService';
+import { fetchInsights, insightsRateLimited, Insight, InsightActionItem } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
@@ -1092,6 +1092,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     console.log('[ListenView] 🎯 Session state for insights: localStorage =', latestSessionState, ', component state =', currentSessionState, ', isSessionActive =', currentIsSessionActive);
     
+    if (insightsRateLimited()) {
+      console.log('[ListenView] 🛑 Rate limited - skipping this insights fetch entirely');
+      return;
+    }
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
     
     // Try immediately, then retry with delays if no transcripts
@@ -1133,6 +1137,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           console.log('[ListenView] 🛡️ Safe live stub: waiting for final prospect speech before generating insights');
           break;
         } else {
+          if (insightsRateLimited()) {
+            console.log('[ListenView] 🛑 Rate limited - stopping retries instead of feeding the limit');
+            break;
+          }
           console.log(`[ListenView] ⚠️ Attempt #${attempt + 1}: Stub received despite available insight context`);
           if (attempt < MAX_RETRIES - 1) {
             console.log(`[ListenView] 🔄 Will retry in ${RETRY_DELAYS[attempt + 1]}ms...`);
@@ -1279,6 +1287,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (!hasGroundedProspectSpeech(transcripts)) return;
     if (canonicalTranscriptState.prospectRevision <= lastInsightsProspectRevisionRef.current) return;
 
+    // One refresh per LIVE_INSIGHTS_MIN_INTERVAL_MS, not one per utterance.
+    // The prospect spoke 36 times in the measured call; at 1+3 attempts each
+    // that is up to 144 requests against a 20/min budget, which is why the
+    // whole call ran on 429s.
+    const LIVE_INSIGHTS_MIN_INTERVAL_MS = 12000;
+    const sinceLast = Date.now() - lastInsightsFetchAtRef.current;
+    if (sinceLast < LIVE_INSIGHTS_MIN_INTERVAL_MS) return;
     if (liveInsightsRefreshTimerRef.current) clearTimeout(liveInsightsRefreshTimerRef.current);
     liveInsightsRefreshTimerRef.current = setTimeout(() => {
       liveInsightsRefreshTimerRef.current = null;
