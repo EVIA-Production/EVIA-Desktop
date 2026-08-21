@@ -94,7 +94,10 @@ test('the prefetch and the click derive the context from the same state the same
 test('the prefetch call site reads the event state, never a render-lagged ref', () => {
   const listen = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'overlay', 'ListenView.tsx'), 'utf8');
-  assert.match(listen, /transcript: transcriptContextFromState\(transition\.state\)/);
+  // Derived once from the event state and reused; the string it sends must be
+  // the same one the snapshot gets, which the test below pins.
+  assert.match(listen, /const prefetchContext = transcriptContextFromState\(transition\.state\)/);
+  assert.match(listen, /transcript: prefetchContext/);
   // The ref was the defect. It must not come back for this purpose.
   assert.ok(!/prefetchTranscriptRef/.test(listen),
     'a render-assigned ref lags the handler by one final and guarantees a miss');
@@ -173,4 +176,33 @@ test('one more prospect word must MISS - the safety property, not a bug', () => 
   const a = serverFingerprintInputs(clickPayload('Prospect: Wir haben schon eine Agentur.', asked));
   const b = serverFingerprintInputs(clickPayload('Prospect: Wir haben schon eine Agentur. Und?', asked));
   assert.notDeepEqual(a, b, 'a changed transcript must produce a different key');
+});
+
+
+test('the prefetch publishes the SAME string the click will read', () => {
+  // The click does not use the handler's transcript. It reads the live
+  // snapshot, which ListenView publishes during render - so sending a fresher
+  // string to the prefetch only inverted the mismatch: prefetch fresh, click
+  // one final behind, fingerprints still never equal.
+  //
+  // Confirmed in a real call 2026-08-20: every /ask logged reason=primary and
+  // not one prefetch_hit, while [Prefetch] parked a suggestion repeatedly.
+  //
+  // The handler must therefore write the snapshot before it prefetches, so both
+  // paths read one value.
+  const listen = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'overlay', 'ListenView.tsx'), 'utf8');
+  const at = listen.indexOf('const prefetchContext = transcriptContextFromState(transition.state)');
+  assert.notEqual(at, -1, 'the prefetch must derive its context once, from the event state');
+  const block = listen.slice(at, at + 900);
+  assert.match(block, /liveTranscript\?\.set\?\.\(/,
+    'the snapshot must be updated with that same string');
+  assert.match(block, /transcriptContext: prefetchContext/,
+    'the snapshot must carry the string that was prefetched, not a re-derived one');
+  const setAt = block.indexOf('liveTranscript?.set?.(');
+  const sendAt = block.indexOf('prefetchSuggestion({');
+  assert.ok(setAt !== -1 && sendAt > setAt,
+    'the snapshot must be published BEFORE the prefetch is sent');
+  assert.match(block, /transcript: prefetchContext/,
+    'the prefetch must send that same string too');
 });

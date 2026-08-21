@@ -810,11 +810,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             const token = await (window as any).evia?.auth?.getToken?.();
             const chatId = canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current;
             if (!token || !chatId) return;
+            // The click reads its transcript from the live snapshot, which is
+            // published during RENDER. Sending the handler's fresher string
+            // here only inverted the old mismatch - prefetch fresh, click one
+            // final behind - so the fingerprints still never met and the hit
+            // rate stayed at zero (confirmed in a real call, 2026-08-20:
+            // every request logged reason=primary, not one prefetch_hit).
+            //
+            // Publishing the same string into the snapshot first makes the two
+            // paths read one value instead of two. If no final arrives in
+            // between, the click finds exactly what was parked.
+            const prefetchContext = transcriptContextFromState(transition.state);
+            try {
+              (window as any).evia?.liveTranscript?.set?.({
+                chatId: Number(chatId),
+                sessionState: sessionStateRef.current,
+                transcriptContext: prefetchContext,
+                updatedAt: Date.now(),
+              });
+            } catch { /* the snapshot is an optimisation, never a blocker */ }
             await prefetchSuggestion({
               baseUrl: BACKEND_URL,
               chatId: Number(chatId),
               token,
-              transcript: transcriptContextFromState(transition.state),
+              transcript: prefetchContext,
               language: i18n.getLanguage() as 'de' | 'en',
               question: i18n.t('overlay.listen.whatToSayNextPrompt'),
             });
