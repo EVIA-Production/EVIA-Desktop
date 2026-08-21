@@ -1949,11 +1949,17 @@ async function startCaptureInternal(includeSystemAudio = false) {
   const authToken = await getActiveAuthToken();
   startTimer.mark('token');
   if (!authToken) throw new Error('[AudioCapture] Missing auth token before chat binding');
-  captureChatId = await getOrCreateChatId(BACKEND_URL, authToken);
-  startTimer.mark('chat');
-  sendDebugLog(
-    `[AudioCapture] capture bound to chat_id=${captureChatId}`,
-  );
+  // The chat id is a backend round trip, and getUserMedia - permission prompt,
+  // device open, driver spin-up - does not need it. Awaiting it here put a
+  // whole network hop in front of the microphone for no reason; the two are
+  // independent, so they now overlap and the id is awaited only where it is
+  // actually consumed, when the sockets are built.
+  //
+  // Nothing speculative is created: this is the same single call, started
+  // earlier. Stage marks stay in [CAPTURE-START] so the effect is measurable
+  // rather than assumed.
+  const chatIdPromise = getOrCreateChatId(BACKEND_URL, authToken);
+  startTimer.mark('chat_started');
   console.log(`[AudioCapture] Starting capture (Glass parity: ScriptProcessorNode)... includeSystemAudio=${includeSystemAudio}`);
 
   // AUDIO DEBUG: Check IMMEDIATELY at function start
@@ -2122,6 +2128,11 @@ async function startCaptureInternal(includeSystemAudio = false) {
   const eviaApi = (window as any).evia;
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
   startTimer.mark('mic');
+  // Consumed here for the first time: by now getUserMedia has usually already
+  // paid for it.
+  captureChatId = await chatIdPromise;
+  startTimer.mark('chat_awaited');
+  sendDebugLog(`[AudioCapture] capture bound to chat_id=${captureChatId}`);
   const socketStatus = await connectCaptureWebSockets(includeSystemAudio);
   startTimer.mark('sockets');
   releaseCaptureTransport();

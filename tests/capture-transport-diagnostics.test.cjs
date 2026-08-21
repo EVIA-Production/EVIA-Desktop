@@ -167,8 +167,19 @@ test('the unavailable-socket message names the resolved id and both inputs', () 
 
 test('the capture session pins its chat id once, and releases it', () => {
   const start = functionBody('async function startCaptureInternal(', 'AUDIO DEBUG: Check IMMEDIATELY');
-  assert.match(start, /captureChatId = await getOrCreateChatId\(BACKEND_URL, authToken\)/);
-  assert.match(start, /capture bound to chat_id=/);
+  // Pinned once, from ONE call. The call was moved off the critical path on
+  // 2026-08-21 - started before getUserMedia and awaited only where the sockets
+  // consume it - so this asserts the invariant rather than the old spelling: a
+  // single getOrCreateChatId, assigned to captureChatId exactly once.
+  assert.equal((start.match(/getOrCreateChatId\(/g) || []).length, 1,
+    'the chat id must come from exactly one call');
+  assert.match(start, /const chatIdPromise = getOrCreateChatId\(BACKEND_URL, authToken\)/);
+  // The pin now sits further down, where the sockets consume it, so it is
+  // asserted against the whole module rather than the opening slice.
+  assert.equal((source.match(/captureChatId = await chatIdPromise/g) || []).length, 1,
+    'it must be pinned to captureChatId exactly once');
+  // Emitted where the id is resolved, which is now below the opening slice.
+  assert.match(source, /capture bound to chat_id=/);
   assert.doesNotMatch(start, /localStorage\.getItem\('current_chat_id'\)/);
 
   const reset = functionBody('function resetCaptureSessionState(', 'function requireCaptureTimeline(');
