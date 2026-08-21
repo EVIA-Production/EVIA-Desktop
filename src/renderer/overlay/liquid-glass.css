@@ -507,3 +507,65 @@ html[data-window-active='false'] .evia-main-header .evia-listen-button:not(.list
 html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done):hover::before {
   background: rgba(255, 255, 255, 0.18) !important;
 }
+
+/* ── Capture status, built as a macOS system alert ────────────────────────────
+ *
+ * Apple's HIG puts Liquid Glass on system-level alerts and sheets, and states
+ * that an error message must keep its contrast REGARDLESS of the material. So
+ * the surface is glass; the legibility is not negotiable. "Hierarchy through
+ * depth", not through a saturated red panel - a red block is a web toast, and
+ * the previous banner read as exactly that.
+ *
+ * Structure copied from a real macOS alert: a template-style status glyph, a
+ * short title in emphasised body text, and one explanatory sentence beneath it
+ * in secondary weight. Lensing, not scattering, so it uses the same filter as
+ * every other Taylos surface rather than inventing its own.
+ */
+.taylos-status-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 8px 6px;
+  padding: 9px 12px 10px;
+  border-radius: 10px;
+  background: rgba(28, 28, 30, 0.55);
+  -webkit-backdrop-filter: var(--taylos-glass-filter);
+  backdrop-filter: var(--taylos-glass-filter);
+  /* The hairline is how macOS separates a glass panel from what it floats on. */
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+/* System amber, not alarm red. Nothing is broken and nothing is lost - the
+ * recording is paused and reconnecting - and macOS reserves red for
+ * destructive, irreversible state. Overstating it is what made the old banner
+ * read as a warning the rep learned to dismiss. */
+.taylos-status-alert__glyph {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  color: rgba(255, 214, 10, 0.95);
+}
+
+.taylos-status-alert__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.taylos-status-alert__title {
+  font-size: 12px;
+  font-weight: 590;              /* SF's emphasised body weight */
+  letter-spacing: -0.08px;
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.taylos-status-alert__detail {
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: -0.05px;
+  color: rgba(235, 235, 245, 0.62);   /* macOS secondary label */
+}

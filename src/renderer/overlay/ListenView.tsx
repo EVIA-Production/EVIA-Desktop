@@ -1587,26 +1587,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           </div>
         </div>
         {isSessionActive && captureLive === false && (
-          <div
-            role="alert"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 12px', margin: '0 8px 6px',
-              borderRadius: 8,
-              background: 'rgba(220, 38, 38, 0.16)',
-              border: '1px solid rgba(248, 113, 113, 0.55)',
-              color: '#fecaca', fontSize: 12, fontWeight: 600,
-            }}
-          >
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: '#f87171', flex: '0 0 auto',
-            }} />
-            <span>
-              {i18n.getLanguage() === 'de'
-                ? 'Keine Verbindung – es wird gerade nichts aufgezeichnet. Verbindungsversuch läuft.'
-                : 'No connection – nothing is being recorded right now. Reconnecting.'}
-            </span>
+          <div className="taylos-status-alert" role="status" aria-live="polite">
+            <svg className="taylos-status-alert__glyph" viewBox="0 0 16 16" fill="none"
+                 stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M8 1.9 15 14H1L8 1.9Z" strokeLinejoin="round" />
+              <path d="M8 6.4v3.1" />
+              <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
+            </svg>
+            <div className="taylos-status-alert__text">
+              <span className="taylos-status-alert__title">
+                {i18n.getLanguage() === 'de' ? 'Keine Verbindung' : 'No Connection'}
+              </span>
+              <span className="taylos-status-alert__detail">
+                {i18n.getLanguage() === 'de'
+                  ? 'Die Aufnahme ist pausiert. Taylos verbindet sich erneut.'
+                  : 'Recording is paused. Taylos is reconnecting.'}
+              </span>
+            </div>
           </div>
         )}
         <div className="glass-scroll" ref={viewportRef}>
