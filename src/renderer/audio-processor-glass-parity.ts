@@ -1931,9 +1931,25 @@ function captureStartTimer() {
       marks.push(`${stage}=${Math.round(now - last)}ms`);
       last = now;
     },
-    done() {
+    /**
+     * `extra` carries the first observed capture_start_ms from each channel.
+     *
+     * The two are produced on different clocks - mic from performance.now()
+     * relative to originPerformanceMs, system from a helper-process Date.now()
+     * PTS relative to epochUnixMs - and nothing reconciles them. Which way they
+     * drift decides the transcript's turn order, and it cannot be settled from
+     * the code: both directions are reachable. One real Listen press answers it.
+     *
+     * Emitted on the same line as the startup timings so a single press
+     * produces both numbers instead of needing two sessions.
+     */
+    done(extra?: Record<string, number | string | null | undefined>) {
       const total = Math.round(performance.now() - t0);
-      const line = `[CAPTURE-START] total=${total}ms ${marks.join(' ')}`;
+      const tail = Object.entries(extra || {})
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => `${k}=${typeof v === 'number' ? Math.round(v) : v}`)
+        .join(' ');
+      const line = `[CAPTURE-START] total=${total}ms ${marks.join(' ')}${tail ? ' ' + tail : ''}`;
       console.log(line);
       try { (window as any).evia?.ipc?.send?.('debug-log', line); } catch { }
     },
@@ -2284,6 +2300,32 @@ async function startCaptureInternal(includeSystemAudio = false) {
   await waitForFirstCaptureChunk(micSetup.firstChunk, 'mic');
 
   const startupReadyInMs = Math.round(performance.now() - captureStartupStartedAt);
+
+  // Emit the startup breakdown. This call was missing, which is why
+  // [CAPTURE-START] never appeared in any log: every stage was being marked and
+  // nothing ever printed them. The stage marks were added to measure whether
+  // overlapping the chat round trip with getUserMedia helped, and that question
+  // has been unanswerable purely because of this line.
+  //
+  // It also carries the two channels' clock origins. mic capture_start_ms is
+  // derived from performance.now() against originPerformanceMs; system from a
+  // helper-process Date.now() PTS against epochUnixMs. Nothing reconciles them,
+  // and which way they drift decides transcript turn order - a question the
+  // code cannot settle because both directions are reachable. One Listen press
+  // now answers both that and the startup cost.
+  try {
+    startTimer.done({
+      ready: startupReadyInMs,
+      clock_epoch_unix_ms: timeline.epochUnixMs,
+      clock_origin_perf_ms: Math.round(timeline.originPerformanceMs),
+      // Sampled together now: their difference is the divergence accumulated
+      // since the session began, which is exactly the unknown.
+      clock_drift_ms: Math.round(
+        (Date.now() - timeline.epochUnixMs) - (performance.now() - timeline.originPerformanceMs),
+      ),
+    });
+  } catch { /* telemetry must never fail a capture */ }
+
   console.log(`[AudioCapture] Capture started successfully after ${startupReadyInMs}ms`);
   console.log(`[AudioCapture] Mic: ${SAMPLE_RATE} Hz, Chunk size: ${SAMPLE_RATE * AUDIO_CHUNK_DURATION} samples`);
   if (systemAudioContext) {
