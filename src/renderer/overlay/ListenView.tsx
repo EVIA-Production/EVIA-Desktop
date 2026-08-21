@@ -847,6 +847,24 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const onTranscript = (payload: any) => handleTranscriptMessage(payload);
 
     const onClearSession = () => {
+      // A live recording is never cleared by a broadcast.
+      //
+      // overlay-entry sends `clear-session` from the LANGUAGE TOGGLE. So a rep
+      // switching DE/EN mid-call had the transcript wiped, the session flipped
+      // to 'before' and the timer stopped - while audio kept flowing and the
+      // header still looked like it was recording.
+      //
+      // That is, exactly, the report from 2026-08-20: "Wenn die Transkription
+      // abbricht sieht man das nicht. Es läuft einfach weiter und sieht optisch
+      // so aus als wenn es aufnimmt, am Ende fehlt aber das Transkript."
+      //
+      // Clearing is correct when a session ENDS. It is never correct while one
+      // is running: the words already spoken belong to the rep, and no UI
+      // preference is worth them.
+      if (isSessionActiveRef.current) {
+        console.warn('[ListenView] Ignoring clear-session while recording - the transcript stays');
+        return;
+      }
       console.log('[ListenView] Received clear-session');
       resetSessionPresentation('clear-session');
       sessionStateRef.current = 'before';
@@ -858,6 +876,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     };
 
     const onLanguageChanged = () => {
+      // Same reasoning, second path. The transcript is already-transcribed
+      // text; it does not become wrong because the interface language changed.
+      if (isSessionActiveRef.current) {
+        console.warn('[ListenView] Language changed mid-call - keeping the transcript');
+        return;
+      }
       console.log('[ListenView] Language changed; clearing session-derived state');
       resetSessionPresentation('language-changed');
     };
