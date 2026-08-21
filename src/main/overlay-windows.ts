@@ -2337,51 +2337,6 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
   }
 })
 
-/**
- * Save the call transcript to a file the rep chooses.
- *
- * Reported 2026-08-13: "Eine Option transkripte zu exportieren (z.B. als .md
- * Datei) wäre eine gute Ergänzung." Copy to clipboard already existed, but a
- * clipboard does not survive the next copy, and a rep who wants the record
- * wants it after the call, in their own notes.
- *
- * The renderer builds the markdown - it is the only side that knows the
- * speaker labels and the active language - and this only handles the dialog
- * and the write, so no transcript text is ever persisted by us anywhere else.
- */
-ipcMain.handle('transcript:export', async (_event, payload: { markdown?: string; suggestedName?: string }) => {
-  const markdown = String(payload?.markdown || '')
-  if (!markdown.trim()) {
-    return { ok: false, error: 'empty_transcript' }
-  }
-  const safeName = String(payload?.suggestedName || 'taylos-transkript')
-    .replace(/[^\w.\- ]+/g, '')
-    .slice(0, 80) || 'taylos-transkript'
-  try {
-    const parent = childWindows.get('listen')
-    const result = await dialog.showSaveDialog(
-      parent && !parent.isDestroyed() ? parent : undefined as any,
-      {
-        title: 'Transkript speichern',
-        defaultPath: `${safeName}.md`,
-        filters: [
-          { name: 'Markdown', extensions: ['md'] },
-          { name: 'Text', extensions: ['txt'] },
-        ],
-      },
-    )
-    if (result.canceled || !result.filePath) {
-      return { ok: false, error: 'canceled' }
-    }
-    await fsPromises.writeFile(result.filePath, markdown, 'utf8')
-    console.log('[transcript] exported to', result.filePath)
-    return { ok: true, path: result.filePath }
-  } catch (error) {
-    console.error('[transcript] ❌ export failed', error)
-    return { ok: false, error: 'write_failed' }
-  }
-})
-
 ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: FeatureName; height: number }) => {
   const win = childWindows.get(winName)
   if (!win || win.isDestroyed()) {
