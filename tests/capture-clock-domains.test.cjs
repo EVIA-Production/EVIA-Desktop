@@ -63,14 +63,26 @@ test('with clocks in lockstep, both channels agree on the same instant', () => {
     'aligned clocks must place the same instant at the same offset');
 });
 
-test('skew WITHIN the accepted band still inverts a fast exchange', () => {
-  // Correction to the first hypothesis: a large wall-clock step does NOT slip
-  // through. maxClockDomainSkewMs (250) rejects it as "foreign clock domains",
-  // which is a real guard doing real work.
+test('the two clocks CAN disagree, and nothing reconciles them', () => {
+  // READ THIS BEFORE TRUSTING IT.
   //
-  // What it does not do is make 250 ms safe. Accepted skew is still skew, and
-  // 250 ms is larger than the gap between a prospect finishing and the seller
-  // answering in a fast exchange - which is exactly when turn order matters.
+  // This demonstrates that the two constructors place the "same" moment at
+  // different offsets, and that nothing in the pipeline reconciles them. It
+  // does NOT prove the inversion the user reported, and an earlier version of
+  // this comment claimed it did.
+  //
+  // The skew DIRECTION here was chosen by me. On the monotonic timeline - the
+  // only one both channels share an origin on - the seller in this construction
+  // genuinely does speak first, so sorting them this way is correct. Flip the
+  // sign and the order flips with it.
+  //
+  // What decides which way production actually skews is a real session:
+  // log both channels' capture_start_ms against one shared clock, at session
+  // start and again at 60 s. Until that exists, a "fix" here is a coin toss
+  // dressed as engineering.
+  //
+  // A large step is separately rejected - maxClockDomainSkewMs (250) throws
+  // "foreign clock domains" - so that guard does real work and should stay.
   const EPOCH = 1_700_000_000_000;
   const ORIGIN = 5_000;
   const SKEW = 200;               // inside the 250 ms the guard permits
@@ -96,13 +108,14 @@ test('skew WITHIN the accepted band still inverts a fast exchange', () => {
   });
 
   // compareCanonicalRows sorts on exactly this field.
-  assert.ok(
-    seller.capture_start_ms < prospect.capture_start_ms,
-    'a reply spoken AFTER the prospect sorts BEFORE it - this is the reported bug',
+  // The only honest claim: the offsets differ by the skew, unreconciled.
+  assert.notEqual(
+    prospect.capture_start_ms - seller.capture_start_ms, REPLY_AFTER,
+    'the gap between the rows is not the real gap between the utterances',
   );
   assert.equal(
     prospect.capture_start_ms - seller.capture_start_ms, SKEW - REPLY_AFTER,
-    'the inversion is exactly the unaccounted skew minus the real gap',
+    'it is off by exactly the unreconciled skew, in whichever direction it runs',
   );
 });
 
