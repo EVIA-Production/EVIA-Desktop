@@ -2149,9 +2149,32 @@ async function startCaptureInternal(includeSystemAudio = false) {
   startTimer.mark('mic');
   // Consumed here for the first time: by now getUserMedia has usually already
   // paid for it.
-  captureChatId = await chatIdPromise;
+  // A failed chat call must not cost the rep the whole start.
+  //
+  // Measured in the user's own log, 2026-08-21: POST /chat/ failed with
+  // "TypeError: Failed to fetch" - a network-level failure, not an HTTP status -
+  // at 23:25:05 and again at 23:25:16, and the first sign of a working capture
+  // was 23:25:56. Fifty-one seconds, for a chat id that only LABELS events.
+  // The same session shows five PostHog resources failing ERR_CONNECTION_CLOSED,
+  // so the connection was degraded; that is exactly when a rep needs Listen to
+  // work, not to silently do nothing.
+  //
+  // Seven startup failures in that log, five of them this. Capture and the two
+  // sockets do not need the id to begin, and `Adopted live chat id from shared
+  // prefs` already exists to attach it late.
+  try {
+    captureChatId = await chatIdPromise;
+  } catch (error) {
+    captureChatId = null;
+    console.error('[AudioCapture] chat id unavailable; starting capture without it:', error);
+    sendDebugLog(
+      '[AudioCapture] chat id unavailable (' +
+      (error instanceof Error ? error.message : String(error)) +
+      ') - starting capture anyway; it will be adopted when it arrives',
+    );
+  }
   startTimer.mark('chat_awaited');
-  sendDebugLog(`[AudioCapture] capture bound to chat_id=${captureChatId}`);
+  sendDebugLog(`[AudioCapture] capture bound to chat_id=${captureChatId ?? 'pending'}`);
   const socketStatus = await connectCaptureWebSockets(includeSystemAudio);
   startTimer.mark('sockets');
   releaseCaptureTransport();
