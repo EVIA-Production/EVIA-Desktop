@@ -124,6 +124,62 @@ let debugAudioBuffers: { mic: Int16Array[], system: Int16Array[] } = { mic: [], 
  */
 let referenceDebugBuffer: Float32Array[] = [];
 let micRawDebugBuffer: Float32Array[] = [];
+
+/**
+ * Sustained digital silence on the microphone, which is a broken capture and
+ * not a quiet room.
+ *
+ * A live microphone in a silent room still carries a noise floor - the session
+ * that motivated this read -63..-73 dBFS. Exact zeros mean the device stopped
+ * delivering: another app took it, the default device changed underneath us,
+ * or the stream survived a sleep as `live` while producing nothing. macOS does
+ * not fire an event for any of those; `track.readyState` stays 'live'.
+ *
+ * Reported once per silent stretch, and again only after real audio returns,
+ * so a rep who simply stops talking never sees it and a rep whose microphone
+ * has died is told within 30 seconds instead of at the end of the call.
+ */
+const MIC_SILENCE_CHUNKS_BEFORE_ALARM = 300; // ~30s at 100ms chunks
+let micSilentChunkRun = 0;
+let micSilenceReported = false;
+
+function resetMicSignalTracking(): void {
+  micSilentChunkRun = 0;
+  micSilenceReported = false;
+}
+
+function trackMicSignal(chunk: Float32Array): void {
+  let live = false;
+  for (let i = 0; i < chunk.length; i++) {
+    if (chunk[i] !== 0) { live = true; break; }
+  }
+
+  if (live) {
+    if (micSilenceReported) {
+      sendDebugLog('[AudioCapture] microphone is producing audio again');
+      reportMicSilence(false);
+    }
+    resetMicSignalTracking();
+    return;
+  }
+
+  micSilentChunkRun++;
+  if (micSilentChunkRun < MIC_SILENCE_CHUNKS_BEFORE_ALARM || micSilenceReported) return;
+  micSilenceReported = true;
+  const seconds = Math.round((micSilentChunkRun * 100) / 1000);
+  sendDebugLog(
+    `[AudioCapture] MIC SILENT: ${micSilentChunkRun} consecutive chunks (~${seconds}s) of ` +
+    'digital silence while the session is live - the device stopped delivering audio',
+  );
+  reportMicSilence(true);
+}
+
+/** Tell the rest of the app, so this can reach the rep rather than only a log. */
+function reportMicSilence(silent: boolean): void {
+  try {
+    (window as any).evia?.ipc?.send?.('capture:mic-silent', { silent });
+  } catch { /* diagnostics must never break capture */ }
+}
 let debugSessionId: string = '';
 let debugFlagChecked = false;
 
@@ -677,6 +733,9 @@ function resetCaptureSessionState(expectedTimeline?: CaptureSessionTimeline): vo
   aecSkippedChunks = 0;
   lastSkipWarningAtMs = 0;
   aec3LoadFailed = false;
+  // Otherwise a session that ended silent would start the next one already in
+  // the reported state, and the rep's first thirty seconds would be accused.
+  resetMicSignalTracking();
 }
 
 function requireCaptureTimeline(): CaptureSessionTimeline {
@@ -1551,6 +1610,26 @@ async function setupMicProcessing(
       if (DEBUG_SAVE_AUDIO) {
         micRawDebugBuffer.push(new Float32Array(float32Chunk));
       }
+
+      // Is the microphone still producing audio, or only buffers?
+      //
+      // Measured in a real session 2026-08-22: the mic read -63..-73 dBFS for
+      // two minutes, then dropped to exactly -120 dBFS - digital silence, not a
+      // quiet room - and stayed there for the remaining fourteen minutes. The
+      // AudioContext kept delivering buffers at a constant 100 per 10s the
+      // whole time, so `transport ok: mic 9600 chunks sent` reported a healthy
+      // session while the rep's own side recorded nothing at all.
+      //
+      // The health check above counts CHUNKS. That comment already argues "a
+      // silent path and a working path look identical from the terminal" and
+      // then measures the one thing that cannot tell them apart. Buffers
+      // arriving is not audio arriving; this is the difference.
+      //
+      // Deliberately checked on the RAW mic, before the canceller: this asks
+      // whether the DEVICE is alive, and must not be confused by AEC output.
+      // Peak, not RMS - one non-zero sample is enough to prove the device is
+      // still delivering, and it costs a compare per sample with no allocation.
+      trackMicSignal(float32Chunk);
 
       // ──────────────────────────────────────────────────────────────────────
       // STEP 2: Apply TIME-ALIGNED AEC (Acoustic Delay Compensation)
