@@ -94,11 +94,15 @@ test('the started promise carries a rejection handler', () => {
     'an early rejection must not surface as an unhandled rejection');
 });
 
-test('the bounded chat wait survived the move', () => {
-  // The 51-second failure this replaced was an unbounded await. Moving the
-  // logic into the parallel kickoff must not have dropped the bound.
-  const race = at('captureChatId = await Promise.race([');
-  const after = src.slice(race, race + 300);
-  assert.match(after, /setTimeout\(\(\) => resolve\(null\), 1500\)/,
-    'the wait must stay bounded at 1500ms');
+test('sockets wait for the real chat id, not a timed-out fallback', () => {
+  // The websocket URL contains the chat id. A 1500ms Promise.race that
+  // resolves null, then adopts a later id, rebinds a live capture onto a
+  // different chat after the sockets are already open. The fetch is bounded
+  // separately (AbortSignal.timeout); the pin must be the promise's answer.
+  assert.equal(src.indexOf('captureChatId = await Promise.race(['), -1,
+    'a timeout that resolves null is not a chat id');
+  const pin = at('captureChatId = await chatIdPromise');
+  const started = at('const socketsStarted = chatBound.then(');
+  assert.ok(pin < started,
+    'the pin lives inside chatBound, which is what the socket handshake waits on');
 });

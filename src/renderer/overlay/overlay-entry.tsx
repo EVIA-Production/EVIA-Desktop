@@ -546,13 +546,17 @@ function App() {
         }
         
         console.log('[OverlayEntry] ✅ Got auth token (length:', token.length, 'chars)')
-        
-        // Import getOrCreateChatId dynamically to ensure chat exists
-        const { getOrCreateChatId } = await import('../services/websocketService')
-        const chatId = await getOrCreateChatId(backend, token)
-        console.log('[OverlayEntry] Using chat_id:', chatId)
-        
-        // Start audio capture (mic + system audio for meeting transcription)
+
+        // Start audio capture (mic + system audio for meeting transcription).
+        //
+        // Do not await getOrCreateChatId here. This is the only production
+        // Listen path, and that POST is a network call with three 4s-aborted
+        // retries. Awaiting it put the microphone behind a dead socket:
+        // audio-diagnostics.log 2026-08-21 showed TypeError: Failed to fetch
+        // at 23:25:05 and 23:25:16, and the first working capture at 23:25:56.
+        // startCapture already creates the chat in parallel with getUserMedia.
+        // A throw here never reached that path, so a failed chat still cost
+        // the rep the whole start.
         console.log('[OverlayEntry] Starting audio capture...');
         const handle = await startCapture(true)
         captureHandleRef.current = handle

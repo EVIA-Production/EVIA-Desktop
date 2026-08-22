@@ -144,8 +144,9 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
       // POST /chat/ is a small write against a warm container. Four seconds is
       // already far beyond its normal cost (measured: /health at 0.6-0.8 s cold
       // from this machine), so anything past it is a broken connection, not a
-      // slow one. Failing fast lets capture start without the id - which it
-      // now tolerates - instead of holding the microphone hostage.
+      // slow one. Failing fast lets the microphone keep opening in parallel;
+      // the sockets still need a real id (it is in the websocket URL) and will
+      // recreate rather than bind a live call to a missing one.
       const res = await fetch(`${backendUrl}/chat/`, {
         method: 'POST',
         headers: {
