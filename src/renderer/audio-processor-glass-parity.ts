@@ -2155,47 +2155,25 @@ async function startCaptureInternal(includeSystemAudio = false) {
   // Starting a promise is not that: getUserMedia is still the very next
   // statement to execute, and the permission prompt is reached just as fast.
   const chatBound = (async () => {
-    // A failed chat call must not cost the rep the whole start.
+    // A failed chat call must not cost the microphone. The fetch itself is
+    // already bounded (AbortSignal.timeout on POST /chat/). What we must not
+    // do is open the capture sockets against a missing or stale id and then
+    // "adopt" a later one: the websocket URL contains the chat id, so a late
+    // rebind splits one call across two chats (audio on the socket's id,
+    // transcript tags / Ask / insights on the adopted id).
     //
-    // Measured in the user's own log, 2026-08-21: POST /chat/ failed with
-    // "TypeError: Failed to fetch" - a network-level failure, not an HTTP status -
-    // at 23:25:05 and again at 23:25:16, and the first sign of a working capture
-    // was 23:25:56. Fifty-one seconds, for a chat id that only LABELS events.
-    // The same session shows five PostHog resources failing ERR_CONNECTION_CLOSED,
-    // so the connection was degraded; that is exactly when a rep needs Listen to
-    // work, not to silently do nothing.
+    // Wait for the real answer. If it rejects, leave the pin empty and let
+    // connectCaptureWebSockets recreate - that path already exists. Do not
+    // invent a timeout that resolves null.
     try {
-      // Bounded wait, not an open-ended one. The id only LABELS events and
-      // capture tolerates its absence, so there is no reason for the start to
-      // wait on a network call beyond the moment it would normally have
-      // finished. If it has not, the connection is unwell and waiting longer
-      // helps nobody.
-      //
-      // The promise keeps running. Whatever it returns is adopted through the
-      // same path that already handles a mid-session id change, so a slow
-      // network costs a late label rather than a late recording.
-      captureChatId = await Promise.race([
-        chatIdPromise,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
-      ]);
-      if (captureChatId === null) {
-        sendDebugLog('[AudioCapture] chat id not ready in 1500ms - starting capture without it');
-        void chatIdPromise
-          .then((late) => {
-            if (late && !captureChatId) {
-              captureChatId = late;
-              console.log('[AudioCapture] adopted late chat id:', late);
-            }
-          })
-          .catch(() => { /* already reported below */ });
-      }
+      captureChatId = await chatIdPromise;
     } catch (error) {
       captureChatId = null;
-      console.error('[AudioCapture] chat id unavailable; starting capture without it:', error);
+      console.error('[AudioCapture] chat id unavailable; sockets will recreate or fail closed:', error);
       sendDebugLog(
         '[AudioCapture] chat id unavailable (' +
         (error instanceof Error ? error.message : String(error)) +
-        ') - starting capture anyway; it will be adopted when it arrives',
+        ') - will recreate on connect rather than bind a live call to a guess',
       );
     }
   })();
