@@ -2163,7 +2163,32 @@ async function startCaptureInternal(includeSystemAudio = false) {
   // sockets do not need the id to begin, and `Adopted live chat id from shared
   // prefs` already exists to attach it late.
   try {
-    captureChatId = await chatIdPromise;
+    // Bounded wait, not an open-ended one.
+    //
+    // The id only LABELS events and capture tolerates its absence (below), so
+    // there is no reason for the microphone to wait on a network call at all
+    // beyond the moment it would normally have finished. getUserMedia has
+    // usually already paid for it; if it has not, the connection is unwell and
+    // waiting longer helps nobody.
+    //
+    // The promise keeps running. Whatever it returns is adopted through the
+    // same path that already handles a mid-session id change, so a slow network
+    // costs a late label rather than a late recording.
+    captureChatId = await Promise.race([
+      chatIdPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
+    if (captureChatId === null) {
+      sendDebugLog('[AudioCapture] chat id not ready in 1500ms - starting capture without it');
+      void chatIdPromise
+        .then((late) => {
+          if (late && !captureChatId) {
+            captureChatId = late;
+            console.log('[AudioCapture] adopted late chat id:', late);
+          }
+        })
+        .catch(() => { /* already reported below */ });
+    }
   } catch (error) {
     captureChatId = null;
     console.error('[AudioCapture] chat id unavailable; starting capture without it:', error);

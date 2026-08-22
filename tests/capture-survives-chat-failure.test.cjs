@@ -21,8 +21,8 @@ const src = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'renderer', 'audio-processor-glass-parity.ts'), 'utf8');
 
 test('awaiting the chat id cannot abort capture start', () => {
-  const at = src.indexOf('captureChatId = await chatIdPromise;');
-  assert.notEqual(at, -1, 'the chat id is still awaited somewhere');
+  const at = src.indexOf('captureChatId = await Promise.race([');
+  assert.notEqual(at, -1, 'the chat id must be awaited with a bound, not open-ended');
   // The await must sit inside a try, with a catch that continues.
   const before = src.slice(Math.max(0, at - 900), at);
   assert.match(before, /try\s*\{\s*$/m, 'the await must be guarded by try');
@@ -33,6 +33,21 @@ test('awaiting the chat id cannot abort capture start', () => {
   const catchBlock = after.slice(after.indexOf('catch'), after.indexOf('startTimer.mark'));
   assert.doesNotMatch(catchBlock, /\bthrow\b/,
     'rethrowing puts the whole start back behind one network call');
+});
+
+test('the wait for the chat id is bounded, so a bad network cannot hold the mic', () => {
+  // Measured before this bound existed: 51 s from press to a working capture,
+  // because fetch() sat on a dead socket until macOS gave up.
+  const at = src.indexOf('captureChatId = await Promise.race([');
+  const block = src.slice(at, at + 700);
+  assert.match(block, /setTimeout\(\(\) => resolve\(null\), (\d+)\)/,
+    'the race must have a timeout arm');
+  const ms = Number(block.match(/resolve\(null\), (\d+)\)/)[1]);
+  assert.ok(ms > 0 && ms <= 2000,
+    `the bound is ${ms}ms; beyond ~2s the rep is waiting on a label, not a recording`);
+  // And the late answer must still be adopted, or a slow network loses the id.
+  assert.match(block, /adopted late chat id|captureChatId = late/,
+    'a late chat id must still be picked up');
 });
 
 test('a missing chat id degrades instead of breaking', () => {

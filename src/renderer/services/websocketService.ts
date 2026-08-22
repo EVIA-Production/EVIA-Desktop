@@ -130,6 +130,22 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
       const currentLang = i18n.getLanguage();
       console.log(`[Chat] Creating chat with language: ${currentLang}`);
       
+      // Bounded, because an unbounded fetch is what made a bad connection cost
+      // the rep the whole start.
+      //
+      // Measured in the user's audio-diagnostics.log 2026-08-21: two
+      // "TypeError: Failed to fetch" failures at 23:25:05 and 23:25:16, and the
+      // first working capture at 23:25:56. Fifty-one seconds. The three retries
+      // here only add 1s + 2s of backoff, so the rest was fetch() sitting on a
+      // dead socket until macOS gave up - the default is tens of seconds, and
+      // the same session shows five PostHog resources dying
+      // ERR_CONNECTION_CLOSED, so the connection was genuinely degraded.
+      //
+      // POST /chat/ is a small write against a warm container. Four seconds is
+      // already far beyond its normal cost (measured: /health at 0.6-0.8 s cold
+      // from this machine), so anything past it is a broken connection, not a
+      // slow one. Failing fast lets capture start without the id - which it
+      // now tolerates - instead of holding the microphone hostage.
       const res = await fetch(`${backendUrl}/chat/`, {
         method: 'POST',
         headers: {
@@ -137,6 +153,7 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ language: currentLang }),
+        signal: AbortSignal.timeout(4000),
       });
       console.log('[Chat] Response status', res.status, res.type);
       if (!res.ok) {
