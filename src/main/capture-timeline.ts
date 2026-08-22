@@ -185,6 +185,19 @@ export class CaptureSessionTimeline {
     assertFiniteNonNegative('maxCaptureClockJitterMs', this.maxCaptureClockJitterMs)
   }
 
+  /**
+   * What the jitter clamp actually absorbed this session, per source.
+   *
+   * Measured 2026-08-22: backwards movement of 5 / 10 / 15 / 18 / 27 / 46.8 ms
+   * on the system channel and none on the microphone. Those numbers are the
+   * reason the threshold is 250 ms rather than 10 ms, and this is where the
+   * next session's equivalent numbers can be read instead of re-derived.
+   */
+  readonly clampedJitter: Record<CaptureSource, { count: number; worstMs: number }> = {
+    mic: { count: 0, worstMs: 0 },
+    system: { count: 0, worstMs: 0 },
+  }
+
   createFromMonotonicInterval(chunk: MonotonicAudioChunk): AudioChunkMetadata {
     assertFiniteNonNegative('startPerformanceMs', chunk.startPerformanceMs)
     assertFiniteNonNegative('endPerformanceMs', chunk.endPerformanceMs)
@@ -260,6 +273,15 @@ export class CaptureSessionTimeline {
           `${source} capture interval moved backwards by ${overlapMs.toFixed(3)}ms`,
         )
       }
+      // Raising the threshold from 10 ms to 250 ms stopped this path throwing
+      // away the prospect's voice, but it also widened the window in which a
+      // genuinely degrading clock stays invisible. Recording what was clamped
+      // is what keeps the wider tolerance honest: a session whose worst clamp
+      // creeps toward the limit is reporting a real fault, and without this
+      // there would be nothing to read.
+      const observed = this.clampedJitter[source]
+      observed.count += 1
+      if (overlapMs > observed.worstMs) observed.worstMs = overlapMs
       normalizedStartMs = previousEndMs
     }
     const normalizedEndMs = normalizedStartMs + shape.durationMs

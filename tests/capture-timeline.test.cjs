@@ -212,7 +212,22 @@ test('timeline snaps harmless same-source clock jitter to a non-overlapping boun
   assert.equal(jittered.chunk_seq, 1)
 })
 
-test('default timeline snaps observed 5.021ms ScreenCaptureKit jitter but rejects 50ms reversal', () => {
+/*
+ * This test used to call a 50ms backwards move "a reversal". The measurement
+ * that arrived on 2026-08-22 retired that number: on real hardware the system
+ * channel moved backwards by 5 / 10 / 15 / 18 / 27 / 46.8 ms inside ONE
+ * session - 24 times - and every one of those was ordinary ScreenCaptureKit
+ * callback jitter, not a broken clock. 46.8 and 50 are not separable, so a
+ * threshold that rejects 50 also rejects real prospect audio, which is exactly
+ * what it was doing.
+ *
+ * So the boundary moved to 250 ms (matching maxClockDomainSkewMs) and this test
+ * now pins BOTH sides of it: jitter within the measured band is clamped, and a
+ * move far outside it still throws. The clamp is no longer silent either -
+ * `clampedJitter` records what it absorbed, which is the part that makes the
+ * wider tolerance safe rather than merely convenient.
+ */
+test('default timeline clamps measured ScreenCaptureKit jitter and records it', () => {
   const session = timeline()
   session.createFromMonotonicInterval({
     source: 'system',
@@ -231,15 +246,44 @@ test('default timeline snaps observed 5.021ms ScreenCaptureKit jitter but reject
   assert.equal(snapped.capture_start_ms, 120)
   assert.equal(snapped.capture_end_ms, 140)
 
+  // 50ms back: inside the measured jitter band, so it is clamped. Before this
+  // change it threw, and the chunk - the prospect's voice - was discarded.
+  const clamped50 = session.createFromMonotonicInterval({
+    source: 'system',
+    startPerformanceMs: 10_090,
+    endPerformanceMs: 10_110,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
+  assert.equal(clamped50.capture_start_ms, 140,
+    'a 50ms backwards move must continue from the previous end, not be dropped')
+
+  // And it is visible afterwards rather than absorbed silently.
+  assert.equal(session.clampedJitter.system.count, 2)
+  assert.ok(session.clampedJitter.system.worstMs >= 50,
+    'the worst clamp must be recorded so a degrading clock can be seen')
+  assert.equal(session.clampedJitter.mic.count, 0,
+    'the microphone channel had no clamps and must not be credited with any')
+
+  // A genuine reset is still fatal. Advance the clock first so the reversal can
+  // be expressed without running before the session origin, then jump back
+  // 420ms - far outside the 46.8ms ceiling anything real has ever produced.
+  session.createFromMonotonicInterval({
+    source: 'system',
+    startPerformanceMs: 11_000,
+    endPerformanceMs: 11_020,
+    sampleRate: 24_000,
+    byteLength: 960,
+  })
   assert.throws(
     () => session.createFromMonotonicInterval({
       source: 'system',
-      startPerformanceMs: 10_090,
-      endPerformanceMs: 10_110,
+      startPerformanceMs: 10_600,
+      endPerformanceMs: 10_620,
       sampleRate: 24_000,
       byteLength: 960,
     }),
-    /system capture interval moved backwards by 50\.000ms/,
+    /system capture interval moved backwards by \d+\.\d+ms/,
   )
 })
 
