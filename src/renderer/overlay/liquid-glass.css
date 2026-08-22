@@ -205,6 +205,39 @@ html[data-material='native'][data-surface='overlay'] .evia-main-header {
   background: var(--taylos-glass-live-plane-native) !important;
 }
 
+/*
+ * Reported twice with screenshots (2026-08-21, 2026-08-22): over a white
+ * background the Taylos bar and the Ask window wash out and shift opacity,
+ * while the Listen window stays correct - even though all three resolve to the
+ * SAME plane, rgba(7, 8, 10, 0.74), on the same native surface.
+ *
+ * The colour was never the difference. ListenView's root carries
+ * `transform: translate3d(0, 0, 0)` with `will-change: transform, opacity`,
+ * which promotes it to its own compositing layer; Chromium rasterises that
+ * layer into a texture and composites the finished result. The bar and the Ask
+ * window have no such hint, so their background paints straight into the
+ * window surface - and over a TRANSPARENT Electron window hosting
+ * NSGlassEffectView, that means AppKit's backdrop keeps showing through the
+ * plane instead of being covered by it. A white desktop therefore lifts them
+ * and leaves the promoted window untouched.
+ *
+ * The first attempt at this changed the `overlay` vibrancy from `hud` to
+ * `under-window`. That was the wrong layer entirely: when the native bridge
+ * attaches, `clearElectronVibrancy()` drops the Electron vibrancy altogether,
+ * so the policy value is dead code on exactly the machines that show the bug -
+ * which is why it shipped in v1.0.90 and changed nothing. It also could not
+ * have explained the Ask window, which already shared `content` with Listen.
+ *
+ * Promoting the other two the same way is the whole fix: identical plane,
+ * identical compositing, identical result.
+ */
+html[data-material='native'][data-surface='overlay'] .evia-main-header,
+html[data-material='native'][data-surface='content'] .ask-container {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
 html[data-material='native'][data-surface='content'] :is(
   .assistant-container,
   .ask-container

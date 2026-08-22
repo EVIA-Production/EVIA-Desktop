@@ -66,17 +66,20 @@ const POLICIES: Record<MaterialSurface, MaterialPolicy> = {
     // arbitrarily large capsule radius can clip the hosted Chromium view.
     // The Taylos bar is 49px high, so 24px produces the intended capsule.
     radius: 24,
-    // `under-window`, not `hud`.
+    // `under-window`, not `hud`, purely for consistency with `content`.
     //
-    // Reported 2026-08-22 with a screenshot: over a white background the Taylos
-    // bar and the Ask window wash out and shift opacity, while the Listen and
-    // Settings windows stay correct. hudWindow is a self-contained dark HUD
-    // material that reacts strongly to whatever sits behind it;
-    // underWindowBackground samples the desktop instead and is stable - which
-    // is exactly why `content` (Listen) already looks right.
+    // This does NOT fix the washout reported on 2026-08-22, and the earlier
+    // comment here claiming it did was wrong. Two things rule it out: when the
+    // native bridge attaches, `clearElectronVibrancy()` removes the Electron
+    // vibrancy entirely, so this value is dead on exactly the machines that
+    // show the bug; and the Ask window washed out too while already sharing
+    // `content` with the Listen window that looked correct.
     //
-    // Matching the surface the user points at as correct is the whole fix; the
-    // bar keeps its own radius and its own CSS plane.
+    // The real cause is compositing, not material - see the note beside
+    // `.evia-main-header` in liquid-glass.css. What remains true is that on the
+    // FALLBACK path (no NSGlassEffectView) matching `content` is the better
+    // default: hudWindow is a self-contained dark HUD material, while
+    // underWindowBackground samples the desktop like every other surface.
     vibrancy: 'under-window',
     windowsMaterial: 'acrylic',
     nativeInteractive: false,
