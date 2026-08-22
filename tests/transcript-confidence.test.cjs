@@ -55,6 +55,14 @@ test('markers reach the prompt copy and never the screen', () => {
   const block = contextSrc.slice(ctx, ctx + 1400);
   assert.match(block, /uncertainWords/, 'the prompt copy must add markers');
   // And the visible rows must still be built without them.
-  assert.doesNotMatch(listen, /uncertainWords/,
+  //
+  // Scoped to the derivation that actually feeds the screen. Matching the whole
+  // file also matched the comment explaining why the two builders must not
+  // diverge - which is exactly the note a future reader needs, and banning the
+  // word from the file bans the explanation along with the behaviour.
+  const memo = listen.indexOf('const transcripts = useMemo<TranscriptLine[]>');
+  assert.notEqual(memo, -1, 'the screen-row projection must be named');
+  const screenRows = listen.slice(memo, listen.indexOf('}, [canonicalProjection]);', memo));
+  assert.doesNotMatch(screenRows, /uncertainWords/,
     'the screen copy must not gain markers');
 });

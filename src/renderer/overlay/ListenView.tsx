@@ -37,7 +37,7 @@ import {
   type RealtimeTranscriptState,
 } from '../../main/realtime-transcript-state';
 import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
-import { buildTranscriptContext, transcriptContextFromState } from '../../main/transcript-context';
+import { transcriptContextFromState } from '../../main/transcript-context';
 
 type TranscriptLine = OrderedTranscriptLine;
 
@@ -100,11 +100,27 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     return dropBledMicRows(rows, farEndTextOf(rows));
   }, [canonicalProjection]);
   const visibleTranscripts = transcripts;
-  // Built by the same pure function the prefetch uses, so the string the model
-  // gets on a click is byte-identical to the one it was prefetched against.
+  // The exact string the prefetch was armed with - the same call, not a
+  // parallel derivation that is asserted to agree.
+  //
+  // It used to be `buildTranscriptContext(transcripts)`, and the comment here
+  // claimed the result was byte-identical to the prefetch's. It was not.
+  // `transcripts` is the DISPLAY projection and drops `uncertainWords`, which
+  // `buildTranscriptContext` uses to append a `⁇` marker per low-confidence
+  // word. So the prefetch sent "...eine Agentur⁇" and the click sent
+  // "...eine Agentur", the fingerprints could never meet, and every speculative
+  // generation was paid for and discarded.
+  //
+  // Measured in production from 2026-08-21T05:38Z: 6 parked, 6 interactive
+  // clicks, 0 hits, and 0 clicks matching any parked hash. Deepgram flags a
+  // low-confidence word in nearly every real turn, so this was a structural
+  // 100% miss rather than a rare race.
+  //
+  // Two strings that must agree byte for byte cannot be kept in step by a
+  // comment. There is now one derivation and both paths call it.
   const filteredTranscriptContext = useMemo(
-    () => buildTranscriptContext(transcripts as any),
-    [transcripts],
+    () => transcriptContextFromState(canonicalTranscriptState),
+    [canonicalTranscriptState],
   );
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
