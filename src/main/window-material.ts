@@ -66,7 +66,18 @@ const POLICIES: Record<MaterialSurface, MaterialPolicy> = {
     // arbitrarily large capsule radius can clip the hosted Chromium view.
     // The Taylos bar is 49px high, so 24px produces the intended capsule.
     radius: 24,
-    vibrancy: 'hud',
+    // `under-window`, not `hud`.
+    //
+    // Reported 2026-08-22 with a screenshot: over a white background the Taylos
+    // bar and the Ask window wash out and shift opacity, while the Listen and
+    // Settings windows stay correct. hudWindow is a self-contained dark HUD
+    // material that reacts strongly to whatever sits behind it;
+    // underWindowBackground samples the desktop instead and is stable - which
+    // is exactly why `content` (Listen) already looks right.
+    //
+    // Matching the surface the user points at as correct is the whole fix; the
+    // bar keeps its own radius and its own CSS plane.
+    vibrancy: 'under-window',
     windowsMaterial: 'acrylic',
     nativeInteractive: false,
   },
