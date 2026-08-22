@@ -845,7 +845,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 updatedAt: Date.now(),
               });
             } catch { /* the snapshot is an optimisation, never a blocker */ }
-            await prefetchSuggestion({
+            // Registers the context and returns immediately; the generation
+            // fires once the turn stops moving.
+            prefetchSuggestion({
               baseUrl: BACKEND_URL,
               chatId: Number(chatId),
               token,

@@ -43,12 +43,20 @@ test('it sends prefetch:true and never renders the result', () => {
   assert.doesNotMatch(mod, /setState|showToast|setResponse/);
 });
 
-test('cost is bounded: no repeat for the same transcript, and a cooldown', () => {
-  assert.match(mod, /if \(transcript === lastPrefetchedTranscript\) return 'skipped'/);
-  assert.match(mod, /PREFETCH_COOLDOWN_MS/);
-  assert.match(mod, /if \(inFlight/);
+test('cost is bounded: no repeat for the same transcript, and a rate floor', () => {
+  // The GUARANTEES are asserted as behaviour in prefetch-state-machine.test.cjs,
+  // which drives this module with a controlled clock and transport. What is
+  // pinned here is only that the named guards still exist to be driven - the
+  // exact spellings this used to match ("PREFETCH_COOLDOWN_MS", "if (inFlight")
+  // described a fire-then-suppress policy that dropped the newest turn, which
+  // is the one a click can actually claim, and had to change.
+  assert.match(mod, /transcript === lastPrefetchedTranscript/);
+  assert.match(mod, /PREFETCH_MIN_INTERVAL_MS/);
+  assert.match(mod, /PREFETCH_QUIET_MS/);
   // Too little transcript cannot ground a suggestion worth paying for.
   assert.match(mod, /PREFETCH_MIN_TRANSCRIPT_CHARS/);
+  // Superseded work must be cancelled, not merely abandoned to run to completion.
+  assert.match(mod, /abortInFlight/);
 });
 
 test('a failure can never disturb a live call', () => {
