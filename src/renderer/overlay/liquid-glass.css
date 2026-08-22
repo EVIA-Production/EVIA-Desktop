@@ -20,6 +20,13 @@
   --taylos-glass-content-plane: rgba(10, 11, 13, 0.52);
   --taylos-glass-content-plane-native: rgba(7, 8, 10, 0.48);
   --taylos-glass-live-plane-native: rgba(7, 8, 10, 0.74);
+  /* Short surfaces (bar 49px, Ask 58px) sit almost entirely in the glass rim,
+     where the lensing is strongest, so they must leave the backdrop less.
+     0.86 is arithmetic, not taste: the bar measured 68 over a 251.7 white
+     desktop at 0.74, which implies the glass hands it a backdrop near 238.
+     0.86 lands it near 40; 0.90 would land near 31 and overshoot past the
+     transcript window it is supposed to match. */
+  --taylos-glass-short-plane-native: rgba(7, 8, 10, 0.86);
   --taylos-glass-popover-plane: rgba(15, 16, 18, 0.54);
   --taylos-glass-inner-light: rgba(255, 255, 255, 0.085);
   --taylos-glass-inner-mid: rgba(255, 255, 255, 0.028);
@@ -206,36 +213,41 @@ html[data-material='native'][data-surface='overlay'] .evia-main-header {
 }
 
 /*
- * Reported twice with screenshots (2026-08-21, 2026-08-22): over a white
- * background the Taylos bar and the Ask window wash out and shift opacity,
- * while the Listen window stays correct - even though all three resolve to the
- * SAME plane, rgba(7, 8, 10, 0.74), on the same native surface.
+ * The Taylos bar and the Ask window read lighter than the Listen window over a
+ * white background. Reported three times, and my first two explanations were
+ * both wrong:
  *
- * The colour was never the difference. ListenView's root carries
- * `transform: translate3d(0, 0, 0)` with `will-change: transform, opacity`,
- * which promotes it to its own compositing layer; Chromium rasterises that
- * layer into a texture and composites the finished result. The bar and the Ask
- * window have no such hint, so their background paints straight into the
- * window surface - and over a TRANSPARENT Electron window hosting
- * NSGlassEffectView, that means AppKit's backdrop keeps showing through the
- * plane instead of being covered by it. A white desktop therefore lifts them
- * and leaves the promoted window untouched.
+ *   v1.0.90 changed the `overlay` vibrancy from `hud` to `under-window`. Dead
+ *   code on the affected machines - `clearElectronVibrancy()` drops the
+ *   Electron vibrancy the moment the native bridge attaches - and it could
+ *   never have explained Ask, which already shared `content` with Listen.
  *
- * The first attempt at this changed the `overlay` vibrancy from `hud` to
- * `under-window`. That was the wrong layer entirely: when the native bridge
- * attaches, `clearElectronVibrancy()` drops the Electron vibrancy altogether,
- * so the policy value is dead code on exactly the machines that show the bug -
- * which is why it shipped in v1.0.90 and changed nothing. It also could not
- * have explained the Ask window, which already shared `content` with Listen.
+ *   v1.0.91 promoted the bar and Ask to their own compositing layers, on the
+ *   theory that ListenView's `translate3d(0,0,0)` was what kept it stable.
+ *   Also wrong, and removed here.
  *
- * Promoting the other two the same way is the whole fix: identical plane,
- * identical compositing, identical result.
+ * What IS established, by reading the full cascade across both stylesheets:
+ * all three containers resolve to exactly the same plane, rgba(7, 8, 10, 0.74).
+ * The CSS is not the difference. The difference is in NSGlassEffectView, below
+ * anything the renderer controls - and it tracks window HEIGHT: the two windows
+ * that wash out are 49px and 58px tall, and Liquid Glass lenses at the rim, so
+ * a 49px capsule is very nearly all rim. Listen (420px) and Settings are mostly
+ * flat interior.
+ *
+ * That mechanism is not fixable from CSS, but its consequence is. A backdrop
+ * can only show through what the plane leaves uncovered, so the two short
+ * surfaces carry a heavier plane: 0.86 leaves 14% to the backdrop where 0.74
+ * left 26%, roughly halving how much the desktop can lift them.
+ *
+ * This is a contrast fix, not a root-cause fix, and it is the same thing Apple
+ * requires of its own short controls - the HIG is explicit that content over
+ * Liquid Glass must hold its contrast regardless of what the material is
+ * sampling. Measured before the change, over a 251.7 white desktop: bar 68,
+ * Ask 59.
  */
 html[data-material='native'][data-surface='overlay'] .evia-main-header,
 html[data-material='native'][data-surface='content'] .ask-container {
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  will-change: transform, opacity;
+  background: var(--taylos-glass-short-plane-native) !important;
 }
 
 html[data-material='native'][data-surface='content'] :is(
