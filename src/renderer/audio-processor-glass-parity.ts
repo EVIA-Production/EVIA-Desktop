@@ -2045,6 +2045,88 @@ async function startCaptureInternal(includeSystemAudio = false) {
     // Ignore if Ask window not available
   }
 
+  // ── The two legs of startup that do not depend on each other ──────────────
+  //
+  // Measured on five real presses (audio-diagnostics.log, 2026-08-22):
+  //
+  //   mic=429..2987ms   sockets=2137..8686ms   run STRICTLY IN SERIES
+  //
+  // getUserMedia is a local CoreAudio device open and touches no network. The
+  // capture websockets are pure network: at the 195ms RTT measured to
+  // api.taylos.ai they spend three handshake round trips before the backend
+  // even begins opening Deepgram. Neither leg consumes anything the other
+  // produces - the sockets need only the chat id, which is already in flight.
+  //
+  // Running them in series therefore charged the rep the SUM of two costs that
+  // could have been paid at the same time, on every single press.
+  //
+  // The correctness invariant is unchanged and still enforced by the same gate:
+  // transport stays HELD until both providers report dg_open, and the transport
+  // release further down remains the only thing that lets a sample reach
+  // Deepgram. This changes when the handshake is PAID FOR, not when audio
+  // starts flowing.
+  //
+  // That release is deliberately not named in full here: the contract test in
+  // realtime-renderer-contract.test.cjs locates the barrier by scanning for the
+  // first occurrence of the call, and a mention in a comment above it reads as
+  // the call itself.
+  //
+  // Deliberately NOT awaited here. The Glass-parity note directly below records
+  // a hang from an earlier attempt that AWAITED the sockets before getUserMedia.
+  // Starting a promise is not that: getUserMedia is still the very next
+  // statement to execute, and the permission prompt is reached just as fast.
+  const chatBound = (async () => {
+    // A failed chat call must not cost the rep the whole start.
+    //
+    // Measured in the user's own log, 2026-08-21: POST /chat/ failed with
+    // "TypeError: Failed to fetch" - a network-level failure, not an HTTP status -
+    // at 23:25:05 and again at 23:25:16, and the first sign of a working capture
+    // was 23:25:56. Fifty-one seconds, for a chat id that only LABELS events.
+    // The same session shows five PostHog resources failing ERR_CONNECTION_CLOSED,
+    // so the connection was degraded; that is exactly when a rep needs Listen to
+    // work, not to silently do nothing.
+    try {
+      // Bounded wait, not an open-ended one. The id only LABELS events and
+      // capture tolerates its absence, so there is no reason for the start to
+      // wait on a network call beyond the moment it would normally have
+      // finished. If it has not, the connection is unwell and waiting longer
+      // helps nobody.
+      //
+      // The promise keeps running. Whatever it returns is adopted through the
+      // same path that already handles a mid-session id change, so a slow
+      // network costs a late label rather than a late recording.
+      captureChatId = await Promise.race([
+        chatIdPromise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]);
+      if (captureChatId === null) {
+        sendDebugLog('[AudioCapture] chat id not ready in 1500ms - starting capture without it');
+        void chatIdPromise
+          .then((late) => {
+            if (late && !captureChatId) {
+              captureChatId = late;
+              console.log('[AudioCapture] adopted late chat id:', late);
+            }
+          })
+          .catch(() => { /* already reported below */ });
+      }
+    } catch (error) {
+      captureChatId = null;
+      console.error('[AudioCapture] chat id unavailable; starting capture without it:', error);
+      sendDebugLog(
+        '[AudioCapture] chat id unavailable (' +
+        (error instanceof Error ? error.message : String(error)) +
+        ') - starting capture anyway; it will be adopted when it arrives',
+      );
+    }
+  })();
+
+  const socketsStarted = chatBound.then(() => connectCaptureWebSockets(includeSystemAudio));
+  // The rejection is surfaced at the await below, where the start path can act
+  // on it. Attaching here only stops Node treating it as unhandled during the
+  // window where getUserMedia still owns the flow.
+  socketsStarted.catch(() => { /* handled at the await */ });
+
   // GLASS PARITY FIX: Call getUserMedia FIRST (like Glass does at line 453)
   // This prevents the hang that was occurring when we tried to connect WebSocket before getUserMedia
   // Step 1: Request microphone permission (MOVED TO TOP!)
@@ -2137,6 +2219,17 @@ async function startCaptureInternal(includeSystemAudio = false) {
       const eviaIpc = (window as any).evia?.ipc;
       if (eviaIpc?.send) eviaIpc.send('debug-log', `❌ MIC FAILED: ${error.message}`);
     } catch { }
+    // The websockets were started in parallel with this call and are very
+    // likely open by now. Without this they would outlive the failed start and
+    // hold a backend transcription session - and a Deepgram connection - open
+    // for a capture that will never send a sample.
+    void socketsStarted
+      .then(() => {
+        closeCaptureWebSocket('mic');
+        if (includeSystemAudio) closeCaptureWebSocket('system');
+        sendDebugLog('[AudioCapture] closed capture sockets after microphone failure');
+      })
+      .catch(() => { /* never opened; nothing to close */ });
     throw new Error(`Microphone permission denied: ${error.message}`);
   }
 
@@ -2147,60 +2240,14 @@ async function startCaptureInternal(includeSystemAudio = false) {
   const eviaApi = (window as any).evia;
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
   startTimer.mark('mic');
-  // Consumed here for the first time: by now getUserMedia has usually already
-  // paid for it.
-  // A failed chat call must not cost the rep the whole start.
-  //
-  // Measured in the user's own log, 2026-08-21: POST /chat/ failed with
-  // "TypeError: Failed to fetch" - a network-level failure, not an HTTP status -
-  // at 23:25:05 and again at 23:25:16, and the first sign of a working capture
-  // was 23:25:56. Fifty-one seconds, for a chat id that only LABELS events.
-  // The same session shows five PostHog resources failing ERR_CONNECTION_CLOSED,
-  // so the connection was degraded; that is exactly when a rep needs Listen to
-  // work, not to silently do nothing.
-  //
-  // Seven startup failures in that log, five of them this. Capture and the two
-  // sockets do not need the id to begin, and `Adopted live chat id from shared
-  // prefs` already exists to attach it late.
-  try {
-    // Bounded wait, not an open-ended one.
-    //
-    // The id only LABELS events and capture tolerates its absence (below), so
-    // there is no reason for the microphone to wait on a network call at all
-    // beyond the moment it would normally have finished. getUserMedia has
-    // usually already paid for it; if it has not, the connection is unwell and
-    // waiting longer helps nobody.
-    //
-    // The promise keeps running. Whatever it returns is adopted through the
-    // same path that already handles a mid-session id change, so a slow network
-    // costs a late label rather than a late recording.
-    captureChatId = await Promise.race([
-      chatIdPromise,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
-    ]);
-    if (captureChatId === null) {
-      sendDebugLog('[AudioCapture] chat id not ready in 1500ms - starting capture without it');
-      void chatIdPromise
-        .then((late) => {
-          if (late && !captureChatId) {
-            captureChatId = late;
-            console.log('[AudioCapture] adopted late chat id:', late);
-          }
-        })
-        .catch(() => { /* already reported below */ });
-    }
-  } catch (error) {
-    captureChatId = null;
-    console.error('[AudioCapture] chat id unavailable; starting capture without it:', error);
-    sendDebugLog(
-      '[AudioCapture] chat id unavailable (' +
-      (error instanceof Error ? error.message : String(error)) +
-      ') - starting capture anyway; it will be adopted when it arrives',
-    );
-  }
+  // Both of these were started before getUserMedia and have been running the
+  // whole time it took the microphone to open. On a healthy connection the
+  // handshake is already finished here and this await costs nothing; the stage
+  // marks in [CAPTURE-START] are what make that verifiable rather than assumed.
+  await chatBound;
   startTimer.mark('chat_awaited');
   sendDebugLog(`[AudioCapture] capture bound to chat_id=${captureChatId ?? 'pending'}`);
-  const socketStatus = await connectCaptureWebSockets(includeSystemAudio);
+  const socketStatus = await socketsStarted;
   startTimer.mark('sockets');
   releaseCaptureTransport();
   const macSystemStatus = includeSystemAudio && isMac

@@ -174,10 +174,18 @@ test('the capture session pins its chat id once, and releases it', () => {
   assert.equal((start.match(/getOrCreateChatId\(/g) || []).length, 1,
     'the chat id must come from exactly one call');
   assert.match(start, /const chatIdPromise = getOrCreateChatId\(BACKEND_URL, authToken\)/);
-  // The pin now sits further down, where the sockets consume it, so it is
-  // asserted against the whole module rather than the opening slice.
-  assert.equal((source.match(/captureChatId = await chatIdPromise/g) || []).length, 1,
-    'it must be pinned to captureChatId exactly once');
+  // The pin sits further down, where the sockets consume it, so it is asserted
+  // against the whole module rather than the opening slice.
+  //
+  // The spelling here was `await chatIdPromise` until v1.0.88 bounded the wait
+  // with Promise.race, and this assertion silently went to zero matches at that
+  // moment - it was red across three shipped releases before anyone read it.
+  // Matching the ASSIGNMENT rather than the exact await keeps it honest against
+  // whatever the wait is wrapped in next.
+  const pins = source.match(/captureChatId = await [^;]+;/g) || [];
+  assert.equal(pins.length, 1, 'it must be pinned from an await exactly once');
+  assert.match(pins[0], /chatIdPromise/,
+    'the pin must come from the single in-flight chat call, not a second one');
   // Emitted where the id is resolved, which is now below the opening slice.
   assert.match(source, /capture bound to chat_id=/);
   assert.doesNotMatch(start, /localStorage\.getItem\('current_chat_id'\)/);

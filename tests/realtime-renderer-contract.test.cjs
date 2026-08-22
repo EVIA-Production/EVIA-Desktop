@@ -101,7 +101,11 @@ test('renderer subscribes before starting the macOS native helper', () => {
 test('both Deepgram providers are ready before macOS physical capture starts', () => {
   const startBlock = audioSource.split('async function startCaptureInternal', 2)[1];
   assert.ok(startBlock, 'capture startup should exist');
-  const providerBarrier = startBlock.indexOf('await connectCaptureWebSockets(includeSystemAudio)');
+  // The handshake is now STARTED before getUserMedia and awaited here, so the
+  // barrier is the await, not the call. What this test protects is unchanged:
+  // no physical capture may begin until both providers have reported dg_open.
+  // Overlapping moved when the handshake is PAID FOR, never when audio flows.
+  const providerBarrier = startBlock.indexOf('const socketStatus = await socketsStarted;');
   const release = startBlock.indexOf('releaseCaptureTransport()');
   const nativeCapture = startBlock.indexOf('await startMacSystemAudioCapture(eviaApi, timeline)');
   assert.ok(providerBarrier >= 0, 'provider readiness barrier must exist');
