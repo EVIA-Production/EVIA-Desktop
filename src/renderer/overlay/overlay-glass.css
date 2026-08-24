@@ -2291,19 +2291,20 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1 1 auto; /* Glass parity: Grow to fill space, shrink if needed */
+  flex: 0 1 auto;
   overflow-y: auto;
   margin: 0 -4px;
   padding: 4px;
-  min-height: 0; /* Allows flex child to shrink below content size */
+  min-height: 0;
 }
 
 .shortcut-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 78px;
   align-items: center;
-  gap: 8px;
-  padding: 4px;
-  font-size: 12px;
+  column-gap: 6px;
+  padding: 4px 2px;
+  font-size: 13px;
   transition: background 0.15s ease;
 }
 
@@ -2316,10 +2317,11 @@ textarea:focus-visible,
   background: none;
   border: none;
   color: rgba(0, 122, 255, 0.8);
-  font-size: 11px;
-  padding: 0 4px;
+  font-size: 12px;
+  padding: 0 2px;
   cursor: pointer;
   transition: 0.15s;
+  white-space: nowrap;
 }
 
 .action-btn:hover {
@@ -2327,9 +2329,9 @@ textarea:focus-visible,
   text-decoration: underline;
 }
 
-.shortcut-name {
-  flex: 1;
-  font-size: 12px;
+.shortcuts-container .shortcut-name {
+  min-width: 0;
+  font-size: 13px;
   font-weight: 300;
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
@@ -2341,15 +2343,19 @@ textarea:focus-visible,
   display: flex;
   gap: 2px;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   padding: 4px 6px;
-  width: 120px;
+  width: 78px;
+  min-height: 32px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   cursor: text;
   transition: all 0.15s ease;
   text-align: right;
-  margin-left: auto;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .shortcut-value:hover,
@@ -2363,9 +2369,9 @@ textarea:focus-visible,
   box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.3);
 }
 
-.shortcut-key {
+.shortcuts-container .shortcut-key {
   display: inline-block;
-  font-size: 11px;
+  font-size: 12px;
   font-family: 'SF Mono', 'Menlo', monospace;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.9);
@@ -2391,6 +2397,10 @@ textarea:focus-visible,
   font-size: 12px;
   color: rgba(66, 133, 244, 1);
   animation: pulse-recording 1s ease-in-out infinite;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes pulse-recording {

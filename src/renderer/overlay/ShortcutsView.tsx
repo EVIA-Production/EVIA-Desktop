@@ -335,7 +335,9 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
         {shortcuts.map(shortcut => (
           <div key={shortcut.id}>
             <div className="shortcut-row">
-              <span className="shortcut-name">{getShortcutName(shortcut)}</span>
+              <span className="shortcut-name" title={getShortcutName(shortcut)}>
+                {getShortcutName(shortcut)}
+              </span>
               
               <button className="action-btn" onClick={() => setEditingShortcut(shortcut.id)}>
                 Edit
@@ -346,6 +348,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
               
               <div
                 className={`shortcut-value ${editingShortcut === shortcut.id ? 'editing' : ''}`}
+                title={shortcut.accelerator || 'Disabled'}
                 onClick={() => {
                   setEditingShortcut(shortcut.id);
                   setRecordedKeys([]);

@@ -101,8 +101,8 @@ const WINDOW_DATA = {
     zIndex: 10, // FIX (2025-12-10): Settings ALWAYS on top of other windows
   },
   shortcuts: {
-    width: 353, // Glass parity: windowManager.js:562
-    height: 580, // Calculated: 12 shortcuts + header + buttons + padding (was 720, reduced to fit tighter)
+    width: 380,
+    height: 520,
     html: 'overlay.html?view=shortcuts',
     zIndex: 11, // FIX: Shortcuts above settings when both open
   },
