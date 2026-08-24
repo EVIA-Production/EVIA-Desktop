@@ -26,8 +26,17 @@ const Module = require('node:module');
 const SRC = path.join(__dirname, '..', 'src', 'renderer', 'lib', 'suggestion-prefetch.ts');
 
 /** Load a fresh copy of the real module, with time and fetch under our control. */
-function loadPrefetch({ now, fetchImpl }) {
-  const source = fs.readFileSync(SRC, 'utf8');
+function loadPrefetch({ now, fetchImpl, enabled = true }) {
+  let source = fs.readFileSync(SRC, 'utf8');
+  // Speculative prefetch ships DISABLED (0 hits from 18 clicks in production;
+  // see the note in the module). The trigger policy below is still the thing a
+  // redesigned trigger will be built on, so it is still tested - by compiling
+  // the real source with the flag flipped, rather than by keeping a second copy
+  // of the policy that could drift from it.
+  if (enabled) {
+    source = source.replace('const SPECULATIVE_PREFETCH_ENABLED = false',
+                            'const SPECULATIVE_PREFETCH_ENABLED = true');
+  }
   const js = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
@@ -48,10 +57,10 @@ function loadPrefetch({ now, fetchImpl }) {
 }
 
 /** Drive the module with a clock and a scripted transport. */
-function harness({ fetchImpl }) {
+function harness({ fetchImpl, enabled = true }) {
   let t = 1_000_000;
   const clock = () => t;
-  const { mod, restore } = loadPrefetch({ now: clock, fetchImpl });
+  const { mod, restore } = loadPrefetch({ now: clock, fetchImpl, enabled });
   const realNow = Date.now;
   const realFetch = global.fetch;
   Date.now = clock;
@@ -211,4 +220,46 @@ test('the speculative stream is drained, so the answer is actually parked', asyn
     await h.mod.flushPendingPrefetchForTest();
     assert.ok(readToEnd, 'the speculative response must be read to completion');
   } finally { h.done(); }
+});
+
+
+// ── Speculative prefetch is off ──────────────────────────────────────────────
+//
+// Measured in production 2026-08-23 and 2026-08-24: 100 parked, 0 ever claimed.
+// One context was both parked and clicked, and the parked copy arrived 2.9s
+// AFTER the click - this file arms on a transcript FINAL, and the seller clicks
+// when the prospect stops speaking, which is a second or two earlier. The click
+// wins that race by construction.
+//
+// The BACKEND is authoritative because installed builds keep sending
+// `prefetch: true` for months. This only stops THIS build from making the
+// request, which saves the round trip as well as the generation.
+
+test('no speculative request is issued while prefetch is disabled', async () => {
+  let calls = 0;
+  const h = harness({ enabled: false,
+                      fetchImpl: async () => { calls += 1; return { ok: true }; } });
+  try {
+    assert.equal(h.mod.prefetchSuggestion({ ...BASE, transcript: LONG }), 'skipped');
+    assert.equal(await h.mod.prefetchOpener({ ...BASE }), 'skipped');
+    await h.mod.flushPendingPrefetchForTest();
+    h.advance(60_000);
+    await h.mod.flushPendingPrefetchForTest();
+    assert.equal(calls, 0, 'a disabled prefetch must not reach the network at all');
+  } finally { h.done(); }
+});
+
+test('the trigger policy is preserved so it can be measured again', () => {
+  // A redesigned trigger - armed from interim transcripts, or a click joining a
+  // generation that starts after it - needs exactly this code. Deleting it
+  // would make the next attempt start from nothing.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'lib', 'suggestion-prefetch.ts'), 'utf8');
+  assert.match(src, /const SPECULATIVE_PREFETCH_ENABLED = false/);
+  for (const kept of ['PREFETCH_QUIET_MS', 'PREFETCH_MIN_INTERVAL_MS',
+                      'abortInFlight', 'lastPrefetchedTranscript']) {
+    assert.ok(src.includes(kept), `${kept} must survive so prefetch can be restored`);
+  }
 });

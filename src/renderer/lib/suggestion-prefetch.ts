@@ -40,6 +40,35 @@
  * misses; deferring costs the same and keeps the context claimable.
  */
 
+/**
+ * Speculative prefetch is OFF.
+ *
+ * Measured in production on 2026-08-23 and 2026-08-24: 100 suggestions parked,
+ * 0 ever claimed. 101 of 119 /ask calls - 85% of provider spend on that
+ * endpoint - went to work no user ever received.
+ *
+ * It is not a tuning problem. One context was both parked and clicked:
+ *
+ *   20:21:18.611  MISS   click on fingerprint 9da146b7a07a
+ *   20:21:21.541  PREFETCH parked 59 chars for 9da146b7a07a
+ *
+ * The speculative generation for the exact context the seller clicked on
+ * finished 2.9 SECONDS AFTER the click. This file arms on a transcript FINAL;
+ * the seller clicks when the prospect stops speaking; the final lands a second
+ * or two later. The click wins that race by construction, so the parked answer
+ * is always for a context the call has already left.
+ *
+ * The BACKEND is authoritative - it refuses speculative generation regardless
+ * of what any client sends, because installed builds will keep sending
+ * `prefetch: true` for months. This flag only stops THIS build from making the
+ * request at all, which saves the round trip too.
+ *
+ * Nothing here is deleted. A redesigned trigger - armed from interim
+ * transcripts, or a click that joins a generation starting after it - needs
+ * exactly this code.
+ */
+const SPECULATIVE_PREFETCH_ENABLED = false
+
 const PREFETCH_MIN_TRANSCRIPT_CHARS = 40
 /** How long a turn must stop moving before it is worth generating against. */
 const PREFETCH_QUIET_MS = 700
@@ -142,6 +171,7 @@ async function issue(input: PrefetchInput, controller: AbortController): Promise
 export async function prefetchOpener(
   input: Omit<PrefetchInput, 'transcript'>,
 ): Promise<'sent' | 'skipped'> {
+  if (!SPECULATIVE_PREFETCH_ENABLED) return 'skipped'
   if (!input.chatId || !input.token) return 'skipped'
   if (inFlight) return 'skipped'
   const controller = new AbortController()
@@ -166,6 +196,7 @@ export async function prefetchOpener(
  * against once it stops moving, 'skipped' when it is not worth paying for.
  */
 export function prefetchSuggestion(input: PrefetchInput): 'scheduled' | 'skipped' {
+  if (!SPECULATIVE_PREFETCH_ENABLED) return 'skipped'
   const transcript = (input.transcript || '').trim()
 
   // Nothing to ground a suggestion in yet.
