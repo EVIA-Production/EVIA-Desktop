@@ -21,9 +21,30 @@ const rendererConfigSource = read('src/renderer/config/config.ts');
 const subscriptionSource = read('src/main/subscription-service.ts');
 const preloadSource = read('src/main/preload.ts');
 const settingsSource = read('src/renderer/overlay/SettingsView.tsx');
+const shortcutsSource = read('src/renderer/overlay/ShortcutsView.tsx');
 const liquidGlassSource = read('src/renderer/overlay/liquid-glass.css');
 const overlayGlassSource = read('src/renderer/overlay/overlay-glass.css');
 const nativeGlassSource = read('native/macos-liquid-glass/src/taylos_liquid_glass.mm');
+const germanTranslations = JSON.parse(read('src/renderer/i18n/de.json'));
+const englishTranslations = JSON.parse(read('src/renderer/i18n/en.json'));
+
+test('shortcut glyphs stay centered and the default list fits without inertial scrolling', () => {
+  const listRule = overlayGlassSource.split('.shortcuts-list {', 2)[1].split('}', 1)[0];
+  const keyRule = overlayGlassSource.split('.shortcuts-container .shortcut-key {', 2)[1].split('}', 1)[0];
+
+  assert.match(listRule, /padding:\s*2px 4px/);
+  assert.match(keyRule, /display:\s*inline-flex/);
+  assert.match(keyRule, /align-items:\s*center/);
+  assert.match(keyRule, /justify-content:\s*center/);
+});
+
+test('click-through shortcut explains the behavior in both languages', () => {
+  assert.equal(germanTranslations.overlay.settings.shortcutToggleClickThrough, 'Klicks durchlassen');
+  assert.equal(englishTranslations.overlay.settings.shortcutToggleClickThrough, 'Let Clicks Pass Through');
+  assert.match(germanTranslations.overlay.settings.shortcutToggleClickThroughDescription, /Fenster darunter/);
+  assert.match(englishTranslations.overlay.settings.shortcutToggleClickThroughDescription, /window underneath/);
+  assert.match(shortcutsSource, /getShortcutDescription\(shortcut\)/);
+});
 
 test('macOS watchdog waits for a real first system-audio chunk', () => {
   assert.match(audioSource, /macSystemCaptureStartedAt/);

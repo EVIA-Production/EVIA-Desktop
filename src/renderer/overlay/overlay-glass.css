@@ -2294,7 +2294,7 @@ textarea:focus-visible,
   flex: 0 1 auto;
   overflow-y: auto;
   margin: 0 -4px;
-  padding: 4px;
+  padding: 2px 4px;
   min-height: 0;
 }
 
@@ -2370,7 +2370,10 @@ textarea:focus-visible,
 }
 
 .shortcuts-container .shortcut-key {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   font-size: 12px;
   font-family: 'SF Mono', 'Menlo', monospace;
   font-weight: 400;

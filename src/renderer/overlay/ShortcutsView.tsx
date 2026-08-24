@@ -264,6 +264,14 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
     return shortcut.name;
   };
 
+  const getShortcutDescription = (shortcut: ShortcutConfig): string => {
+    if (shortcut.id === 'toggleClickThrough') {
+      return i18n.t('overlay.settings.shortcutToggleClickThroughDescription');
+    }
+
+    return getShortcutName(shortcut);
+  };
+
   // WINDOWS FIX (2025-12-05): Use platform-appropriate symbol mapping
   const isWindows = Boolean((window as any)?.platformInfo?.isWindows);
   const isMac = Boolean((window as any)?.platformInfo?.isMac);
@@ -335,7 +343,7 @@ const ShortcutsView: React.FC<ShortcutsViewProps> = ({ language, onClose }) => {
         {shortcuts.map(shortcut => (
           <div key={shortcut.id}>
             <div className="shortcut-row">
-              <span className="shortcut-name" title={getShortcutName(shortcut)}>
+              <span className="shortcut-name" title={getShortcutDescription(shortcut)}>
                 {getShortcutName(shortcut)}
               </span>
               
