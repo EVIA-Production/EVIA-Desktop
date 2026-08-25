@@ -1,0 +1,7 @@
+{
+  "name": "taylos-windows-liquid-glass",
+  "version": "1.0.0",
+  "private": true,
+  "gypfile": true,
+  "main": "prebuilds/win32-x64/taylos_windows_glass.node"
+}

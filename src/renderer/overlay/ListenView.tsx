@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { getWebSocketInstance } from '../services/websocketService';
-import { fetchInsights, insightsRateLimited, Insight, InsightActionItem } from '../services/insightsService';
+import {
+  fetchInsights,
+  insightsRateLimited,
+  insightsRateLimitRemainingMs,
+  Insight,
+  InsightActionItem,
+} from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
@@ -38,8 +44,21 @@ import {
 } from '../../main/realtime-transcript-state';
 import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
 import { transcriptContextFromState } from '../../main/transcript-context';
+import {
+  isInsightsResultCurrent,
+  mergeInsightsFetchIntent,
+  postMeetingRetryDelayMs,
+  type InsightsFetchIntent,
+  type InsightsSessionState,
+} from '../../main/insights-request-policy';
 
 type TranscriptLine = OrderedTranscriptLine;
+
+type InsightsFetchOptions = {
+  fullReplace?: boolean;
+  manual?: boolean;
+  requestedSessionState?: InsightsSessionState;
+};
 
 const percentile = (values: number[], quantile: number): number | null => {
   if (values.length === 0) return null;
@@ -163,7 +182,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const demoModeEnabledRef = useRef(false);
   const demoInsightTimerRef = useRef<NodeJS.Timeout | null>(null);
   const liveInsightsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const postMeetingRetryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const postMeetingRetryAttemptRef = useRef(0);
   const insightsRequestInFlightRef = useRef(false);
+  const queuedInsightsFetchIntentRef = useRef<InsightsFetchIntent | null>(null);
   const liveInsightsRefreshQueuedRef = useRef(false);
   const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
   /**
@@ -193,7 +215,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [diagLastMessageAgeMs, setDiagLastMessageAgeMs] = useState<number | null>(null);
   const insightsHistoryRef = useRef<Insight[]>([]);
   const insightsIndexRef = useRef(-1);
-  const fetchInsightsNowRef = useRef<(options?: { fullReplace?: boolean }) => Promise<void>>(async () => {});
+  const fetchInsightsNowRef = useRef<(options?: InsightsFetchOptions) => Promise<void>>(async () => {});
   const afterInsightsFrozenRef = useRef(false);
   const afterInsightsRequestPendingRef = useRef(false);
   const viewModeRef = useRef<'transcript' | 'insights'>(viewMode);
@@ -217,6 +239,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const normalizedSummary = ((payload.prospect_info && payload.prospect_info.length > 0 ? payload.prospect_info : payload.summary) || [])
       .map(line => normalizeTranscriptText(line || ''))
       .filter(Boolean);
+    const normalizedAnalysis = ((payload.sales_analysis && payload.sales_analysis.length > 0
+      ? payload.sales_analysis
+      : payload.topic?.bullets) || [])
+      .map(line => normalizeTranscriptText(line || ''))
+      .filter(Boolean);
+    if (normalizedSummary.length === 0 && normalizedAnalysis.length === 0) return true;
     const knownStubSets = [
       [
         'kein transkript erkannt',
@@ -368,6 +396,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         clearTimeout(liveInsightsRefreshTimerRef.current);
         liveInsightsRefreshTimerRef.current = null;
       }
+      if (postMeetingRetryTimerRef.current) {
+        clearTimeout(postMeetingRetryTimerRef.current);
+        postMeetingRetryTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -411,17 +443,30 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     });
   }, [filteredTranscriptContext, canonicalTranscriptState.chatId, sessionState]);
 
-  const schedulePostMeetingInsightsFetch = () => {
+  const cancelPostMeetingRetry = () => {
+    if (!postMeetingRetryTimerRef.current) return;
+    clearTimeout(postMeetingRetryTimerRef.current);
+    postMeetingRetryTimerRef.current = null;
+  };
+
+  const schedulePostMeetingInsightsFetch = (minimumDelayMs = 0) => {
     if (afterInsightsFrozenRef.current || afterInsightsRequestPendingRef.current) {
       console.log('[ListenView] ⏭️ Post-meeting insights already frozen or pending - skipping duplicate fetch');
       return;
     }
     afterInsightsRequestPendingRef.current = true;
-    console.log('[ListenView] ⏳ Scheduling first post-call insights fetch in 300ms...');
-    setTimeout(() => {
-      console.log('[ListenView] 🚀 Fetching first post-call insights snapshot');
-      fetchInsightsNowRef.current({ fullReplace: true });
-    }, 300);
+    const retryAttempt = postMeetingRetryAttemptRef.current;
+    const delayMs = postMeetingRetryDelayMs(retryAttempt, minimumDelayMs);
+    postMeetingRetryAttemptRef.current += 1;
+    console.log(`[ListenView] ⏳ Scheduling post-call insights fetch in ${delayMs}ms (attempt ${retryAttempt + 1})...`);
+    postMeetingRetryTimerRef.current = setTimeout(() => {
+      postMeetingRetryTimerRef.current = null;
+      console.log('[ListenView] 🚀 Fetching post-call insights snapshot');
+      void fetchInsightsNowRef.current({
+        fullReplace: true,
+        requestedSessionState: 'after',
+      });
+    }, delayMs);
   };
 
   const adjustWindowHeight = () => {
@@ -554,8 +599,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     setCanonicalTranscriptState(freshState);
     lastInsightsProspectRevisionRef.current = 0;
     lastInsightsFetchAtRef.current = 0;
+    cancelPostMeetingRetry();
+    postMeetingRetryAttemptRef.current = 0;
     afterInsightsFrozenRef.current = false;
     afterInsightsRequestPendingRef.current = false;
+    queuedInsightsFetchIntentRef.current = null;
     liveInsightsRefreshQueuedRef.current = false;
     firstPartialLatencyByEventRef.current.clear();
     finalLatencyByEventRef.current.clear();
@@ -678,6 +726,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setSessionState('after');
         setIsSessionActive(false);
         localStorage.setItem('evia_session_state', 'after');
+        cancelPostMeetingRetry();
+        postMeetingRetryAttemptRef.current = 0;
+        afterInsightsFrozenRef.current = false;
+        afterInsightsRequestPendingRef.current = false;
         setInsights(null);
         setInsightsHistory([]);
         setInsightsIndex(-1);
@@ -924,6 +976,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setIsSessionActive(false);
       if (newState === 'after') {
         setViewMode('insights');
+        if (previousState !== 'after') {
+          cancelPostMeetingRetry();
+          postMeetingRetryAttemptRef.current = 0;
+          afterInsightsFrozenRef.current = false;
+          afterInsightsRequestPendingRef.current = false;
+        }
         schedulePostMeetingInsightsFetch();
       } else if (newState === 'before') {
         resetSessionPresentation('session-state-before');
@@ -1018,15 +1076,33 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   // Extract insights fetching to reusable function
-  const fetchInsightsNow = async (options: { fullReplace?: boolean } = {}) => {
-    const latestSessionState = localStorage.getItem('evia_session_state') as 'before' | 'during' | 'after' || 'during';
+  const fetchInsightsNow = async (options: InsightsFetchOptions = {}) => {
+    const storedSessionState = localStorage.getItem('evia_session_state') as InsightsSessionState | null;
+    const latestSessionState = options.requestedSessionState || storedSessionState || 'during';
+    const incomingIntent: InsightsFetchIntent = {
+      sessionState: latestSessionState,
+      fullReplace: options.fullReplace === true || latestSessionState === 'after',
+      manual: options.manual === true,
+    };
     if (insightsRequestInFlightRef.current) {
+      queuedInsightsFetchIntentRef.current = mergeInsightsFetchIntent(
+        queuedInsightsFetchIntentRef.current,
+        incomingIntent,
+      );
+      if (latestSessionState === 'after') {
+        afterInsightsRequestPendingRef.current = true;
+      }
       if (latestSessionState === 'during' && hasGroundedProspectSpeech(transcriptsRef.current)) {
         liveInsightsRefreshQueuedRef.current = true;
       }
+      console.log('[ListenView] Insights request already running; queued:', queuedInsightsFetchIntentRef.current);
       return;
     }
     insightsRequestInFlightRef.current = true;
+    if (latestSessionState === 'after') afterInsightsRequestPendingRef.current = true;
+    let postMeetingSucceeded = false;
+    let postMeetingRetryMinimumMs = 0;
+    try {
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
     const currentIsSessionActive = isSessionActiveRef.current;
@@ -1043,7 +1119,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     console.log('[ListenView] 🔍 Session state:', currentSessionState);
     console.log('[ListenView] 🔍 Is session active:', currentIsSessionActive);
 
-    const fullReplace = options.fullReplace === true || latestSessionState === 'after';
+    const fullReplace = incomingIntent.fullReplace;
     // Live refreshes are atomic: keep the last stable frame visible until a
     // complete replacement arrives. Only an empty post-call load blocks.
     const showBlockingLoader = latestSessionState === 'after' && insightsHistoryRef.current.length === 0;
@@ -1071,11 +1147,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       lastInsightsProspectRevisionRef.current = requestIdentity.prospectRevision;
       lastInsightsFetchAtRef.current = Date.now();
       if (latestSessionState === 'after') {
-        afterInsightsFrozenRef.current = true;
-        afterInsightsRequestPendingRef.current = false;
+        postMeetingSucceeded = true;
       }
-      insightsRequestInFlightRef.current = false;
-      if (showBlockingLoader) setIsLoadingInsights(false);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (viewportRef.current) viewportRef.current.scrollTop = 0;
@@ -1096,11 +1169,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (currentTranscripts.length === 0) {
       console.log('[ListenView] ⏭️ No transcripts captured - skipping insights fetch');
       setInsightsRefreshPending(false);
-      if (latestSessionState === 'after' && !afterInsightsFrozenRef.current) {
-        afterInsightsRequestPendingRef.current = false;
-      }
-      insightsRequestInFlightRef.current = false;
-      setIsLoadingInsights(false);
       return;
     }
 
@@ -1128,8 +1196,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       token = await eviaAuth?.getToken();
     } catch (error) {
       console.error('[ListenView] ❌ Failed to read auth token for insights:', error);
-      insightsRequestInFlightRef.current = false;
-      setIsLoadingInsights(false);
       return;
     }
 
@@ -1138,8 +1204,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
     if (!chatId || !token) {
       console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
-      insightsRequestInFlightRef.current = false;
-      setIsLoadingInsights(false);
       return;
     }
 
@@ -1155,6 +1219,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     if (insightsRateLimited()) {
       console.log('[ListenView] 🛑 Rate limited - skipping this insights fetch entirely');
+      postMeetingRetryMinimumMs = insightsRateLimitRemainingMs() + 250;
       return;
     }
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
@@ -1218,12 +1283,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.log('[ListenView] 🔍 Attempts used:', attempt + 1);
       
       if (fetchedInsights) {
-        if (!isDownstreamResultApplicable(canonicalTranscriptStateRef.current, requestIdentity)) {
+        const transcriptIdentityMatches = isDownstreamResultApplicable(
+          canonicalTranscriptStateRef.current,
+          requestIdentity,
+        );
+        const resultStillCurrent = isInsightsResultCurrent(
+          derivedSessionState,
+          sessionStateRef.current,
+          transcriptIdentityMatches,
+        );
+        if (!resultStillCurrent) {
           console.warn('[ListenView] Discarding obsolete insights result:', {
+            requestedSessionState: derivedSessionState,
+            currentSessionState: sessionStateRef.current,
             requested: requestIdentity,
             current: currentDownstreamIdentity(canonicalTranscriptStateRef.current),
           });
-          if (sessionStateRef.current === 'during') liveInsightsRefreshQueuedRef.current = true;
+          if (sessionStateRef.current === 'during') {
+            liveInsightsRefreshQueuedRef.current = true;
+          }
           return;
         }
         console.log('[ListenView] ✅ Glass insights received!');
@@ -1272,7 +1350,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         lastInsightsProspectRevisionRef.current = requestIdentity.prospectRevision;
         lastInsightsFetchAtRef.current = Date.now();
         if (derivedSessionState === 'after') {
-          afterInsightsFrozenRef.current = true;
+          postMeetingSucceeded = true;
         }
       } else {
         console.warn('[ListenView] ⚠️ No insights returned from backend');
@@ -1288,13 +1366,46 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
       setInsightsRefreshPending(false);
+    }
     } finally {
-      if (derivedSessionState === 'after' && !afterInsightsFrozenRef.current) {
-        afterInsightsRequestPendingRef.current = false;
-      }
       insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
-      if (liveInsightsRefreshQueuedRef.current) {
+
+      if (latestSessionState === 'after') {
+        afterInsightsRequestPendingRef.current = false;
+        if (postMeetingSucceeded) {
+          afterInsightsFrozenRef.current = true;
+          postMeetingRetryAttemptRef.current = 0;
+          cancelPostMeetingRetry();
+        }
+      }
+
+      const queuedIntent = queuedInsightsFetchIntentRef.current;
+      queuedInsightsFetchIntentRef.current = null;
+      if (queuedIntent) {
+        liveInsightsRefreshQueuedRef.current = false;
+        if (queuedIntent.sessionState === 'after') {
+          cancelPostMeetingRetry();
+          afterInsightsRequestPendingRef.current = false;
+        }
+        setTimeout(() => {
+          void fetchInsightsNowRef.current({
+            fullReplace: queuedIntent.fullReplace,
+            manual: queuedIntent.manual,
+            requestedSessionState: queuedIntent.sessionState,
+          });
+        }, 0);
+      } else if (
+        latestSessionState === 'after' &&
+        !postMeetingSucceeded &&
+        sessionStateRef.current === 'after' &&
+        transcriptsRef.current.length > 0
+      ) {
+        const rateLimitDelay = insightsRateLimited()
+          ? insightsRateLimitRemainingMs() + 250
+          : 0;
+        schedulePostMeetingInsightsFetch(Math.max(postMeetingRetryMinimumMs, rateLimitDelay));
+      } else if (liveInsightsRefreshQueuedRef.current) {
         liveInsightsRefreshQueuedRef.current = false;
         setTimeout(() => {
           if (
@@ -1313,6 +1424,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   useEffect(() => {
     fetchInsightsNowRef.current = fetchInsightsNow;
   }, [fetchInsightsNow]);
+
+  useEffect(() => {
+    if (
+      sessionState !== 'after' ||
+      transcripts.length === 0 ||
+      afterInsightsFrozenRef.current ||
+      afterInsightsRequestPendingRef.current
+    ) return;
+
+    schedulePostMeetingInsightsFetch();
+  }, [sessionState, transcripts.length]);
 
   useEffect(() => {
     if (!demoModeEnabledRef.current || sessionState !== 'during' || viewMode !== 'insights') return;
@@ -1409,19 +1531,42 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setViewMode('insights');
     };
 
+    const onRegenerateInsights = () => {
+      if (viewModeRef.current !== 'insights') return;
+      const requestedSessionState = sessionStateRef.current;
+      if (requestedSessionState === 'before') return;
+
+      if (requestedSessionState === 'after') {
+        cancelPostMeetingRetry();
+        postMeetingRetryAttemptRef.current = 0;
+        afterInsightsFrozenRef.current = false;
+        afterInsightsRequestPendingRef.current = false;
+        if (insightsHistoryRef.current.length === 0) setIsLoadingInsights(true);
+      }
+      setInsightsRefreshPending(true);
+      void fetchInsightsNowRef.current({
+        fullReplace: requestedSessionState === 'after',
+        manual: true,
+        requestedSessionState,
+      });
+    };
+
     eviaIpc.on('shortcut:next-step', onShortcutNextStep);
     eviaIpc.on('shortcut:previous-response', onShortcutPreviousResponse);
     eviaIpc.on('shortcut:next-response', onShortcutNextResponse);
+    eviaIpc.on('shortcut:regenerate-insights', onRegenerateInsights);
 
     return () => {
       if (typeof eviaIpc.off === 'function') {
         eviaIpc.off('shortcut:next-step', onShortcutNextStep);
         eviaIpc.off('shortcut:previous-response', onShortcutPreviousResponse);
         eviaIpc.off('shortcut:next-response', onShortcutNextResponse);
+        eviaIpc.off('shortcut:regenerate-insights', onRegenerateInsights);
       } else if (typeof eviaIpc.removeListener === 'function') {
         eviaIpc.removeListener('shortcut:next-step', onShortcutNextStep);
         eviaIpc.removeListener('shortcut:previous-response', onShortcutPreviousResponse);
         eviaIpc.removeListener('shortcut:next-response', onShortcutNextResponse);
+        eviaIpc.removeListener('shortcut:regenerate-insights', onRegenerateInsights);
       }
     };
   }, []);
@@ -1888,6 +2033,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   dangerouslySetInnerHTML={{ __html: renderMarkdownInline(i18n.t('overlay.listen.whatToSayNext')) }}
                 />
               </div>
+            </div>
+          ) : sessionState === 'after' && visibleTranscripts.length > 0 ? (
+            <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>
+              {i18n.t('overlay.listen.generatingInsights')}
             </div>
           ) : (
             <div className="insights-placeholder" style={{ padding: '8px 16px', textAlign: 'center', fontStyle: 'italic', background: 'transparent', color: 'rgba(255, 255, 255, 0.7)' }}>

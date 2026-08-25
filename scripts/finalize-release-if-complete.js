@@ -12,6 +12,9 @@ const requiredAssets = [
   'taylos.dmg',
   'taylos.zip',
   'latest-mac.yml',
+  'Taylos.exe',
+  'Taylos.exe.blockmap',
+  'latest.yml',
 ]
 
 function gh(args, capture = false) {
@@ -42,7 +45,7 @@ if (missing.length > 0) {
 
 if (release.isDraft) {
   gh(['release', 'edit', tag, '--repo', repository, '--draft=false'])
-  console.log(`[release-gate] Published complete macOS release ${tag}`)
+  console.log(`[release-gate] Published complete desktop release ${tag}`)
 } else {
   console.log(`[release-gate] ${tag} is complete and already published`)
 }

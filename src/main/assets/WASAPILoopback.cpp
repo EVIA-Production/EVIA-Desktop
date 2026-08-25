@@ -1,5 +1,5 @@
 // WASAPILoopback.cpp
-// Build: cl /O2 /EHsc /Fe:WASAPILoopback.exe WASAPILoopback.cpp ole32.lib uuid.lib avrt.lib
+// Build: cl /O2 /EHsc /Fe:WASAPILoopback.exe WASAPILoopback.cpp ole32.lib uuid.lib avrt.lib user32.lib
 // Emits raw s16le PCM to stdout in fixed 100ms frames (2400 samples @ 24 kHz = 4800 bytes)
 //
 // WINDOWS TRANSCRIPTION FIX (2024-11-28):

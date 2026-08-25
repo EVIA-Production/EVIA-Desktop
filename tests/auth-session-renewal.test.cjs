@@ -13,7 +13,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'src', ...p), 'utf8');
+const read = (...p) =>
+  fs.readFileSync(path.join(__dirname, '..', 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
 const main = read('main', 'main.ts');
 const preload = read('main', 'preload.ts');
 const entry = read('renderer', 'overlay', 'overlay-entry.tsx');

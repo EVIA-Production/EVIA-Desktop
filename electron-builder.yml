@@ -1,6 +1,11 @@
 appId: com.taylos.app
 productName: Taylos
 
+publish:
+  provider: github
+  owner: EVIA-Production
+  repo: EVIA-Desktop
+
 afterPack: ./scripts/afterPack.js
 afterSign: ./scripts/notarize.js
 # Custom URL scheme for deep linking (auth callback from web)
@@ -13,6 +18,7 @@ files:
   - dist/renderer/**
   - native/macos-liquid-glass/build/Release/taylos_liquid_glass.node
   - src/main/assets/**
+  - "!src/main/assets/WASAPILoopback.exe"
   - "!dist/win-unpacked/**"
   - "!dist/*.exe"
   - "!dist/*.dmg"
@@ -25,7 +31,6 @@ asarUnpack:
   # asar-patched fs working.
   - "src/main/assets/trayTemplate*.png"
   - "src/main/assets/SystemAudioDump"
-  - "src/main/assets/WASAPILoopback.exe"
   - "native/macos-liquid-glass/build/Release/taylos_liquid_glass.node"
 # Run afterPack script to sign SystemAudioDump with entitlements
 mac:
@@ -55,12 +60,26 @@ mac:
 win:
   target:
     - target: nsis
-      # portable removed for public releases - NSIS installer + auto-update is the clean path
+      arch:
+        - x64
+        - arm64
   icon: build/icon.ico
   artifactName: "Taylos.${ext}"
+  extraResources:
+    - from: "native/windows/build"
+      to: "windows-audio"
+      filter:
+        - "**/WASAPILoopback.exe"
+    - from: "native/windows-liquid-glass/prebuilds"
+      to: "native/windows-liquid-glass/prebuilds"
+      filter:
+        - "**/taylos_windows_glass.node"
   forceCodeSigning: true
   signAndEditExecutable: true
+  signExts:
+    - ".node"
   signtoolOptions:
+    sign: ./scripts/sign-windows-serial.js
     publisherName:
       - "Benedict Kroetz"
     certificateSha1: "DADDA45A4EB8CF72E6E9A85A86554D3DA1A811D6"
@@ -68,6 +87,8 @@ win:
       - sha256
 
 nsis:
+  buildUniversalInstaller: true
+  include: build/installer.nsh
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

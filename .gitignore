@@ -7,6 +7,9 @@ release/
 *.log
 native/mac/SystemAudioCapture/.build/
 native/macos-liquid-glass/build/
+native/windows-liquid-glass/build/
+native/windows-liquid-glass/prebuilds/
+native/windows/build/
 *.zip
 build/_reference/
 build/background.png

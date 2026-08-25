@@ -2,8 +2,13 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+if (process.platform === 'win32') {
+  require('./build-windows-glass')
+  process.exit(0)
+}
+
 if (process.platform !== 'darwin') {
-  console.log('[native-glass] Skipping AppKit bridge outside macOS')
+  console.log('[native-glass] Skipping native glass bridges on this platform')
   process.exit(0)
 }
 

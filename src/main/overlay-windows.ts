@@ -9,9 +9,13 @@ import { disposeTray, initTray, setTrayLanguage, syncTray } from './tray'
 import {
   applyWindowMaterial,
   getRequestedMaterialMode,
-  isMacPhysicalKeyPressed,
+  isPhysicalKeyPressed,
+  isPhysicalMouseButtonPressed,
+  isWindowsCharacterChordPressed,
   materialQuery,
   materialWindowOptions,
+  setWindowMaterialActive,
+  setWindowMaterialVisible,
   type MaterialMode,
   type MaterialSurface,
 } from './window-material'
@@ -57,6 +61,207 @@ type WindowVisibility = Partial<Record<FeatureName, boolean>>
 
 let headerWindow: BrowserWindow | null = null
 const childWindows: Map<FeatureName, BrowserWindow> = new Map()
+const composedFirstPaintReady = new WeakSet<BrowserWindow>()
+const composedDesiredOpacity = new WeakMap<BrowserWindow, number>()
+const composedPendingShow = new WeakMap<BrowserWindow, 'active' | 'inactive'>()
+const composedRevealGeneration = new WeakMap<BrowserWindow, number>()
+const composedRevealPending = new WeakSet<BrowserWindow>()
+const composedPendingRevealMode = new WeakMap<BrowserWindow, 'active' | 'inactive'>()
+const composedKeepAlive = new WeakSet<BrowserWindow>()
+const composedParked = new WeakSet<BrowserWindow>()
+const composedVisibilityObservers = new WeakMap<BrowserWindow, (shown: boolean) => void>()
+const WINDOWS_COMPOSITION_PARK_OPACITY = 1 / 255
+
+function isComposedWindowShown(win: BrowserWindow | null | undefined): win is BrowserWindow {
+  return !!win && !win.isDestroyed() && win.isVisible() && !composedParked.has(win)
+}
+
+function parkComposedWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  composedParked.add(win)
+  setWindowMaterialVisible(win, false)
+  win.setIgnoreMouseEvents(true)
+  win.setFocusable(false)
+  win.setHasShadow(false)
+  win.setOpacity(WINDOWS_COMPOSITION_PARK_OPACITY)
+  if (!win.isVisible()) win.showInactive()
+  composedVisibilityObservers.get(win)?.(false)
+}
+
+function hideComposedWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  composedRevealGeneration.set(win, (composedRevealGeneration.get(win) ?? 0) + 1)
+  composedRevealPending.delete(win)
+  composedPendingRevealMode.delete(win)
+  setWindowMaterialVisible(win, false)
+  if (process.platform === 'win32' && composedKeepAlive.has(win)) {
+    parkComposedWindow(win)
+    return
+  }
+  win.hide()
+  composedVisibilityObservers.get(win)?.(false)
+}
+
+function showComposedWindow(
+  win: BrowserWindow,
+  mode: 'active' | 'inactive' = 'active',
+): boolean {
+  if (win.isDestroyed()) return false
+  if (!composedFirstPaintReady.has(win)) {
+    composedPendingShow.set(win, mode)
+    return false
+  }
+
+  const show = (targetMode: 'active' | 'inactive') => {
+    if (targetMode === 'inactive') win.showInactive()
+    else win.show()
+  }
+
+  if (process.platform !== 'win32') {
+    setWindowMaterialVisible(win, true)
+    show(mode)
+    composedVisibilityObservers.get(win)?.(true)
+    return true
+  }
+
+  if (composedParked.has(win)) {
+    composedParked.delete(win)
+    win.setFocusable(true)
+    win.setIgnoreMouseEvents(false)
+    win.setHasShadow(true)
+    setWindowMaterialVisible(win, true)
+    win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+    show(mode)
+    composedVisibilityObservers.get(win)?.(true)
+    return true
+  }
+
+  if (composedRevealPending.has(win)) {
+    if (mode === 'active') composedPendingRevealMode.set(win, 'active')
+    return true
+  }
+
+  if (win.isVisible()) {
+    setWindowMaterialVisible(win, true)
+    win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+    show(mode)
+    composedVisibilityObservers.get(win)?.(true)
+    return true
+  }
+
+  // capturePage forces Chromium to produce a complete surface while the HWND
+  // remains physically hidden. Coalesce every request that arrives during the
+  // capture so no caller can expose either composition layer prematurely.
+  const generation = (composedRevealGeneration.get(win) ?? 0) + 1
+  composedRevealGeneration.set(win, generation)
+  composedRevealPending.add(win)
+  composedPendingRevealMode.set(win, mode)
+  setWindowMaterialVisible(win, false)
+  win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+  win.webContents.invalidate()
+  void win.webContents.capturePage().catch(() => undefined).then(() => {
+    if (
+      win.isDestroyed() ||
+      composedRevealGeneration.get(win) !== generation
+    ) return
+    const revealMode = composedPendingRevealMode.get(win) ?? mode
+    show(revealMode)
+    composedVisibilityObservers.get(win)?.(true)
+    if (revealMode === 'active') win.focus()
+    setTimeout(() => {
+      if (
+        win.isDestroyed() ||
+        !win.isVisible() ||
+        composedRevealGeneration.get(win) !== generation
+      ) return
+      composedRevealPending.delete(win)
+      composedPendingRevealMode.delete(win)
+      setWindowMaterialVisible(win, true)
+    }, 34)
+  })
+  return true
+}
+
+function setComposedWindowOpacity(win: BrowserWindow, opacity: number): void {
+  const normalized = Math.max(0, Math.min(1, opacity))
+  composedDesiredOpacity.set(win, normalized)
+  win.setOpacity(
+    composedParked.has(win)
+      ? WINDOWS_COMPOSITION_PARK_OPACITY
+      : composedFirstPaintReady.has(win)
+        ? normalized
+        : 0,
+  )
+}
+
+function armComposedFirstPaint(
+  win: BrowserWindow,
+  label: string,
+  keepComposedWhileHidden = false,
+): void {
+  if (keepComposedWhileHidden) composedKeepAlive.add(win)
+  composedDesiredOpacity.set(win, 1)
+  win.setOpacity(0)
+
+  let completed = false
+  const complete = () => {
+    if (completed || win.isDestroyed()) return
+    completed = true
+    composedFirstPaintReady.add(win)
+    const pendingShow = composedPendingShow.get(win)
+    if (pendingShow) {
+      composedPendingShow.delete(win)
+      showComposedWindow(win, pendingShow)
+    } else if (keepComposedWhileHidden && process.platform === 'win32') {
+      parkComposedWindow(win)
+    } else if (win.isVisible()) {
+      setWindowMaterialVisible(win, true)
+      win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+    }
+    console.log(`[overlay-windows] Composed first frame ready: ${label}`)
+  }
+
+  // `ready-to-show` can precede React's first composed shell on transparent
+  // Windows HWNDs. Wait for navigation plus two renderer frames so the native
+  // backdrop and the dark Chromium plane enter DWM in the same presentation.
+  win.webContents.once('did-finish-load', () => {
+    void win.webContents.executeJavaScript(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+      true,
+    ).then(complete, () => setTimeout(complete, 50))
+  })
+}
+
+const MIN_CONTENT_ZOOM = 0.7
+const MAX_CONTENT_ZOOM = 1.5
+const CONTENT_ZOOM_STEP = 0.1
+
+function configureContentZoomShortcuts(win: BrowserWindow): void {
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return
+
+    const key = input.key.toLowerCase()
+    const code = input.code
+    const zoomOut = key === '-' || code === 'Minus' || code === 'NumpadSubtract'
+    const zoomIn = key === '+' || key === '=' || code === 'Equal' || code === 'NumpadAdd'
+    const zoomReset = key === '0' || code === 'Digit0' || code === 'Numpad0'
+    if (!zoomOut && !zoomIn && !zoomReset) return
+
+    event.preventDefault()
+    if (zoomReset) {
+      win.webContents.setZoomFactor(1)
+      return
+    }
+
+    const current = win.webContents.getZoomFactor()
+    const delta = zoomIn ? CONTENT_ZOOM_STEP : -CONTENT_ZOOM_STEP
+    const next = Math.max(
+      MIN_CONTENT_ZOOM,
+      Math.min(MAX_CONTENT_ZOOM, Math.round((current + delta) * 10) / 10),
+    )
+    win.webContents.setZoomFactor(next)
+  })
+}
 
 // DYNAMIC WIDTH: Header automatically resizes to fit content (EviaBar.tsx:192-222)
 // - Measures content width using getBoundingClientRect() on mount + language change
@@ -76,8 +281,19 @@ const ANIM_DURATION = 0 // INSTANT show/hide
 let settingsHideTimer: NodeJS.Timeout | null = null
 let restoreChildWindowsOnHeaderRestore = false
 let isAppQuitting = false
+let windowGroupActive = false
+let windowGroupClickPoll: NodeJS.Timeout | null = null
+const windowGroupMouseButtonsDown = [false, false, false]
 let relayoutEpoch = 0
 const relayoutTimers = new Set<NodeJS.Timeout>()
+
+function applyGroupedWindowMaterial(
+  win: BrowserWindow,
+  surface: MaterialSurface,
+  mode: MaterialMode = getRequestedMaterialMode(surface),
+): void {
+  applyWindowMaterial(win, surface, mode, windowGroupActive)
+}
 
 // Note: All windows load overlay.html with ?view=X query params for React routing.
 // The 'html' field is kept for documentation but not used in loadFile() calls.
@@ -120,6 +336,7 @@ type PersistedState = {
   shortcutsBounds?: Electron.Rectangle
   visible?: WindowVisibility
   autoUpdate?: boolean  // User preference for automatic updates
+  openAtLogin?: boolean
   shortcuts?: ShortcutConfig  // User-customized keyboard shortcuts
   current_chat_id?: string | null
 }
@@ -175,9 +392,9 @@ function ensureHeaderWindowVisible(): BrowserWindow {
     headerWindow.restore()
   }
   if (process.platform === 'win32') {
-    headerWindow.show()
+    showComposedWindow(headerWindow)
   } else {
-    headerWindow.showInactive()
+    showComposedWindow(headerWindow, 'inactive')
   }
   headerWindow.moveTop()
   return headerWindow
@@ -187,7 +404,7 @@ function getVisibleChildWindowNames(): FeatureName[] {
   const visible: FeatureName[] = []
 
   for (const [name, win] of childWindows) {
-    if (win && !win.isDestroyed() && win.isVisible()) {
+    if (isComposedWindowShown(win)) {
       visible.push(name)
     }
   }
@@ -303,7 +520,10 @@ function getOrCreateHeaderWindow(): BrowserWindow {
     },
   })
 
-  applyWindowMaterial(headerWindow, 'overlay')
+  armComposedFirstPaint(headerWindow, 'header')
+  configureContentZoomShortcuts(headerWindow)
+
+  applyGroupedWindowMaterial(headerWindow, 'overlay')
 
   // headerWindow.webContents.openDevTools({ mode: 'detach' }); // Disabled for production testing
 
@@ -338,7 +558,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
           if (headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible()) {
             // Just move windows to top, don't toggle alwaysOnTop (causes flicker)
             for (const [_, win] of childWindows) {
-              if (win && !win.isDestroyed() && win.isVisible()) {
+              if (isComposedWindowShown(win)) {
                 win.moveTop();
               }
             }
@@ -352,6 +572,20 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.setIgnoreMouseEvents(false)
 
   void loadRendererView(headerWindow, 'overlay', 'overlay', 'header')
+
+  if (process.platform === 'win32') {
+    headerWindow.webContents.once('did-finish-load', () => {
+      setImmediate(() => {
+        if (!headerWindow || headerWindow.isDestroyed()) return
+        // Hidden Windows Composition targets cold-start independently from
+        // Chromium. Build every product surface now so the user's first click
+        // only reveals an already-rendered window instead of exposing layers.
+        for (const name of ['ask', 'listen', 'settings', 'shortcuts'] as FeatureName[]) {
+          createChildWindow(name)
+        }
+      })
+    })
+  }
 
   headerWindow.on('moved', () => {
     const b = headerWindow?.getBounds()
@@ -406,7 +640,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   headerWindow.once('ready-to-show', () => {
     console.log('[overlay-windows] 🎯 HEADER ready-to-show event - calling showInactive()')
-    headerWindow?.showInactive()
+    if (headerWindow) showComposedWindow(headerWindow, 'inactive')
     console.log('[overlay-windows] ✅ HEADER showInactive() called - header should be visible now')
 
     // DIAGNOSTIC: Log header state after showing
@@ -561,10 +795,14 @@ function createChildWindow(name: FeatureName): BrowserWindow {
       webSecurity: true,
       enableWebSQL: false,
       devTools: true, // Glass parity: Always enable DevTools, will only open in dev mode
+      backgroundThrottling: false,
     },
   })
 
-  applyWindowMaterial(win, surface)
+  armComposedFirstPaint(win, name, true)
+  configureContentZoomShortcuts(win)
+
+  applyGroupedWindowMaterial(win, surface)
 
   // Glass parity: Hide window buttons on macOS (windowManager.js:467)
   if (process.platform === 'darwin') {
@@ -624,9 +862,21 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   // Cmd+Option+I (macOS) or F12 (all platforms)
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
+      const reloadChord = input.key.toLowerCase() === 'r' && !input.alt && !input.shift && (
+        (process.platform === 'darwin' && input.meta && !input.control) ||
+        (process.platform !== 'darwin' && input.control && !input.meta)
+      )
+      if (name === 'listen' && reloadChord) {
+        // Reloading this renderer destroys its in-memory transcript. In the
+        // Insights view, the familiar refresh chord means regenerate instead.
+        event.preventDefault()
+        win.webContents.send('shortcut:regenerate-insights')
+        return
+      }
+
       if (input.key === 'Escape' && (name === 'settings' || name === 'shortcuts')) {
         event.preventDefault()
-        win.hide()
+        hideComposedWindow(win)
         overlayVisibility.hide(name)
         saveState({ visible: overlayVisibility.getDesiredVisibility() })
         return
@@ -674,13 +924,22 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     let cursorPollInterval: NodeJS.Timeout | null = null
     let wasInsideSettings = false
 
-    // Start polling when window is shown
-    win.on('show', () => {
+    const stopCursorPoll = () => {
+      console.log('[overlay-windows] Settings hidden - stopping cursor poll')
+      if (cursorPollInterval) {
+        clearInterval(cursorPollInterval)
+        cursorPollInterval = null
+      }
+      wasInsideSettings = false
+    }
+
+    const startCursorPoll = () => {
       console.log('[overlay-windows] Settings shown - starting cursor poll')
+      if (cursorPollInterval) clearInterval(cursorPollInterval)
       wasInsideSettings = false
 
       cursorPollInterval = setInterval(() => {
-        if (win.isDestroyed() || !win.isVisible()) {
+        if (!isComposedWindowShown(win)) {
           if (cursorPollInterval) clearInterval(cursorPollInterval)
           return
         }
@@ -716,7 +975,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
             // CRITICAL FIX: Only hide settings window, DON'T call updateWindows
             // FIX (2025-12-10): Don't change alwaysOnTop before hiding - just hide
             if (win && !win.isDestroyed()) {
-              win.hide()
+              hideComposedWindow(win)
             }
             overlayVisibility.hide('settings')
             saveState({ visible: overlayVisibility.getDesiredVisibility() })
@@ -724,25 +983,21 @@ function createChildWindow(name: FeatureName): BrowserWindow {
           }, 200)
         }
       }, 50) // Poll every 50ms (20fps, smooth enough)
-    })
+    }
 
-    // Stop polling when window is hidden
-    win.on('hide', () => {
-      console.log('[overlay-windows] Settings hidden - stopping cursor poll')
-      if (cursorPollInterval) {
-        clearInterval(cursorPollInterval)
-        cursorPollInterval = null
-      }
-      wasInsideSettings = false
+    composedVisibilityObservers.set(win, (shown) => {
+      if (shown) startCursorPoll()
+      else stopCursorPoll()
     })
+    win.once('closed', () => composedVisibilityObservers.delete(win))
 
     // A context-menu-style popover dismisses when interaction moves elsewhere.
     // Hover-only opening does not focus the popover, so this only fires after a
     // user has interacted with it and subsequently clicks outside.
     win.on('blur', () => {
       setTimeout(() => {
-        if (win.isDestroyed() || !win.isVisible() || win.webContents.isDevToolsFocused()) return
-        win.hide()
+        if (!isComposedWindowShown(win) || win.webContents.isDevToolsFocused()) return
+        hideComposedWindow(win)
         overlayVisibility.hide('settings')
         saveState({ visible: overlayVisibility.getDesiredVisibility() })
       }, 0)
@@ -817,7 +1072,7 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
 }
 
 function windowHasUsableScreenPresence(win: BrowserWindow | null | undefined): boolean {
-  if (!win || win.isDestroyed() || !win.isVisible()) return false
+  if (!isComposedWindowShown(win)) return false
   try {
     const bounds = win.getBounds()
     const display = screen.getDisplayMatching(bounds)
@@ -838,13 +1093,13 @@ function windowHasUsableScreenPresence(win: BrowserWindow | null | undefined): b
 
 function isWindowActuallyVisible(name: FeatureName): boolean {
   const win = childWindows.get(name)
-  return !!(win && !win.isDestroyed() && win.isVisible())
+  return isComposedWindowShown(win)
 }
 
 function revealWindow(win: BrowserWindow, name: FeatureName) {
   const clampedBounds = clampBounds(win.getBounds())
   win.setBounds(clampedBounds)
-  win.setOpacity(1)
+  setComposedWindowOpacity(win, 1)
   win.setIgnoreMouseEvents(false)
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
@@ -852,12 +1107,12 @@ function revealWindow(win: BrowserWindow, name: FeatureName) {
   // showInactive is less brittle on macOS transparent panels, but Ask still
   // needs focus so the input can receive keystrokes immediately.
   if (name === 'ask') {
-    win.show()
+    showComposedWindow(win)
     win.focus()
   } else {
-    win.showInactive()
-    if (!win.isVisible()) {
-      win.show()
+    showComposedWindow(win, 'inactive')
+    if (!isComposedWindowShown(win)) {
+      showComposedWindow(win)
     }
   }
 }
@@ -888,7 +1143,7 @@ function ensureWindowShown(name: FeatureName) {
   if (header && !header.isDestroyed()) {
     header.setAlwaysOnTop(true, 'screen-saver')
     if (!header.isVisible()) {
-      header.show()
+      showComposedWindow(header)
     }
   }
 
@@ -897,11 +1152,11 @@ function ensureWindowShown(name: FeatureName) {
     if (askWin && !askWin.isDestroyed()) {
       const bounds = clampBounds(askWin.getBounds())
       askWin.setBounds(bounds)
-      askWin.setOpacity(1)
+      setComposedWindowOpacity(askWin, 1)
       askWin.setIgnoreMouseEvents(false)
       askWin.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
       askWin.setAlwaysOnTop(true, 'screen-saver')
-      askWin.show()
+      showComposedWindow(askWin)
       askWin.focus()
       askWin.webContents.focus()
       askWin.moveTop()
@@ -911,8 +1166,8 @@ function ensureWindowShown(name: FeatureName) {
         if (askWin.isDestroyed()) return
         if (!overlayVisibility.isDesired('ask')) return
         askWin.setBounds(clampBounds(askWin.getBounds()))
-        askWin.setOpacity(1)
-        askWin.show()
+        setComposedWindowOpacity(askWin, 1)
+        showComposedWindow(askWin)
         askWin.focus()
         askWin.webContents.focus()
         askWin.moveTop()
@@ -1094,18 +1349,18 @@ function layoutChildWindows(visible: WindowVisibility) {
 function animateShow(win: BrowserWindow) {
   // FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant show)
   if (ANIM_DURATION === 0) {
-    win.setOpacity(1)
-    win.showInactive()
+    setComposedWindowOpacity(win, 1)
+    showComposedWindow(win, 'inactive')
     return
   }
 
   try {
-    win.setOpacity(0)
-    win.showInactive()
+    setComposedWindowOpacity(win, 0)
+    showComposedWindow(win, 'inactive')
     const [x, y] = win.getPosition()
     const targetY = y
     if (!safeSetWindowPosition(win, x, y - 10, 'animateShow.init')) {
-      win.showInactive()
+      showComposedWindow(win, 'inactive')
       return
     }
     const start = Date.now()
@@ -1116,13 +1371,13 @@ function animateShow(win: BrowserWindow) {
       if (!safeSetWindowPosition(win, x, targetY - Math.round((1 - eased) * 10), 'animateShow.tick')) {
         return
       }
-      win.setOpacity(eased)
+      setComposedWindowOpacity(win, eased)
       if (progress < 1) setTimeout(tick, 16)
     }
     tick()
   } catch (error) {
     console.warn('[overlay] animateShow failed', error)
-    win.showInactive()
+    showComposedWindow(win, 'inactive')
   }
 }
 
@@ -1149,8 +1404,8 @@ function safeSetWindowPosition(
 function animateHide(win: BrowserWindow, onComplete: () => void) {
   // FIX BUG-1: Skip animation entirely if ANIM_DURATION = 0 (instant hide)
   if (ANIM_DURATION === 0) {
-    win.hide()
-    win.setOpacity(1)
+    hideComposedWindow(win)
+    setComposedWindowOpacity(win, 1)
     onComplete()
     return
   }
@@ -1162,15 +1417,15 @@ function animateHide(win: BrowserWindow, onComplete: () => void) {
     if (win.isDestroyed()) return
     const progress = Math.min(1, (Date.now() - start) / ANIM_DURATION)
     const eased = 1 - Math.pow(progress, 3)
-    win.setOpacity(startOpacity * eased)
+    setComposedWindowOpacity(win, startOpacity * eased)
     if (!safeSetWindowPosition(win, x, y - Math.round(progress * 10), 'animateHide.tick')) {
       return
     }
     if (progress < 1) {
       setTimeout(tick, 16)
     } else {
-      win.hide()
-      win.setOpacity(1)
+      hideComposedWindow(win)
+      setComposedWindowOpacity(win, 1)
       safeSetWindowPosition(win, x, y, 'animateHide.done')
       onComplete()
     }
@@ -1205,11 +1460,11 @@ function raiseOverlayStack(focusWindow?: BrowserWindow | null) {
     const listenWin = childWindows.get('listen')
     const askWin = childWindows.get('ask')
 
-    if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
+    if (isComposedWindowShown(listenWin)) {
       listenWin.setAlwaysOnTop(true, 'screen-saver')
       listenWin.moveTop()
     }
-    if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
+    if (isComposedWindowShown(askWin)) {
       askWin.setAlwaysOnTop(true, 'screen-saver')
       askWin.moveTop()
     }
@@ -1255,11 +1510,11 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
   // Glass parity: ALL windows are interactive (windowManager.js:287)
   // Only disable mouse events when specifically needed (not by default)
 
-  const isCurrentlyVisible = win.isVisible()
+  const isCurrentlyVisible = isComposedWindowShown(win)
 
   if (shouldShow) {
     win.setIgnoreMouseEvents(false) // All windows interactive
-    win.setOpacity(1)
+    setComposedWindowOpacity(win, 1)
     // Glass parity: Settings shows INSTANTLY with no animation (windowManager.js:302)
     // Other windows animate ONLY if not already visible
     if (name === 'settings') {
@@ -1268,11 +1523,11 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
     } else if (name === 'ask') {
       const clampedBounds = clampBounds(win.getBounds())
       win.setBounds(clampedBounds)
-      win.setOpacity(1)
+      setComposedWindowOpacity(win, 1)
       win.setIgnoreMouseEvents(false)
       win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
       win.setAlwaysOnTop(true, 'screen-saver')
-      win.show()
+      showComposedWindow(win)
       win.focus()
       win.webContents.focus()
       win.moveTop()
@@ -1286,11 +1541,13 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
     if (name === 'settings') {
       // Settings hides instantly too
       win.setAlwaysOnTop(false, 'screen-saver')
-      win.hide()
+      hideComposedWindow(win)
     } else {
       if (isCurrentlyVisible) {
         animateHide(win, () => {
-          win.setIgnoreMouseEvents(false)
+          if (process.platform === 'win32' && composedKeepAlive.has(win)) {
+            win.setIgnoreMouseEvents(true)
+          }
         })
       }
       // If already hidden, don't animate
@@ -1321,7 +1578,7 @@ function updateWindows(visibility: WindowVisibility) {
     const win = childWindows.get(name)
     if (!win || win.isDestroyed()) continue
     ensureVisibility(name, shown)
-    try { win.setAlwaysOnTop(true, 'screen-saver') } catch { }
+    try { win.setAlwaysOnTop(shown, 'screen-saver') } catch { }
     try { win.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS) } catch { }
     // Glass parity: Enforce z-order by moving to top in sorted order
     if (shown) {
@@ -1412,7 +1669,7 @@ function handleHeaderToggle() {
       visibleChildWindows.forEach((name) => {
         const win = childWindows.get(name)
         if (win && !win.isDestroyed()) {
-          win.hide()
+          hideComposedWindow(win)
         }
       })
 
@@ -1438,12 +1695,12 @@ function handleHeaderToggle() {
     for (const name of getVisibleChildWindowNames()) {
       const win = childWindows.get(name)
       if (win && !win.isDestroyed()) {
-        win.hide()
+        hideComposedWindow(win)
       }
     }
 
     // Hide header last
-    headerWindow?.hide()
+    if (headerWindow) hideComposedWindow(headerWindow)
   } else {
     // Show header
     overlayVisibility.showUi()
@@ -1584,6 +1841,17 @@ const MAC_ARROW_KEY_CODES: Record<HeaderMovementDirection, number> = {
   up: 126,
 };
 
+const WINDOWS_ARROW_KEY_CODES: Record<HeaderMovementDirection, number> = {
+  left: 0x25,
+  up: 0x26,
+  right: 0x27,
+  down: 0x28,
+};
+
+const PHYSICAL_ARROW_KEY_CODES = process.platform === 'win32'
+  ? WINDOWS_ARROW_KEY_CODES
+  : MAC_ARROW_KEY_CODES;
+
 // A single 80px cubic ease-out over 300ms starts at 800px/s
 // (distance * 3 / duration). Holding begins at that same velocity, then ramps
 // beyond repeated taps so it is the unambiguously faster distance control.
@@ -1718,7 +1986,7 @@ function startContinuousHeaderMovement(
     const now = Date.now();
     const physicalKeyPressed = heldMovementKeyCode === null
       ? null
-      : isMacPhysicalKeyPressed(heldMovementKeyCode);
+      : isPhysicalKeyPressed(heldMovementKeyCode);
     if (heldMovementDirection !== direction) {
       stopContinuousHeaderMovement();
       return;
@@ -1779,7 +2047,7 @@ function signalHeaderMovement(
   direction: HeaderMovementDirection,
   dx: number,
   dy: number,
-  macKeyCode?: number,
+  physicalKeyCode?: number,
 ) {
   // A new command takes ownership immediately from any residual glide.
   cancelContinuousHeaderRelease();
@@ -1799,25 +2067,27 @@ function signalHeaderMovement(
   }
 
   heldMovementLastSignalAt = now;
-  heldMovementKeyCode = process.platform === 'darwin' && macKeyCode !== undefined
-    ? macKeyCode
-    : null;
+  heldMovementKeyCode = physicalKeyCode ?? null;
   if (heldMovementTimer) return;
 
   nudgeHeader(dx, dy);
 
-  // Electron globalShortcut callbacks are not a reliable macOS key-repeat
-  // signal. Poll the physical arrow state after the normal tap animation has
+  // Electron globalShortcut callbacks are not a reliable cross-platform
+  // key-repeat signal. Poll the physical arrow state after the normal tap animation has
   // started; a tap remains one 80px nudge, while a held key transitions into
   // continuous frame-based movement and stops on physical release.
-  if (heldMovementKeyCode !== null && isMacPhysicalKeyPressed(heldMovementKeyCode) !== null) {
+  if (
+    physicalKeyCode !== undefined &&
+    heldMovementKeyCode !== null &&
+    isPhysicalKeyPressed(heldMovementKeyCode) !== null
+  ) {
     if (heldMovementProbeTimer) clearTimeout(heldMovementProbeTimer);
     heldMovementProbeTimer = setTimeout(() => {
       heldMovementProbeTimer = null;
       const stillHeld = (
         heldMovementDirection === direction &&
-        heldMovementKeyCode === macKeyCode &&
-        isMacPhysicalKeyPressed(macKeyCode) === true
+        heldMovementKeyCode === physicalKeyCode &&
+        isPhysicalKeyPressed(physicalKeyCode) === true
       );
       if (stillHeld) {
         startContinuousHeaderMovement(direction, dx, dy);
@@ -1909,6 +2179,62 @@ function loadShortcuts(): ShortcutConfig {
 // still emits will-quit when a duplicate or isolated harness exits before
 // ready, but calling globalShortcut from that path throws synchronously.
 let ownsRegisteredShortcuts = false
+let windowsLayoutShortcutTimer: NodeJS.Timeout | null = null
+let windowsLayoutShortcutLatched = false
+
+function stopWindowsLayoutShortcutPoll(): void {
+  if (windowsLayoutShortcutTimer) clearInterval(windowsLayoutShortcutTimer)
+  windowsLayoutShortcutTimer = null
+  windowsLayoutShortcutLatched = false
+}
+
+function readOpenAtLogin(): boolean {
+  if (!app.isPackaged || (process.platform !== 'win32' && process.platform !== 'darwin')) {
+    return false
+  }
+  const settings = app.getLoginItemSettings()
+  return process.platform === 'win32'
+    ? settings.openAtLogin && settings.executableWillLaunchAtLogin !== false
+    : settings.openAtLogin
+}
+
+function writeOpenAtLogin(enabled: boolean): boolean {
+  if (!app.isPackaged || (process.platform !== 'win32' && process.platform !== 'darwin')) {
+    return false
+  }
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    ...(process.platform === 'win32' ? { enabled, name: 'Taylos' } : {}),
+  })
+  return readOpenAtLogin()
+}
+
+function initializeOpenAtLoginDefault(): void {
+  if (!app.isPackaged || persistedState.openAtLogin !== undefined) return
+  try {
+    const enabled = writeOpenAtLogin(true)
+    saveState({ openAtLogin: enabled })
+    console.log('[Settings] Launch at login default initialized:', enabled)
+  } catch (error) {
+    console.warn('[Settings] Failed to initialize launch at login:', error)
+  }
+}
+
+function startWindowsLayoutShortcutPoll(handler: () => void): void {
+  stopWindowsLayoutShortcutPoll()
+  if (process.platform !== 'win32') return
+
+  windowsLayoutShortcutTimer = setInterval(() => {
+    const pressed = isWindowsCharacterChordPressed('#')
+    if (pressed === null) {
+      stopWindowsLayoutShortcutPoll()
+      console.warn('[Shortcuts] Native keyboard-layout polling is unavailable; Ctrl+# alias disabled')
+      return
+    }
+    if (pressed && !windowsLayoutShortcutLatched) handler()
+    windowsLayoutShortcutLatched = pressed
+  }, 25)
+}
 
 // GLASS PARITY: Dynamic shortcut registration (Glass: shortcutsService.js:138-287)
 function registerShortcuts() {
@@ -1923,20 +2249,21 @@ function registerShortcuts() {
     disposeTray()
     ownsRegisteredShortcuts = false
   }
+  stopWindowsLayoutShortcutPoll()
 
   const shortcuts = loadShortcuts()
   const step = 80 // Glass parity: windowLayoutManager.js:243 uses 80px
 
   // All callbacks must be paramless - Electron doesn't pass event objects to globalShortcut handlers
-  const nudgeUp = () => signalHeaderMovement('up', 0, -step, MAC_ARROW_KEY_CODES.up)
-  const nudgeDown = () => signalHeaderMovement('down', 0, step, MAC_ARROW_KEY_CODES.down)
-  const nudgeLeft = () => signalHeaderMovement('left', -step, 0, MAC_ARROW_KEY_CODES.left)
-  const nudgeRight = () => signalHeaderMovement('right', step, 0, MAC_ARROW_KEY_CODES.right)
+  const nudgeUp = () => signalHeaderMovement('up', 0, -step, PHYSICAL_ARROW_KEY_CODES.up)
+  const nudgeDown = () => signalHeaderMovement('down', 0, step, PHYSICAL_ARROW_KEY_CODES.down)
+  const nudgeLeft = () => signalHeaderMovement('left', -step, 0, PHYSICAL_ARROW_KEY_CODES.left)
+  const nudgeRight = () => signalHeaderMovement('right', step, 0, PHYSICAL_ARROW_KEY_CODES.right)
   const findActiveSuggestionWindow = (): BrowserWindow | null => {
     const askWin = childWindows.get('ask')
     const listenWin = childWindows.get('listen')
     const candidates = [askWin, listenWin].filter(
-      (win): win is BrowserWindow => !!win && !win.isDestroyed() && win.isVisible()
+      (win): win is BrowserWindow => isComposedWindowShown(win)
     )
 
     if (candidates.length === 0) return null
@@ -1945,7 +2272,7 @@ function registerShortcuts() {
     if (focused) return focused
 
     // Prefer Ask when both are visible but neither is focused.
-    return askWin && !askWin.isDestroyed() && askWin.isVisible() ? askWin : candidates[0]
+    return isComposedWindowShown(askWin) ? askWin : candidates[0]
   }
 
   const relayShortcutToSuggestionWindow = (channel: 'shortcut:next-step' | 'shortcut:previous-response' | 'shortcut:next-response') => {
@@ -2067,6 +2394,7 @@ function registerShortcuts() {
   registerSafe(shortcuts.toggleVisibility, handleHeaderToggle)
   if (process.platform === 'win32' && shortcuts.toggleVisibility === defaultShortcuts.toggleVisibility) {
     registerSafe('Ctrl+\\', handleHeaderToggle)
+    startWindowsLayoutShortcutPoll(handleHeaderToggle)
   }
   registerSafe(shortcuts.nextStep, handleNextStepShortcut)
 
@@ -2083,6 +2411,7 @@ function registerShortcuts() {
 }
 
 function unregisterShortcuts() {
+  stopWindowsLayoutShortcutPoll()
   // A duplicate process can enter will-quit before Electron reaches ready.
   // Electron also reports not-ready again while final shutdown is underway.
   // In both cases it owns shortcut cleanup and globalShortcut must not be used.
@@ -2102,10 +2431,94 @@ function unregisterShortcuts() {
   }
 }
 
+function synchronizeWindowGroupFocus(active: boolean, force = false): void {
+  if (!force && windowGroupActive === active) return
+  windowGroupActive = active
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue
+    setWindowMaterialActive(win, active)
+    win.webContents.send('window-group-active-changed', active)
+  }
+}
+
+function pointIsInsideRoundedWindow(
+  point: Electron.Point,
+  win: BrowserWindow,
+): boolean {
+  if (!isComposedWindowShown(win) || win.getOpacity() <= 0.01) return false
+  const bounds = win.getBounds()
+  const localX = point.x - bounds.x
+  const localY = point.y - bounds.y
+  if (localX < 0 || localY < 0 || localX > bounds.width || localY > bounds.height) return false
+
+  const childName = Array.from(childWindows.entries())
+    .find(([, child]) => child === win)?.[0]
+  const radius = win === headerWindow
+    ? 24
+    : childName === 'settings'
+      ? 14
+      : childName === 'shortcuts' || childName === 'listen' || childName === 'ask'
+        ? 18
+        : 22
+  const nearestCornerX = localX < radius
+    ? radius
+    : localX > bounds.width - radius
+      ? bounds.width - radius
+      : localX
+  const nearestCornerY = localY < radius
+    ? radius
+    : localY > bounds.height - radius
+      ? bounds.height - radius
+      : localY
+  const dx = localX - nearestCornerX
+  const dy = localY - nearestCornerY
+  return dx * dx + dy * dy <= radius * radius
+}
+
+function startWindowGroupClickPoll(): void {
+  if (windowGroupClickPoll) return
+  if (isPhysicalMouseButtonPressed(0) === null) {
+    console.warn('[overlay-windows] Physical mouse state unavailable; click focus latch cannot observe other apps')
+    return
+  }
+
+  windowGroupClickPoll = setInterval(() => {
+    const current = windowGroupMouseButtonsDown.map((_, button) =>
+      isPhysicalMouseButtonPressed(button) === true,
+    )
+    if (current.some((pressed, button) => pressed && !windowGroupMouseButtonsDown[button])) {
+      const point = screen.getCursorScreenPoint()
+      const clickedTaylos = BrowserWindow.getAllWindows().some((win) =>
+        pointIsInsideRoundedWindow(point, win),
+      )
+      synchronizeWindowGroupFocus(clickedTaylos, true)
+    }
+    for (let button = 0; button < current.length; button += 1) {
+      windowGroupMouseButtonsDown[button] = current[button]
+    }
+  }, 8)
+  windowGroupClickPoll.unref()
+}
+
+function stopWindowGroupClickPoll(): void {
+  if (!windowGroupClickPoll) return
+  clearInterval(windowGroupClickPoll)
+  windowGroupClickPoll = null
+}
+
+ipcMain.handle('window-group:get-active', () => ({ active: windowGroupActive }))
+
+ipcMain.on('window-group:clicked', (event) => {
+  const clickedWindow = BrowserWindow.fromWebContents(event.sender)
+  if (!clickedWindow || clickedWindow.isDestroyed()) return
+  synchronizeWindowGroupFocus(true, true)
+})
+
 app.on('browser-window-focus', () => {
   headerWindow?.setAlwaysOnTop(true, 'screen-saver')
   for (const win of childWindows.values()) {
-    win.setAlwaysOnTop(true, 'screen-saver')
+    if (isComposedWindowShown(win)) win.setAlwaysOnTop(true, 'screen-saver')
   }
 
   // Repair an OS-hidden child only when it is still desired and the whole UI
@@ -2145,7 +2558,7 @@ function startAlwaysOnTopRefresh() {
 
       // Move visible child windows to front first
       for (const [_, win] of childWindows) {
-        if (win && !win.isDestroyed() && win.isVisible()) {
+        if (isComposedWindowShown(win)) {
           win.moveTop();
         }
       }
@@ -2176,12 +2589,15 @@ app.on('ready', () => {
     app.dock.show()
   }
 
+  initializeOpenAtLoginDefault()
+
   // The material comparison is an isolated approval harness, not a product
   // session. It must never capture or replace the user's production shortcuts.
   if (process.env.TAYLOS_GLASS_COMPARE !== '1') registerShortcuts()
 
   // WINDOWS FIX (2025-12-05): Start the always-on-top refresh interval on Windows
   startAlwaysOnTopRefresh();
+  startWindowGroupClickPoll()
 
   // DON'T create header automatically - let header-controller manage the flow
   // header-controller.initialize() will show Welcome → Permissions → Header
@@ -2195,6 +2611,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   unregisterShortcuts()
   stopAlwaysOnTopRefresh() // WINDOWS FIX: Stop the always-on-top refresh
+  stopWindowGroupClickPoll()
 })
 
 ipcMain.handle('win:show', (_event, name: FeatureName) => {
@@ -2383,7 +2800,7 @@ ipcMain.handle('adjust-window-height', (_event, { winName, height }: { winName: 
     layoutChildWindows(vis)
 
     // Preserve z-order after re-layout.
-    if (win.isVisible()) {
+    if (isComposedWindowShown(win)) {
       try { win.moveTop() } catch {}
     }
     const header = getHeaderWindow()
@@ -2455,6 +2872,28 @@ ipcMain.handle('settings:set-auto-update', (_event, enabled: boolean) => {
   console.log('[Settings] 💾 set-auto-update:', enabled);
   saveState({ autoUpdate: enabled });
   return { ok: true };
+})
+
+ipcMain.handle('settings:get-open-at-login', () => {
+  try {
+    const enabled = readOpenAtLogin()
+    if (app.isPackaged && persistedState.openAtLogin !== enabled) {
+      saveState({ openAtLogin: enabled })
+    }
+    return { ok: true, enabled, supported: app.isPackaged }
+  } catch (error) {
+    return { ok: false, enabled: false, supported: app.isPackaged, error: String(error) }
+  }
+})
+
+ipcMain.handle('settings:set-open-at-login', (_event, requested: boolean) => {
+  try {
+    const enabled = writeOpenAtLogin(Boolean(requested))
+    saveState({ openAtLogin: enabled })
+    return { ok: enabled === Boolean(requested), enabled, supported: app.isPackaged }
+  } catch (error) {
+    return { ok: false, enabled: readOpenAtLogin(), supported: app.isPackaged, error: String(error) }
+  }
 })
 
 // GLASS PARITY: Shortcuts persistence (Glass: shortcutsService.js:77-121)
@@ -2742,7 +3181,7 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
     const actualBounds = settingsWin.getBounds()
     console.log('[overlay-windows] 📍 Settings bounds BEFORE show:', actualBounds)
 
-    settingsWin.show()
+    showComposedWindow(settingsWin)
     settingsWin.moveTop()
     settingsWin.setAlwaysOnTop(true, 'screen-saver')
 
@@ -2765,7 +3204,7 @@ ipcMain.on('show-settings-window', (_event, buttonX?: number) => {
 ipcMain.on('hide-settings-window', () => {
   // Check if cursor is currently inside settings window before hiding
   const settingsWin = childWindows.get('settings')
-  if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) {
+  if (isComposedWindowShown(settingsWin)) {
     const cursorPos = screen.getCursorScreenPoint()
     const bounds = settingsWin.getBounds()
     const isInside = cursorPos.x >= bounds.x &&
@@ -2788,7 +3227,7 @@ ipcMain.on('hide-settings-window', () => {
     // FIX (2025-12-10): Only hide settings, don't change alwaysOnTop
     const settingsWin = childWindows.get('settings')
     if (settingsWin && !settingsWin.isDestroyed()) {
-      settingsWin.hide()
+      hideComposedWindow(settingsWin)
     }
     overlayVisibility.hide('settings')
     saveState({ visible: overlayVisibility.getDesiredVisibility() })
@@ -2923,7 +3362,7 @@ let contentProtectionEnabled = false
 export function onlyHeaderBarIsVisible(): boolean {
   if (overlayVisibility.getDesiredNames().length > 0) return false
   for (const [, win] of childWindows) {
-    if (win && !win.isDestroyed() && win.isVisible()) return false
+    if (isComposedWindowShown(win)) return false
   }
   return true
 }
@@ -2976,16 +3415,19 @@ function createWelcomeBrowserWindow(mode: MaterialMode): BrowserWindow {
     },
   })
 
+  armComposedFirstPaint(win, `welcome:${mode}`)
+  configureContentZoomShortcuts(win)
+
   // Register visibility handlers before navigation. A warm dev server can
   // finish loading before callers have a chance to subscribe to ready-to-show.
   win.once('ready-to-show', () => {
-    if (!win.isDestroyed()) win.show()
+    if (!win.isDestroyed()) showComposedWindow(win)
   })
   win.webContents.once('did-finish-load', () => {
-    if (!win.isDestroyed()) win.show()
+    if (!win.isDestroyed()) showComposedWindow(win)
   })
 
-  applyWindowMaterial(win, 'modal', mode)
+  applyGroupedWindowMaterial(win, 'modal', mode)
   if (process.platform === 'darwin') win.setWindowButtonVisibility(false)
   void loadRendererView(win, 'welcome', 'modal', undefined, mode)
   return win
@@ -2997,7 +3439,7 @@ export function createWelcomeMaterialComparison(): BrowserWindow[] {
 
   welcomeComparisonWindows = welcomeComparisonWindows.filter(win => !win.isDestroyed())
   if (welcomeComparisonWindows.length === 2) {
-    welcomeComparisonWindows.forEach(win => win.show())
+    welcomeComparisonWindows.forEach(win => showComposedWindow(win))
     return welcomeComparisonWindows
   }
 
@@ -3029,7 +3471,7 @@ export function createWelcomeMaterialComparison(): BrowserWindow[] {
 
 export function createWelcomeWindow(): BrowserWindow {
   if (welcomeWindow && !welcomeWindow.isDestroyed()) {
-    welcomeWindow.show()
+    showComposedWindow(welcomeWindow)
     return welcomeWindow
   }
 
@@ -3123,7 +3565,7 @@ let permissionWindow: BrowserWindow | null = null
 
 export function createPermissionWindow(): BrowserWindow {
   if (permissionWindow && !permissionWindow.isDestroyed()) {
-    permissionWindow.show()
+    showComposedWindow(permissionWindow)
     return permissionWindow
   }
 
@@ -3153,6 +3595,9 @@ export function createPermissionWindow(): BrowserWindow {
     },
   })
 
+  armComposedFirstPaint(permissionWindow, 'permission')
+  configureContentZoomShortcuts(permissionWindow)
+
   // Hide window buttons on macOS
   if (process.platform === 'darwin') {
     permissionWindow.setWindowButtonVisibility(false)
@@ -3166,7 +3611,7 @@ export function createPermissionWindow(): BrowserWindow {
 
   permissionWindow.setVisibleOnAllWorkspaces(true, WORKSPACES_OPTS)
   permissionWindow.setAlwaysOnTop(true, 'screen-saver')
-  applyWindowMaterial(permissionWindow, 'modal')
+  applyGroupedWindowMaterial(permissionWindow, 'modal')
 
   // Load permission.html (separate entry point from overlay.html)
   const permissionQuery = new URLSearchParams(materialQuery('modal'))
@@ -3255,7 +3700,7 @@ export function createPermissionWindow(): BrowserWindow {
   })
 
   permissionWindow.once('ready-to-show', () => {
-    permissionWindow?.show()
+    if (permissionWindow) showComposedWindow(permissionWindow)
     console.log('[overlay-windows] ✅ Permission window shown')
   })
 
@@ -3280,7 +3725,7 @@ let subscriptionWindow: BrowserWindow | null = null
 
 export function createSubscriptionWindow(): BrowserWindow {
   if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
-    subscriptionWindow.show()
+    showComposedWindow(subscriptionWindow)
     return subscriptionWindow
   }
 
@@ -3302,18 +3747,21 @@ export function createSubscriptionWindow(): BrowserWindow {
     },
   })
 
+  armComposedFirstPaint(subscriptionWindow, 'subscription')
+  configureContentZoomShortcuts(subscriptionWindow)
+
   // Center on primary display
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
   const x = Math.round((screenWidth - 400) / 2)
   const y = Math.round((screenHeight - 340) / 2)
   subscriptionWindow.setPosition(x, y)
-  applyWindowMaterial(subscriptionWindow, 'modal')
+  applyGroupedWindowMaterial(subscriptionWindow, 'modal')
 
   // Load subscription required view
   void loadRendererView(subscriptionWindow, 'overlay', 'modal', 'subscription')
   subscriptionWindow.once('ready-to-show', () => {
-    subscriptionWindow?.show()
+    if (subscriptionWindow) showComposedWindow(subscriptionWindow)
   })
 
   subscriptionWindow.on('closed', () => {

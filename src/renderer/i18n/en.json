@@ -23,6 +23,7 @@
       "waitingForProspectSpeech": "Waiting for prospect speech...",
       "presetContextUnavailable": "This conversation's preset context is unavailable. Listening continues, but preset-based AI is paused.",
       "noInsightsYet": "No insights yet",
+      "generatingInsights": "Generating insights...",
       "noContext": "No context yet",
       "whatToSayNext": "💬 What should I say next?",
       "whatToSayNextPrompt": "What should I say next?",

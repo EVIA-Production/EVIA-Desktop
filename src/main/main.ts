@@ -218,6 +218,33 @@ function finalizeAppliedUpdateOnLaunch() {
 }
 
 // Windows platform warning + normal boot
+function scheduleWindowsInstallerBootstrapCleanup() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+
+  const bootstrapDir = path.join(app.getPath('temp'), 'taylos-installer-bootstrap');
+  const bootstrapPath = path.join(bootstrapDir, 'Taylos-Setup.exe');
+  const retryDelaysMs = [2_000, 5_000, 10_000, 20_000];
+
+  const cleanup = async (attempt: number): Promise<void> => {
+    try {
+      await fs.promises.unlink(bootstrapPath);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT' && attempt < retryDelaysMs.length) {
+        setTimeout(() => void cleanup(attempt + 1), retryDelaysMs[attempt]);
+        return;
+      }
+    }
+
+    try {
+      await fs.promises.rmdir(bootstrapDir);
+    } catch {
+      // The directory is fixed and bounded; leave it if another install owns it.
+    }
+  };
+
+  setTimeout(() => void cleanup(0), retryDelaysMs[0]);
+}
+
 async function boot() {
   // Set AppUserModelId for Windows taskbar - must be before whenReady
   if (process.platform === 'win32') {
@@ -225,6 +252,7 @@ async function boot() {
   }
   
   await app.whenReady();
+  scheduleWindowsInstallerBootstrapCleanup();
 
   // The material comparison is an isolated visual harness. It must run before
   // updater, bridge, capture, auth, and subscription services so it can coexist
@@ -329,6 +357,8 @@ function registerAutoUpdater() {
   // exactly that bandwidth. Downloads now start only when the rep is idle.
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.allowDowngrade = false;
 
   /** Nothing open but the header bar, and no capture in any state. */
   const safeToInterrupt = (): boolean => {

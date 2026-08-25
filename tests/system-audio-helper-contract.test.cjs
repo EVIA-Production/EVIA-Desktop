@@ -25,7 +25,7 @@ test('macOS release build regenerates the system-audio helper', () => {
   assert.match(packageJson.scripts['build:native:audio'], /build-system-audio-helper\.js/)
 })
 
-test('macOS releases remain drafts until every Mac updater asset exists', () => {
+test('desktop releases remain drafts until both updater asset sets exist', () => {
   const macWorkflow = read('.github/workflows/release-desktop.yml')
   const releaseGate = read('scripts/finalize-release-if-complete.js')
 
@@ -35,10 +35,12 @@ test('macOS releases remain drafts until every Mac updater asset exists', () => 
     'taylos.dmg',
     'taylos.zip',
     'latest-mac.yml',
+    'Taylos.exe',
+    'Taylos.exe.blockmap',
+    'latest.yml',
   ]) {
     assert.match(releaseGate, new RegExp(asset.replaceAll('.', '\\.')))
   }
-  assert.doesNotMatch(releaseGate, /Taylos\.exe/)
 })
 
 test('system-audio helper source and Electron share a typed protocol', () => {

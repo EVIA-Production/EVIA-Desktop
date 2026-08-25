@@ -17,14 +17,17 @@ const mainSource = read('src/main/main.ts');
 const bridgeSource = read('src/main/desktop-bridge.ts');
 const overlayWindowsSource = read('src/main/overlay-windows.ts');
 const overlayEntrySource = read('src/renderer/overlay/overlay-entry.tsx');
+const windowGroupFocusSource = read('src/renderer/overlay/window-group-focus.ts');
 const rendererConfigSource = read('src/renderer/config/config.ts');
 const subscriptionSource = read('src/main/subscription-service.ts');
 const preloadSource = read('src/main/preload.ts');
 const settingsSource = read('src/renderer/overlay/SettingsView.tsx');
+const insightsServiceSource = read('src/renderer/services/insightsService.ts');
 const shortcutsSource = read('src/renderer/overlay/ShortcutsView.tsx');
 const liquidGlassSource = read('src/renderer/overlay/liquid-glass.css');
 const overlayGlassSource = read('src/renderer/overlay/overlay-glass.css');
 const nativeGlassSource = read('native/macos-liquid-glass/src/taylos_liquid_glass.mm');
+const nativeWindowsGlassSource = read('native/windows-liquid-glass/src/taylos_windows_glass.cpp');
 const germanTranslations = JSON.parse(read('src/renderer/i18n/de.json'));
 const englishTranslations = JSON.parse(read('src/renderer/i18n/en.json'));
 
@@ -222,7 +225,7 @@ test('held movement accelerates continuously and eases out on release', () => {
   assert.match(overlayWindowsSource, /function startContinuousHeaderMovement/);
   assert.match(overlayWindowsSource, /function animateContinuousHeaderRelease/);
   assert.match(overlayWindowsSource, /function cancelContinuousHeaderRelease/);
-  assert.match(overlayWindowsSource, /isMacPhysicalKeyPressed\(heldMovementKeyCode\)/);
+  assert.match(overlayWindowsSource, /isPhysicalKeyPressed\(heldMovementKeyCode\)/);
   assert.match(overlayWindowsSource, /physicalKeyPressed === false/);
   assert.match(overlayWindowsSource, /stopContinuousHeaderMovement\(true, true\)/);
   assert.match(overlayWindowsSource, /velocityX \* durationSeconds \/ 3/);
@@ -232,17 +235,73 @@ test('held movement accelerates continuously and eases out on release', () => {
   assert.match(overlayWindowsSource, /HELD_MOVEMENT_MAX_PX_PER_SECOND = 1800/);
   assert.match(overlayWindowsSource, /HELD_MOVEMENT_RAMP_MS = 1200/);
   assert.match(nativeGlassSource, /CGEventSourceKeyState/);
+  assert.match(nativeWindowsGlassSource, /GetAsyncKeyState/);
+  assert.match(nativeWindowsGlassSource, /VkKeyScanExW/);
   assert.match(nativeGlassSource, /exports\.Set\("isKeyPressed"/);
   assert.match(overlayWindowsSource, /const clamped = clampBounds\(requested\)/);
   assert.match(overlayWindowsSource, /if \(atEdge\)/);
   assert.match(
     overlayWindowsSource,
-    /signalHeaderMovement\('left', -step, 0, MAC_ARROW_KEY_CODES\.left\)/,
+    /signalHeaderMovement\('left', -step, 0, PHYSICAL_ARROW_KEY_CODES\.left\)/,
   );
   assert.match(
     overlayWindowsSource,
-    /signalHeaderMovement\('right', step, 0, MAC_ARROW_KEY_CODES\.right\)/,
+    /signalHeaderMovement\('right', step, 0, PHYSICAL_ARROW_KEY_CODES\.right\)/,
   );
+});
+
+test('Windows layout-aware visibility and symmetric content zoom shortcuts are installed', () => {
+  assert.match(overlayWindowsSource, /isWindowsCharacterChordPressed\('#'\)/);
+  assert.match(overlayWindowsSource, /startWindowsLayoutShortcutPoll\(handleHeaderToggle\)/);
+  assert.match(overlayWindowsSource, /code === 'NumpadSubtract'/);
+  assert.match(overlayWindowsSource, /code === 'NumpadAdd'/);
+  assert.match(overlayWindowsSource, /win\.webContents\.setZoomFactor\(1\)/);
+  assert.match(nativeWindowsGlassSource, /exports\.Set\("isCharacterChordPressed"/);
+});
+
+test('transparent windows reveal only after renderer composition is complete', () => {
+  assert.match(overlayWindowsSource, /const composedPendingShow = new WeakMap/);
+  assert.match(overlayWindowsSource, /const composedRevealGeneration = new WeakMap/);
+  assert.match(overlayWindowsSource, /const composedRevealPending = new WeakSet/);
+  assert.match(overlayWindowsSource, /const composedPendingRevealMode = new WeakMap/);
+  assert.match(overlayWindowsSource, /did-finish-load[\s\S]*requestAnimationFrame[\s\S]*requestAnimationFrame/);
+  assert.match(overlayWindowsSource, /setWindowMaterialVisible\(win, false\)/);
+  assert.match(overlayWindowsSource, /const composedKeepAlive = new WeakSet/);
+  assert.match(overlayWindowsSource, /const composedParked = new WeakSet/);
+  assert.match(overlayWindowsSource, /WINDOWS_COMPOSITION_PARK_OPACITY = 1 \/ 255/);
+  assert.match(overlayWindowsSource, /parkComposedWindow[\s\S]*setIgnoreMouseEvents\(true\)[\s\S]*setFocusable\(false\)[\s\S]*showInactive\(\)/);
+  assert.match(overlayWindowsSource, /composedParked\.delete\(win\)[\s\S]*setFocusable\(true\)[\s\S]*setIgnoreMouseEvents\(false\)[\s\S]*setWindowMaterialVisible\(win, true\)/);
+  assert.match(overlayWindowsSource, /function isComposedWindowShown[\s\S]*!composedParked\.has\(win\)/);
+  assert.match(overlayWindowsSource, /const composedVisibilityObservers = new WeakMap/);
+  assert.match(overlayWindowsSource, /composedVisibilityObservers\.set\(win, \(shown\)/);
+  assert.match(overlayWindowsSource, /webContents\.invalidate\(\)[\s\S]*webContents\.capturePage\(\)[\s\S]*show\(revealMode\)[\s\S]*setWindowMaterialVisible\(win, true\)/);
+  assert.doesNotMatch(overlayWindowsSource, /win\.setOpacity\(0\.01\)/);
+  assert.match(overlayWindowsSource, /\['ask', 'listen', 'settings', 'shortcuts'\][\s\S]*createChildWindow\(name\)/);
+  assert.doesNotMatch(
+    overlayWindowsSource,
+    /win\.once\('ready-to-show', complete\)/,
+  );
+  assert.match(nativeWindowsGlassSource, /DWMWA_TRANSITIONS_FORCEDISABLED/);
+});
+
+test('all Taylos surfaces share one application-level focus state', () => {
+  assert.match(overlayWindowsSource, /ipcMain\.on\('window-group:clicked'/);
+  assert.match(overlayWindowsSource, /synchronizeWindowGroupFocus\(true, true\)/);
+  assert.match(overlayWindowsSource, /isPhysicalMouseButtonPressed\(button\)/);
+  assert.match(overlayWindowsSource, /screen\.getCursorScreenPoint\(\)/);
+  assert.match(overlayWindowsSource, /pointIsInsideRoundedWindow/);
+  assert.match(overlayWindowsSource, /synchronizeWindowGroupFocus\(clickedTaylos, true\)/);
+  assert.doesNotMatch(overlayWindowsSource, /app\.on\('browser-window-blur'/);
+  assert.doesNotMatch(overlayWindowsSource, /BrowserWindow\.getFocusedWindow\(\)/);
+  assert.match(nativeWindowsGlassSource, /GetAsyncKeyState\(virtual_key\)/);
+  assert.match(nativeGlassSource, /CGEventSourceButtonState/);
+  assert.match(overlayWindowsSource, /window-group-active-changed/);
+  assert.match(windowGroupFocusSource, /addEventListener\('pointerdown'/);
+  assert.match(windowGroupFocusSource, /ipc\?\.send\('window-group:clicked'\)/);
+  assert.doesNotMatch(windowGroupFocusSource, /document\.hasFocus\(\)/);
+  assert.match(windowGroupFocusSource, /ipc\?\.on\('window-group-active-changed'/);
+  assert.match(windowGroupFocusSource, /window-group:get-active/);
+  assert.match(overlayEntrySource, /bindWindowGroupFocus\(\)/);
 });
 
 test('Done never waits for backend archival before closing the local session', () => {
@@ -321,6 +380,22 @@ test('stub insights are rejected and live refreshes replace atomically', () => {
   assert.doesNotMatch(listenSource, /Waiting for fresher transcript data\.\.\./);
   assert.doesNotMatch(listenSource, /derivedSessionState !== 'after' && isStubInsightPayload/);
   assert.doesNotMatch(listenSource, /Post-meeting insights accepted without stub rejection/);
+});
+
+test('post-meeting insights supersede live work and can be regenerated without reload', () => {
+  assert.match(listenSource, /queuedInsightsFetchIntentRef/);
+  assert.match(listenSource, /mergeInsightsFetchIntent/);
+  assert.match(listenSource, /isInsightsResultCurrent\(/);
+  assert.match(listenSource, /requestedSessionState: 'after'/);
+  assert.match(listenSource, /shortcut:regenerate-insights/);
+  assert.match(listenSource, /afterInsightsFrozenRef\.current = false/);
+  assert.match(listenSource, /postMeetingRetryDelayMs/);
+  assert.match(listenSource, /insightsRateLimitRemainingMs\(\) \+ 250/);
+  assert.match(listenSource, /sessionState === 'after' && visibleTranscripts\.length > 0/);
+  assert.match(overlayWindowsSource, /name === 'listen' && reloadChord/);
+  assert.match(overlayWindowsSource, /win\.webContents\.send\('shortcut:regenerate-insights'\)/);
+  assert.match(insightsServiceSource, /const normalizedSessionState = sessionState/);
+  assert.doesNotMatch(insightsServiceSource, /\? data\.session_state\s*:\s*sessionState/);
 });
 
 test('Ask requests carry an end-to-end request trace', () => {

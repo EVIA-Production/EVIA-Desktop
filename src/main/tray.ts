@@ -67,6 +67,48 @@ function trayIconPath(): string {
   return existsSync(unpacked) ? unpacked : inAsar
 }
 
+function createWindowsContrastIcon(source: Electron.NativeImage): Electron.NativeImage {
+  const { width, height } = source.getSize()
+  const input = source.toBitmap()
+  if (width <= 0 || height <= 0 || input.length !== width * height * 4) return source
+
+  const output = Buffer.alloc(input.length)
+  const alphaAt = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return 0
+    return input[(y * width + x) * 4 + 3]
+  }
+
+  // Windows does not honor macOS template-image inversion. First dilate the
+  // source alpha by one physical pixel to form a black contour, then draw the
+  // original silhouette in white. The result remains visible on both light and
+  // dark taskbars without changing the established Taylos glyph.
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      let outlineAlpha = 0
+      for (let oy = -1; oy <= 1; oy += 1) {
+        for (let ox = -1; ox <= 1; ox += 1) {
+          outlineAlpha = Math.max(outlineAlpha, alphaAt(x + ox, y + oy))
+        }
+      }
+      output[offset] = 0
+      output[offset + 1] = 0
+      output[offset + 2] = 0
+      output[offset + 3] = outlineAlpha
+
+      const sourceAlpha = input[offset + 3]
+      if (sourceAlpha > 0) {
+        output[offset] = 255
+        output[offset + 1] = 255
+        output[offset + 2] = 255
+        output[offset + 3] = sourceAlpha
+      }
+    }
+  }
+
+  return nativeImage.createFromBitmap(output, { width, height, scaleFactor: 1 })
+}
+
 export function setTrayLanguage(next: string | null | undefined): void {
   const normalized: TrayLanguage = String(next || '').toLowerCase().startsWith('de') ? 'de' : 'en'
   if (normalized === language) return
@@ -81,7 +123,7 @@ export function initTray(onRestore: () => void): void {
 
 function createTray(): void {
   if (tray && !tray.isDestroyed()) return
-  const image = nativeImage.createFromPath(trayIconPath())
+  let image = nativeImage.createFromPath(trayIconPath())
   if (image.isEmpty()) {
     // Loud, because this is a recovery path: if it is missing in a packaged
     // build, the hotkey is once again the only way back and the user has no
@@ -89,7 +131,11 @@ function createTray(): void {
     console.error('[tray] ❌ icon missing at', trayIconPath(), '- no menu-bar restore available')
     return
   }
-  image.setTemplateImage(true)
+  if (process.platform === 'darwin') {
+    image.setTemplateImage(true)
+  } else if (process.platform === 'win32') {
+    image = createWindowsContrastIcon(image)
+  }
   tray = new Tray(image)
   tray.setToolTip(TOOLTIP[currentLanguage()])
   // No context menu on purpose. The icon has exactly one job, and a menu would

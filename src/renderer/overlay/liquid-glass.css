@@ -1,8 +1,8 @@
 /*
  * Taylos material layer.
  *
- * Native mode deliberately leaves the center translucent so NSGlassEffectView
- * remains the source of backdrop sampling and movement-dependent refraction.
+ * Native mode deliberately leaves the center translucent so AppKit on macOS or
+ * Windows Composition remains the source of live backdrop sampling.
  * Custom mode uses Electron vibrancy plus this calibrated optical shell; it
  * never captures the desktop and therefore never needs Screen Recording access.
  */
@@ -28,6 +28,7 @@
      transcript window it is supposed to match. */
   --taylos-glass-short-plane-native: rgba(7, 8, 10, 0.86);
   --taylos-glass-popover-plane: rgba(15, 16, 18, 0.54);
+  --taylos-glass-popover-plane-native: rgba(7, 8, 10, 0.48);
   --taylos-glass-inner-light: rgba(255, 255, 255, 0.085);
   --taylos-glass-inner-mid: rgba(255, 255, 255, 0.028);
   --taylos-glass-inner-dark: rgba(0, 0, 0, 0.32);
@@ -46,6 +47,33 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.25),
     inset -1px 0 0 rgba(0, 0, 0, 0.18);
   --taylos-glass-filter: blur(28px) saturate(1.16) brightness(0.76) contrast(1.035);
+}
+
+/* Windows Composition supplies the same live substrate but, unlike AppKit's
+   dark appearance, does not add an adaptive dark tint. Calibrate that tint in
+   the renderer so labels remain legible over white documents without giving
+   up the moving backdrop. */
+html[data-material='native'][data-platform='win32'] {
+  --taylos-glass-fill-native: rgba(7, 8, 10, 0.68);
+  --taylos-glass-content-plane-native: rgba(7, 8, 10, 0.72);
+  --taylos-glass-live-plane-native: rgba(7, 8, 10, 0.76);
+  --taylos-glass-short-plane-native: rgba(7, 8, 10, 0.84);
+  --taylos-glass-popover-plane-native: rgba(7, 8, 10, 0.76);
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.54);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.304);
+}
+
+/* Tahoe makes an unfocused glass window visually recede. Preserve foreground
+   contrast but lower the dark attenuation so the desktop is easier to read
+   through, matching the native host's 0.94 inactive material opacity. */
+html[data-material='native'][data-platform='win32'][data-window-active='false'] {
+  --taylos-glass-fill-native: rgba(7, 8, 10, 0.58);
+  --taylos-glass-content-plane-native: rgba(7, 8, 10, 0.62);
+  --taylos-glass-live-plane-native: rgba(7, 8, 10, 0.65);
+  --taylos-glass-short-plane-native: rgba(7, 8, 10, 0.74);
+  --taylos-glass-popover-plane-native: rgba(7, 8, 10, 0.64);
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.44);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.25);
 }
 
 html[data-surface='modal'] { --taylos-glass-radius: var(--taylos-glass-radius-modal); }
@@ -103,6 +131,63 @@ html[data-material='native'] :is(
   background: var(--taylos-glass-fill-native) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/*
+ * NSGlassEffectView draws a compound optical edge: a bright silhouette, a
+ * dark separation band, and a second inward refraction line. Windows has no
+ * equivalent system renderer, so reproduce those three one-pixel bands. The
+ * alternating luminance is intentional: the dark band survives white pages,
+ * while the two light bands survive black pages.
+ */
+html[data-material='native'][data-platform='win32'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+) {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.34),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.58),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.11) !important;
+}
+
+html[data-material='native'][data-platform='win32'][data-window-active='false'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+) {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.48),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.075) !important;
+}
+
+html[data-material='native'][data-platform='win32'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+)::after {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.13) 48%,
+    rgba(255, 255, 255, 0.28) 100%
+  ) !important;
 }
 
 /*
@@ -204,9 +289,9 @@ html[data-material='native'] :is(.assistant-container, .ask-container) {
 }
 
 /*
- * AppKit owns backdrop sampling and the optical rim in native mode. These
- * renderer layers provide only enough attenuation for text; they must not
- * paint a second bright perimeter over NSGlassEffectView.
+ * The native host owns backdrop sampling. These renderer layers provide only
+ * enough attenuation for text. AppKit also owns its optical rim; the Windows
+ * host is deliberately shadowless and uses the three-band renderer rim above.
  */
 html[data-material='native'][data-surface='overlay'] .evia-main-header {
   background: var(--taylos-glass-live-plane-native) !important;
@@ -280,12 +365,12 @@ html[data-material='native'][data-surface='popover'] .settings-container::before
     inset 0 -1px 0 rgba(0, 0, 0, 0.18) !important;
 }
 
-html[data-material='native'][data-surface='content'] :is(
+html[data-material='native'][data-platform='darwin'][data-surface='content'] :is(
   .assistant-container,
   .ask-container
 )::after,
-html[data-material='native'][data-surface='overlay'] .evia-main-header::after,
-html[data-material='native'][data-surface='popover'] .settings-container::after {
+html[data-material='native'][data-platform='darwin'][data-surface='overlay'] .evia-main-header::after,
+html[data-material='native'][data-platform='darwin'][data-surface='popover'] .settings-container::after {
   opacity: 0 !important;
 }
 
@@ -297,7 +382,79 @@ html[data-material='native'] :is(
   .settings-container,
   .shortcuts-container
 ) {
-  background: rgba(7, 8, 10, 0.48) !important;
+  background: var(--taylos-glass-popover-plane-native) !important;
+}
+
+/* Windows Composition supplies the live optical gradient. The Chromium plane
+   is deliberately lighter at the perimeter, then feathers into the calibrated
+   dark center, so the stronger edge sampling remains visible without reducing
+   contrast beneath labels and controls. An inset blurred pseudo-element tracks
+   every rounded surface more faithfully than a rectangular linear gradient. */
+html[data-material='native'][data-platform='win32'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+) {
+  background: var(--taylos-glass-edge-plane-native) !important;
+}
+
+html[data-material='native'][data-platform='win32'][data-surface='content'] :is(
+  .assistant-container,
+  .ask-container
+),
+html[data-material='native'][data-platform='win32'][data-surface='overlay'] .evia-main-header,
+html[data-material='native'][data-platform='win32'][data-surface='popover'] :is(
+  .settings-container,
+  .shortcuts-container
+) {
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.58);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.429);
+}
+
+html[data-material='native'][data-platform='win32'][data-surface='overlay'] .evia-main-header,
+html[data-material='native'][data-platform='win32'][data-surface='content'] .ask-container {
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.64);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.556);
+}
+
+html[data-material='native'][data-platform='win32'][data-window-active='false'][data-surface='content'] :is(
+  .assistant-container,
+  .ask-container
+),
+html[data-material='native'][data-platform='win32'][data-window-active='false'][data-surface='overlay'] .evia-main-header,
+html[data-material='native'][data-platform='win32'][data-window-active='false'][data-surface='popover'] :is(
+  .settings-container,
+  .shortcuts-container
+) {
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.48);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.327);
+}
+
+html[data-material='native'][data-platform='win32'][data-window-active='false'][data-surface='overlay'] .evia-main-header,
+html[data-material='native'][data-platform='win32'][data-window-active='false'][data-surface='content'] .ask-container {
+  --taylos-glass-edge-plane-native: rgba(7, 8, 10, 0.54);
+  --taylos-glass-center-shade-native: rgba(7, 8, 10, 0.435);
+}
+
+html[data-material='native'][data-platform='win32'] :is(
+  .welcome-container,
+  .evia-main-header,
+  .assistant-container,
+  .ask-container,
+  .settings-container,
+  .shortcuts-container,
+  .permission-container,
+  .subscription-required-container
+)::before {
+  inset: 6px !important;
+  border-radius: calc(var(--taylos-glass-radius) - 6px) !important;
+  background: var(--taylos-glass-center-shade-native) !important;
+  box-shadow: 0 0 4px 1px var(--taylos-glass-center-shade-native) !important;
 }
 
 /* Permission state belongs to its controls and icon, never to the glass shell. */

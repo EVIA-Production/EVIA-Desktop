@@ -15,6 +15,7 @@ import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
 import { BACKEND_URL } from '../config/config'
 import { initPostHog, identifyUser, trackError } from '../services/posthogService'
+import { bindWindowGroupFocus } from './window-group-focus'
 
 // Initialize PostHog analytics
 // Analytics must never be on the critical path to a recording.
@@ -174,13 +175,8 @@ const rootEl = document.getElementById('overlay-root')
 
 document.documentElement.dataset.material = params.get('material') || 'custom'
 document.documentElement.dataset.surface = params.get('surface') || 'content'
-document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false'
-window.addEventListener('focus', () => {
-  document.documentElement.dataset.windowActive = 'true'
-})
-window.addEventListener('blur', () => {
-  document.documentElement.dataset.windowActive = 'false'
-})
+document.documentElement.dataset.platform = params.get('platform') || 'unknown'
+bindWindowGroupFocus()
 
 // DEBUG: Entry point diagnostics (reduced to single line)
 console.log('[OverlayEntry] Rendering view:', view)

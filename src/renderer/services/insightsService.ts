@@ -13,6 +13,10 @@ export function insightsRateLimited(): boolean {
   return Date.now() < rateLimitedUntilMs;
 }
 
+export function insightsRateLimitRemainingMs(): number {
+  return Math.max(0, rateLimitedUntilMs - Date.now());
+}
+
 export interface InsightActionItem {
   label: string;
   icon?: string;
@@ -166,10 +170,9 @@ export async function fetchInsights({
   };
 
   const normalizeInsightPayload = (data: any): Insight => {
-    const normalizedSessionState =
-      data?.session_state === 'before' || data?.session_state === 'after' || data?.session_state === 'during'
-        ? data.session_state
-        : sessionState;
+    // The request phase is authoritative. A cached live response must never
+    // turn a post-meeting request back into during-call actions.
+    const normalizedSessionState = sessionState;
     const summary = Array.isArray(data?.prospect_info)
       ? data.prospect_info
       : Array.isArray(data?.summary)

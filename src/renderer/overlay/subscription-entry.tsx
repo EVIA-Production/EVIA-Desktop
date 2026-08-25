@@ -18,17 +18,13 @@ import ReactDOM from 'react-dom/client';
 import SubscriptionRequired from './SubscriptionRequired';
 import '../overlay/overlay-glass.css';
 import '../overlay/liquid-glass.css';
+import { bindWindowGroupFocus } from './window-group-focus';
 
 const params = new URLSearchParams(window.location.search);
 document.documentElement.dataset.material = params.get('material') || 'custom';
 document.documentElement.dataset.surface = params.get('surface') || 'modal';
-document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false';
-window.addEventListener('focus', () => {
-  document.documentElement.dataset.windowActive = 'true';
-});
-window.addEventListener('blur', () => {
-  document.documentElement.dataset.windowActive = 'false';
-});
+document.documentElement.dataset.platform = params.get('platform') || 'unknown';
+bindWindowGroupFocus();
 
 console.log('[SubscriptionEntry] 🔍 Subscription entry point executing');
 console.log('[SubscriptionEntry] 🔍 URL:', window.location.href);

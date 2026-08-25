@@ -25,6 +25,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-build-sign-and-publish:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/release-windows-self-hosted.yml
+    with:
+      upload: true
+
   build-and-publish:
     timeout-minutes: 360
     strategy:

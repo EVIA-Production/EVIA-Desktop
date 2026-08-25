@@ -129,6 +129,22 @@ Napi::Value IsKeyPressed(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(env, pressed);
 }
 
+Napi::Value IsMouseButtonPressed(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    return Napi::Boolean::New(env, false);
+  }
+  const int button = info[0].As<Napi::Number>().Int32Value();
+  if (button < 0 || button > 2) return Napi::Boolean::New(env, false);
+  return Napi::Boolean::New(
+    env,
+    CGEventSourceButtonState(
+      kCGEventSourceStateCombinedSessionState,
+      static_cast<CGMouseButton>(button)
+    )
+  );
+}
+
 Napi::Value Apply(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (!RuntimeSupportsGlass()) return Result(env, false, false, @"NSGlassEffectView is unavailable");
@@ -236,6 +252,7 @@ Napi::Value Detach(const Napi::CallbackInfo &info) {
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("isKeyPressed", Napi::Function::New(env, IsKeyPressed));
+  exports.Set("isMouseButtonPressed", Napi::Function::New(env, IsMouseButtonPressed));
   exports.Set("apply", Napi::Function::New(env, Apply));
   exports.Set("update", Napi::Function::New(env, Update));
   exports.Set("detach", Napi::Function::New(env, Detach));

@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const read = (...parts) =>
-  fs.readFileSync(path.join(__dirname, '..', 'src', ...parts), 'utf8');
+  fs.readFileSync(path.join(__dirname, '..', 'src', ...parts), 'utf8').replace(/\r\n/g, '\n');
 
 const stream = read('renderer', 'lib', 'evia-ask-stream.ts');
 const askView = read('renderer', 'overlay', 'AskView.tsx');

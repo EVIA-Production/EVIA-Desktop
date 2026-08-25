@@ -43,10 +43,10 @@ export class SystemAudioWindowsService {
   }
 
   private getHelperPath(): string {
-    const helper = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'main', 'assets', 'WASAPILoopback.exe')
-      : path.join(app.getAppPath(), 'src', 'main', 'assets', 'WASAPILoopback.exe');
-    return helper;
+    const architecture = process.arch === 'arm64' ? 'arm64' : 'x64';
+    return app.isPackaged
+      ? path.join(process.resourcesPath, 'windows-audio', architecture, 'WASAPILoopback.exe')
+      : path.join(app.getAppPath(), 'native', 'windows', 'build', architecture, 'WASAPILoopback.exe');
   }
 
   public async start(): Promise<{ success: boolean; error?: string }> {

@@ -1,9 +1,18 @@
 name: Windows Desktop Release (Self-hosted Signing)
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+    inputs:
+      upload:
+        description: "Upload Taylos.exe, Taylos.exe.blockmap, and latest.yml to the matching GitHub release"
+        required: false
+        default: false
+        type: boolean
+      ws_url:
+        description: "Production websocket URL baked into the renderer"
+        required: false
+        default: "wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"
+        type: string
   workflow_dispatch:
     inputs:
       upload:
@@ -14,7 +23,7 @@ on:
       ws_url:
         description: "Production websocket URL baked into the renderer"
         required: false
-        default: "wss://rt.taylos.ai"
+        default: "wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"
         type: string
 
 permissions:
@@ -25,35 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Fail loudly when the signing machine is off.
-  #
-  # Windows releases v1.0.76 through v1.0.80 all queued against an offline
-  # self-hosted runner and were silently cancelled hours later, so NO Windows
-  # build has ever been published - only .dmg/.zip appear in every release. A
-  # customer reported "auf Windows funktioniert nur die Browseransicht, die App
-  # nicht" and the cause was never visible to anyone, because a cancelled job
-  # looks like a job nobody ran.
-  #
-  # This runs on a hosted runner, so it always executes, and turns a silent
-  # multi-release outage into one named failure on the first tag.
-  preflight-runner-online:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Is the Windows signing runner online?
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          online=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runners" \
-            --jq '[.runners[] | select(.status=="online") | select(.labels[].name=="windows-signing")] | length')
-          echo "windows-signing runners online: ${online}"
-          if [ "${online}" -eq 0 ]; then
-            echo "::error title=Windows signing runner offline::No online self-hosted runner with the 'windows-signing' label. The Windows build cannot run and would queue until it is cancelled - which is how v1.0.76-v1.0.80 shipped with no Windows artifact. Start the runner service on the signing machine, then re-run this workflow."
-            exit 1
-          fi
-
   build-sign-and-optionally-upload:
-    needs: preflight-runner-online
     runs-on: [self-hosted, windows-signing]
     timeout-minutes: 120
     steps:
@@ -70,10 +51,10 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          VITE_BACKEND_WS_URL: ${{ inputs.ws_url || vars.VITE_BACKEND_WS_URL || 'wss://rt.taylos.ai' }}
+          VITE_BACKEND_WS_URL: ${{ inputs.ws_url || vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
         run: |
           $args = @()
-          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.upload }}" -eq "true") {
+          if ("${{ inputs.upload }}" -eq "true") {
             $args += "-Upload"
           }
           powershell -ExecutionPolicy Bypass -File .\scripts\release-windows-signed.ps1 @args
