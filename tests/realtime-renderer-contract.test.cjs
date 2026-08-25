@@ -16,6 +16,7 @@ const wsSource = read('src/renderer/services/websocketService.ts');
 const mainSource = read('src/main/main.ts');
 const bridgeSource = read('src/main/desktop-bridge.ts');
 const overlayWindowsSource = read('src/main/overlay-windows.ts');
+const composedFirstPaintSource = read('src/main/composed-first-paint.ts');
 const overlayEntrySource = read('src/renderer/overlay/overlay-entry.tsx');
 const windowGroupFocusSource = read('src/renderer/overlay/window-group-focus.ts');
 const rendererConfigSource = read('src/renderer/config/config.ts');
@@ -264,7 +265,17 @@ test('transparent windows reveal only after renderer composition is complete', (
   assert.match(overlayWindowsSource, /const composedRevealGeneration = new WeakMap/);
   assert.match(overlayWindowsSource, /const composedRevealPending = new WeakSet/);
   assert.match(overlayWindowsSource, /const composedPendingRevealMode = new WeakMap/);
-  assert.match(overlayWindowsSource, /did-finish-load[\s\S]*requestAnimationFrame[\s\S]*requestAnimationFrame/);
+  assert.match(composedFirstPaintSource, /platform !== 'win32'[\s\S]*complete\(\)/);
+  assert.match(composedFirstPaintSource, /did-finish-load[\s\S]*requestAnimationFrame[\s\S]*requestAnimationFrame/);
+  assert.match(composedFirstPaintSource, /WINDOWS_FIRST_PAINT_FAIL_OPEN_MS = 1_500/);
+  assert.match(composedFirstPaintSource, /failOpenTimer = setTimeoutFn\(\(\) => finish\('timeout'\), timeoutMs\)/);
+  assert.match(overlayWindowsSource, /process\.platform === 'win32' && !composedFirstPaintReady\.has\(win\)/);
+  assert.match(overlayWindowsSource, /process\.platform !== 'win32' \|\| composedFirstPaintReady\.has\(win\)/);
+  assert.match(
+    overlayWindowsSource,
+    /if \(process\.platform !== 'win32'\) \{[\s\S]*?win\.setOpacity\(composedDesiredOpacity\.get\(win\) \?\? 1\)[\s\S]*?show\(mode\)/,
+  );
+  assert.match(overlayWindowsSource, /console\.log\('  - opacity:', headerWindow\.getOpacity\(\)\)/);
   assert.match(overlayWindowsSource, /setWindowMaterialVisible\(win, false\)/);
   assert.match(overlayWindowsSource, /const composedKeepAlive = new WeakSet/);
   assert.match(overlayWindowsSource, /const composedParked = new WeakSet/);

@@ -5,6 +5,7 @@ import os from 'os'
 import { headerController } from './header-controller'
 import { promises as fsPromises } from 'node:fs'
 import { OverlayVisibilityController } from './overlay-visibility-controller'
+import { armComposedFirstPaintBarrier } from './composed-first-paint'
 import { disposeTray, initTray, setTrayLanguage, syncTray } from './tray'
 import {
   applyWindowMaterial,
@@ -107,7 +108,7 @@ function showComposedWindow(
   mode: 'active' | 'inactive' = 'active',
 ): boolean {
   if (win.isDestroyed()) return false
-  if (!composedFirstPaintReady.has(win)) {
+  if (process.platform === 'win32' && !composedFirstPaintReady.has(win)) {
     composedPendingShow.set(win, mode)
     return false
   }
@@ -119,6 +120,10 @@ function showComposedWindow(
 
   if (process.platform !== 'win32') {
     setWindowMaterialVisible(win, true)
+    // macOS has no independent DWM composition surface. Always restore the
+    // requested opacity at the show boundary so stale first-paint state can
+    // never leave an otherwise visible window fully transparent.
+    win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
     show(mode)
     composedVisibilityObservers.get(win)?.(true)
     return true
@@ -188,7 +193,7 @@ function setComposedWindowOpacity(win: BrowserWindow, opacity: number): void {
   win.setOpacity(
     composedParked.has(win)
       ? WINDOWS_COMPOSITION_PARK_OPACITY
-      : composedFirstPaintReady.has(win)
+      : process.platform !== 'win32' || composedFirstPaintReady.has(win)
         ? normalized
         : 0,
   )
@@ -199,9 +204,10 @@ function armComposedFirstPaint(
   label: string,
   keepComposedWhileHidden = false,
 ): void {
-  if (keepComposedWhileHidden) composedKeepAlive.add(win)
+  if (process.platform === 'win32' && keepComposedWhileHidden) {
+    composedKeepAlive.add(win)
+  }
   composedDesiredOpacity.set(win, 1)
-  win.setOpacity(0)
 
   let completed = false
   const complete = () => {
@@ -221,15 +227,7 @@ function armComposedFirstPaint(
     console.log(`[overlay-windows] Composed first frame ready: ${label}`)
   }
 
-  // `ready-to-show` can precede React's first composed shell on transparent
-  // Windows HWNDs. Wait for navigation plus two renderer frames so the native
-  // backdrop and the dark Chromium plane enter DWM in the same presentation.
-  win.webContents.once('did-finish-load', () => {
-    void win.webContents.executeJavaScript(
-      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
-      true,
-    ).then(complete, () => setTimeout(complete, 50))
-  })
+  armComposedFirstPaintBarrier(win, label, complete)
 }
 
 const MIN_CONTENT_ZOOM = 0.7
@@ -648,6 +646,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       if (headerWindow && !headerWindow.isDestroyed()) {
         console.log('[overlay-windows] 🔍 HEADER state check (100ms after show):')
         console.log('  - isVisible:', headerWindow.isVisible())
+        console.log('  - opacity:', headerWindow.getOpacity())
         console.log('  - isMinimized:', headerWindow.isMinimized())
         console.log('  - isFocused:', headerWindow.isFocused())
         const bounds = headerWindow.getBounds()
