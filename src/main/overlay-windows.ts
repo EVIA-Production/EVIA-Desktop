@@ -2491,7 +2491,7 @@ ipcMain.handle('shortcuts:reset', () => {
 })
 
 // GLASS PARITY FIX: Single-step IPC relay for insight click → Ask window (atomic send+submit)
-ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string; transcriptContext?: string; querySource?: string }) => {
+ipcMain.on('ask:send-and-submit', (_event, payload: string | { text: string; sessionState?: string; transcriptContext?: string; querySource?: string; preparedSuggestion?: string; preparedSuggestionId?: string; preparedFingerprint?: string; preparedClickedAtMs?: number }) => {
   // FIX: Handle both old format (string) and new format (object with sessionState)
   const promptText = typeof payload === 'string' ? payload : payload.text;
   console.log('[Main] 📨 ask:send-and-submit received:', promptText.substring(0, 50));

@@ -17,6 +17,15 @@ export interface InsightActionItem {
   label: string;
   icon?: string;
   prompt?: string;
+  // Present only on action #1, only during a live call, and only when the
+  // backend could produce an answer that passed every production validator.
+  // Absent is the normal case and means "use the interactive path".
+  prepared_suggestion?: string;
+  context_fingerprint?: string;
+  suggestion_id?: string;
+  generated_at?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface Insight {
@@ -43,6 +52,16 @@ interface FetchInsightsParams {
   token: string;
   baseUrl?: string;
   sessionState?: 'before' | 'during' | 'after'; // CRITICAL FIX: Add session state
+  /**
+   * The exact string `/ask` would receive if the seller clicked right now,
+   * from `transcriptContextFromState`. Sending it lets the backend prepare
+   * action #1's answer for THIS context. The server cannot rebuild this
+   * string from its own transcript rows - different speaker labels, no
+   * uncertainty markers - so without it no answer can be prepared.
+   */
+  transcript?: string;
+  /** Fire-and-forget report that a prepared answer was displayed. */
+  preparedClaimed?: { suggestion_id: string; fingerprint: string; click_to_visible_ms: number } | null;
 }
 
 const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
@@ -148,6 +167,8 @@ export async function fetchInsights({
   token,
   baseUrl,
   sessionState = 'during',
+  transcript,
+  preparedClaimed,
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || BACKEND_URL;
   
@@ -187,6 +208,19 @@ export async function fetchInsights({
             label: item.label.trim(),
             icon: typeof item.icon === 'string' && item.icon.trim() ? item.icon.trim() : inferIcon(item.label.trim()),
             prompt: typeof item.prompt === 'string' && item.prompt.trim() ? item.prompt.trim() : item.label.trim(),
+            // Carried through verbatim. Never trimmed or reformatted: this is
+            // the text the seller reads aloud, and it already passed the
+            // server-side contract in exactly this form.
+            ...(typeof item.prepared_suggestion === 'string' && item.prepared_suggestion.trim()
+              ? {
+                  prepared_suggestion: item.prepared_suggestion,
+                  context_fingerprint: typeof item.context_fingerprint === 'string' ? item.context_fingerprint : undefined,
+                  suggestion_id: typeof item.suggestion_id === 'string' ? item.suggestion_id : undefined,
+                  generated_at: typeof item.generated_at === 'string' ? item.generated_at : undefined,
+                  provider: typeof item.provider === 'string' ? item.provider : undefined,
+                  model: typeof item.model === 'string' ? item.model : undefined,
+                }
+              : {}),
           }))
       : Array.isArray(data?.actions)
       ? data.actions
@@ -244,7 +278,14 @@ export async function fetchInsights({
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ chat_id: chatId, k, language, session_state: sessionState }),
+        body: JSON.stringify({
+          chat_id: chatId,
+          k,
+          language,
+          session_state: sessionState,
+          ...(transcript ? { transcript } : {}),
+          ...(preparedClaimed ? { prepared_claimed: preparedClaimed } : {}),
+        }),
       });
 
       if (!response.ok) {

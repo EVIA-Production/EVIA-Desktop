@@ -38,6 +38,7 @@ import {
 } from '../../main/realtime-transcript-state';
 import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
 import { transcriptContextFromState } from '../../main/transcript-context';
+import { decidePrepared, type PreparedSnapshot } from '../lib/prepared-suggestion';
 
 type TranscriptLine = OrderedTranscriptLine;
 
@@ -164,6 +165,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const demoInsightTimerRef = useRef<NodeJS.Timeout | null>(null);
   const liveInsightsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const insightsRequestInFlightRef = useRef(false);
+  // The prepared answer for action #1, together with the exact transcript it
+  // was written for. Replaced wholesale on every insights refresh - never
+  // merged - so an older answer cannot outlive the context it belongs to.
+  const preparedSnapshotRef = useRef<PreparedSnapshot | null>(null);
+  // A displayed prepared answer, reported on the NEXT insights request. The
+  // click path must make no network call at all; that is the point of it.
+  const pendingPreparedClaimRef = useRef<
+    { suggestion_id: string; fingerprint: string; click_to_visible_ms: number } | null
+  >(null);
   const liveInsightsRefreshQueuedRef = useRef(false);
   const shouldScrollAfterUpdate = useRef(false); // GLASS PARITY: Track if near bottom before update
   /**
@@ -1000,6 +1010,38 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       console.warn('[ListenView]   - User should refresh insights by toggling view!');
     }
     
+    // Can this click be answered from the insights refresh that already ran?
+    //
+    // The comparison is between two strings produced by the SAME function on
+    // the same kind of value: the transcript that was sent with the insights
+    // request, and the transcript that would be sent with an /ask request
+    // right now. Equal means the request being avoided would have been
+    // byte-identical. Anything short of equal is a miss, with no partial
+    // credit - the seller reads this out loud.
+    const clickedAtMs = Date.now();
+    const preparedOutcome =
+      insightSessionState === 'during'
+        ? decidePrepared(
+            insightText,
+            preparedSnapshotRef.current,
+            transcriptContextFromState(canonicalTranscriptStateRef.current),
+          )
+        : ({ kind: 'prepared_miss', reason: 'not_canonical_action' } as const);
+
+    if (preparedOutcome.kind === 'prepared_hit') {
+      console.log(
+        '[PREPARED] delivery=prepared_hit id=%s fingerprint=%s',
+        preparedOutcome.suggestionId || '-',
+        preparedOutcome.fingerprint || '-',
+      );
+    } else {
+      console.log(
+        '[PREPARED] delivery=%s reason=%s',
+        preparedSnapshotRef.current ? 'prepared_miss' : 'interactive_fallback',
+        preparedOutcome.reason,
+      );
+    }
+
     // Send to AskView via IPC for auto-submit WITH insight's original session state
     const eviaIpc = (window as any).evia?.ipc;
     if (eviaIpc?.send) {
@@ -1010,7 +1052,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         chatId: canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current,
         transcriptContext: filteredTranscriptContext,
         querySource,
+        ...(preparedOutcome.kind === 'prepared_hit'
+          ? {
+              preparedSuggestion: preparedOutcome.text,
+              preparedSuggestionId: preparedOutcome.suggestionId,
+              preparedFingerprint: preparedOutcome.fingerprint,
+              preparedClickedAtMs: clickedAtMs,
+            }
+          : {}),
       });
+      if (preparedOutcome.kind === 'prepared_hit') {
+        // Consumed. A prepared answer is one move in a conversation; showing
+        // it twice is the repetition failure this codebase has already fixed
+        // twice on the interactive path.
+        pendingPreparedClaimRef.current = {
+          suggestion_id: preparedOutcome.suggestionId,
+          fingerprint: preparedOutcome.fingerprint,
+          click_to_visible_ms: 0,
+        };
+        preparedSnapshotRef.current = null;
+      }
       console.log('[ListenView] ✅ Sent insight to AskView via IPC with session_state:', insightSessionState);
     } else {
       console.error('[ListenView] ❌ IPC bridge not available for ask:send-and-submit');
@@ -1181,12 +1242,39 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           attempt: attempt + 1
         });
         
+        // The transcript sent here is the one action #1's answer gets written
+        // for, and it is captured BEFORE the request so the snapshot stored
+        // alongside the reply is exactly what was asked about. Reading it
+        // after the await would capture a transcript the answer never saw.
+        const requestTranscript =
+          derivedSessionState === 'during'
+            ? transcriptContextFromState(canonicalTranscriptStateRef.current)
+            : '';
+        const claim = pendingPreparedClaimRef.current;
+        pendingPreparedClaimRef.current = null;
+
         fetchedInsights = await fetchInsights({
           chatId,
           token,
           language: currentLang,
-          sessionState: derivedSessionState
+          sessionState: derivedSessionState,
+          transcript: requestTranscript || undefined,
+          preparedClaimed: claim,
         });
+        preparedSnapshotRef.current = null;
+        const preparedFields = fetchedInsights?.action_items?.[0];
+        if (requestTranscript && preparedFields?.prepared_suggestion) {
+          preparedSnapshotRef.current = {
+            requestTranscript,
+            fields: preparedFields,
+          };
+          console.log(
+            '[ListenView] 📝 Prepared suggestion stored id=%s fingerprint=%s chars=%d',
+            preparedFields.suggestion_id || '-',
+            preparedFields.context_fingerprint || '-',
+            preparedFields.prepared_suggestion.length,
+          );
+        }
         
         const receivedStub = isStubInsightPayload(fetchedInsights);
 
