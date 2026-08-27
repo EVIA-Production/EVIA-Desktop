@@ -9,6 +9,12 @@ import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
 import { getDemoAskResponse } from '../demo-scenario';
 import taylosMarkUrl from './assets/taylos_mark.png';
+import {
+  trackAskFailed,
+  trackAskRequestReady,
+  trackAskResponseReceived,
+  trackAskSubmitted,
+} from '../services/posthogService';
 
 interface AskViewProps {
   language: 'de' | 'en';
@@ -457,6 +463,30 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // passed the full production contract server-side before it was sent.
       const prepared = typeof payload === 'object' ? (payload.preparedSuggestion || '').trim() : '';
       if (prepared) {
+        const preparedSessionState = (
+          explicitSessionState === 'before' || explicitSessionState === 'during' || explicitSessionState === 'after'
+            ? explicitSessionState
+            : 'during'
+        ) as AskSessionState;
+        const clickedAt = typeof payload === 'object' ? payload.preparedClickedAtMs : undefined;
+        const clickToVisibleMs = clickedAt ? Math.max(0, Date.now() - clickedAt) : 0;
+        trackAskSubmitted({
+          question_length: incomingPrompt.length,
+          session_state: preparedSessionState,
+          is_typed: false,
+          language,
+          query_source: incomingQuerySource,
+          has_transcript_context: Boolean(transcriptContext),
+          delivery: 'prepared',
+        });
+        trackAskResponseReceived({
+          response_length: prepared.length,
+          latency_ms: clickToVisibleMs,
+          ttft_ms: clickToVisibleMs,
+          session_state: preparedSessionState,
+          query_source: incomingQuerySource,
+          delivery: 'prepared',
+        });
         if (restartStreamTimeoutRef.current) {
           clearTimeout(restartStreamTimeoutRef.current);
           restartStreamTimeoutRef.current = null;
@@ -490,7 +520,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             const targetHeight = measureTargetWindowHeight();
             storedContentHeightRef.current = targetHeight;
             requestWindowResize(targetHeight);
-            const clickedAt = typeof payload === 'object' ? payload.preparedClickedAtMs : undefined;
             console.log(
               '[PREPARED] displayed id=%s click_to_visible_ms=%s chars=%d',
               (typeof payload === 'object' ? payload.preparedSuggestionId : '') || '-',
@@ -940,6 +969,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const requestStartedAt = performance.now();
     const clientStartedAtMs = Date.now();
     const requestId = crypto.randomUUID();
+    let firstVisibleTokenMs: number | undefined;
+    let askFailureTracked = false;
     streamStartTime.current = requestStartedAt;
 
     // The cached state is good enough to paint with; only the request itself
@@ -979,6 +1010,30 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (currentSessionState !== cachedSessionState) {
       setResponseSessionState(currentSessionState);
     }
+
+    trackAskSubmitted({
+      question_length: actualPrompt.length,
+      session_state: currentSessionState,
+      is_typed: querySource === 'user_typed',
+      language,
+      query_source: querySource,
+      delivery: 'interactive',
+    });
+
+    const trackFailure = (
+      stage: 'authentication' | 'chat_resolution' | 'stream' | 'backend',
+      reason: 'authentication' | 'network' | 'rate_limit' | 'unavailable' | 'aborted' | 'unknown',
+    ) => {
+      if (askFailureTracked) return;
+      askFailureTracked = true;
+      trackAskFailed({
+        session_state: currentSessionState,
+        query_source: querySource,
+        stage,
+        reason,
+        latency_ms: Math.max(0, performance.now() - requestStartedAt),
+      });
+    };
 
     const resetPendingRequest = () => {
       setIsStreaming(false);
@@ -1021,6 +1076,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         setIsStreaming(false);
         setHeaderText(i18n.t('overlay.ask.aiResponse'));
         setTtftMs(performance.now() - startedAt);
+        const demoLatencyMs = Math.max(0, performance.now() - requestStartedAt);
+        trackAskResponseReceived({
+          response_length: finalResponse.length,
+          latency_ms: demoLatencyMs,
+          ttft_ms: demoLatencyMs,
+          session_state: currentSessionState,
+          query_source: querySource,
+          delivery: 'interactive',
+        });
         setResponseHistory((previous) => {
           const next = [...previous, { question: actualPrompt, response: finalResponse }];
           setResponseIndex(next.length - 1);
@@ -1049,6 +1113,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     } | undefined;
     const token = await eviaAuth?.getToken();
     if (!token) {
+      trackFailure('authentication', 'authentication');
       showError('Authentication required. Please login first.', false);
       resetPendingRequest();
       return;
@@ -1058,6 +1123,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     if (eviaAuth?.checkTokenValidity) {
       const validity = await (eviaAuth as any).checkTokenValidity();
       if (!validity.valid) {
+        trackFailure('authentication', 'authentication');
         showError(`Token ${validity.reason === 'expired' ? 'expired' : 'invalid'}. Please re-login.`, false);
         resetPendingRequest();
         return;
@@ -1078,6 +1144,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       if (!chatId || Number.isNaN(chatId)) throw new Error('Invalid canonical chat id');
     } catch (e: any) {
       const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network');
+      trackFailure('chat_resolution', isNetworkError ? 'network' : 'unknown');
       showError(
         isNetworkError
           ? 'Network error. Check connection and reconnect?'
@@ -1136,6 +1203,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           screenshotRef = result.base64;
           console.log('[AskView] 📸 Screenshot captured:', result.width, 'x', result.height);
         } else if (result?.needsPermission) {
+          trackFailure('stream', 'unavailable');
           showError(result.error || 'Screen Recording permission required.', false);
           resetPendingRequest();
           return;
@@ -1146,6 +1214,15 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     }
 
     if (onSubmitPrompt) onSubmitPrompt(actualPrompt);
+
+    // This request-side event contains only timing and context availability;
+    // transcript content never enters analytics.
+    trackAskRequestReady({
+      session_state: currentSessionState,
+      query_source: querySource,
+      has_transcript_context: Boolean(transcriptContext),
+      context_preparation_ms: Math.max(0, performance.now() - requestStartedAt),
+    });
 
     const nextHeight = thinkingHeight;
 
@@ -1195,14 +1272,17 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         
         // Check if it's a rate limit error
         if (d.includes('rate_limit') || d.includes('429') || d.includes('Rate limit')) {
+          trackFailure('backend', 'rate_limit');
           showError(language === 'en' 
             ? 'Service temporarily unavailable. Please try again in a moment.'
             : 'Service vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.', 
             true
           );
         } else if (d.includes('401') || d.includes('Unauthorized')) {
+          trackFailure('backend', 'authentication');
           showError('Authentication expired. Please reconnect.', true);
         } else {
+          trackFailure('backend', 'unavailable');
           // Generic error
           showError('Request failed. Please try again.', true);
         }
@@ -1228,6 +1308,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       
       if (!ttftLoggedRef.current && streamStartTime.current) {
         const ttft = performance.now() - streamStartTime.current;
+        firstVisibleTokenMs = ttft;
         setTtftMs(ttft);
         ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ Click-to-first-visible-token:', ttft.toFixed(0), 'ms');
@@ -1261,6 +1342,14 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         console.log('[AskView] 🧠 Final suggestion content:\n%s', finalResponse);
       }
       if (finalResponse) {
+        trackAskResponseReceived({
+          response_length: finalResponse.length,
+          latency_ms: Math.max(0, performance.now() - requestStartedAt),
+          ttft_ms: firstVisibleTokenMs,
+          session_state: currentSessionState,
+          query_source: querySource,
+          delivery: 'interactive',
+        });
         setResponseHistory((prev) => {
           // Pair the answer with this request's immutable prompt. Reading
           // currentQuestion here uses the render closure from before
@@ -1269,6 +1358,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           setResponseIndex(next.length - 1);
           return next;
         });
+      } else {
+        trackFailure('backend', 'unavailable');
       }
       
       // Final measurement from the actual visible DOM. The loading animation must not inflate the window.
@@ -1312,6 +1403,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
       const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network');
       const isSuggestionUnavailable = errorMsg.includes('SUGGESTION_UNAVAILABLE');
+
+      trackFailure(
+        'stream',
+        is401
+          ? 'authentication'
+          : isNetwork
+            ? 'network'
+            : isSuggestionUnavailable
+              ? 'unavailable'
+              : errorMsg.includes('aborted')
+                ? 'aborted'
+                : 'unknown',
+      );
       
       if (isSuggestionUnavailable) {
         showError(

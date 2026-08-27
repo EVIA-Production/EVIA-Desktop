@@ -16,6 +16,14 @@ import { buildDemoInsights, DEMO_LIVE_THINKING_MS, DEMO_POST_THINKING_MS } from 
 import type { AskQuerySource } from '../lib/evia-ask-stream';
 import { prefetchSuggestion, prefetchOpener, resetSuggestionPrefetch } from '../lib/suggestion-prefetch';
 import { BACKEND_URL } from '../config/config';
+import {
+  beginAnalyticsCall,
+  trackInsightsFailed,
+  trackInsightsLoaded,
+  trackInsightsRequested,
+  trackRecordingStopped,
+  trackTranscriptFirstVisible,
+} from '../services/posthogService';
 
 declare global {
   interface Window {
@@ -223,6 +231,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // Diagnostics: track message counts and last received time
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
+  const analyticsCallStartedAtRef = useRef<number | null>(null);
+  const analyticsRejectedCountRef = useRef(0);
+  const analyticsFirstTranscriptEventsRef = useRef<Set<string>>(new Set());
   const firstPartialLatencyByEventRef = useRef<Map<string, number>>(new Map());
   const finalLatencyByEventRef = useRef<Map<string, number>>(new Map());
   // UI diagnostics state to show counts and last message age
@@ -622,6 +633,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     liveInsightsRefreshQueuedRef.current = false;
     firstPartialLatencyByEventRef.current.clear();
     finalLatencyByEventRef.current.clear();
+    analyticsRejectedCountRef.current = 0;
+    analyticsFirstTranscriptEventsRef.current.clear();
     console.log('[ListenView][Canonical] Reset transcript state:', reason);
   };
 
@@ -690,6 +703,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (msg.type === 'recording_started') {
         console.log('[ListenView] Recording started; canonical session is now live');
         resetSessionPresentation('recording-started');
+        analyticsCallStartedAtRef.current = Date.now();
+        if (!msg.analyticsCallId) beginAnalyticsCall();
         resetSuggestionPrefetch();
         // The first click of a call has no prospect turn behind it, so it was
         // the one click that always paid the full round trip plus generation.
@@ -725,16 +740,32 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
       if (msg.type === 'recording_stopped') {
         console.log('[ListenView] Recording stopped; preserving canonical rows unchanged');
-        const latencySummary = JSON.stringify({
-          partial: summarizeLatencies([...firstPartialLatencyByEventRef.current.values()]),
-          final: summarizeLatencies([...finalLatencyByEventRef.current.values()]),
-        });
+        const partialLatency = summarizeLatencies([...firstPartialLatencyByEventRef.current.values()]);
+        const finalLatency = summarizeLatencies([...finalLatencyByEventRef.current.values()]);
+        const latencySummary = JSON.stringify({ partial: partialLatency, final: finalLatency });
         console.log('[ListenView][LatencySummary]', latencySummary);
         // To the terminal as well. This is the only measured end-to-end number
         // the product produces, and it was invisible: a renderer console.log in
         // a window nobody opens. "Physically perfect latency" is a claim that
         // needs a measurement at the end of every call, not an estimate.
         eviaIpc?.send?.('debug-log', `[ListenView] latency ${latencySummary}`);
+        const sessionRows = transcriptsRef.current;
+        trackRecordingStopped({
+          duration_seconds: analyticsCallStartedAtRef.current
+            ? Math.max(0, Math.round((Date.now() - analyticsCallStartedAtRef.current) / 1000))
+            : 0,
+          transcript_count: sessionRows.length,
+          final_count: sessionRows.filter(row => row.isFinal).length,
+          mic_count: sessionRows.filter(row => row.speaker === 1).length,
+          system_count: sessionRows.filter(row => row.speaker === 0).length,
+          message_count: messageCountRef.current,
+          rejected_count: analyticsRejectedCountRef.current,
+          partial_latency_p50_ms: partialLatency.p50Ms ?? undefined,
+          partial_latency_p95_ms: partialLatency.p95Ms ?? undefined,
+          final_latency_p50_ms: finalLatency.p50Ms ?? undefined,
+          final_latency_p95_ms: finalLatency.p95Ms ?? undefined,
+        });
+        analyticsCallStartedAtRef.current = null;
         stopTimer();
         sessionStateRef.current = 'after';
         isSessionActiveRef.current = false;
@@ -786,6 +817,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       const chatIdForEvent = storedChatId ?? lastKnownChatIdRef.current;
       const adapted = adaptServerTranscriptEvent(msg, chatIdForEvent);
       if (!adapted.event) {
+        analyticsRejectedCountRef.current += 1;
         // The reason goes in the MESSAGE, not only the payload: a console
         // collapses the object to "Object", which is exactly how 100% of
         // segments were rejected on 2026-08-13 without anyone learning why.
@@ -823,6 +855,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         adapted.event,
       );
       if (!transition.accepted) {
+        analyticsRejectedCountRef.current += 1;
         const log = transition.reason === 'stale-seq' || transition.reason === 'finalized-row'
           ? console.debug
           : console.error;
@@ -863,6 +896,15 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             ? null
             : Math.round((renderedAtMs - adapted.serverSentAtMs) * 10) / 10,
         }));
+        const firstEventKey = `${adapted.event.source}:${adapted.event.isFinal ? 'final' : 'partial'}`;
+        if (!analyticsFirstTranscriptEventsRef.current.has(firstEventKey)) {
+          analyticsFirstTranscriptEventsRef.current.add(firstEventKey);
+          trackTranscriptFirstVisible({
+            kind: adapted.event.isFinal ? 'first_final' : 'first_partial',
+            audio_source: adapted.event.source,
+            capture_to_render_ms: Math.max(0, Math.round(captureToRenderMs)),
+          });
+        }
       }
       if (captureToRenderMs < -50) {
         console.error('[ListenView][Latency] Capture clock is ahead of renderer wall clock:', {
@@ -1251,6 +1293,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (showBlockingLoader) setIsLoadingInsights(true);
     setInsightsRefreshPending(false);
     const ttftStart = Date.now();
+    const analyticsTrigger = options.manual ? 'manual' : 'auto';
+    let analyticsOutcomeTracked = false;
+    trackInsightsRequested({
+      session_state: latestSessionState,
+      trigger: analyticsTrigger,
+      transcript_count: currentTranscripts.length,
+    });
     
     // Get auth credentials once
     const chatId = Number(
@@ -1262,6 +1311,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       token = await eviaAuth?.getToken();
     } catch (error) {
       console.error('[ListenView] ❌ Failed to read auth token for insights:', error);
+      trackInsightsFailed({
+        session_state: latestSessionState,
+        trigger: analyticsTrigger,
+        reason: 'authentication',
+        load_time_ms: Date.now() - ttftStart,
+        attempts: 0,
+      });
+      analyticsOutcomeTracked = true;
       return;
     }
 
@@ -1270,6 +1327,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
     if (!chatId || !token) {
       console.error('[ListenView] ❌ Missing chat_id or auth token for insights fetch');
+      trackInsightsFailed({
+        session_state: latestSessionState,
+        trigger: analyticsTrigger,
+        reason: 'authentication',
+        load_time_ms: Date.now() - ttftStart,
+        attempts: 0,
+      });
+      analyticsOutcomeTracked = true;
       return;
     }
 
@@ -1286,6 +1351,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (insightsRateLimited()) {
       console.log('[ListenView] 🛑 Rate limited - skipping this insights fetch entirely');
       postMeetingRetryMinimumMs = insightsRateLimitRemainingMs() + 250;
+      trackInsightsFailed({
+        session_state: latestSessionState,
+        trigger: analyticsTrigger,
+        reason: 'rate_limit',
+        load_time_ms: Date.now() - ttftStart,
+        attempts: 0,
+      });
+      analyticsOutcomeTracked = true;
       return;
     }
     console.log('[ListenView] 🚀 Starting smart retry strategy (max 3 attempts)');
@@ -1398,10 +1471,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           if (sessionStateRef.current === 'during') {
             liveInsightsRefreshQueuedRef.current = true;
           }
+          trackInsightsFailed({
+            session_state: derivedSessionState,
+            trigger: analyticsTrigger,
+            reason: 'stale',
+            load_time_ms: ttftMs,
+            attempts: attempt + 1,
+          });
+          analyticsOutcomeTracked = true;
           return;
         }
         console.log('[ListenView] ✅ Glass insights received!');
         if (isStubInsightPayload(fetchedInsights)) {
+          trackInsightsFailed({
+            session_state: derivedSessionState,
+            trigger: analyticsTrigger,
+            reason: 'stub',
+            load_time_ms: ttftMs,
+            attempts: attempt + 1,
+          });
+          analyticsOutcomeTracked = true;
           if (insightsHistoryRef.current.length > 0) {
             console.log('[ListenView] 🚫 Stub-like insights detected, keeping previous insights state');
             setInsightsRefreshPending(false);
@@ -1412,6 +1501,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           return;
         }
         setInsightsRefreshPending(false);
+        trackInsightsLoaded({
+          load_time_ms: ttftMs,
+          summary_count: getProspectInfo(fetchedInsights).length,
+          topic_count: getSalesAnalysis(fetchedInsights).length,
+          action_count: getInsightActions(fetchedInsights).length,
+          followup_count: 0,
+          session_state: derivedSessionState,
+          trigger: analyticsTrigger,
+          attempts: attempt + 1,
+        });
+        analyticsOutcomeTracked = true;
         
         // Log session_state metadata from insights
         console.log('[ListenView] 🎯 INSIGHT METADATA:');
@@ -1454,6 +1554,14 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.warn('[ListenView] ⚠️   - No transcripts in database for this chat');
         console.warn('[ListenView] ⚠️   - Backend error during generation');
         console.warn('[ListenView] ⚠️   - API key issue (check backend logs)');
+        trackInsightsFailed({
+          session_state: derivedSessionState,
+          trigger: analyticsTrigger,
+          reason: 'empty',
+          load_time_ms: ttftMs,
+          attempts: attempt + 1,
+        });
+        analyticsOutcomeTracked = true;
       }
     } catch (error) {
       console.error('[ListenView] ❌ Failed to fetch insights:', error);
@@ -1461,9 +1569,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       // Show user-friendly error message instead of infinite loading
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ListenView] 🔍 Error details:', errorMessage);
+      trackInsightsFailed({
+        session_state: latestSessionState,
+        trigger: analyticsTrigger,
+        reason: /network|fetch|connect/i.test(errorMessage) ? 'network' : 'unknown',
+        load_time_ms: Date.now() - ttftStart,
+        attempts: attempt + 1,
+      });
+      analyticsOutcomeTracked = true;
       setInsightsRefreshPending(false);
     }
     } finally {
+      if (!analyticsOutcomeTracked && currentTranscripts.length > 0) {
+        trackInsightsFailed({
+          session_state: latestSessionState,
+          trigger: analyticsTrigger,
+          reason: 'unknown',
+          load_time_ms: Date.now() - ttftStart,
+          attempts: attempt + 1,
+        });
+      }
       insightsRequestInFlightRef.current = false;
       setIsLoadingInsights(false);
 

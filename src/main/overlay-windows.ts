@@ -42,6 +42,7 @@ function loadRendererView(
   const query = {
     ...(view ? { view } : {}),
     ...materialQuery(surface, mode),
+    appVersion: app.getVersion(),
   }
 
   if (isDev) {

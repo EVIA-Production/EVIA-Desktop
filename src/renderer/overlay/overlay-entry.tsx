@@ -14,7 +14,13 @@ import { getWebSocketInstance } from '../services/websocketService'
 import { ToastContainer, showToast } from '../components/ToastNotification'
 import { OfflineIndicator } from '../components/OfflineIndicator'
 import { BACKEND_URL } from '../config/config'
-import { initPostHog, identifyUser, trackError } from '../services/posthogService'
+import {
+  beginAnalyticsCall,
+  initPostHog,
+  identifyUser,
+  trackError,
+  trackRecordingStarted,
+} from '../services/posthogService'
 import { bindWindowGroupFocus } from './window-group-focus'
 
 // Initialize PostHog analytics
@@ -555,6 +561,14 @@ function App() {
         setIsCapturing(true)
         console.log('[OverlayEntry] ✅ Audio capture started')
 
+        const analyticsCallId = beginAnalyticsCall()
+        trackRecordingStarted({
+          source: handle.systemAudioAvailable ? 'both' : 'mic',
+          language,
+          system_audio_available: handle.systemAudioAvailable,
+          system_audio_status: handle.systemAudioStatus,
+        })
+
         if (!handle.systemAudioAvailable) {
           const warning = systemAudioWarning(handle.systemAudioStatus, language);
           showToast(warning, 'warning');
@@ -570,7 +584,12 @@ function App() {
         try {
           const eviaIpc = (window as any).evia?.ipc;
           if (eviaIpc?.send) {
-            eviaIpc.send('transcript-message', { type: 'recording_started' });
+            eviaIpc.send('transcript-message', {
+              type: 'recording_started',
+              analyticsCallId,
+              source: handle.systemAudioAvailable ? 'both' : 'mic',
+              systemAudioAvailable: handle.systemAudioAvailable,
+            });
             console.log('[OverlayEntry] Sent recording_started message to Listen window');
           }
         } catch (error) {
