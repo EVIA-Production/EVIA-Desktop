@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
+import { armPresetSessionReset } from '../lib/pending-preset-reset';
 
 const WEB_APP_URL = 'https://app.taylos.ai';
 
@@ -321,34 +322,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   };
 
   /**
-   * A preset change starts a fresh session.
+   * A preset change ARMS a session reset; it does not perform one.
    *
-   * The preset is bound to a chat as an immutable SNAPSHOT when the session
-   * starts, so switching preset while an old chat id is still in localStorage
-   * left the next suggestion grounded in the preset the user had just moved
-   * away from - silently, and for the whole of that conversation. Requested
-   * 2026-08-27: "when i activate a different preset in desktop settings window,
-   * a new session should be started."
-   *
-   * Safe to do here because activation is refused outright while a recording is
-   * live, so this only ever runs between calls. Same four steps EviaBar uses
-   * when it retires an orphaned session - one reset, not a second definition of
-   * what "fresh" means.
+   * Clearing on the toggle was safe but destructive - browsing presets, or
+   * activating the wrong one by accident, threw away the Ask content with no
+   * way back. The guarantee that matters is only that no suggestion generated
+   * under the old preset ends up in a session bound to the new one, and that
+   * holds just as well if the reset happens immediately BEFORE the next
+   * question or the next recording. See lib/pending-preset-reset.
    */
-  const startFreshSessionAfterPresetChange = (reason: string) => {
-    console.log('[SettingsView] 🔄 Preset changed (%s) - starting a fresh session', reason);
-    try {
-      localStorage.removeItem('current_chat_id');
-    } catch {}
-    try {
-      (window as any).evia?.prefs?.set?.({ current_chat_id: null });
-    } catch {}
-    try {
-      (window as any).evia?.liveTranscript?.clear?.();
-    } catch {}
-    try {
-      (window as any).evia?.ipc?.send?.('clear-session');
-    } catch {}
+  const armFreshSessionForNextInteraction = (presetId: string | number | null, reason: string) => {
+    console.log('[SettingsView] 🔖 Preset %s - next question or recording starts a new session', reason);
+    armPresetSessionReset(presetId);
   };
 
   const handlePresetSelect = async (preset: any) => {
@@ -378,7 +363,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           setPresets(presets.map(p => ({ ...p, is_active: false })));
           setSelectedPreset(null);
           localStorage.removeItem('active_preset_context');
-          startFreshSessionAfterPresetChange('deactivated');
+          armFreshSessionForNextInteraction(preset.id, 'deactivated');
         } else {
           console.error('[SettingsView] ❌ Failed to deactivate preset:', result?.status, result?.error);
           setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
@@ -418,7 +403,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         setPresets(updatedPresets);
         setSelectedPreset(updatedPreset);
         localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
-        startFreshSessionAfterPresetChange('activated');
+        armFreshSessionForNextInteraction(preset.id, 'activated');
       } else {
         console.error('[SettingsView] ❌ Failed to update preset:', result?.status, result?.error);
         setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });

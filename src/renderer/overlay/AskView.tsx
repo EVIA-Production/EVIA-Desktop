@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { streamAsk, type AskQuerySource } from '../lib/evia-ask-stream';
 import { i18n } from '../i18n/i18n';
+import { consumePresetSessionReset, clearSessionBinding } from '../lib/pending-preset-reset';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
@@ -916,6 +917,25 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
     if (!actualPrompt.trim() || streamRef.current || deterministicDemoTimerRef.current) return;
+
+    // A preset was activated since the last interaction. Reset HERE, before the
+    // request, so this question becomes the first turn of a session bound to
+    // the new preset - and so that merely toggling a preset never destroyed
+    // anything. The previous answers go on purpose: paging back to a reply that
+    // was generated under a different preset is the confusion this prevents.
+    if (consumePresetSessionReset()) {
+      console.log('[AskView] 🔄 Preset changed since last interaction - starting a new session');
+      clearSessionBinding();
+      chatIdOverrideRef.current = null;
+      liveTranscriptOverrideRef.current = null;
+      responseBufferRef.current = '';
+      lastResponseRef.current = '';
+      setResponse('');
+      setResponseHistory([]);
+      setResponseIndex(-1);
+      setCurrentQuestion('');
+      setErrorToast(null);
+    }
 
     const requestStartedAt = performance.now();
     const clientStartedAtMs = Date.now();

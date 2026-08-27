@@ -1,59 +1,83 @@
 /**
- * Changing preset must start a fresh session.
+ * A preset change ARMS a session reset; the next interaction performs it.
  *
- * The preset is bound to a chat as an immutable SNAPSHOT when the session
- * starts. Switching preset while an old chat id was still in localStorage left
- * every following suggestion grounded in the preset the user had just moved
- * away from - silently, and for the rest of that conversation. The settings
- * screen updated its own state and the cached context and stopped there.
+ * The first version cleared on the toggle. That is safe but destructive:
+ * browsing presets, or activating the wrong one by accident, threw away the Ask
+ * content with no way back - the same mistake as the settings page discarding
+ * typed text on "set active", punishing a reversible action with an
+ * irreversible one.
  *
- * Pinned against the reset EviaBar already uses, so there is one definition of
- * "fresh" rather than two that drift.
+ * The guarantee that matters is narrower: no suggestion generated under preset
+ * A may end up in a session bound to preset B. Resetting immediately BEFORE the
+ * next question or recording preserves that exactly, and costs nothing when the
+ * user only toggled to look.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay', f), 'utf8');
-const SETTINGS = read('SettingsView.tsx');
-const BAR = read('EviaBar.tsx');
+const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', ...p), 'utf8');
+const HELPER = read('lib', 'pending-preset-reset.ts');
+const SETTINGS = read('overlay', 'SettingsView.tsx');
+const ASK = read('overlay', 'AskView.tsx');
+const BAR = read('overlay', 'EviaBar.tsx');
 
-const STEPS = [
-  "removeItem('current_chat_id')",
-  'current_chat_id: null',
-  'liveTranscript?.clear?.()',
-  "ipc?.send?.('clear-session')",
-];
+test('activating or deactivating arms, and clears nothing', () => {
+  assert.match(SETTINGS, /armFreshSessionForNextInteraction\(preset\.id, 'activated'\)/);
+  assert.match(SETTINGS, /armFreshSessionForNextInteraction\(preset\.id, 'deactivated'\)/);
+  // The destructive calls must not be back.
+  assert.ok(!SETTINGS.includes("send?.('session:closed')"),
+    'the settings screen must not clear the Ask window on a toggle');
+  assert.ok(!SETTINGS.includes("removeItem('current_chat_id')"),
+    'the settings screen must not drop the chat binding on a toggle');
+});
 
-test('the settings screen performs the same four reset steps EviaBar does', () => {
-  const at = SETTINGS.indexOf('startFreshSessionAfterPresetChange = ');
-  assert.ok(at > 0, 'no reset helper on the settings screen');
-  const body = SETTINGS.slice(at, at + 900);
-  for (const step of STEPS) {
-    assert.ok(body.includes(step), `settings reset is missing: ${step}`);
-    assert.ok(BAR.includes(step), `EviaBar no longer does ${step} - the two have drifted`);
+test('the flag survives the window it was set in', () => {
+  // Settings, Ask and Listen are separate renderers. A flag that lives in one
+  // of them is not a flag at all.
+  assert.match(HELPER, /localStorage\.setItem\(KEY/);
+  assert.match(HELPER, /prefs\?\.set\?\.\(\{ \[KEY\]: value \}\)/);
+  assert.match(HELPER, /prefs\?\.getSync\?\.\(KEY\)/);
+});
+
+test('the flag is consumed once, not read repeatedly', () => {
+  const at = HELPER.indexOf('export function consumePresetSessionReset');
+  const body = HELPER.slice(at, at + 900);
+  assert.match(body, /removeItem\(KEY\)/, 'a flag that is never cleared resets every turn');
+  assert.match(body, /\[KEY\]: null/);
+});
+
+test('asking a question performs the reset before the request', () => {
+  const at = ASK.indexOf('consumePresetSessionReset()');
+  assert.ok(at > 0, 'the Ask box never checks for a pending preset change');
+  const send = ASK.indexOf('streamAsk(', at);
+  assert.ok(send === -1 || at < send, 'the reset must land before the request is built');
+  const body = ASK.slice(at, at + 900);
+  for (const cleared of ['setResponse(', 'setResponseHistory([])', 'setResponseIndex(-1)', 'clearSessionBinding()']) {
+    assert.ok(body.includes(cleared), `Ask reset is missing ${cleared}`);
   }
 });
 
-test('both activating and deactivating start a fresh session', () => {
-  assert.match(SETTINGS, /startFreshSessionAfterPresetChange\('activated'\)/);
-  assert.match(SETTINGS, /startFreshSessionAfterPresetChange\('deactivated'\)/,
-    'deactivating also changes what the next call is grounded in');
+test('starting a recording performs the reset too', () => {
+  const at = BAR.indexOf('consumePresetSessionReset()');
+  assert.ok(at > 0, 'Listen never checks for a pending preset change');
+  const body = BAR.slice(at, at + 400);
+  assert.ok(body.includes('clearSessionBinding()'));
+  assert.ok(body.includes("send?.('session:closed')"),
+    'the Ask window still holds the previous session\'s answers and must be cleared');
 });
 
-test('the reset runs only after the backend confirmed the change', () => {
-  // Resetting on a failed activation would throw away the session for nothing.
-  const act = SETTINGS.indexOf("startFreshSessionAfterPresetChange('activated')");
-  const ok = SETTINGS.lastIndexOf('result?.ok && result.activation', act);
-  assert.ok(ok > 0 && ok < act, 'activation reset must sit inside the success branch');
+test('the recording reset only fires from idle', () => {
+  // Consuming the flag on a stop or a mid-call transition would spend it on the
+  // wrong edge and leave the next real start unbound.
+  const at = BAR.indexOf('consumePresetSessionReset()');
+  const line = BAR.slice(BAR.lastIndexOf('\n', at), at + 40);
+  assert.match(line, /state === 'idle'/);
 });
 
-test('preset changes are still refused during a live recording', () => {
-  // The reset is only safe because it can never run mid-call.
-  assert.match(SETTINGS, /if \(isSessionActive\)/);
-  const guard = SETTINGS.indexOf('if (isSessionActive)');
-  const handler = SETTINGS.indexOf('const handlePresetSelect');
-  assert.ok(guard > handler && guard - handler < 400,
-    'the live-session guard must remain at the top of the handler');
+test('clear-session is still the wrong signal for this', () => {
+  // clear-session says so in its own log line - it exists for before->during,
+  // where preparation notes must survive.
+  assert.match(ASK, /Received clear-session - cancelling active stream, keeping content/);
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
+import { consumePresetSessionReset, clearSessionBinding } from '../lib/pending-preset-reset';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
 const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
@@ -594,6 +595,16 @@ const EviaBar: React.FC<EviaBarProps> = ({
       generation: current.generation,
       physicalCapture: isListeningRef.current,
     });
+
+    // Same rule as the Ask box: a preset activated since the last interaction
+    // resets the session HERE, at the start of the recording, rather than at
+    // the moment of the toggle. Browsing presets costs nothing; starting a call
+    // under a new preset starts a new session.
+    if (current.state === 'idle' && consumePresetSessionReset()) {
+      console.log('[EviaBar] 🔄 Preset changed since last interaction - starting a new session');
+      clearSessionBinding();
+      (window as any).evia?.ipc?.send?.('session:closed');
+    }
 
     if (startInProgressRef.current || current.state === 'starting' || current.state === 'stopping') {
       console.warn('[EviaBar] ⏭️ Ignoring duplicate Listen transition');
