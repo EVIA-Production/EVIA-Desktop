@@ -33,22 +33,16 @@ const queuedEvents: Array<{ eventName: string; properties: AnalyticsProperties }
 
 // Product analytics must never become a second transcript store. This denylist
 // protects every event, including older helpers that predate the privacy rule.
-const SENSITIVE_PROPERTY_KEYS = new Set([
-  'chat_id',
-  'context',
-  'device_name',
-  'email',
-  'error_message',
-  'insight_hash',
-  'insight_text',
-  'insight_text_hash',
-  'insight_text_preview',
-  'name',
-  'preset_name',
-  'response_hash',
-  'user_id',
-  'username',
-]);
+// Pre-launch these accounts trade their data for free access, and the
+// suggestion-quality work needs the real values: which chat, which preset, the
+// suggestion text itself, who the rep is. The previous version dropped exactly
+// those keys and cut every string at 80 characters, so an event proved a click
+// happened and told us nothing about what was clicked.
+//
+// The cap that remains is PostHog's ingestion limit, not a privacy rule - an
+// oversized property gets the whole event rejected, and a rejected event is
+// worth less than a truncated one.
+const MAX_PROPERTY_CHARS = 20000;
 
 function currentView(): string {
   if (typeof window === 'undefined') return 'unknown';
@@ -63,24 +57,28 @@ function currentAppVersion(): string {
 function sanitizeAnalyticsProperties(properties: AnalyticsProperties): AnalyticsProperties {
   const sanitized: AnalyticsProperties = {};
   for (const [key, value] of Object.entries(properties)) {
-    if (SENSITIVE_PROPERTY_KEYS.has(key) || value === undefined || value === null) continue;
+    if (value === undefined || value === null) continue;
     if (typeof value === 'string') {
-      sanitized[key] = value.slice(0, 80);
+      sanitized[key] = value.length > MAX_PROPERTY_CHARS ? value.slice(0, MAX_PROPERTY_CHARS) : value;
       continue;
     }
     if (typeof value === 'number' || typeof value === 'boolean') {
       sanitized[key] = value;
       continue;
     }
-    if (Array.isArray(value)) {
-      sanitized[key] = value
-        .filter(item => ['string', 'number', 'boolean'].includes(typeof item))
-        .slice(0, 20)
-        .map(item => typeof item === 'string' ? item.slice(0, 80) : item);
+    // Objects and arrays travel whole - a suggestion's context is the point.
+    try {
+      const encoded = JSON.stringify(value);
+      sanitized[key] = encoded.length > MAX_PROPERTY_CHARS
+        ? JSON.parse(encoded.slice(0, MAX_PROPERTY_CHARS) + (encoded.startsWith('[') ? ']' : '}'))
+        : value;
+    } catch {
+      // Unserialisable (circular, DOM node): skip rather than lose the event.
     }
   }
   return sanitized;
 }
+
 
 function commonProperties(): AnalyticsProperties {
   const platform = (window as any)?.platformInfo?.isWindows ? 'windows'
@@ -150,23 +148,28 @@ export function initPostHog() {
       distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
     },
 
-    // Session replay is the fastest way to diagnose real Desktop usage, but the
-    // overlay contains customer calls. Record layout, timing and interaction
-    // only: every text node/input is masked; media, canvas, network payloads and
-    // console output are excluded. Structured events below carry the useful
-    // non-content details that a fully masked replay cannot show.
+    // FULL-FIDELITY CAPTURE - deliberate, and a product decision, not an
+    // oversight.
+    //
+    // Pre-launch these accounts are free in exchange for their data, and the
+    // suggestion quality work needs the actual words: what the prospect said,
+    // what Taylos proposed, and whether the rep used it. A masked replay shows
+    // that a rep read something and moved on, which answers nothing.
+    //
+    // The transcript on screen belongs to a call whose OTHER side did not
+    // agree to this. Keep the PostHog DPA and the customer terms ahead of it.
     disable_session_recording: false,
-    enable_recording_console_log: false,
+    enable_recording_console_log: true,
     session_recording: {
-      maskAllInputs: true,
-      maskTextSelector: '*',
-      blockSelector: 'img, video, canvas, svg',
-      collectFonts: false,
+      maskAllInputs: false,
+      maskTextSelector: undefined,
+      blockSelector: undefined,
+      collectFonts: true,
       recordCrossOriginIframes: false,
-      recordHeaders: false,
-      recordBody: false,
+      recordHeaders: true,
+      recordBody: true,
       captureCanvas: { recordCanvas: false },
-      maskCapturedNetworkRequestFn: () => null,
+      maskCapturedNetworkRequestFn: (request: any) => request,
     },
     disable_surveys: true,
 
@@ -179,7 +182,8 @@ export function initPostHog() {
   } as any);
   
   initialized = true;
-    posthog.startSessionRecording({ sampling: true });
+    // No sampling: a session we did not record is a user test we cannot read.
+    posthog.startSessionRecording();
     console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
     
     flushQueuedEvents();
@@ -340,6 +344,30 @@ export function trackInsightsViewed(properties: {
   transcript_count: number;
 }) {
   sendDesktopEvent('insights_viewed', properties);
+}
+
+/**
+ * The whole picture behind one suggestion: what Taylos proposed, the
+ * conversation it was generated from, and the preset that shaped it.
+ *
+ * The counter events above answer "did a suggestion appear". This answers
+ * "was it the right one", which is the question the quality work actually
+ * needs and the reason these accounts are free pre-launch.
+ */
+export function trackSuggestionContext(properties: {
+  chat_id?: number;
+  surface: 'insights' | 'ask';
+  suggestion?: unknown;
+  transcript?: unknown;
+  transcript_line_count?: number;
+  preset_name?: string | null;
+  preset_id?: number | null;
+  preset_unusable?: boolean;
+  session_state?: SessionState;
+  language?: string;
+  question?: string;
+}) {
+  sendDesktopEvent('suggestion_context', properties as AnalyticsProperties);
 }
 
 export function trackInsightsLoaded(properties: {

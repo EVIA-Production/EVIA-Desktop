@@ -13,6 +13,7 @@ import {
   trackAskFailed,
   trackAskRequestReady,
   trackAskResponseReceived,
+  trackSuggestionContext,
   trackAskSubmitted,
 } from '../services/posthogService';
 
@@ -486,6 +487,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
           session_state: preparedSessionState,
           query_source: incomingQuerySource,
           delivery: 'prepared',
+        });
+        // The answer AND what produced it - the question, and the conversation
+        // it was asked inside.
+        trackSuggestionContext({
+          surface: 'ask',
+          suggestion: prepared,
+          question: incomingPrompt,
+          transcript: transcriptContext,
+          session_state: preparedSessionState,
+          language,
         });
         if (restartStreamTimeoutRef.current) {
           clearTimeout(restartStreamTimeoutRef.current);

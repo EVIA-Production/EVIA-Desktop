@@ -20,6 +20,7 @@ import {
   beginAnalyticsCall,
   trackInsightsFailed,
   trackInsightsLoaded,
+  trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
   trackTranscriptFirstVisible,
@@ -1510,6 +1511,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           session_state: derivedSessionState,
           trigger: analyticsTrigger,
           attempts: attempt + 1,
+        });
+        // The suggestion AND what produced it. Counters say a suggestion
+        // appeared; this says whether it was the right one.
+        trackSuggestionContext({
+          chat_id: Number(canonicalTranscriptStateRef.current?.chatId) || undefined,
+          surface: 'insights',
+          suggestion: fetchedInsights,
+          transcript: transcriptContextFromState(canonicalTranscriptStateRef.current),
+          transcript_line_count: transcripts.length,
+          preset_unusable: Boolean(fetchedInsights?.preset_unusable),
+          preset_name: fetchedInsights?.preset_name ?? null,
+          session_state: derivedSessionState,
         });
         analyticsOutcomeTracked = true;
         

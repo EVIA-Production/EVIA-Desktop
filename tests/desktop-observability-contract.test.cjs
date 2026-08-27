@@ -12,39 +12,39 @@ const listenView = read('src/renderer/overlay/ListenView.tsx');
 const overlayEntry = read('src/renderer/overlay/overlay-entry.tsx');
 const overlayWindows = read('src/main/overlay-windows.ts');
 
-test('desktop replay records every session without recording customer content', () => {
+test('desktop replay captures the full session, text included', () => {
+  // Deliberate pre-launch decision: these accounts are free in exchange for
+  // their data, and a masked replay cannot answer whether a suggestion was
+  // any good. Guarded as a contract so nobody silently re-masks it - the
+  // reverse of what this test asserted before 2026-08-27.
   assert.match(analytics, /disable_session_recording:\s*false/);
-  assert.match(analytics, /startSessionRecording\(\{\s*sampling:\s*true\s*\}\)/);
-  assert.match(analytics, /maskAllInputs:\s*true/);
-  assert.match(analytics, /maskTextSelector:\s*['"]\*['"]/);
-  assert.match(analytics, /blockSelector:\s*['"]img, video, canvas, svg['"]/);
-  assert.match(analytics, /enable_recording_console_log:\s*false/);
-  assert.match(analytics, /recordHeaders:\s*false/);
-  assert.match(analytics, /recordBody:\s*false/);
-  assert.match(analytics, /recordCanvas:\s*false/);
-  assert.match(analytics, /maskCapturedNetworkRequestFn:\s*\(\)\s*=>\s*null/);
+  assert.match(analytics, /startSessionRecording\(\)/, 'no sampling: every session must record');
+  assert.match(analytics, /maskAllInputs:\s*false/);
+  assert.match(analytics, /maskTextSelector:\s*undefined/);
+  assert.match(analytics, /blockSelector:\s*undefined/);
+  assert.match(analytics, /enable_recording_console_log:\s*true/);
+  assert.match(analytics, /recordHeaders:\s*true/);
+  assert.match(analytics, /recordBody:\s*true/);
+  assert.doesNotMatch(analytics, /maskCapturedNetworkRequestFn:\s*\(\)\s*=>\s*null/);
 });
 
-test('all product events pass through the central privacy sanitizer', () => {
+test('every product event carries its full context', () => {
   const directCaptures = analytics.match(/posthog\.capture\(/g) || [];
   assert.equal(directCaptures.length, 2, 'only sendDesktopEvent and queue flushing may call posthog.capture');
-  for (const key of [
-    'chat_id',
-    'context',
-    'email',
-    'error_message',
-    'insight_text',
-    'insight_text_preview',
-    'name',
-    'preset_name',
-    'response_hash',
-    'user_id',
-    'username',
-  ]) {
-    assert.match(analytics, new RegExp(`['"]${key}['"]`));
+
+  // The sanitizer used to DROP these keys and cut every string at 80 chars,
+  // so an event proved a click happened and nothing about what was clicked.
+  assert.doesNotMatch(analytics, /SENSITIVE_PROPERTY_KEYS/, 'the drop-list is gone by design');
+  assert.doesNotMatch(analytics, /slice\(0,\s*80\)/, '80 chars truncated away the content');
+  assert.match(analytics, /MAX_PROPERTY_CHARS\s*=\s*20000/, 'the only cap left is PostHog ingestion');
+
+  // The suggestion and what produced it must both travel.
+  assert.match(analytics, /export function trackSuggestionContext/);
+  for (const field of ['suggestion', 'transcript', 'preset_name', 'question', 'chat_id']) {
+    assert.match(analytics, new RegExp(`${field}\\??:`), `suggestion context must carry ${field}`);
   }
-  assert.doesNotMatch(analytics, /insight_text_preview:\s*properties/);
-  assert.doesNotMatch(analytics, /insight_text_hash:\s*hashText/);
+  assert.match(listenView, /trackSuggestionContext\(/, 'insights must report their context');
+  assert.match(askView, /trackSuggestionContext\(/, 'ask must report its context');
 });
 
 test('desktop call, transcript, insights and ask lifecycles are wired to analytics', () => {
