@@ -11,6 +11,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
+import os from 'os';
+import { appendAudioDiagnostic } from './audio-diagnostics';
 
 const CHUNK_DURATION_SEC = 0.1; // 100ms
 const SAMPLE_RATE = 24000; // 24kHz
@@ -32,6 +34,10 @@ export class SystemAudioWindowsService {
   private readonly STALL_THRESHOLD_MS = 8000;
   
   // WINDOWS FIX (2025-12-09): Prevent infinite restart loops
+  // Set on the first chunk so start->first-audio can be measured the same way
+  // it is on macOS. Without it there was no Windows number to compare against.
+  private startRequestedAt: number = 0;
+  private readySent: boolean = false;
   private restartCount: number = 0;
   private lastRestartTime: number = 0;
   private readonly MAX_RESTARTS_PER_MINUTE = 5; // Increased from 3 to allow more recovery attempts
@@ -55,6 +61,20 @@ export class SystemAudioWindowsService {
     }
     if (this.running) return { success: false, error: 'already_running' };
 
+    // Same event, same name, same file as macOS.
+    //
+    // Measured 2026-08-27: this service made ZERO appendAudioDiagnostic calls
+    // against six on the mac side, so audio-diagnostics.log was empty on
+    // Windows and every capture forensic that exists for macOS - start
+    // latency, stalls, helper status, failure codes - simply did not exist
+    // there. A Windows capture bug had no trail to follow.
+    this.startRequestedAt = Date.now();
+    this.readySent = false;
+    appendAudioDiagnostic('system_audio_start_requested', {
+      platform: process.platform,
+      osRelease: os.release(),
+    });
+
     try {
       const helperPath = this.getHelperPath();
       // Log the path we will spawn from
@@ -66,6 +86,11 @@ export class SystemAudioWindowsService {
         if (!fs.existsSync(helperPath)) {
           const msg = `[SystemAudioWindows] ❌ Helper not found at ${helperPath}. Build WASAPILoopback.exe and place it there.`;
           console.error(msg);
+          appendAudioDiagnostic('system_audio_start_failed', {
+            code: 'helper_not_found',
+            error: msg,
+            helperPath,
+          });
           this.send('system-audio-windows:status', msg);
           return { success: false, error: 'helper_not_found' };
         }
@@ -75,7 +100,14 @@ export class SystemAudioWindowsService {
       // Args: ensure 24000 mono 16-bit little endian, 100ms
       const args: string[] = ['--sample-rate', String(SAMPLE_RATE), '--channels', '1', '--chunk-ms', '100', '--format', 's16le'];
       this.proc = spawn(helperPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-      if (!this.proc.pid) return { success: false, error: 'spawn_failed' };
+      if (!this.proc.pid) {
+        appendAudioDiagnostic('system_audio_start_failed', {
+          code: 'spawn_failed',
+          error: 'helper process produced no pid',
+          helperPath,
+        });
+        return { success: false, error: 'spawn_failed' };
+      }
       this.running = true;
 
       // WINDOWS FIX: Start heartbeat monitoring
@@ -93,6 +125,11 @@ export class SystemAudioWindowsService {
         
         if (this.running && timeSinceChunk > this.STALL_THRESHOLD_MS) {
           console.warn(`[SystemAudioWindows] ⚠️ Helper stalled - no chunks for ${Math.round(timeSinceChunk/1000)}s (restarts: ${this.restartCount})`);
+          appendAudioDiagnostic('system_audio_stall', {
+            ageMs: timeSinceChunk,
+            chunksForwarded: this.chunkCount,
+            restartCount: this.restartCount,
+          });
           this.send('system-audio-windows:status', `WARNING: Helper stalled (${Math.round(timeSinceChunk/1000)}s)`);
           
           // Auto-restart if stalled for too long, but respect limits
@@ -102,6 +139,14 @@ export class SystemAudioWindowsService {
             // Check restart limits
             if (this.restartCount >= this.MAX_RESTARTS_PER_MINUTE) {
               console.error(`[SystemAudioWindows] 🚫 MAX RESTARTS REACHED (${this.MAX_RESTARTS_PER_MINUTE}). NOT restarting. Manual intervention required.`);
+              // Windows-only state and the worst one: capture is dead and will
+              // not come back on its own. It has to be in the file, not only
+              // in a console nobody is attached to.
+              appendAudioDiagnostic('system_audio_helper_status', {
+                status: 'max_restarts_reached',
+                restartCount: this.restartCount,
+                chunksForwarded: this.chunkCount,
+              });
               this.send('system-audio-windows:status', `ERROR: Max restarts reached - manual restart required`);
               // Stop the heartbeat to prevent more restart attempts
               if (this.heartbeatInterval) {
@@ -118,6 +163,12 @@ export class SystemAudioWindowsService {
             }
             
             console.log(`[SystemAudioWindows] 🔄 Auto-restarting stalled helper (attempt ${this.restartCount + 1}/${this.MAX_RESTARTS_PER_MINUTE})...`);
+            appendAudioDiagnostic('system_audio_helper_status', {
+              status: 'auto_restart',
+              attempt: this.restartCount + 1,
+              maxRestarts: this.MAX_RESTARTS_PER_MINUTE,
+              ageMs: timeSinceChunk,
+            });
             this.restartCount++;
             this.lastRestartTime = now;
             
@@ -172,6 +223,15 @@ export class SystemAudioWindowsService {
           this.chunkCount++;
           if (this.chunkCount <= 5 || this.chunkCount % 100 === 0) {
             console.log(`[SystemAudioWindows] Chunk #${this.chunkCount}: ${chunk.length} bytes`);
+          if (!this.readySent) {
+            // start -> first audio, the number macOS has always recorded as
+            // system_audio_ready. Without it there was no way to compare
+            // Windows capture startup against the mac figure at all.
+            this.readySent = true;
+            appendAudioDiagnostic('system_audio_ready', {
+              readyInMs: Date.now() - this.startRequestedAt,
+            });
+          }
           }
         }
       });
@@ -180,10 +240,19 @@ export class SystemAudioWindowsService {
         const line = d.toString('utf8').trim();
         this.send('system-audio-windows:status', line);
         console.error('[SystemAudioWindows] stderr:', line);
+        appendAudioDiagnostic('system_audio_helper_status', {
+          status: 'stderr',
+          line: String(line).slice(0, 300),
+        });
       });
 
       this.proc.on('close', (code) => {
         console.log('[SystemAudioWindows] helper closed with code', code);
+        appendAudioDiagnostic('system_audio_helper_status', {
+          status: 'helper_closed',
+          code: typeof code === 'number' ? code : undefined,
+          chunksForwarded: this.chunkCount,
+        });
         this.proc = null;
         this.running = false;
         this.buffer = Buffer.alloc(0);
