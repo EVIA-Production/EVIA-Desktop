@@ -43,6 +43,15 @@ export interface Insight {
   followUps?: string[];
   session_state?: 'before' | 'during' | 'after';
   stub?: boolean;
+  /**
+   * Set when the active preset has no usable content - the untouched
+   * onboarding template, or a stub. Measured 2026-08-26: 13 of 23 ACTIVE
+   * presets were in that state, and a client ran a live call on one, so
+   * every suggestion was generated with no product, no proof and no
+   * objection answers. Optional: older backends never send it.
+   */
+  preset_unusable?: boolean;
+  preset_warning?: string;
 }
 
 interface FetchInsightsParams {

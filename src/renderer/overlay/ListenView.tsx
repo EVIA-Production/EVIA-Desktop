@@ -156,6 +156,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsRefreshPending, setInsightsRefreshPending] = useState(false);
   const [presetContextWarning, setPresetContextWarning] = useState(false);
+  // The preset is still the blank template. This is not a degraded state to
+  // work around - no suggestion generated against an empty preset can be
+  // grounded, so the seller has to see it before the next call rather than
+  // conclude the suggestions are bad.
+  const [presetEmptyWarning, setPresetEmptyWarning] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
   const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
@@ -1261,6 +1266,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           transcript: requestTranscript || undefined,
           preparedClaimed: claim,
         });
+        setPresetEmptyWarning(
+          fetchedInsights?.preset_unusable ? (fetchedInsights.preset_warning || null) : null,
+        );
         preparedSnapshotRef.current = null;
         const preparedFields = fetchedInsights?.action_items?.[0];
         if (requestTranscript && preparedFields?.prepared_suggestion) {
@@ -1740,6 +1748,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           {presetContextWarning && (
             <div className="listen-context-warning" role="status">
               {i18n.t('overlay.listen.presetContextUnavailable')}
+            </div>
+          )}
+          {presetEmptyWarning && (
+            <div className="listen-context-warning" role="status">
+              {presetEmptyWarning}
             </div>
           )}
           {viewMode === 'transcript' ? (
