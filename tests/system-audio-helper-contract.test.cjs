@@ -25,12 +25,14 @@ test('macOS release build regenerates the system-audio helper', () => {
   assert.match(packageJson.scripts['build:native:audio'], /build-system-audio-helper\.js/)
 })
 
-test('desktop releases remain drafts until both updater asset sets exist', () => {
+test('a release publishes per platform, so one blocked signer cannot hold the other', () => {
   const macWorkflow = read('.github/workflows/release-desktop.yml')
   const releaseGate = read('scripts/finalize-release-if-complete.js')
 
   assert.match(macWorkflow, /gh release create "\$TAG" --draft/)
   assert.match(macWorkflow, /finalize-release-if-complete\.js/)
+
+  // Both updater manifests still have to be accounted for...
   for (const asset of [
     'taylos.dmg',
     'taylos.zip',
@@ -41,6 +43,17 @@ test('desktop releases remain drafts until both updater asset sets exist', () =>
   ]) {
     assert.match(releaseGate, new RegExp(asset.replaceAll('.', '\\.')))
   }
+
+  // ...but grouped per platform, and publishing on the FIRST complete group.
+  // The all-or-nothing version left v1.0.98 as a draft for hours with a
+  // finished mac build inside it, because Windows signing needs a human at an
+  // HSM. electron-updater reads latest-mac.yml and latest.yml separately, so a
+  // mac-only release is complete for mac and invisible to Windows.
+  assert.match(releaseGate, /PLATFORM_ASSETS/)
+  assert.match(releaseGate, /mac:\s*\[/)
+  assert.match(releaseGate, /windows:\s*\[/)
+  assert.doesNotMatch(releaseGate, /const requiredAssets/, 'the all-or-nothing list is gone by design')
+  assert.match(releaseGate, /ready\.length === 0/, 'draft only while NO platform is complete')
 })
 
 test('system-audio helper source and Electron share a typed protocol', () => {
