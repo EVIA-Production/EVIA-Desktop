@@ -320,6 +320,37 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
+  /**
+   * A preset change starts a fresh session.
+   *
+   * The preset is bound to a chat as an immutable SNAPSHOT when the session
+   * starts, so switching preset while an old chat id is still in localStorage
+   * left the next suggestion grounded in the preset the user had just moved
+   * away from - silently, and for the whole of that conversation. Requested
+   * 2026-08-27: "when i activate a different preset in desktop settings window,
+   * a new session should be started."
+   *
+   * Safe to do here because activation is refused outright while a recording is
+   * live, so this only ever runs between calls. Same four steps EviaBar uses
+   * when it retires an orphaned session - one reset, not a second definition of
+   * what "fresh" means.
+   */
+  const startFreshSessionAfterPresetChange = (reason: string) => {
+    console.log('[SettingsView] 🔄 Preset changed (%s) - starting a fresh session', reason);
+    try {
+      localStorage.removeItem('current_chat_id');
+    } catch {}
+    try {
+      (window as any).evia?.prefs?.set?.({ current_chat_id: null });
+    } catch {}
+    try {
+      (window as any).evia?.liveTranscript?.clear?.();
+    } catch {}
+    try {
+      (window as any).evia?.ipc?.send?.('clear-session');
+    } catch {}
+  };
+
   const handlePresetSelect = async (preset: any) => {
     // PREVENT preset changes during active recording session
     if (isSessionActive) {
@@ -347,6 +378,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           setPresets(presets.map(p => ({ ...p, is_active: false })));
           setSelectedPreset(null);
           localStorage.removeItem('active_preset_context');
+          startFreshSessionAfterPresetChange('deactivated');
         } else {
           console.error('[SettingsView] ❌ Failed to deactivate preset:', result?.status, result?.error);
           setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
@@ -386,6 +418,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         setPresets(updatedPresets);
         setSelectedPreset(updatedPreset);
         localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
+        startFreshSessionAfterPresetChange('activated');
       } else {
         console.error('[SettingsView] ❌ Failed to update preset:', result?.status, result?.error);
         setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
