@@ -46,7 +46,14 @@ test('each control declares what it is', () => {
     /handleInsightClick\(action\.label, action\.prompt, 'quick_action'\)/,
   );
   assert.match(listenView, /whatToSayNextPrompt'\), 'quick_action'\)/);
-  assert.match(listenView, /querySource,\n\s*\}\);/, 'the IPC payload drops the source');
+  // Anchored to the send call itself rather than to "querySource," being the
+  // last line before the closing brace. The old form broke the moment another
+  // field was added after it, which asserted field ORDER while claiming to
+  // assert presence.
+  const sendAt = listenView.indexOf("eviaIpc.send('ask:send-and-submit', {");
+  assert.ok(sendAt > 0, 'the send-and-submit call is gone');
+  const payload = listenView.slice(sendAt, listenView.indexOf('});', sendAt));
+  assert.match(payload, /\bquerySource,/, 'the IPC payload drops the source');
 
   // The two summary lists must NOT relabel themselves - they are the case the
   // backend gets wrong without provenance.

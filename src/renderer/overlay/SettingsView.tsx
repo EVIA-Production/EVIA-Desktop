@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
+import { armPresetSessionReset } from '../lib/pending-preset-reset';
 
 const WEB_APP_URL = 'https://app.taylos.ai';
 
@@ -320,6 +321,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
+  /**
+   * A preset change ARMS a session reset; it does not perform one.
+   *
+   * Clearing on the toggle was safe but destructive - browsing presets, or
+   * activating the wrong one by accident, threw away the Ask content with no
+   * way back. The guarantee that matters is only that no suggestion generated
+   * under the old preset ends up in a session bound to the new one, and that
+   * holds just as well if the reset happens immediately BEFORE the next
+   * question or the next recording. See lib/pending-preset-reset.
+   */
+  const armFreshSessionForNextInteraction = (presetId: string | number | null, reason: string) => {
+    console.log('[SettingsView] 🔖 Preset %s - next question or recording starts a new session', reason);
+    armPresetSessionReset(presetId);
+  };
+
   const handlePresetSelect = async (preset: any) => {
     // PREVENT preset changes during active recording session
     if (isSessionActive) {
@@ -347,6 +363,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           setPresets(presets.map(p => ({ ...p, is_active: false })));
           setSelectedPreset(null);
           localStorage.removeItem('active_preset_context');
+          armFreshSessionForNextInteraction(preset.id, 'deactivated');
         } else {
           console.error('[SettingsView] ❌ Failed to deactivate preset:', result?.status, result?.error);
           setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });
@@ -386,6 +403,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         setPresets(updatedPresets);
         setSelectedPreset(updatedPreset);
         localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
+        armFreshSessionForNextInteraction(preset.id, 'activated');
       } else {
         console.error('[SettingsView] ❌ Failed to update preset:', result?.status, result?.error);
         setPresetNotice({ kind: 'error', text: t('presetActivationFailed') });

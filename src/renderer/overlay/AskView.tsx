@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { streamAsk, type AskQuerySource } from '../lib/evia-ask-stream';
 import { i18n } from '../i18n/i18n';
+import { consumePresetSessionReset, clearSessionBinding } from '../lib/pending-preset-reset';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
@@ -28,6 +29,13 @@ type AskSendPayload = {
   transcriptContext?: string;
   chatId?: number | string;
   querySource?: AskQuerySource;
+  // Set only when ListenView proved the transcript has not moved since the
+  // insights refresh that produced this answer. Its presence means: display
+  // this, do not ask the backend anything.
+  preparedSuggestion?: string;
+  preparedSuggestionId?: string;
+  preparedFingerprint?: string;
+  preparedClickedAtMs?: number;
 };
 
 type AskSessionState = 'before' | 'during' | 'after';
@@ -443,6 +451,56 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       lastSendAndSubmitAtRef.current = now;
       
       console.log('[AskView] 📥 Received send-and-submit via IPC:', incomingPrompt.substring(0, 50));
+
+      // A prepared answer is displayed, not requested. No stream is opened, no
+      // /ask call is made, and nothing here can fail slowly: the text already
+      // passed the full production contract server-side before it was sent.
+      const prepared = typeof payload === 'object' ? (payload.preparedSuggestion || '').trim() : '';
+      if (prepared) {
+        if (restartStreamTimeoutRef.current) {
+          clearTimeout(restartStreamTimeoutRef.current);
+          restartStreamTimeoutRef.current = null;
+        }
+        cancelActiveStreamRef.current?.('prepared suggestion displayed');
+        if (explicitSessionState) {
+          localStorage.setItem('evia_session_state', explicitSessionState);
+          setSessionState(explicitSessionState as AskSessionState);
+        }
+        liveTranscriptOverrideRef.current = transcriptContext || null;
+        chatIdOverrideRef.current = explicitChatId ? String(explicitChatId) : null;
+        setPrompt(incomingPrompt);
+        setShowTextInput(true);
+        setIsStreaming(false);
+        setErrorToast(null);
+        setTtftMs(null);
+        responseBufferRef.current = prepared;
+        lastResponseRef.current = prepared;
+        setResponse(prepared);
+        setCurrentQuestion(incomingPrompt);
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        // Same shape the streamed path appends, so history navigation cannot
+        // tell a prepared answer from a generated one.
+        setResponseHistory((prev) => {
+          const next = [...prev, { question: incomingPrompt, response: prepared }];
+          setResponseIndex(next.length - 1);
+          return next;
+        });
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const targetHeight = measureTargetWindowHeight();
+            storedContentHeightRef.current = targetHeight;
+            requestWindowResize(targetHeight);
+            const clickedAt = typeof payload === 'object' ? payload.preparedClickedAtMs : undefined;
+            console.log(
+              '[PREPARED] displayed id=%s click_to_visible_ms=%s chars=%d',
+              (typeof payload === 'object' ? payload.preparedSuggestionId : '') || '-',
+              clickedAt ? String(Date.now() - clickedAt) : 'unknown',
+              prepared.length,
+            );
+          });
+        });
+        return;
+      }
       
       // FIX: If session state explicitly provided, update it BEFORE starting stream
       // This ensures backend receives correct session_state (especially 'after' from Insights clicks)
@@ -859,6 +917,25 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // FIX: Support override prompt for auto-submit from insights
     const actualPrompt = overridePrompt || prompt;
     if (!actualPrompt.trim() || streamRef.current || deterministicDemoTimerRef.current) return;
+
+    // A preset was activated since the last interaction. Reset HERE, before the
+    // request, so this question becomes the first turn of a session bound to
+    // the new preset - and so that merely toggling a preset never destroyed
+    // anything. The previous answers go on purpose: paging back to a reply that
+    // was generated under a different preset is the confusion this prevents.
+    if (consumePresetSessionReset()) {
+      console.log('[AskView] 🔄 Preset changed since last interaction - starting a new session');
+      clearSessionBinding();
+      chatIdOverrideRef.current = null;
+      liveTranscriptOverrideRef.current = null;
+      responseBufferRef.current = '';
+      lastResponseRef.current = '';
+      setResponse('');
+      setResponseHistory([]);
+      setResponseIndex(-1);
+      setCurrentQuestion('');
+      setErrorToast(null);
+    }
 
     const requestStartedAt = performance.now();
     const clientStartedAtMs = Date.now();

@@ -1970,9 +1970,17 @@ textarea:focus-visible,
   color: rgba(255, 255, 255, 0.9);
 }
 
+/* The divider between the answer and the line the seller reads out loud.
+   It was a white border at 0.18 alpha, which is legible over the dark glass and
+   invisible the moment the overlay sits on a light desktop - the same condition
+   that produced the reported "white background" problems. Reported twice as
+   "the separator does not display": the markup was always correct, the line
+   just could not be seen.
+   currentColor follows the text colour, so it stays visible in both. */
 .markdown-content hr {
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 1px solid currentColor;
+  opacity: 0.28;
   margin: 10px 0;
 }
 
