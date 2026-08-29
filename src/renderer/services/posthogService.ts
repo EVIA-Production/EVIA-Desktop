@@ -13,7 +13,10 @@
  * Event Taxonomy: See /docs/POSTHOG_METRICS_TAXONOMY_V3.md
  */
 
-import posthog from 'posthog-js';
+// Bundle the recorder with the Desktop build. Loading it from PostHog at
+// runtime made the most important diagnostic surface depend on a second
+// network request that could be blocked while ordinary analytics still worked.
+import posthog from 'posthog-js/dist/module.full.no-external';
 
 // ============================================================================
 // INITIALIZATION (Call once at app start)
@@ -23,6 +26,7 @@ const POSTHOG_KEY = 'phc_I09s0hYqFHpZv2okGU4hwd2Lth0ktSM5eSp3bRJOJXc';
 const POSTHOG_HOST = 'https://eu.i.posthog.com';
 
 let initialized = false;
+const REPLAY_HEALTH_DELAYS_MS = [1_500, 5_000, 15_000] as const;
 
 type AnalyticsProperties = Record<string, unknown>;
 
@@ -115,6 +119,36 @@ function flushQueuedEvents(): void {
   for (const event of pending) posthog.capture(event.eventName, event.properties);
 }
 
+function replayStatus(): string {
+  const status = (posthog as any)?.sessionRecording?.status;
+  return typeof status === 'string' ? status : 'unknown';
+}
+
+function verifyReplayRecording(attempt = 0): void {
+  try {
+    // `true` overrides sampling, linked-flag and trigger controls. Recording is
+    // still governed by the project-level enable switch returned by PostHog.
+    posthog.startSessionRecording(true);
+  } catch (error) {
+    console.error('[PostHog] Replay start failed:', error);
+  }
+
+  const delay = REPLAY_HEALTH_DELAYS_MS[Math.min(attempt, REPLAY_HEALTH_DELAYS_MS.length - 1)];
+  setTimeout(() => {
+    const recordingStarted = posthog.sessionRecordingStarted();
+    sendDesktopEvent('desktop_replay_health', {
+      attempt: attempt + 1,
+      recording_started: recordingStarted,
+      replay_status: replayStatus(),
+      posthog_session_id: posthog.get_session_id(),
+    });
+
+    if (!recordingStarted && attempt + 1 < REPLAY_HEALTH_DELAYS_MS.length) {
+      verifyReplayRecording(attempt + 1);
+    }
+  }, delay);
+}
+
 export function beginAnalyticsCall(): string {
   const callId = typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -173,17 +207,19 @@ export function initPostHog() {
     },
     disable_surveys: true,
 
-    // Replay configuration and the recorder extension are obtained through the
-    // PostHog remote-config path. Analytics still initializes after first paint
-    // and never blocks capture startup.
+    // Replay enablement is obtained through PostHog remote config. The recorder
+    // implementation itself is bundled above, so a blocked asset request cannot
+    // silently remove every Desktop replay.
     advanced_disable_decide: false,
     capture_dead_clicks: false,
     capture_exceptions: false,
   } as any);
   
   initialized = true;
-    // No sampling: a session we did not record is a user test we cannot read.
-    posthog.startSessionRecording();
+    // No sampling or trigger gates: a session we did not record is a user test
+    // we cannot diagnose. The health event proves whether the recorder actually
+    // started instead of merely proving that init() returned.
+    verifyReplayRecording();
     console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
     
     flushQueuedEvents();

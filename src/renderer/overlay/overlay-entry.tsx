@@ -23,19 +23,10 @@ import {
 } from '../services/posthogService'
 import { bindWindowGroupFocus } from './window-group-focus'
 
-// Initialize PostHog analytics
-// Analytics must never be on the critical path to a recording.
-//
-// This ran at module scope, so posthog.init() and its network setup happened
-// BEFORE the overlay rendered and before Listen could do anything. Deferred to
-// an idle callback: the rep pressing Listen is the product, analytics is
-// bookkeeping, and bookkeeping waits.
+// Initialize immediately after the first render has been scheduled. Waiting for
+// requestIdleCallback left short open-and-test sessions completely invisible,
+// while doing this after render keeps analytics off the Listen capture path.
 const startAnalytics = () => { try { initPostHog() } catch { /* never block the app */ } }
-if (typeof (window as any).requestIdleCallback === 'function') {
-  ;(window as any).requestIdleCallback(startAnalytics, { timeout: 5000 })
-} else {
-  setTimeout(startAnalytics, 3000)
-}
 
 type AudioStartFailureKind =
   | 'microphone_permission'
@@ -737,4 +728,5 @@ function App() {
 if (rootEl) {
   const root = ReactDOM.createRoot(rootEl)
   root.render(<App />)
+  startAnalytics()
 }

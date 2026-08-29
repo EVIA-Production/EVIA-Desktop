@@ -152,6 +152,87 @@ function getBackendHttpBase(): string {
     : 'https://api.taylos.ai';
 }
 
+type DesktopTelemetryEvent = 'app_launched' | 'heartbeat';
+
+const DESKTOP_TELEMETRY_INTERVAL_MS = 15 * 60 * 1000;
+const DESKTOP_TELEMETRY_REQUEST_TIMEOUT_MS = 5_000;
+let desktopTelemetryLaunchTimer: NodeJS.Timeout | null = null;
+let desktopTelemetryInterval: NodeJS.Timeout | null = null;
+
+async function reportDesktopClientTelemetry(event: DesktopTelemetryEvent): Promise<boolean> {
+  if (!app.isPackaged || IS_ISOLATED_HARNESS || isDemoMode) return false;
+
+  let token: string | null = null;
+  try {
+    token = await keytar.getPassword('taylos', 'token');
+  } catch (error) {
+    console.warn('[DesktopTelemetry] Could not read the auth token:', error);
+    return false;
+  }
+
+  if (!token) return false;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DESKTOP_TELEMETRY_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${getBackendHttpBase()}/client/telemetry`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        event: event,
+        app_version: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.warn(`[DesktopTelemetry] Backend rejected ${event}: ${response.status}`);
+      return false;
+    }
+
+    console.log(`[DesktopTelemetry] Reported ${event} for v${app.getVersion()}`);
+    return true;
+  } catch (error) {
+    console.warn(`[DesktopTelemetry] Failed to report ${event}:`, error);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function startDesktopClientTelemetry(): void {
+  if (!app.isPackaged || IS_ISOLATED_HARNESS || isDemoMode) return;
+
+  if (desktopTelemetryLaunchTimer) clearTimeout(desktopTelemetryLaunchTimer);
+  desktopTelemetryLaunchTimer = setTimeout(() => {
+    desktopTelemetryLaunchTimer = null;
+    void reportDesktopClientTelemetry('app_launched');
+  }, 3_000);
+
+  if (!desktopTelemetryInterval) {
+    desktopTelemetryInterval = setInterval(() => {
+      void reportDesktopClientTelemetry('heartbeat');
+    }, DESKTOP_TELEMETRY_INTERVAL_MS);
+  }
+}
+
+function stopDesktopClientTelemetry(): void {
+  if (desktopTelemetryLaunchTimer) {
+    clearTimeout(desktopTelemetryLaunchTimer);
+    desktopTelemetryLaunchTimer = null;
+  }
+  if (desktopTelemetryInterval) {
+    clearInterval(desktopTelemetryInterval);
+    desktopTelemetryInterval = null;
+  }
+}
+
 type UpdaterAuditState = {
   lastLaunchedVersion?: string
   pendingInstallVersion?: string
@@ -312,6 +393,7 @@ async function boot() {
 
   // Initialize header flow
   await headerController.initialize();
+  startDesktopClientTelemetry();
 
   deepLinkHandlingReady = true;
   if (pendingDeepLink) {
@@ -912,6 +994,7 @@ ipcMain.handle('auth:logout', async () => {
 });
 
 app.on('will-quit', () => {
+  stopDesktopClientTelemetry();
   captureSessionController.reconcileNoCapture('app_shutdown');
 });
 
@@ -1289,6 +1372,10 @@ app.on('open-url', (event, url) => {
 
 function broadcastAuthTokenChanged(token: string | null) {
   const payload = { token, authenticated: !!token };
+
+  if (token) {
+    void reportDesktopClientTelemetry('app_launched');
+  }
 
   BrowserWindow.getAllWindows().forEach((win) => {
     if (!win || win.isDestroyed()) return;

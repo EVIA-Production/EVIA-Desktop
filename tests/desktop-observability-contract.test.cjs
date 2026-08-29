@@ -17,8 +17,13 @@ test('desktop replay captures the full session, text included', () => {
   // their data, and a masked replay cannot answer whether a suggestion was
   // any good. Guarded as a contract so nobody silently re-masks it - the
   // reverse of what this test asserted before 2026-08-27.
+  assert.match(analytics, /posthog-js\/dist\/module\.full\.no-external/);
   assert.match(analytics, /disable_session_recording:\s*false/);
-  assert.match(analytics, /startSessionRecording\(\)/, 'no sampling: every session must record');
+  assert.match(analytics, /startSessionRecording\(true\)/, 'all sampling and trigger gates must be overridden');
+  assert.match(analytics, /sessionRecordingStarted\(\)/, 'recorder startup must be verified');
+  assert.match(analytics, /desktop_replay_health/, 'recorder health must be observable');
+  assert.doesNotMatch(overlayEntry, /requestIdleCallback\(startAnalytics/, 'short sessions must not disappear before replay starts');
+  assert.match(overlayEntry, /root\.render\(<App \/>\)[\s\S]*startAnalytics\(\)/);
   assert.match(analytics, /maskAllInputs:\s*false/);
   assert.match(analytics, /maskTextSelector:\s*undefined/);
   assert.match(analytics, /blockSelector:\s*undefined/);
@@ -64,4 +69,12 @@ test('desktop call, transcript, insights and ask lifecycles are wired to analyti
 test('every overlay window receives the exact application version', () => {
   assert.match(overlayWindows, /appVersion:\s*app\.getVersion\(\)/);
   assert.match(analytics, /app_version:\s*currentAppVersion\(\)/);
+});
+
+test('desktop reports its exact version to the backend independently of PostHog', () => {
+  const main = read('src/main/main.ts');
+  assert.match(main, /\/client\/telemetry/);
+  assert.match(main, /app_version:\s*app\.getVersion\(\)/);
+  assert.match(main, /platform:\s*process\.platform/);
+  assert.match(main, /event:\s*event/);
 });
