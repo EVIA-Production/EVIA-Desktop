@@ -57,6 +57,7 @@ import {
   isInsightsResultCurrent,
   mergeInsightsFetchIntent,
   postMeetingRetryDelayMs,
+  shouldPreemptInsightsRequest,
   type InsightsFetchIntent,
   type InsightsSessionState,
 } from '../../main/insights-request-policy';
@@ -200,6 +201,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const postMeetingRetryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const postMeetingRetryAttemptRef = useRef(0);
   const insightsRequestInFlightRef = useRef(false);
+  const activeInsightsFetchIntentRef = useRef<InsightsFetchIntent | null>(null);
+  const insightsRequestAbortControllerRef = useRef<AbortController | null>(null);
   const queuedInsightsFetchIntentRef = useRef<InsightsFetchIntent | null>(null);
   // The prepared answer for action #1, together with the exact transcript it
   // was written for. Replaced wholesale on every insights refresh - never
@@ -427,6 +430,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         clearTimeout(postMeetingRetryTimerRef.current);
         postMeetingRetryTimerRef.current = null;
       }
+      insightsRequestAbortControllerRef.current?.abort('listen-view-unmounted');
     };
   }, []);
 
@@ -631,6 +635,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     afterInsightsFrozenRef.current = false;
     afterInsightsRequestPendingRef.current = false;
     queuedInsightsFetchIntentRef.current = null;
+    insightsRequestAbortControllerRef.current?.abort('session-reset');
     liveInsightsRefreshQueuedRef.current = false;
     firstPartialLatencyByEventRef.current.clear();
     finalLatencyByEventRef.current.clear();
@@ -1204,10 +1209,17 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       if (latestSessionState === 'during' && hasGroundedProspectSpeech(transcriptsRef.current)) {
         liveInsightsRefreshQueuedRef.current = true;
       }
+      if (shouldPreemptInsightsRequest(activeInsightsFetchIntentRef.current, incomingIntent)) {
+        console.log('[ListenView] 🛑 Post-call insights preempting active live request');
+        insightsRequestAbortControllerRef.current?.abort('post-call-insights-priority');
+      }
       console.log('[ListenView] Insights request already running; queued:', queuedInsightsFetchIntentRef.current);
       return;
     }
     insightsRequestInFlightRef.current = true;
+    activeInsightsFetchIntentRef.current = incomingIntent;
+    const requestAbortController = new AbortController();
+    insightsRequestAbortControllerRef.current = requestAbortController;
     if (latestSessionState === 'after') afterInsightsRequestPendingRef.current = true;
     let postMeetingSucceeded = false;
     let postMeetingRetryMinimumMs = 0;
@@ -1404,6 +1416,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           sessionState: derivedSessionState,
           transcript: requestTranscript || undefined,
           preparedClaimed: claim,
+          signal: requestAbortController.signal,
+          requestTimeoutMs: 15_000,
         });
         setPresetEmptyWarning(
           fetchedInsights?.preset_unusable ? (fetchedInsights.preset_warning || null) : null,
@@ -1603,6 +1617,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         });
       }
       insightsRequestInFlightRef.current = false;
+      activeInsightsFetchIntentRef.current = null;
+      if (insightsRequestAbortControllerRef.current === requestAbortController) {
+        insightsRequestAbortControllerRef.current = null;
+      }
       setIsLoadingInsights(false);
 
       if (latestSessionState === 'after') {

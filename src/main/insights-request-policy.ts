@@ -29,6 +29,13 @@ export function mergeInsightsFetchIntent(
   }
 }
 
+export function shouldPreemptInsightsRequest(
+  active: InsightsFetchIntent | null,
+  incoming: InsightsFetchIntent,
+): boolean {
+  return active?.sessionState === 'during' && incoming.sessionState === 'after'
+}
+
 export function isInsightsResultCurrent(
   requestedSessionState: InsightsSessionState,
   currentSessionState: InsightsSessionState,

@@ -75,6 +75,10 @@ interface FetchInsightsParams {
   transcript?: string;
   /** Fire-and-forget report that a prepared answer was displayed. */
   preparedClaimed?: { suggestion_id: string; fingerprint: string; click_to_visible_ms: number } | null;
+  /** Cancels obsolete live work when a post-meeting request takes priority. */
+  signal?: AbortSignal;
+  /** A provider or network failure must never hold the global insights lock forever. */
+  requestTimeoutMs?: number;
 }
 
 const getCanonicalAfterActions = (language: string): Record<string, InsightActionItem> =>
@@ -182,6 +186,8 @@ export async function fetchInsights({
   sessionState = 'during',
   transcript,
   preparedClaimed,
+  signal,
+  requestTimeoutMs = 15_000,
 }: FetchInsightsParams): Promise<Insight | null> {
   const url = baseUrl || BACKEND_URL;
   
@@ -282,6 +288,20 @@ export async function fetchInsights({
   };
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (signal?.aborted) {
+      console.log('[Insights] Request cancelled before fetch');
+      return null;
+    }
+
+    const requestController = new AbortController();
+    let requestTimedOut = false;
+    const forwardAbort = () => requestController.abort(signal?.reason);
+    if (signal) signal.addEventListener('abort', forwardAbort, { once: true });
+    const requestTimeout = setTimeout(() => {
+      requestTimedOut = true;
+      requestController.abort();
+    }, requestTimeoutMs);
+
     try {
       console.log(`[Insights] Fetching insights for chat ${chatId} (attempt ${attempt + 1}/${MAX_RETRIES}) session_state: ${sessionState}`);
       const response = await fetch(`${url.replace(/\/$/, '')}/insights`, {
@@ -298,6 +318,7 @@ export async function fetchInsights({
           ...(transcript ? { transcript } : {}),
           ...(preparedClaimed ? { prepared_claimed: preparedClaimed } : {}),
         }),
+        signal: requestController.signal,
       });
 
       if (!response.ok) {
@@ -336,6 +357,14 @@ export async function fetchInsights({
       });
       return normalized;
     } catch (error) {
+      if (signal?.aborted) {
+        console.log('[Insights] Request cancelled because newer insights work took priority');
+        return null;
+      }
+      if (requestTimedOut) {
+        console.warn(`[Insights] Request timed out after ${requestTimeoutMs}ms; releasing the insights pipeline`);
+        return null;
+      }
       // CRITICAL FIX: Retry on network errors
       const isNetworkError = error instanceof TypeError || 
                              (error instanceof Error && error.message.includes('Failed to fetch'));
@@ -349,6 +378,9 @@ export async function fetchInsights({
       console.error(`[Insights] ❌ Fetch failed after ${attempt + 1} attempts:`, error);
       // Return null on error (graceful degradation)
       return null;
+    } finally {
+      clearTimeout(requestTimeout);
+      if (signal) signal.removeEventListener('abort', forwardAbort);
     }
   }
   

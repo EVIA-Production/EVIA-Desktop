@@ -5,6 +5,7 @@ const {
   isInsightsResultCurrent,
   mergeInsightsFetchIntent,
   postMeetingRetryDelayMs,
+  shouldPreemptInsightsRequest,
 } = require('../dist/main/insights-request-policy.js');
 
 test('a queued post-meeting request supersedes a live request', () => {
@@ -31,6 +32,16 @@ test('a later live request cannot downgrade a queued post-meeting request', () =
     fullReplace: true,
     manual: true,
   });
+});
+
+test('post-meeting work preempts live work, but live work never preempts post-meeting work', () => {
+  const during = { sessionState: 'during', fullReplace: false, manual: false };
+  const after = { sessionState: 'after', fullReplace: true, manual: false };
+
+  assert.equal(shouldPreemptInsightsRequest(during, after), true);
+  assert.equal(shouldPreemptInsightsRequest(after, during), false);
+  assert.equal(shouldPreemptInsightsRequest(after, after), false);
+  assert.equal(shouldPreemptInsightsRequest(null, after), false);
 });
 
 test('a response is rejected when the meeting phase changed in flight', () => {

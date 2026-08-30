@@ -396,6 +396,10 @@ test('stub insights are rejected and live refreshes replace atomically', () => {
 test('post-meeting insights supersede live work and can be regenerated without reload', () => {
   assert.match(listenSource, /queuedInsightsFetchIntentRef/);
   assert.match(listenSource, /mergeInsightsFetchIntent/);
+  assert.match(listenSource, /shouldPreemptInsightsRequest/);
+  assert.match(listenSource, /Post-call insights preempting active live request/);
+  assert.match(listenSource, /insightsRequestAbortControllerRef\.current\?\.abort/);
+  assert.match(listenSource, /signal: requestAbortController\.signal/);
   assert.match(listenSource, /isInsightsResultCurrent\(/);
   assert.match(listenSource, /requestedSessionState: 'after'/);
   assert.match(listenSource, /shortcut:regenerate-insights/);
@@ -406,6 +410,9 @@ test('post-meeting insights supersede live work and can be regenerated without r
   assert.match(overlayWindowsSource, /name === 'listen' && reloadChord/);
   assert.match(overlayWindowsSource, /win\.webContents\.send\('shortcut:regenerate-insights'\)/);
   assert.match(insightsServiceSource, /const normalizedSessionState = sessionState/);
+  assert.match(insightsServiceSource, /requestTimeoutMs = 15_000/);
+  assert.match(insightsServiceSource, /signal: requestController\.signal/);
+  assert.match(insightsServiceSource, /Request timed out after/);
   assert.doesNotMatch(insightsServiceSource, /\? data\.session_state\s*:\s*sessionState/);
 });
 
