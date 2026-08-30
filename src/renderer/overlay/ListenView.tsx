@@ -1881,13 +1881,31 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // arguments. The key is `${chatId}:${source}`, so no arguments meant the
   // literal key "undefined": a placeholder socket nothing ever connects, whose
   // `isConnectedFlag` is false forever. The 2026-08-20 fix stopped the false
-  // alarm by ignoring a socket that had never been live, which also meant this
-  // banner could never fire at all. Subscribe to the real sockets instead.
+  // alarm by ignoring a socket that had never been live, which also meant the
+  // banner could never fire either.
   //
-  // Capture uses two - mic and system - and losing either one loses half the
-  // call, so both are watched. Each is judged only against itself: a source
-  // that was never up cannot have dropped, which is what keeps a system socket
-  // that never opens from alarming on a mic-only setup.
+  // KNOWN GAP - this banner is currently inert, and passing the right chat id
+  // is not enough to wake it.
+  //
+  // Capture runs in the index.html window (main.ts -> audio-processor), the
+  // overlay runs overlay.html. Separate BrowserWindows are separate module
+  // registries, so the `wsInstances` map this file can see is NOT the one
+  // holding the capture sockets - the overlay receives transcripts over IPC and
+  // owns no capture socket of its own. A production session log shows it:
+  // "[WS Instance] ... Total instances: 1" for the whole call, that one being
+  // the "undefined" placeholder.
+  //
+  // So `peek` here returns undefined and the tracker stays silent, which is
+  // exactly the behaviour shipped today, only now without creating a phantom
+  // socket, leaking a subscription every 2s, or lying about which socket it
+  // watches. Making the banner actually work needs the capture window to
+  // publish `onLiveStateChange` over IPC; the verdict half is already done and
+  // tested in main/capture-live-verdict.ts, ready for that signal.
+  //
+  // Capture uses two sockets - mic and system - and losing either one loses
+  // half the call, so both are watched. Each is judged only against itself: a
+  // source that was never up cannot have dropped, which is what keeps a system
+  // socket that never opens from alarming on a mic-only setup.
   useEffect(() => {
     if (!isSessionActive) { setCaptureLive(null); return; }
     let cancelled = false;

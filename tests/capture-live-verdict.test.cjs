@@ -106,6 +106,26 @@ test('the banner observes the real sockets and never creates one', () => {
   assert.match(effect, /setCaptureLive\(tracker\.verdict\(\)\)/);
 });
 
+test('the overlay owns no capture socket, so the banner needs an IPC bridge', () => {
+  // The reason this banner is inert, and the reason passing a chat id was not
+  // enough to wake it. Capture runs in the index.html window; the overlay is a
+  // separate BrowserWindow with its own module registry, so the wsInstances map
+  // ListenView can reach is not the one holding the capture sockets.
+  //
+  // If someone wires the capture window to publish onLiveStateChange over IPC,
+  // this test should be replaced by one asserting ListenView consumes it.
+  const root = path.join(__dirname, '..', 'src', 'renderer');
+  const overlayHtml = fs.readFileSync(path.join(root, 'overlay.html'), 'utf8');
+  const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+
+  assert.match(overlayHtml, /overlay\/overlay-entry\.tsx/);
+  assert.doesNotMatch(overlayHtml, /main\.ts/, 'the overlay does not run the capture entry point');
+  assert.match(indexHtml, /src="\/main\.ts"/, 'capture lives in the index window');
+
+  // ListenView receives transcripts over IPC precisely because it has no socket.
+  assert.match(listenSource, /Canonical IPC listeners registered/);
+});
+
 test('peek never constructs a socket', () => {
   const service = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'services', 'websocketService.ts'),
