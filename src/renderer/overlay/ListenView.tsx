@@ -1223,6 +1223,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (latestSessionState === 'after') afterInsightsRequestPendingRef.current = true;
     let postMeetingSucceeded = false;
     let postMeetingRetryMinimumMs = 0;
+    // The outer `finally` consumes these values, so they must share its lexical
+    // scope. Vite transpiles renderer code without type-checking it; declaring
+    // them inside `try` previously produced a bundle that threw ReferenceError
+    // before the queued AFTER request could be drained.
+    const insightsRequestStartedAtMs = Date.now();
+    const analyticsTrigger = options.manual ? 'manual' : 'auto';
+    const insightsRequestTranscriptCount = transcriptsRef.current.length;
+    let analyticsRequestStarted = false;
+    let analyticsOutcomeTracked = false;
+    let analyticsAttempts = 0;
     try {
     const currentTranscripts = transcriptsRef.current;
     const currentSessionState = sessionStateRef.current;
@@ -1305,9 +1315,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     if (showBlockingLoader) setIsLoadingInsights(true);
     setInsightsRefreshPending(false);
-    const ttftStart = Date.now();
-    const analyticsTrigger = options.manual ? 'manual' : 'auto';
-    let analyticsOutcomeTracked = false;
+    const ttftStart = insightsRequestStartedAtMs;
+    analyticsRequestStarted = true;
     trackInsightsRequested({
       session_state: latestSessionState,
       trigger: analyticsTrigger,
@@ -1382,6 +1391,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     
     try {
       for (attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        analyticsAttempts = attempt + 1;
         // Wait before retry (0ms for first attempt, then 300ms, 700ms)
         if (RETRY_DELAYS[attempt] > 0) {
           console.log(`[ListenView] ⏳ Retry #${attempt + 1}: Waiting ${RETRY_DELAYS[attempt]}ms for transcripts to save...`);
@@ -1607,13 +1617,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setInsightsRefreshPending(false);
     }
     } finally {
-      if (!analyticsOutcomeTracked && currentTranscripts.length > 0) {
+      if (analyticsRequestStarted && !analyticsOutcomeTracked && insightsRequestTranscriptCount > 0) {
         trackInsightsFailed({
           session_state: latestSessionState,
           trigger: analyticsTrigger,
           reason: 'unknown',
-          load_time_ms: Date.now() - ttftStart,
-          attempts: attempt + 1,
+          load_time_ms: Date.now() - insightsRequestStartedAtMs,
+          attempts: analyticsAttempts,
         });
       }
       insightsRequestInFlightRef.current = false;

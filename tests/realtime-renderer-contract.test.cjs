@@ -416,6 +416,31 @@ test('post-meeting insights supersede live work and can be regenerated without r
   assert.doesNotMatch(insightsServiceSource, /\? data\.session_state\s*:\s*sessionState/);
 });
 
+test('insights request cleanup cannot reference state scoped inside try', () => {
+  const fetchBody = listenSource
+    .split('const fetchInsightsNow = async', 2)[1]
+    .split('fetchInsightsNowRef.current = fetchInsightsNow', 1)[0];
+  const outerTryIndex = fetchBody.indexOf('try {');
+  const finallyIndex = fetchBody.indexOf('} finally {');
+  assert.ok(outerTryIndex > 0 && finallyIndex > outerTryIndex);
+
+  const beforeTry = fetchBody.slice(0, outerTryIndex);
+  const finallyBody = fetchBody.slice(finallyIndex);
+  for (const name of [
+    'analyticsRequestStarted',
+    'analyticsOutcomeTracked',
+    'analyticsAttempts',
+    'insightsRequestStartedAtMs',
+    'insightsRequestTranscriptCount',
+  ]) {
+    assert.match(beforeTry, new RegExp(`(?:const|let) ${name}`), `${name} must outlive try`);
+    assert.match(finallyBody, new RegExp(`\\b${name}\\b`), `${name} must be used by cleanup`);
+  }
+  assert.doesNotMatch(finallyBody, /\bcurrentTranscripts\b|\bttftStart\b|\battempt \+ 1\b/);
+  assert.match(finallyBody, /queuedInsightsFetchIntentRef\.current/);
+  assert.match(finallyBody, /fetchInsightsNowRef\.current/);
+});
+
 test('Ask requests carry an end-to-end request trace', () => {
   assert.match(askSource, /requestId = crypto\.randomUUID\(\)/);
   assert.match(streamSource, /request_id: requestId/);
