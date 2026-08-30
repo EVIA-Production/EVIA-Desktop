@@ -789,6 +789,19 @@ export const getWebSocketInstance = (chatId: string, source?: 'mic' | 'system'):
   return ws;
 };
 
+/** The existing socket for this chat and source, or undefined. Never creates one.
+ *
+ * `getWebSocketInstance` constructs a socket when the key is missing, which is
+ * correct for the capture pipeline that is about to connect it and wrong for
+ * anything merely observing. The capture-live banner is an observer: it must
+ * report on the socket the pipeline built, never bring a second one into
+ * existence and subscribe to that instead.
+ */
+export const peekWebSocketInstance = (
+  chatId: string,
+  source?: 'mic' | 'system',
+): ChatWebSocket | undefined => wsInstances.get(source ? `${chatId}:${source}` : chatId);
+
 export const closeWebSocketInstance = (chatId: string, source?: 'mic' | 'system') => {
   const key = source ? `${chatId}:${source}` : chatId;
   const ws = wsInstances.get(key);

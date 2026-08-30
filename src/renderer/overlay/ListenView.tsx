@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './overlay-glass.css';
-import { getWebSocketInstance } from '../services/websocketService';
+import { peekWebSocketInstance } from '../services/websocketService';
 import {
   fetchInsights,
   insightsRateLimited,
@@ -53,6 +53,7 @@ import {
 } from '../../main/realtime-transcript-state';
 import { adaptServerTranscriptEvent } from '../../main/realtime-transcript-adapter';
 import { transcriptContextFromState } from '../../main/transcript-context';
+import { CaptureLiveTracker } from '../../main/capture-live-verdict';
 import {
   isInsightsResultCurrent,
   mergeInsightsFetchIntent,
@@ -1873,28 +1874,62 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
   // Only report a DROP, never a socket that was never up.
   //
-  // getWebSocketInstance() is keyed by chat id, and at mount that key is
-  // `undefined` - a placeholder instance that never connects. Subscribing to it
-  // reported "not live" forever and showed the warning through a call that was
-  // transcribing perfectly (measured 2026-08-20: mic partial at 1095 ms while
-  // the banner was up). A false alarm about lost recording is worse than no
-  // banner: it trains the rep to ignore the real one.
+  // A false alarm about lost recording is worse than no banner: it trains the
+  // rep to ignore the real one. That was measured on 2026-08-20 - the warning
+  // sat on screen through a call that was transcribing perfectly, mic partial
+  // at 1095 ms - because this effect called `getWebSocketInstance()` with no
+  // arguments. The key is `${chatId}:${source}`, so no arguments meant the
+  // literal key "undefined": a placeholder socket nothing ever connects, whose
+  // `isConnectedFlag` is false forever. The 2026-08-20 fix stopped the false
+  // alarm by ignoring a socket that had never been live, which also meant this
+  // banner could never fire at all. Subscribe to the real sockets instead.
+  //
+  // Capture uses two - mic and system - and losing either one loses half the
+  // call, so both are watched. Each is judged only against itself: a source
+  // that was never up cannot have dropped, which is what keeps a system socket
+  // that never opens from alarming on a mic-only setup.
   useEffect(() => {
     if (!isSessionActive) { setCaptureLive(null); return; }
-    let everLive = false;
     let cancelled = false;
-    const offs: Array<() => void> = [];
+    let watchedChatId: string | null = null;
+    let offs: Array<() => void> = [];
+    let attached = new Set<string>();
+    const tracker = new CaptureLiveTracker();
+
     const attach = () => {
       if (cancelled) return;
-      const ws: any = getWebSocketInstance?.();
-      if (!ws?.onLiveStateChange) return;
-      offs.push(ws.onLiveStateChange((live: boolean) => {
-        if (live) everLive = true;
-        setCaptureLive(everLive ? live : null);
-      }));
+      const chatId = canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current;
+      if (!chatId) return;
+      const chatKey = String(chatId);
+      if (watchedChatId !== null && watchedChatId !== chatKey) {
+        // A new chat is a new recording. Carrying "was live" across would let a
+        // socket from the previous one report a drop it is no longer part of.
+        offs.forEach((off) => { try { off(); } catch { /* already gone */ } });
+        offs = [];
+        attached = new Set();
+        tracker.reset();
+        setCaptureLive(null);
+      }
+      watchedChatId = chatKey;
+      for (const source of ['mic', 'system'] as const) {
+        const key = `${chatKey}:${source}`;
+        if (attached.has(key)) continue;
+        // Never getWebSocketInstance here: it would CREATE the socket, and a
+        // banner that manufactures the thing it is meant to observe would hand
+        // the capture pipeline a transport it did not build.
+        const ws = peekWebSocketInstance(chatKey, source);
+        if (!ws?.onLiveStateChange) continue;
+        attached.add(key);
+        offs.push(ws.onLiveStateChange((live: boolean) => {
+          tracker.observe(key, live);
+          setCaptureLive(tracker.verdict());
+        }));
+      }
     };
     attach();
-    // The real instance only exists once the chat id is known, after mount.
+    // The real sockets only exist once the chat id is known, after mount.
+    // `attached` keeps this idempotent - the old version re-subscribed to the
+    // same socket every 2s and grew `offs` for the length of the call.
     const retry = setInterval(attach, 2000);
     return () => {
       cancelled = true;
