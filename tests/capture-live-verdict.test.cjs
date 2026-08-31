@@ -106,23 +106,42 @@ test('the banner observes the real sockets and never creates one', () => {
   assert.match(effect, /setCaptureLive\(tracker\.verdict\(\)\)/);
 });
 
-test('the overlay owns no capture socket, so the banner needs an IPC bridge', () => {
-  // The reason this banner is inert, and the reason passing a chat id was not
-  // enough to wake it. Capture runs in the index.html window; the overlay is a
-  // separate BrowserWindow with its own module registry, so the wsInstances map
-  // ListenView can reach is not the one holding the capture sockets.
+test('capture and ListenView run in different windows, so the banner needs IPC', () => {
+  // Why passing a chat id was never going to be enough.
   //
-  // If someone wires the capture window to publish onLiveStateChange over IPC,
-  // this test should be replaced by one asserting ListenView consumes it.
+  // overlay.html is loaded into SEVERAL BrowserWindows - header, listen, ask,
+  // settings - all from the same overlay-entry module. Separate windows are
+  // separate renderer processes, so each gets its own module-level
+  // `wsInstances` map. startCapture is reached only through handleSetListening,
+  // which App() passes to <EviaBar> in the 'header' case; ListenView renders in
+  // the 'listen' case and is handed no capture handle. The sockets therefore
+  // live in the header window's registry, and the listen window cannot see them
+  // at any key.
+  //
+  // (An earlier version of this test claimed capture lived in index.html. It
+  // does not - index.html is the dev harness, and the main process never loads
+  // it. The conclusion was right for the wrong reason.)
   const root = path.join(__dirname, '..', 'src', 'renderer');
-  const overlayHtml = fs.readFileSync(path.join(root, 'overlay.html'), 'utf8');
-  const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const entry = fs.readFileSync(path.join(root, 'overlay', 'overlay-entry.tsx'), 'utf8');
+  const windows = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'main', 'overlay-windows.ts'), 'utf8');
 
-  assert.match(overlayHtml, /overlay\/overlay-entry\.tsx/);
-  assert.doesNotMatch(overlayHtml, /main\.ts/, 'the overlay does not run the capture entry point');
-  assert.match(indexHtml, /src="\/main\.ts"/, 'capture lives in the index window');
+  assert.match(entry, /import \{ startCapture, stopCapture \}/,
+    'capture is imported by the overlay entry');
+  assert.match(entry, /const view = \(params\.get\('view'\) \|\| 'header'\)/,
+    'one entry module, many views');
 
-  // ListenView receives transcripts over IPC precisely because it has no socket.
+  // startCapture is wired to the header view only.
+  const header = entry.slice(entry.indexOf("case 'header':"), entry.indexOf("case 'listen':"));
+  assert.match(header, /onSetListening=\{handleSetListening\}/);
+  const listen = entry.slice(entry.indexOf("case 'listen':"), entry.indexOf("case 'ask':"));
+  assert.doesNotMatch(listen, /handleSetListening/, 'the listen view never starts capture');
+
+  // And the main process really does open them as separate windows.
+  assert.match(windows, /view=listen/);
+  assert.match(windows, /view=ask/);
+
+  // ListenView gets transcripts over IPC precisely because it owns no socket.
   assert.match(listenSource, /Canonical IPC listeners registered/);
 });
 

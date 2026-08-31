@@ -782,6 +782,128 @@ export function trackError(properties: {
 }
 
 // ============================================================================
+// UNCAUGHT FAILURES
+// ============================================================================
+//
+// `trackError` above only fires where someone predicted the failure - two hand
+// placed call sites, both in capture start. Nothing watched the failures nobody
+// predicted, and that is the expensive class.
+//
+// v1.0.98 through v1.0.102 shipped a `finally` block referencing five
+// identifiers scoped inside its `try`. Every insights request threw
+// `ReferenceError: analyticsOutcomeTracked is not defined` before the line
+// clearing the in-flight flag, so post-meeting insights could not generate at
+// all. It survived five releases and four days, and it surfaced only because one
+// person pasted a console log. Nothing in the product had any idea.
+//
+// PostHog's own `capture_exceptions` does NOT close this. It lazy-loads
+// `exception-autocapture` from PostHog's CDN - `module.full.no-external` bundles
+// the session recorder but contains no `$exception` code at all, verified by
+// grep. Turning it on would restore the boot-time remote fetch that
+// `fix(privacy,startup)` removed, and would silently do nothing on a network
+// that blocks PostHog. These handlers use the already-bundled capture transport
+// instead, so they work where the CDN does not.
+//
+// Reports are deduplicated by signature and capped per window: a throw inside a
+// React render or an animation frame repeats forever, and a firehose that gets
+// rate-limited away is the same blindness in a different costume.
+
+const MAX_UNCAUGHT_REPORTS_PER_WINDOW = 25;
+const MAX_ERROR_MESSAGE_CHARS = 500;
+const MAX_STACK_CHARS = 4000;
+
+let uncaughtReportCount = 0;
+let globalErrorReportingInstalled = false;
+const seenErrorSignatures = new Set<string>();
+
+function reportUncaughtFailure(
+  errorType: 'uncaught_exception' | 'unhandled_rejection',
+  value: unknown,
+  extra: AnalyticsProperties = {},
+): void {
+  try {
+    const error = value instanceof Error ? value : undefined;
+    const name = error?.name || (value === undefined ? 'undefined' : typeof value);
+    const rawMessage = error?.message ?? (typeof value === 'string' ? value : safeStringify(value));
+    const message = (rawMessage || '').slice(0, MAX_ERROR_MESSAGE_CHARS);
+    const stack = (error?.stack || '').slice(0, MAX_STACK_CHARS);
+
+    // The first frame is what distinguishes two different bugs with the same
+    // message; the rest of the stack varies with async context and would defeat
+    // the dedupe.
+    const firstFrame = stack.split('\n').find((line) => /:\d+:\d+/.test(line))?.trim() || '';
+    const signature = `${errorType}|${name}|${message}|${firstFrame}`;
+    if (seenErrorSignatures.has(signature)) return;
+    if (uncaughtReportCount >= MAX_UNCAUGHT_REPORTS_PER_WINDOW) return;
+    seenErrorSignatures.add(signature);
+    uncaughtReportCount += 1;
+
+    console.error(`[PostHog] 🚨 Reporting ${errorType}:`, name, message);
+    sendDesktopEvent('error_occurred', {
+      ...extra,
+      error_type: errorType,
+      error_name: name,
+      error_message: message,
+      error_stack: stack,
+      error_signature: signature,
+      unique_errors_this_window: seenErrorSignatures.size,
+      handled: false,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (reportingFailure) {
+    // Reporting a crash must never become the crash.
+    console.warn('[PostHog] Failed to report an uncaught failure:', reportingFailure);
+  }
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return typeof value === 'object' ? JSON.stringify(value) ?? String(value) : String(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+/**
+ * Install once per renderer window, as early as the entry module runs.
+ *
+ * Deliberately independent of `initPostHog()`, which the privacy fix deferred to
+ * requestIdleCallback: `sendDesktopEvent` queues until init and flushes after,
+ * so a throw during startup is still reported. Installing this at import time
+ * rather than after React mounts is the point - a crash while rendering is
+ * exactly the crash nobody sees.
+ */
+export function installGlobalErrorReporting(): void {
+  if (globalErrorReportingInstalled || typeof window === 'undefined') return;
+  globalErrorReportingInstalled = true;
+
+  window.addEventListener('error', (event: ErrorEvent) => {
+    reportUncaughtFailure('uncaught_exception', event.error ?? event.message, {
+      error_source: event.filename || 'unknown',
+      error_line: event.lineno ?? -1,
+      error_column: event.colno ?? -1,
+    });
+  });
+
+  // The insights outage was exactly this: an async function whose rejection
+  // nobody awaited. `window.onerror` never sees it.
+  window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+    reportUncaughtFailure('unhandled_rejection', event.reason, {
+      error_source: 'promise',
+    });
+  });
+
+  console.log('[PostHog] 🛡️ Global error reporting installed');
+}
+
+/** Test seam: the counters are per-window and otherwise unreachable. */
+export function __resetGlobalErrorReportingForTests(): void {
+  uncaughtReportCount = 0;
+  seenErrorSignatures.clear();
+  globalErrorReportingInstalled = false;
+}
+
+// ============================================================================
 // PERFORMANCE EVENTS
 // ============================================================================
 

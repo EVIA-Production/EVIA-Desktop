@@ -18,10 +18,17 @@ import {
   beginAnalyticsCall,
   initPostHog,
   identifyUser,
+  installGlobalErrorReporting,
   trackError,
   trackRecordingStarted,
 } from '../services/posthogService'
 import { bindWindowGroupFocus } from './window-group-focus'
+
+// Before anything else in this window can throw. Every overlay view - header,
+// listen, ask, settings - runs this module, so one call covers all of them, and
+// it must not wait for React to mount or for initPostHog's idle callback: a
+// crash during startup is precisely the crash that otherwise leaves no trace.
+installGlobalErrorReporting()
 
 // Initialize immediately after the first render has been scheduled. Waiting for
 // requestIdleCallback left short open-and-test sessions completely invisible,

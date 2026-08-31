@@ -1887,12 +1887,13 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // KNOWN GAP - this banner is currently inert, and passing the right chat id
   // is not enough to wake it.
   //
-  // Capture runs in the index.html window (main.ts -> audio-processor), the
-  // overlay runs overlay.html. Separate BrowserWindows are separate module
-  // registries, so the `wsInstances` map this file can see is NOT the one
-  // holding the capture sockets - the overlay receives transcripts over IPC and
-  // owns no capture socket of its own. A production session log shows it:
-  // "[WS Instance] ... Total instances: 1" for the whole call, that one being
+  // overlay.html is loaded into SEVERAL BrowserWindows - header, listen, ask,
+  // settings - all from this same overlay-entry module, and separate windows are
+  // separate renderer processes with their own module-level state. `startCapture`
+  // is reached only through the header view's Listen button, so the mic and
+  // system sockets live in the header window's `wsInstances` map. This file runs
+  // in the listen window, whose map holds nothing. A production session log shows
+  // it: "[WS Instance] ... Total instances: 1" for the whole call, that one being
   // the "undefined" placeholder.
   //
   // So `peek` here returns undefined and the tracker stays silent, which is

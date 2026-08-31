@@ -152,14 +152,28 @@ function getBackendHttpBase(): string {
     : 'https://api.taylos.ai';
 }
 
-type DesktopTelemetryEvent = 'app_launched' | 'heartbeat';
+type DesktopTelemetryEvent =
+  | 'app_launched'
+  | 'heartbeat'
+  | 'main_process_crash'
+  | 'renderer_process_gone';
+
+type DesktopTelemetryErrorDetail = {
+  error_type?: string;
+  error_message?: string;
+  error_stack?: string;
+  error_reason?: string;
+};
 
 const DESKTOP_TELEMETRY_INTERVAL_MS = 15 * 60 * 1000;
 const DESKTOP_TELEMETRY_REQUEST_TIMEOUT_MS = 5_000;
 let desktopTelemetryLaunchTimer: NodeJS.Timeout | null = null;
 let desktopTelemetryInterval: NodeJS.Timeout | null = null;
 
-async function reportDesktopClientTelemetry(event: DesktopTelemetryEvent): Promise<boolean> {
+async function reportDesktopClientTelemetry(
+  event: DesktopTelemetryEvent,
+  detail: DesktopTelemetryErrorDetail = {},
+): Promise<boolean> {
   if (!app.isPackaged || IS_ISOLATED_HARNESS || isDemoMode) return false;
 
   let token: string | null = null;
@@ -187,6 +201,7 @@ async function reportDesktopClientTelemetry(event: DesktopTelemetryEvent): Promi
         app_version: app.getVersion(),
         platform: process.platform,
         arch: process.arch,
+        ...detail,
       }),
       signal: controller.signal,
     });
@@ -205,6 +220,84 @@ async function reportDesktopClientTelemetry(event: DesktopTelemetryEvent): Promi
     clearTimeout(timeout);
   }
 }
+
+// The failures posthog-js structurally cannot report.
+//
+// posthog-js runs in the renderer. A renderer that has died sends nothing, so
+// without this a crashed overlay looks exactly like a user who closed the app,
+// and a main-process throw looks like nothing at all. The main process is the
+// only thing still running to say what happened.
+//
+// Capped and deduplicated for the same reason the renderer handlers are: a
+// crash loop must not turn the one signal that matters into rate-limited noise.
+const MAX_CRASH_REPORTS_PER_RUN = 10;
+let crashReportCount = 0;
+const reportedCrashSignatures = new Set<string>();
+
+function reportDesktopCrash(
+  event: 'main_process_crash' | 'renderer_process_gone',
+  detail: DesktopTelemetryErrorDetail,
+): void {
+  const signature = `${event}|${detail.error_type ?? ''}|${detail.error_reason ?? ''}|${(detail.error_message ?? '').slice(0, 120)}`;
+  if (reportedCrashSignatures.has(signature)) return;
+  if (crashReportCount >= MAX_CRASH_REPORTS_PER_RUN) return;
+  reportedCrashSignatures.add(signature);
+  crashReportCount += 1;
+  console.error(`[DesktopTelemetry] 🚨 ${event}:`, detail.error_type, detail.error_reason, detail.error_message);
+  void reportDesktopClientTelemetry(event, detail);
+}
+
+function installMainProcessCrashReporting(): void {
+  // Never `app.quit()` here. An uncaught exception in the main process is
+  // survivable far more often than it is fatal, and killing the app during a
+  // live call to report a crash would cost the rep the recording.
+  process.on('uncaughtException', (error: Error) => {
+    console.error('[DesktopTelemetry] uncaughtException:', error);
+    reportDesktopCrash('main_process_crash', {
+      error_type: 'uncaughtException',
+      error_message: (error?.message || String(error)).slice(0, 500),
+      error_stack: (error?.stack || '').slice(0, 4000),
+    });
+  });
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    const error = reason instanceof Error ? reason : undefined;
+    console.error('[DesktopTelemetry] unhandledRejection:', reason);
+    reportDesktopCrash('main_process_crash', {
+      error_type: 'unhandledRejection',
+      error_message: (error?.message || String(reason)).slice(0, 500),
+      error_stack: (error?.stack || '').slice(0, 4000),
+    });
+  });
+
+  // A renderer dying takes its own analytics down with it. `reason` separates a
+  // real crash from an OOM kill from a clean exit, which is the difference
+  // between a bug and a machine under pressure.
+  app.on('render-process-gone', (_event, webContents, details) => {
+    reportDesktopCrash('renderer_process_gone', {
+      error_type: 'render-process-gone',
+      error_reason: details?.reason ?? 'unknown',
+      error_message: `exitCode=${details?.exitCode ?? -1} url=${(() => {
+        try { return webContents?.getURL?.() ?? 'unknown'; } catch { return 'unknown'; }
+      })()}`.slice(0, 500),
+    });
+  });
+
+  app.on('child-process-gone', (_event, details) => {
+    reportDesktopCrash('renderer_process_gone', {
+      error_type: `child-process-gone:${details?.type ?? 'unknown'}`,
+      error_reason: details?.reason ?? 'unknown',
+      error_message: `exitCode=${details?.exitCode ?? -1} name=${details?.name ?? 'unknown'}`.slice(0, 500),
+    });
+  });
+
+  console.log('[DesktopTelemetry] 🛡️ Main-process crash reporting installed');
+}
+
+// At module scope, not inside whenReady: a throw during startup is exactly the
+// one that leaves no other trace, and by the time the app is ready it is too
+// late to have been listening.
+installMainProcessCrashReporting();
 
 function startDesktopClientTelemetry(): void {
   if (!app.isPackaged || IS_ISOLATED_HARNESS || isDemoMode) return;
