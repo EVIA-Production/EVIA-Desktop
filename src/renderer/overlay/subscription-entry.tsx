@@ -19,6 +19,13 @@ import SubscriptionRequired from './SubscriptionRequired';
 import '../overlay/overlay-glass.css';
 import '../overlay/liquid-glass.css';
 import { bindWindowGroupFocus } from './window-group-focus';
+import { installGlobalErrorReporting } from '../services/posthogService';
+
+// Before anything in this window can throw. Each overlay HTML entry is its own
+// renderer process with its own module scope, so installing this in
+// overlay-entry covered nothing here - and onboarding is where a silent
+// failure costs the most, because the user has no product yet to fall back on.
+installGlobalErrorReporting()
 
 const params = new URLSearchParams(window.location.search);
 document.documentElement.dataset.material = params.get('material') || 'custom';

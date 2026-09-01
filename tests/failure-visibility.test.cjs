@@ -65,6 +65,24 @@ test('error reporting is installed before anything in the window can throw', () 
   }
 });
 
+test('every renderer entry installs it, not just the overlay', () => {
+  // Each overlay HTML file is its own renderer process with its own module
+  // scope, so installing in overlay-entry covers only the windows that load
+  // overlay-entry. permission/welcome/subscription are separate entries, and
+  // onboarding is where a silent failure costs the most - the user has no
+  // product yet to fall back on.
+  const entries = [
+    'overlay-entry.tsx',
+    'permission-entry.tsx',
+    'welcome-entry.tsx',
+    'subscription-entry.tsx',
+  ];
+  for (const entry of entries) {
+    const src = read('src', 'renderer', 'overlay', entry);
+    assert.match(src, /installGlobalErrorReporting\(\)/, `${entry} has no error reporting`);
+  }
+});
+
 test('it does not depend on PostHog init having run', () => {
   // initPostHog is deferred to requestIdleCallback by the privacy/startup fix,
   // so a startup crash would otherwise land before any transport existed.
