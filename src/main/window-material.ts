@@ -391,6 +391,9 @@ export function applyWindowMaterial(
     currentApplicationActive = active
     const configured = configuredWindows.get(win)
     if (!configured || configured.mode === 'custom' || win.isDestroyed()) return
+    // A minimized Windows HWND temporarily reports the compact system icon
+    // bounds. Never let those dimensions replace the restored glass clip.
+    if (process.platform === 'win32' && win.isMinimized()) return
     const bridge = loadNativeBridge()
     if (!bridge?.isSupported()) return
     const policy = POLICIES[configured.surface]
@@ -417,11 +420,18 @@ export function applyWindowMaterial(
 
   materialActiveStateUpdaters.set(win, updateActiveState)
 
-  win.on('resize', () => {
-    // Electron can resize a BrowserWindow after the native NSGlassEffectView is
-    // attached. Refresh on the next main-loop turn so AppKit sees final bounds.
+  const scheduleGeometryRefresh = () => {
+    // Focus/show/restore can settle one task after Electron emits the event.
+    // Refresh twice so both the immediate HWND and its final DWM geometry are
+    // repaired without changing the shared application-level focus state.
     setImmediate(() => updateActiveState(currentApplicationActive))
-  })
+    const timer = setTimeout(() => updateActiveState(currentApplicationActive), 50)
+    timer.unref()
+  }
+
+  win.on('resize', scheduleGeometryRefresh)
+  win.on('show', scheduleGeometryRefresh)
+  win.on('restore', scheduleGeometryRefresh)
   win.once('closed', () => {
     const bridge = loadNativeBridge()
     if (!bridge || !nativeHandle) return

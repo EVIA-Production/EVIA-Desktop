@@ -63,11 +63,15 @@ test('Windows glass is a live clipped blur built only from documented Compositio
   assert.match(nativeWindowsSource, /CreateRoundedRectangleGeometry\(\)/);
   assert.match(nativeWindowsSource, /CreateRoundRectRgn\(/);
   assert.match(nativeWindowsSource, /SetWindowRgn\(hwnd, region, TRUE\)/);
+  assert.match(nativeWindowsSource, /if \(IsIconic\(hwnd\)\) return;/);
   assert.match(nativeWindowsSource, /state\.root\.Opacity\(visible \? 1\.0f : 0\.0f\)/);
   assert.match(nativeWindowsSource, /exports\.Set\("setVisible"/);
   assert.match(nativeWindowsSource, /requested_height[\s\S]*std::min\(client_height/);
   assert.match(nativeWindowsSource, /DWMWINDOWATTRIBUTE>\(kDwmUseHostBackdropBrush\)/);
   assert.doesNotMatch(nativeWindowsSource, /SetWindowCompositionAttribute|GetProcAddress\([^\n]*user32[^\n]*SetWindow/);
+  assert.match(source, /process\.platform === 'win32' && win\.isMinimized\(\)/);
+  assert.match(source, /win\.on\('show', scheduleGeometryRefresh\)/);
+  assert.match(source, /win\.on\('restore', scheduleGeometryRefresh\)/);
 });
 
 test('Windows glass refracts the live backdrop progressively inward', () => {

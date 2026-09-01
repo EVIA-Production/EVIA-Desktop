@@ -115,6 +115,11 @@ test('Windows update metadata is explicit, stable-only, and preserves user data'
   assert.match(main, /autoUpdater\.allowPrerelease = false/)
   assert.match(main, /autoUpdater\.allowDowngrade = false/)
   assert.match(main, /autoUpdater\.checkForUpdates\(\)/)
+  assert.match(main, /safeToDownload[\s\S]*captureIsIdle\(\)/)
+  assert.match(main, /safeToPrompt[\s\S]*captureIsIdle\(\) && onlyHeaderBarIsVisible\(\)/)
+  assert.match(main, /pendingDownloadInfo = \{ version: info\.version \}/)
+  assert.match(main, /ensureDownloadTimer\(\)[\s\S]*downloadWhenIdle\(\)/)
+  assert.match(main, /download failed; retaining update for retry/)
   assert.match(main, /path\.join\(app\.getPath\('userData'\), 'updater-audit\.json'\)/)
 })
 

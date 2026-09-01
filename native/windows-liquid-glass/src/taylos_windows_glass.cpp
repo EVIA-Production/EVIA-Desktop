@@ -179,6 +179,12 @@ void SynchronizeGeometry(
   double logical_radius,
   double logical_width,
   double logical_height) {
+  // A minimized top-level HWND reports the system's compact icon geometry
+  // (typically about 160x28), not its restored client area. Applying that as a
+  // persistent region leaves only the top-left corner visible after restore.
+  // Preserve the last valid composition geometry until the real window returns.
+  if (IsIconic(hwnd)) return;
+
   RECT client{};
   winrt::check_bool(GetClientRect(hwnd, &client));
   const float client_width = static_cast<float>(std::max<LONG>(1, client.right - client.left));

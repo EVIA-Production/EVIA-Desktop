@@ -497,6 +497,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
     let frame = 0;
     let disposed = false;
     let lastSignature = '';
+    let retryTimer = 0;
     const settleTimers: number[] = [];
 
     const measureAndResize = async () => {
@@ -505,12 +506,38 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
       const rect = headerRef.current.getBoundingClientRect();
       const settingsRect = settingsButtonRef.current?.getBoundingClientRect();
-      const contentWidth = Math.ceil(rect.width);
+      const childRight = Array.from(headerRef.current.children).reduce((right, child) => {
+        const childRect = (child as HTMLElement).getBoundingClientRect();
+        return Math.max(right, childRect.right);
+      }, rect.right);
+      // A transiently clipped BrowserWindow can make rect.width report only its
+      // visible 160px corner. scrollWidth and the child union still describe the
+      // complete pill, so that bad measurement cannot feed back into the HWND.
+      const intrinsicWidth = Math.max(
+        rect.width,
+        headerRef.current.scrollWidth,
+        childRight - rect.left,
+      );
+      const contentWidth = Math.ceil(intrinsicWidth);
       const contentHeight = Math.ceil(rect.height) + 2;
-      const anchorX = rect.width / 2;
+      const anchorX = intrinsicWidth / 2;
       const settingsAnchorX = settingsRect
         ? settingsRect.right - rect.left
-        : rect.width;
+        : intrinsicWidth;
+      if (
+        !Number.isFinite(contentWidth) ||
+        !Number.isFinite(contentHeight) ||
+        contentWidth < 280 ||
+        contentHeight < 49
+      ) {
+        if (!retryTimer) {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = 0;
+            scheduleMeasure();
+          }, 32);
+        }
+        return;
+      }
       const signature = [contentWidth, contentHeight, anchorX, settingsAnchorX]
         .map(value => Math.round(value * 2) / 2)
         .join(':');
@@ -566,6 +593,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
       header.removeEventListener('transitionrun', scheduleMeasure);
       header.removeEventListener('transitionend', scheduleMeasure);
       if (frame) window.cancelAnimationFrame(frame);
+      if (retryTimer) window.clearTimeout(retryTimer);
       settleTimers.forEach(timer => window.clearTimeout(timer));
     };
   }, []);

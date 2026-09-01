@@ -535,22 +535,59 @@ function registerAutoUpdater() {
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
 
-  /** Nothing open but the header bar, and no capture in any state. */
-  const safeToInterrupt = (): boolean => {
+  const captureIsIdle = (): boolean => {
     try {
-      if (captureSessionController.getSnapshot().state !== 'idle') return false
-      return onlyHeaderBarIsVisible()
+      return captureSessionController.getSnapshot().state === 'idle'
     } catch {
-      return false  // if we cannot tell, do not interrupt
+      return false
     }
   };
 
+  // Downloading needs an idle audio session, but it does not need every review
+  // or Ask window to be closed. Prompting remains stricter so it never interrupts
+  // a rep who is preparing for or reviewing a call.
+  const safeToDownload = (): boolean => captureIsIdle();
+  const safeToPrompt = (): boolean => captureIsIdle() && onlyHeaderBarIsVisible();
+
+  let pendingDownloadInfo: { version?: string } | null = null;
+  let downloadTimer: NodeJS.Timeout | null = null;
+  let downloadInFlight = false;
   let pendingUpdateInfo: { version?: string } | null = null;
   let promptTimer: NodeJS.Timeout | null = null;
 
+  const stopDownloadTimer = (): void => {
+    if (!downloadTimer) return;
+    clearInterval(downloadTimer);
+    downloadTimer = null;
+  };
+
+  const downloadWhenIdle = (): void => {
+    if (!pendingDownloadInfo || downloadInFlight || !safeToDownload()) return;
+    const info = pendingDownloadInfo;
+    pendingDownloadInfo = null;
+    downloadInFlight = true;
+    stopDownloadTimer();
+    console.log('[Updater] Update available, downloading now (capture idle):', info.version);
+    void autoUpdater.downloadUpdate().then(() => {
+      downloadInFlight = false;
+      downloadWhenIdle();
+    }, (err) => {
+      console.error('[Updater] download failed; retaining update for retry:', err);
+      downloadInFlight = false;
+      pendingDownloadInfo = info;
+      ensureDownloadTimer();
+    });
+  };
+
+  const ensureDownloadTimer = (): void => {
+    if (downloadTimer) return;
+    downloadTimer = setInterval(downloadWhenIdle, 15 * 1000);
+    downloadTimer.unref();
+  };
+
   const promptWhenIdle = (): void => {
     if (!pendingUpdateInfo) return;
-    if (!safeToInterrupt()) return;              // try again on the next tick
+    if (!safeToPrompt()) return;                 // try again on the next tick
     if (promptTimer) { clearInterval(promptTimer); promptTimer = null; }
     const info = pendingUpdateInfo;
     pendingUpdateInfo = null;
@@ -562,17 +599,19 @@ function registerAutoUpdater() {
   });
 
   autoUpdater.on('update-available', (info) => {
-    // Hold the download until the rep is idle, so it never competes with a
-    // live audio socket for a shaky connection.
-    if (safeToInterrupt()) {
-      console.log('[Updater] Update available, downloading now (idle):', info.version);
-      autoUpdater.downloadUpdate().catch((err) => console.error('[Updater] download failed:', err));
-    } else {
-      console.log('[Updater] Update available, deferred - rep is mid-session:', info.version);
+    // Remember the event. electron-updater does not emit it again merely because
+    // capture later became idle, so dropping it here can strand a user forever.
+    pendingDownloadInfo = { version: info.version };
+    ensureDownloadTimer();
+    if (!safeToDownload()) {
+      console.log('[Updater] Update available, download deferred until capture is idle:', info.version);
     }
+    downloadWhenIdle();
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    pendingDownloadInfo = null;
+    stopDownloadTimer();
     console.log('[Updater] Update downloaded:', info.version);
     writeUpdaterAudit({
       pendingInstallVersion: info.version,
@@ -580,7 +619,10 @@ function registerAutoUpdater() {
     });
     // Never prompt into a call. Park it and wait for a genuinely idle moment.
     pendingUpdateInfo = { version: info.version };
-    if (!promptTimer) promptTimer = setInterval(promptWhenIdle, 30 * 1000);
+    if (!promptTimer) {
+      promptTimer = setInterval(promptWhenIdle, 30 * 1000);
+      promptTimer.unref();
+    }
     promptWhenIdle();
   });
 

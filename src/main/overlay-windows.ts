@@ -69,25 +69,10 @@ const composedPendingShow = new WeakMap<BrowserWindow, 'active' | 'inactive'>()
 const composedRevealGeneration = new WeakMap<BrowserWindow, number>()
 const composedRevealPending = new WeakSet<BrowserWindow>()
 const composedPendingRevealMode = new WeakMap<BrowserWindow, 'active' | 'inactive'>()
-const composedKeepAlive = new WeakSet<BrowserWindow>()
-const composedParked = new WeakSet<BrowserWindow>()
 const composedVisibilityObservers = new WeakMap<BrowserWindow, (shown: boolean) => void>()
-const WINDOWS_COMPOSITION_PARK_OPACITY = 1 / 255
 
 function isComposedWindowShown(win: BrowserWindow | null | undefined): win is BrowserWindow {
-  return !!win && !win.isDestroyed() && win.isVisible() && !composedParked.has(win)
-}
-
-function parkComposedWindow(win: BrowserWindow): void {
-  if (win.isDestroyed()) return
-  composedParked.add(win)
-  setWindowMaterialVisible(win, false)
-  win.setIgnoreMouseEvents(true)
-  win.setFocusable(false)
-  win.setHasShadow(false)
-  win.setOpacity(WINDOWS_COMPOSITION_PARK_OPACITY)
-  if (!win.isVisible()) win.showInactive()
-  composedVisibilityObservers.get(win)?.(false)
+  return !!win && !win.isDestroyed() && win.isVisible()
 }
 
 function hideComposedWindow(win: BrowserWindow): void {
@@ -96,10 +81,7 @@ function hideComposedWindow(win: BrowserWindow): void {
   composedRevealPending.delete(win)
   composedPendingRevealMode.delete(win)
   setWindowMaterialVisible(win, false)
-  if (process.platform === 'win32' && composedKeepAlive.has(win)) {
-    parkComposedWindow(win)
-    return
-  }
+  if (process.platform === 'win32') win.setOpacity(0)
   win.hide()
   composedVisibilityObservers.get(win)?.(false)
 }
@@ -130,18 +112,6 @@ function showComposedWindow(
     return true
   }
 
-  if (composedParked.has(win)) {
-    composedParked.delete(win)
-    win.setFocusable(true)
-    win.setIgnoreMouseEvents(false)
-    win.setHasShadow(true)
-    setWindowMaterialVisible(win, true)
-    win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
-    show(mode)
-    composedVisibilityObservers.get(win)?.(true)
-    return true
-  }
-
   if (composedRevealPending.has(win)) {
     if (mode === 'active') composedPendingRevealMode.set(win, 'active')
     return true
@@ -156,14 +126,15 @@ function showComposedWindow(
   }
 
   // capturePage forces Chromium to produce a complete surface while the HWND
-  // remains physically hidden. Coalesce every request that arrives during the
-  // capture so no caller can expose either composition layer prematurely.
+  // remains physically hidden. Hidden child HWNDs must stay genuinely hidden:
+  // keeping them alive at fractional opacity lets DWM expose their independent
+  // backdrop planes during focus/z-order transitions.
   const generation = (composedRevealGeneration.get(win) ?? 0) + 1
   composedRevealGeneration.set(win, generation)
   composedRevealPending.add(win)
   composedPendingRevealMode.set(win, mode)
   setWindowMaterialVisible(win, false)
-  win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+  win.setOpacity(0)
   win.webContents.invalidate()
   void win.webContents.capturePage().catch(() => undefined).then(() => {
     if (
@@ -172,18 +143,15 @@ function showComposedWindow(
     ) return
     const revealMode = composedPendingRevealMode.get(win) ?? mode
     show(revealMode)
+    // Repair the native clip after show/restore while both independent planes
+    // are still transparent, then reveal them in the same main-loop turn.
+    setWindowMaterialActive(win, windowGroupActive)
+    setWindowMaterialVisible(win, true)
+    win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
+    composedRevealPending.delete(win)
+    composedPendingRevealMode.delete(win)
     composedVisibilityObservers.get(win)?.(true)
     if (revealMode === 'active') win.focus()
-    setTimeout(() => {
-      if (
-        win.isDestroyed() ||
-        !win.isVisible() ||
-        composedRevealGeneration.get(win) !== generation
-      ) return
-      composedRevealPending.delete(win)
-      composedPendingRevealMode.delete(win)
-      setWindowMaterialVisible(win, true)
-    }, 34)
   })
   return true
 }
@@ -192,23 +160,22 @@ function setComposedWindowOpacity(win: BrowserWindow, opacity: number): void {
   const normalized = Math.max(0, Math.min(1, opacity))
   composedDesiredOpacity.set(win, normalized)
   win.setOpacity(
-    composedParked.has(win)
-      ? WINDOWS_COMPOSITION_PARK_OPACITY
-      : process.platform !== 'win32' || composedFirstPaintReady.has(win)
-        ? normalized
-        : 0,
+    process.platform !== 'win32' || (
+      composedFirstPaintReady.has(win) &&
+      !composedRevealPending.has(win) &&
+      win.isVisible()
+    )
+      ? normalized
+      : 0,
   )
 }
 
 function armComposedFirstPaint(
   win: BrowserWindow,
   label: string,
-  keepComposedWhileHidden = false,
 ): void {
-  if (process.platform === 'win32' && keepComposedWhileHidden) {
-    composedKeepAlive.add(win)
-  }
   composedDesiredOpacity.set(win, 1)
+  if (process.platform === 'win32') win.setOpacity(0)
 
   let completed = false
   const complete = () => {
@@ -219,8 +186,6 @@ function armComposedFirstPaint(
     if (pendingShow) {
       composedPendingShow.delete(win)
       showComposedWindow(win, pendingShow)
-    } else if (keepComposedWhileHidden && process.platform === 'win32') {
-      parkComposedWindow(win)
     } else if (win.isVisible()) {
       setWindowMaterialVisible(win, true)
       win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
@@ -269,6 +234,7 @@ function configureContentZoomShortcuts(win: BrowserWindow): void {
 // Initial size: 900x49px (used for createHeaderWindow, then dynamically adjusted)
 // Height: 49px to accommodate 47px content + 2px for glass border (1px top + 1px bottom)
 const HEADER_SIZE = { width: 900, height: 49 }
+const MIN_HEADER_WIDTH = 280
 let headerVisualCenterOffset = HEADER_SIZE.width / 2
 // Preserve the compact pre-redesign placement: the popover begins 70px left
 // of the live bar's right edge, so its upper-left corner sits below the menu.
@@ -699,8 +665,12 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   ipcMain.handle('header:set-window-width', async (_event, contentWidth: number) => {
     if (!headerWindow || headerWindow.isDestroyed()) return false
     try {
+      if (!Number.isFinite(contentWidth) || contentWidth < MIN_HEADER_WIDTH) {
+        console.warn('[overlay-windows] Rejected invalid legacy header width:', contentWidth)
+        return false
+      }
       const bounds = headerWindow.getBounds()
-      const newWidth = contentWidth // FIX: Use exact content width, no minimum or padding
+      const newWidth = Math.round(contentWidth)
 
       console.log(`[overlay-windows] Resizing header: ${bounds.width}px → ${newWidth}px (content: ${contentWidth}px)`)
 
@@ -799,7 +769,7 @@ function createChildWindow(name: FeatureName): BrowserWindow {
     },
   })
 
-  armComposedFirstPaint(win, name, true)
+  armComposedFirstPaint(win, name)
   configureContentZoomShortcuts(win)
 
   applyGroupedWindowMaterial(win, surface)
@@ -1544,11 +1514,7 @@ function ensureVisibility(name: FeatureName, shouldShow: boolean) {
       hideComposedWindow(win)
     } else {
       if (isCurrentlyVisible) {
-        animateHide(win, () => {
-          if (process.platform === 'win32' && composedKeepAlive.has(win)) {
-            win.setIgnoreMouseEvents(true)
-          }
-        })
+        animateHide(win, () => undefined)
       }
       // If already hidden, don't animate
     }
@@ -2713,11 +2679,18 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
       targetWin = getOrCreateHeaderWindow()
     }
 
-    const bounds = targetWin.getBounds()
-    const requestedWidth = Math.max(120, Math.round(payload.width))
-    const requestedHeight = Math.max(HEADER_SIZE.height, Math.round(payload.height))
     const header = getHeaderWindow()
     const isHeader = Boolean(header && targetWin === header)
+    if (!Number.isFinite(payload.width) || !Number.isFinite(payload.height)) {
+      return { ok: false, error: 'invalid_geometry' }
+    }
+    if (isHeader && payload.width < MIN_HEADER_WIDTH) {
+      console.warn('[overlay-windows] Rejected clipped live bar width:', payload.width)
+      return { ok: false, error: 'clipped_header_geometry' }
+    }
+    const bounds = targetWin.getBounds()
+    const requestedWidth = Math.max(isHeader ? MIN_HEADER_WIDTH : 120, Math.round(payload.width))
+    const requestedHeight = Math.max(HEADER_SIZE.height, Math.round(payload.height))
     const currentAnchorX = isHeader && Number.isFinite(headerVisualCenterOffset)
       ? headerVisualCenterOffset
       : bounds.width / 2

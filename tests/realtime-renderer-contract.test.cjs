@@ -270,29 +270,34 @@ test('transparent windows reveal only after renderer composition is complete', (
   assert.match(composedFirstPaintSource, /WINDOWS_FIRST_PAINT_FAIL_OPEN_MS = 1_500/);
   assert.match(composedFirstPaintSource, /failOpenTimer = setTimeoutFn\(\(\) => finish\('timeout'\), timeoutMs\)/);
   assert.match(overlayWindowsSource, /process\.platform === 'win32' && !composedFirstPaintReady\.has\(win\)/);
-  assert.match(overlayWindowsSource, /process\.platform !== 'win32' \|\| composedFirstPaintReady\.has\(win\)/);
+  assert.match(overlayWindowsSource, /process\.platform !== 'win32' \|\| \([\s\S]*composedFirstPaintReady\.has\(win\)[\s\S]*!composedRevealPending\.has\(win\)[\s\S]*win\.isVisible\(\)/);
   assert.match(
     overlayWindowsSource,
     /if \(process\.platform !== 'win32'\) \{[\s\S]*?win\.setOpacity\(composedDesiredOpacity\.get\(win\) \?\? 1\)[\s\S]*?show\(mode\)/,
   );
   assert.match(overlayWindowsSource, /console\.log\('  - opacity:', headerWindow\.getOpacity\(\)\)/);
   assert.match(overlayWindowsSource, /setWindowMaterialVisible\(win, false\)/);
-  assert.match(overlayWindowsSource, /const composedKeepAlive = new WeakSet/);
-  assert.match(overlayWindowsSource, /const composedParked = new WeakSet/);
-  assert.match(overlayWindowsSource, /WINDOWS_COMPOSITION_PARK_OPACITY = 1 \/ 255/);
-  assert.match(overlayWindowsSource, /parkComposedWindow[\s\S]*setIgnoreMouseEvents\(true\)[\s\S]*setFocusable\(false\)[\s\S]*showInactive\(\)/);
-  assert.match(overlayWindowsSource, /composedParked\.delete\(win\)[\s\S]*setFocusable\(true\)[\s\S]*setIgnoreMouseEvents\(false\)[\s\S]*setWindowMaterialVisible\(win, true\)/);
-  assert.match(overlayWindowsSource, /function isComposedWindowShown[\s\S]*!composedParked\.has\(win\)/);
+  assert.doesNotMatch(overlayWindowsSource, /composedKeepAlive|composedParked|WINDOWS_COMPOSITION_PARK_OPACITY|parkComposedWindow/);
+  assert.match(overlayWindowsSource, /function hideComposedWindow[\s\S]*setWindowMaterialVisible\(win, false\)[\s\S]*win\.setOpacity\(0\)[\s\S]*win\.hide\(\)/);
   assert.match(overlayWindowsSource, /const composedVisibilityObservers = new WeakMap/);
   assert.match(overlayWindowsSource, /composedVisibilityObservers\.set\(win, \(shown\)/);
-  assert.match(overlayWindowsSource, /webContents\.invalidate\(\)[\s\S]*webContents\.capturePage\(\)[\s\S]*show\(revealMode\)[\s\S]*setWindowMaterialVisible\(win, true\)/);
+  assert.match(overlayWindowsSource, /webContents\.invalidate\(\)[\s\S]*webContents\.capturePage\(\)[\s\S]*show\(revealMode\)[\s\S]*setWindowMaterialActive\(win, windowGroupActive\)[\s\S]*setWindowMaterialVisible\(win, true\)[\s\S]*win\.setOpacity/);
   assert.doesNotMatch(overlayWindowsSource, /win\.setOpacity\(0\.01\)/);
+  assert.doesNotMatch(overlayWindowsSource, /1 \/ 255/);
   assert.match(overlayWindowsSource, /\['ask', 'listen', 'settings', 'shortcuts'\][\s\S]*createChildWindow\(name\)/);
   assert.doesNotMatch(
     overlayWindowsSource,
     /win\.once\('ready-to-show', complete\)/,
   );
   assert.match(nativeWindowsGlassSource, /DWMWA_TRANSITIONS_FORCEDISABLED/);
+});
+
+test('the live bar rejects clipped transient geometry', () => {
+  assert.match(barSource, /headerRef\.current\.scrollWidth/);
+  assert.match(barSource, /headerRef\.current\.children[\s\S]*getBoundingClientRect\(\)/);
+  assert.match(barSource, /contentWidth < 280/);
+  assert.match(overlayWindowsSource, /const MIN_HEADER_WIDTH = 280/);
+  assert.match(overlayWindowsSource, /Math\.max\(isHeader \? MIN_HEADER_WIDTH : 120/);
 });
 
 test('all Taylos surfaces share one application-level focus state', () => {
