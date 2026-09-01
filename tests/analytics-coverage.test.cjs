@@ -75,9 +75,8 @@ function isWired(fn) {
 const KNOWN_UNWIRED = new Set([
   'trackSessionStateChanged', 'trackSessionStarted', 'trackSessionEnded', 'trackSessionClosed',
   'trackInsightsViewed', 'trackInsightImplementationRate', 'trackPresetActivated', 'trackPresetDeactivated',
-  'trackSettingsOpened', 'trackLanguageChanged', 'trackAutoUpdateToggled', 'trackInvisibilityToggled',
-  'trackWindowMoved', 'trackDesktopAppClosed', 'trackShortcutUsed', 'trackAudioDeviceChanged',
-  'trackViewChanged',
+  'trackSettingsOpened', 'trackAutoUpdateToggled', 'trackInvisibilityToggled', 'trackWindowMoved',
+  'trackDesktopAppClosed', 'trackShortcutUsed', 'trackAudioDeviceChanged', 'trackViewChanged',
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
@@ -103,7 +102,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 17, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size <= 16, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {

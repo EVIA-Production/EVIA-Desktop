@@ -19,6 +19,7 @@ import {
   initPostHog,
   identifyUser,
   installGlobalErrorReporting,
+  trackLanguageChanged,
   trackError,
   trackRecordingStarted,
 } from '../services/posthogService'
@@ -206,6 +207,11 @@ const handleToggleLanguage = async (captureHandleRef: any, setIsCapturing: (val:
     const newLang = currentLang === 'de' ? 'en' : 'de'
     
     console.log('[OverlayEntry] 🌐 Language toggle started:', currentLang, '→', newLang)
+    // Language is not a cosmetic setting here - it selects the prompt, the
+    // preset and the guard rails, so every quality number is really a number
+    // per language. Without this the two are averaged together and neither is
+    // readable.
+    trackLanguageChanged({ from_language: currentLang, to_language: newLang })
     
     // Stop through the same main-process lifecycle used by the Listen control.
     // Clearing only the renderer handle here previously left the public state at
