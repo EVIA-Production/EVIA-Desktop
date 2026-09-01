@@ -33,8 +33,13 @@ Verify Taylos Desktop analytics against PostHog.
 
   1. Open ${HOST}/settings/user-api-keys
   2. "Create personal API key"
-  3. Scopes: Query -> Read   (that is the only one this needs)
+  3. Scopes:  Query -> Read        (running the queries)
+              Project -> Read      (finding the project id)
+     Project:Read is only needed for auto-discovery. To use a Query:Read-only
+     key, set POSTHOG_PROJECT_ID and discovery is skipped entirely - the id is
+     the number in your PostHog URL, e.g. ${HOST}/project/12345/...
   4. export POSTHOG_PERSONAL_API_KEY=phx_...
+     export POSTHOG_PROJECT_ID=12345          # optional
 
   node scripts/verify-analytics.js [--minutes N] [--versions] [--events] [--json]
 
@@ -85,7 +90,13 @@ async function hogql(projectId, query) {
   const out = await api(`/api/projects/${projectId}/query/`, {
     query: { kind: 'HogQLQuery', query },
   });
-  return out.results || [];
+  const rows = out.results || out.result || [];
+  // HogQL returns rows as arrays ordered by `columns`. Normalise object rows
+  // too rather than assuming, so a response-shape change degrades to wrong
+  // column order instead of a crash with no output.
+  const columns = out.columns || [];
+  return rows.map((row) =>
+    Array.isArray(row) ? row : columns.map((c) => row[c]));
 }
 
 function table(rows, headers) {
@@ -96,10 +107,35 @@ function table(rows, headers) {
   return [line(headers), line(widths.map((w) => '-'.repeat(w))), ...rows.map(line)].join('\n');
 }
 
+// PostHog documents project listing under the organization route and gates it
+// behind Project:Read, which a Query:Read-only key does not have. Try the
+// shapes in order and let an explicit id skip all of them, so the narrowest
+// possible key still works.
+async function resolveProject() {
+  const explicit = process.env.POSTHOG_PROJECT_ID;
+  if (explicit) return { id: explicit, name: `project ${explicit}` };
+
+  const routes = ['/api/projects/', '/api/organizations/@current/projects/'];
+  const failures = [];
+  for (const route of routes) {
+    try {
+      const body = await api(route);
+      const list = body.results || (Array.isArray(body) ? body : []);
+      if (list.length) return list[0];
+      failures.push(`${route}: empty`);
+    } catch (error) {
+      failures.push(`${route}: ${error.message.split('\n')[0]}`);
+    }
+  }
+  throw new Error(
+    'could not resolve a project id.\n  ' + failures.join('\n  ') +
+    '\n\nEither add the Project:Read scope to the key, or set POSTHOG_PROJECT_ID' +
+    '\nto the number in your PostHog URL and re-run.',
+  );
+}
+
 (async () => {
-  const projects = await api('/api/projects/');
-  const project = (projects.results || projects)[0];
-  if (!project) throw new Error('the key can see no projects - check its scopes');
+  const project = await resolveProject();
   console.log(`Project: ${project.name} (id ${project.id})`);
   console.log(`Window:  last ${MINUTES} minute(s)\n`);
 
