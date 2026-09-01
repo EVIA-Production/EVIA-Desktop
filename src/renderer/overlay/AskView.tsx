@@ -2,6 +2,18 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { streamAsk, type AskQuerySource } from '../lib/evia-ask-stream';
 import { i18n } from '../i18n/i18n';
+
+// Stable id for an answer, so the same text copied twice is one response rather
+// than two. Matches the service's internal scheme; five lines is cheaper to
+// duplicate than an export that couples the two files.
+function hashAskResponse(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < (text || '').length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return hash.toString(16);
+}
 import { consumePresetSessionReset, clearSessionBinding } from '../lib/pending-preset-reset';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
@@ -12,6 +24,7 @@ import taylosMarkUrl from './assets/taylos_mark.png';
 import {
   trackAskFailed,
   trackAskRequestReady,
+  trackAskResponseImplemented,
   trackAskResponseReceived,
   trackSuggestionContext,
   trackAskSubmitted,
@@ -72,10 +85,24 @@ const readThinkingHeight = (): number => {
 const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) => {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
+
+  // Stamp when an answer first becomes readable. Measuring from the request
+  // would fold the model's latency into the rep's decision time and make a slow
+  // answer look like a reluctant seller.
+  useEffect(() => {
+    if (response && responseShownAtRef.current === null) {
+      responseShownAtRef.current = Date.now();
+    } else if (!response) {
+      responseShownAtRef.current = null;
+    }
+  }, [response]);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [ttftMs, setTtftMs] = useState<number | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  // When the answer became readable, so "time to implement" measures the rep
+  // deciding rather than the model generating.
+  const responseShownAtRef = useRef<number | null>(null);
   const [showTextInput, setShowTextInput] = useState(true);
   const [headerText, setHeaderText] = useState(i18n.t('overlay.ask.aiResponse'));
   const [responseHistory, setResponseHistory] = useState<{question: string, response: string}[]>([]);
@@ -1473,6 +1500,21 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     try {
       await navigator.clipboard.writeText(textToCopy);
       console.log('[AskView] Content copied to clipboard');
+
+      // ask_response_implemented has been silent since March 2026. The speech
+      // half of it cannot be done from here - mic finals arrive in the listen
+      // window, and separate windows do not share module state - but copying
+      // needs no inference. The rep took an action that costs them something
+      // and returns nothing inside Taylos, which is the least ambiguous
+      // implementation signal there is.
+      trackAskResponseImplemented({
+        chat_id: Number(localStorage.getItem('current_chat_id') || 0),
+        response_hash: hashAskResponse(response),
+        implementation_method: 'copied',
+        time_to_implement_ms: responseShownAtRef.current
+          ? Date.now() - responseShownAtRef.current
+          : -1,
+      });
 
       setCopyState('copied');
 
