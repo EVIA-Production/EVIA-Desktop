@@ -297,6 +297,23 @@ export function resetUser() {
 // SESSION STATE EVENTS
 // ============================================================================
 
+// trackSessionStarted / trackSessionEnded / trackSessionClosed were deleted
+// here, not wired.
+//
+// All three had zero call sites and none of their events has ever arrived. The
+// lifecycle they describe is already carried by recording_started and
+// recording_stopped, which ARE live and carry more: capture source, system
+// audio availability, and per-source transcript counts. Wiring three
+// near-duplicates would have produced two competing session funnels and no way
+// to tell which one to trust.
+//
+// The one thing session_started had that recording_started does not is the
+// preset, and that is now its own event - preset_activated, wired 2026-09-01.
+//
+// session_state_changed survives because it is NOT a duplicate: it describes
+// the before/during/after transitions, and the recording events only ever
+// witness the middle one.
+
 export function trackSessionStateChanged(properties: {
   from_state: SessionState;
   to_state: SessionState;
@@ -305,42 +322,6 @@ export function trackSessionStateChanged(properties: {
 }) {
   sendDesktopEvent('session_state_changed', properties);
 }
-
-export function trackSessionStarted(properties: {
-  chat_id: number;
-  language: string;
-  preset_name?: string;
-  preset_id?: number;
-}) {
-  sendDesktopEvent('session_started', {
-    ...properties,
-    source: 'desktop',
-    timestamp: new Date().toISOString(),
-  });
-}
-
-export function trackSessionEnded(properties: {
-  chat_id: number;
-  duration_seconds: number;
-  transcript_count: number;
-  suggestion_count: number;
-  language: string;
-}) {
-  sendDesktopEvent('session_ended', properties);
-}
-
-export function trackSessionClosed(properties: {
-  chat_id: number;
-  final_duration_seconds: number;
-  total_asks: number;
-  total_insights_clicked: number;
-}) {
-  sendDesktopEvent('session_closed', properties);
-}
-
-// ============================================================================
-// ASK FEATURE EVENTS
-// ============================================================================
 
 export function trackAskSubmitted(properties: {
   chat_id?: number;
@@ -968,9 +949,6 @@ export default {
   
   // Session
   trackSessionStateChanged,
-  trackSessionStarted,
-  trackSessionEnded,
-  trackSessionClosed,
   
   // Ask
   trackAskSubmitted,

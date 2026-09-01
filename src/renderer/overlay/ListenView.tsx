@@ -27,6 +27,7 @@ import {
   trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
+  trackSessionStateChanged,
   trackShortcutUsed,
   trackTimeToFirstSuggestion,
   trackTranscriptFirstVisible,
@@ -1055,6 +1056,19 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {
       const previousState = sessionStateRef.current;
       console.log('[ListenView] Session state changed:', newState, '(previous:', previousState, ')');
+      // The before/during/after funnel. recording_started and recording_stopped
+      // only ever witness the middle transition, so without this the shape of a
+      // session - prepared, ran, reviewed - is not reconstructable, and a rep
+      // who never reaches `after` looks the same as one who never stopped.
+      if (newState !== previousState) {
+        trackSessionStateChanged({
+          from_state: previousState as SessionState,
+          to_state: newState as SessionState,
+          chat_id: Number(canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current) || undefined,
+          trigger: newState === 'during' ? 'recording_start'
+            : newState === 'after' ? 'recording_stop' : 'manual',
+        });
+      }
       sessionStateRef.current = newState;
       localStorage.setItem('evia_session_state', newState);
       setSessionState(newState);
