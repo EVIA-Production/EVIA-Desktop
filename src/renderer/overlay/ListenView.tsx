@@ -26,6 +26,7 @@ import {
   trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
+  trackShortcutUsed,
   trackTimeToFirstSuggestion,
   trackTranscriptFirstVisible,
   trackTranscriptCopied,
@@ -1879,22 +1880,37 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       });
     };
 
-    eviaIpc.on('shortcut:next-step', onShortcutNextStep);
-    eviaIpc.on('shortcut:previous-response', onShortcutPreviousResponse);
-    eviaIpc.on('shortcut:next-response', onShortcutNextResponse);
-    eviaIpc.on('shortcut:regenerate-insights', onRegenerateInsights);
+    // Wrapped at the IPC boundary rather than inside each handler: every
+    // shortcut passes through here exactly once, and several handlers return
+    // early, which would have recorded "used" only for the presses that
+    // happened to do something.
+    const reportShortcut = (
+      name: 'next_step' | 'previous_response' | 'next_response' | 'regenerate_insights',
+      handler: () => void,
+    ) => () => {
+      trackShortcutUsed({ shortcut_name: name, source_view: viewModeRef.current });
+      handler();
+    };
+
+    // Held by reference. The cleanup below must remove the SAME function object
+    // that was registered - passing the unwrapped handler to off() would leave
+    // every wrapper attached and add another set on each remount.
+    const shortcutBindings = [
+      ['shortcut:next-step', reportShortcut('next_step', onShortcutNextStep)],
+      ['shortcut:previous-response', reportShortcut('previous_response', onShortcutPreviousResponse)],
+      ['shortcut:next-response', reportShortcut('next_response', onShortcutNextResponse)],
+      ['shortcut:regenerate-insights', reportShortcut('regenerate_insights', onRegenerateInsights)],
+    ] as const;
+
+    for (const [channel, handler] of shortcutBindings) eviaIpc.on(channel, handler);
 
     return () => {
-      if (typeof eviaIpc.off === 'function') {
-        eviaIpc.off('shortcut:next-step', onShortcutNextStep);
-        eviaIpc.off('shortcut:previous-response', onShortcutPreviousResponse);
-        eviaIpc.off('shortcut:next-response', onShortcutNextResponse);
-        eviaIpc.off('shortcut:regenerate-insights', onRegenerateInsights);
-      } else if (typeof eviaIpc.removeListener === 'function') {
-        eviaIpc.removeListener('shortcut:next-step', onShortcutNextStep);
-        eviaIpc.removeListener('shortcut:previous-response', onShortcutPreviousResponse);
-        eviaIpc.removeListener('shortcut:next-response', onShortcutNextResponse);
-        eviaIpc.removeListener('shortcut:regenerate-insights', onRegenerateInsights);
+      for (const [channel, handler] of shortcutBindings) {
+        if (typeof eviaIpc.off === 'function') {
+          eviaIpc.off(channel, handler);
+        } else if (typeof eviaIpc.removeListener === 'function') {
+          eviaIpc.removeListener(channel, handler);
+        }
       }
     };
   }, []);

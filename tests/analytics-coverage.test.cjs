@@ -76,7 +76,7 @@ const KNOWN_UNWIRED = new Set([
   'trackSessionStateChanged', 'trackSessionStarted', 'trackSessionEnded', 'trackSessionClosed',
   'trackInsightsViewed', 'trackInsightImplementationRate', 'trackPresetActivated', 'trackPresetDeactivated',
   'trackSettingsOpened', 'trackAutoUpdateToggled', 'trackInvisibilityToggled', 'trackWindowMoved',
-  'trackDesktopAppClosed', 'trackShortcutUsed', 'trackAudioDeviceChanged', 'trackViewChanged',
+  'trackDesktopAppClosed', 'trackAudioDeviceChanged', 'trackViewChanged',
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
@@ -102,7 +102,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 16, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size <= 15, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {
@@ -144,6 +144,17 @@ test('time to first suggestion is measured once per call, from the call', () => 
   assert.match(listenSource, /!firstSuggestionReportedRef\.current/);
   assert.match(listenSource, /firstSuggestionReportedRef\.current = false;/);
   assert.match(listenSource, /firstSuggestionReportedRef\.current = true;/);
+});
+
+test('shortcut reporting removes exactly what it registered', () => {
+  // The wrappers are registered, so cleanup must remove the SAME function
+  // objects. Passing the unwrapped handler to off() leaves every wrapper
+  // attached and adds another set on each remount.
+  assert.match(listenSource, /const shortcutBindings = \[/);
+  assert.match(listenSource, /for \(const \[channel, handler\] of shortcutBindings\) eviaIpc\.on\(channel, handler\)/);
+  assert.match(listenSource, /for \(const \[channel, handler\] of shortcutBindings\) \{/);
+  // Every press counts, including the ones whose handler returns early.
+  assert.match(listenSource, /trackShortcutUsed\(\{ shortcut_name: name, source_view: viewModeRef\.current \}\);\s*\n\s*handler\(\);/);
 });
 
 test('the outcome loop is closed: clicked, then actually said', () => {

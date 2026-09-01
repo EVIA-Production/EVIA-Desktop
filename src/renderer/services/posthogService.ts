@@ -745,8 +745,16 @@ export function trackDesktopAppClosed(properties: {
   sendDesktopEvent('desktop_app_closed', properties);
 }
 
+// The union below was written for a shortcut set the app no longer has:
+// show_hide/ask/scroll_up/scroll_down, none of which ListenView binds. The
+// shortcuts that exist are next-step, previous-response, next-response and
+// regenerate-insights, so the type described a keyboard that shipped once and
+// then changed - another way for a tracker to be unusable without being wrong
+// enough to notice.
 export function trackShortcutUsed(properties: {
-  shortcut_name: 'show_hide' | 'ask' | 'scroll_up' | 'scroll_down';
+  shortcut_name:
+    | 'show_hide' | 'ask' | 'scroll_up' | 'scroll_down'
+    | 'next_step' | 'previous_response' | 'next_response' | 'regenerate_insights';
   source_view?: string;
 }) {
   sendDesktopEvent('desktop_shortcut_used', properties);
