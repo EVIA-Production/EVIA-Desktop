@@ -26,6 +26,7 @@ import {
   trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
+  trackTimeToFirstSuggestion,
   trackTranscriptFirstVisible,
   trackTranscriptCopied,
   trackTranscriptViewToggled,
@@ -244,6 +245,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const messageCountRef = useRef(0);
   const lastMessageAtRef = useRef<number | null>(null);
   const analyticsCallStartedAtRef = useRef<number | null>(null);
+  // Reset per call, so the metric measures the opening wait and not the
+  // first insight of whichever call happens to be running.
+  const firstSuggestionReportedRef = useRef(false);
   const analyticsRejectedCountRef = useRef(0);
   const analyticsFirstTranscriptEventsRef = useRef<Set<string>>(new Set());
   const firstPartialLatencyByEventRef = useRef<Map<string, number>>(new Map());
@@ -718,6 +722,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.log('[ListenView] Recording started; canonical session is now live');
         resetSessionPresentation('recording-started');
         analyticsCallStartedAtRef.current = Date.now();
+        firstSuggestionReportedRef.current = false;
         if (!msg.analyticsCallId) beginAnalyticsCall();
         resetSuggestionPrefetch();
         // The first click of a call has no prospect turn behind it, so it was
@@ -1570,6 +1575,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           return;
         }
         setInsightsRefreshPending(false);
+        // Once per call: how long the rep waited from pressing Listen to having
+        // anything to work with. load_time_ms below measures ONE request and
+        // says nothing about that wait - a fast third request after two slow
+        // ones still reads fast. This is the number that decides whether Taylos
+        // is useful in the opening minute, and it has never been recorded.
+        if (
+          analyticsCallStartedAtRef.current !== null &&
+          !firstSuggestionReportedRef.current &&
+          derivedSessionState === 'during'
+        ) {
+          firstSuggestionReportedRef.current = true;
+          trackTimeToFirstSuggestion({
+            chat_id: Number(canonicalTranscriptStateRef.current?.chatId) || 0,
+            ttfs_ms: Date.now() - analyticsCallStartedAtRef.current,
+            language: i18n.getLanguage(),
+          });
+        }
         trackInsightsLoaded({
           load_time_ms: ttftMs,
           summary_count: getProspectInfo(fetchedInsights).length,

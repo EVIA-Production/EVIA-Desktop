@@ -77,7 +77,7 @@ const KNOWN_UNWIRED = new Set([
   'trackInsightsViewed', 'trackInsightImplementationRate', 'trackPresetActivated', 'trackPresetDeactivated',
   'trackSettingsOpened', 'trackLanguageChanged', 'trackAutoUpdateToggled', 'trackInvisibilityToggled',
   'trackWindowMoved', 'trackDesktopAppClosed', 'trackShortcutUsed', 'trackAudioDeviceChanged',
-  'trackViewChanged', 'trackTimeToFirstSuggestion',
+  'trackViewChanged',
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
@@ -103,7 +103,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 18, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size <= 17, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {
@@ -131,6 +131,20 @@ test('every insight the rep can click names its own list and row', () => {
   // The three list-rendered ones carry their map index; the standing
   // "what should I say next" button is not part of a list and passes -1.
   assert.equal(clicks.filter((a) => /,\s*idx\)?$/.test(a.trim())).length, 3);
+});
+
+test('time to first suggestion is measured once per call, from the call', () => {
+  // load_time_ms measures ONE request. A fast third request after two slow ones
+  // still reads fast, so it cannot answer "how long did the rep wait before
+  // Taylos was useful". That is the opening-minute number and it was never
+  // recorded.
+  assert.match(listenSource, /trackTimeToFirstSuggestion\(\{/);
+  assert.match(listenSource, /ttfs_ms: Date\.now\(\) - analyticsCallStartedAtRef\.current/);
+  // Once per call, and reset when a call starts - otherwise it reports the
+  // first insight of whichever call happens to be running.
+  assert.match(listenSource, /!firstSuggestionReportedRef\.current/);
+  assert.match(listenSource, /firstSuggestionReportedRef\.current = false;/);
+  assert.match(listenSource, /firstSuggestionReportedRef\.current = true;/);
 });
 
 test('the outcome loop is closed: clicked, then actually said', () => {
