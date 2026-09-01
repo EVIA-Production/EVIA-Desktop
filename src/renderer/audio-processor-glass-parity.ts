@@ -10,6 +10,13 @@ import { BACKEND_URL } from './config/config';
 const SAMPLE_RATE = 24000; // Glass parity
 import { ReferenceRing, SYSTEM_CAPTURE_ASSUMED_LATENCY_MS } from '../main/aec-reference';
 import {
+  snapshotDevices,
+  diffDevices,
+  EMPTY_SNAPSHOT,
+  type AudioDeviceSnapshot,
+} from '../main/audio-device-watch';
+import { trackAudioDeviceChanged } from './services/posthogService';
+import {
   AecTelemetry,
   AecSessionAccumulator,
   describeReport,
@@ -2522,9 +2529,73 @@ async function startCaptureInternal(includeSystemAudio = false) {
   };
 }
 
+// The audio device the call is actually running on.
+//
+// `devicechange` fires for anything plugged in or removed, so the diff in
+// main/audio-device-watch.ts decides what is worth reporting - the ACTIVE
+// default moving, not a monitor appearing. Installed once for the window's
+// lifetime rather than per capture: a rep who switches devices between calls
+// still changed their hardware, and the listener has no cost when nothing moves.
+let audioDeviceSnapshot: AudioDeviceSnapshot = EMPTY_SNAPSHOT;
+let audioDeviceWatchInstalled = false;
+
+async function readAudioDevices(): Promise<AudioDeviceSnapshot> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return snapshotDevices(devices);
+  } catch (error) {
+    // A failed read is not a device change. Returning the empty snapshot lets
+    // the diff treat it as "unknown" instead of inventing a swap.
+    console.warn('[AudioCapture] Could not enumerate audio devices:', error);
+    return EMPTY_SNAPSHOT;
+  }
+}
+
+function installAudioDeviceWatch(): void {
+  if (audioDeviceWatchInstalled) return;
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.addEventListener) return;
+  audioDeviceWatchInstalled = true;
+
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    void (async () => {
+      const next = await readAudioDevices();
+      const changes = diffDevices(audioDeviceSnapshot, next);
+      // Advance the baseline even when nothing is reported, so a device that
+      // moves twice is measured against where it actually was.
+      if (next.inputId || next.inputLabel || next.outputId || next.outputLabel) {
+        audioDeviceSnapshot = next;
+      }
+      // Deliberately NOT resetting the AEC reference ring here.
+      //
+      // ACOUSTIC_DELAY_MS is measured on built-in speakers into a built-in mic,
+      // so a device switch does invalidate the assumption behind it. But the
+      // two directions are not symmetric: moving TO AirPods removes the echo
+      // entirely (the speaker is in the ear), leaving the filter with nothing to
+      // cancel and nothing to get wrong; moving BACK introduces echo the
+      // adaptive filter then has to learn - and dropping the reference history
+      // at exactly that moment would leave it nothing to learn FROM.
+      //
+      // So the safe change is the measurement, not the behaviour. With this
+      // event in the data, a low-ERLE session can finally be checked against the
+      // hardware it ran on instead of guessed at, which is the whole reason the
+      // 2026-08 AEC investigation was expensive. Reset only if the data says to.
+      for (const change of changes) {
+        console.log('[AudioCapture] 🎧 Audio device changed:', change.device_type,
+          change.previous_device_name, '->', change.device_name);
+        trackAudioDeviceChanged({ ...change, during_call: isActivelyCapturing });
+      }
+    })();
+  });
+}
+
 export async function startCapture(includeSystemAudio = false) {
   try {
-    return await startCaptureInternal(includeSystemAudio);
+    installAudioDeviceWatch();
+    // Baseline AFTER getUserMedia has granted labels, otherwise the first real
+    // change reports a move away from a device whose name we never had.
+    const started = await startCaptureInternal(includeSystemAudio);
+    audioDeviceSnapshot = await readAudioDevices();
+    return started;
   } catch (error) {
     console.error('[AudioCapture] Startup failed; rolling back the capture session:', error);
     await stopCapture();

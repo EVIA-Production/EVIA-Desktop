@@ -736,18 +736,25 @@ export function trackPermissionStatus(properties: {
   sendDesktopEvent('desktop_permission_status', properties);
 }
 
-// trackAudioDeviceChanged was deleted, and this one is a real gap rather than
-// a dead duplicate.
+// Restored once the detection it needed existed.
 //
-// Nothing in this app observes device changes. There is no `devicechange`
-// listener and no enumerateDevices call anywhere, so the tracker had no
-// possible input - wiring it would have meant BUILDING the detection, which is
-// a feature, not instrumentation.
+// This was deleted on 2026-09-01 because nothing in the app observed device
+// changes - no `devicechange` listener, no enumerateDevices call - so the
+// tracker had no possible input. The detection now lives in
+// main/audio-device-watch.ts and fires this from the capture window.
 //
-// It is worth building. A rep who switches to AirPods mid-call changes the
-// acoustic path underneath AEC, and that is exactly the class of problem the
-// AEC work spent weeks chasing with no signal for. When that detection exists,
-// this event belongs with it.
+// A rep who switches to AirPods mid-call moves the speaker away from the
+// microphone and replaces the acoustic path underneath AEC. That is the class
+// of problem the AEC work spent weeks chasing while the hardware change itself
+// left no trace at all.
+export function trackAudioDeviceChanged(properties: {
+  device_type: 'input' | 'output';
+  device_name: string;
+  previous_device_name?: string;
+  during_call?: boolean;
+}) {
+  sendDesktopEvent('desktop_audio_device_changed', properties);
+}
 
 export function trackViewChanged(properties: {
   from_view: string;
@@ -973,6 +980,7 @@ export default {
   // Settings
   trackSettingsOpened,
   trackLanguageChanged,
+  trackAudioDeviceChanged,
   trackAutoUpdateToggled,
   trackInvisibilityToggled,
   
