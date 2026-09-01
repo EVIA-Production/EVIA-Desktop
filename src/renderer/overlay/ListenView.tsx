@@ -18,6 +18,7 @@ import { prefetchSuggestion, prefetchOpener, resetSuggestionPrefetch } from '../
 import { BACKEND_URL } from '../config/config';
 import {
   beginAnalyticsCall,
+  checkForInsightImplementation,
   trackInsightClicked,
   trackInsightsFailed,
   trackInsightsLoaded,
@@ -935,6 +936,23 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         visibleRows: projection.visibleRows.length,
         contextHash: projection.contextHash,
       });
+
+      // Did the rep actually say the thing Taylos suggested?
+      //
+      // checkForInsightImplementation has existed since the taxonomy was
+      // written, complete with a 60-second window, keyword matching and a
+      // confidence score, and its own docstring says "Call this after each
+      // final transcript from speaker 1 (user)". Nobody ever did, so the whole
+      // outcome half of the funnel produced nothing. `mic` is speaker 1 - the
+      // rep - and a final is the only version of their words worth matching.
+      if (adapted.event.isFinal && adapted.event.source === 'mic') {
+        const implChatId = Number(
+          canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? 0,
+        );
+        if (implChatId) {
+          checkForInsightImplementation(implChatId, adapted.event.text || '');
+        }
+      }
 
       // The prospect just stopped talking, which is precisely when the seller
       // is about to want a line. Generate it now so the click is a lookup

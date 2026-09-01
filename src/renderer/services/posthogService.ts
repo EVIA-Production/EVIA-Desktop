@@ -573,7 +573,25 @@ export function checkForInsightImplementation(
 
 function extractKeywords(text: string): string[] {
   // Simple keyword extraction: nouns and verbs (words > 4 chars)
-  const stopWords = ['the', 'and', 'that', 'have', 'for', 'not', 'with', 'you', 'this', 'but', 'his', 'from', 'they', 'say', 'she', 'will', 'one', 'all', 'would', 'there', 'their', 'what', 'about', 'which', 'when', 'make', 'like', 'time', 'just', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'use'];
+  //
+  // The stop list was English-only while the product sells in German, and the
+  // filter keeps every word longer than four characters. So "haben", "werden",
+  // "koennen", "unsere" all counted as content words, and a German suggestion
+  // could clear the 30% match threshold on filler alone. An implementation
+  // metric that over-reports is worse than none: it is the number that says the
+  // product works.
+  const stopWords = ['the', 'and', 'that', 'have', 'for', 'not', 'with', 'you', 'this', 'but', 'his', 'from', 'they', 'say', 'she', 'will', 'one', 'all', 'would', 'there', 'their', 'what', 'about', 'which', 'when', 'make', 'like', 'time', 'just', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'use',
+    // German filler that is longer than four characters and therefore survived.
+    'haben', 'hatte', 'hatten', 'werden', 'wurde', 'wurden', 'wird', 'sein',
+    'seine', 'seinen', 'ihre', 'ihren', 'ihrem', 'unser', 'unsere', 'unseren',
+    'koennen', 'können', 'konnte', 'sollen', 'sollte', 'muessen', 'müssen',
+    'wollen', 'wollte', 'moechten', 'möchten', 'dieser', 'diese', 'dieses',
+    'welche', 'welcher', 'nicht', 'auch', 'schon', 'noch', 'aber', 'oder',
+    'wenn', 'dann', 'dass', 'weil', 'damit', 'durch', 'gegen', 'ohne',
+    'ueber', 'über', 'unter', 'zwischen', 'immer', 'wieder', 'sehr', 'mehr',
+    'viele', 'vielen', 'einfach', 'gerne', 'genau', 'natuerlich', 'natürlich',
+    'eigentlich', 'wirklich', 'vielleicht', 'sagen', 'gesagt', 'machen',
+    'gemacht', 'geht', 'gehen', 'kommt', 'kommen', 'sehen', 'gerade'];
   
   return text
     .toLowerCase()
