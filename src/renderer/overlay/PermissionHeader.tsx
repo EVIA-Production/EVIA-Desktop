@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './overlay-glass.css';
+import { trackPermissionStatus } from '../services/posthogService';
 
 interface PermissionHeaderProps {
   onContinue: () => void;
@@ -31,6 +32,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
   const [isRequestingMic, setIsRequestingMic] = useState(false);
   const [isRequestingScreen, setIsRequestingScreen] = useState(false); // 🔄 Match mic button animation
   const checkingRef = useRef(false);
+  const reportedPermissionStatesRef = useRef<Set<string>>(new Set());
 
   /**
    * Check permission status
@@ -49,6 +51,22 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
         microphone: result.microphone as any,
         screen: result.screen as any,
       });
+
+      // Onboarding's only failure signal. A rep who never grants the mic never
+      // reaches the product, never files a complaint and never appears in any
+      // funnel that starts at a call - they are simply absent. Reported once per
+      // distinct status so a polling check cannot spam it.
+      for (const [type, status] of [
+        ['mic', result.microphone],
+        ['screen', result.screen],
+      ] as const) {
+        const normalized = status === 'granted' ? 'granted'
+          : status === 'denied' ? 'denied' : 'prompt';
+        const seenKey = `${type}:${normalized}`;
+        if (reportedPermissionStatesRef.current.has(seenKey)) continue;
+        reportedPermissionStatesRef.current.add(seenKey);
+        trackPermissionStatus({ permission_type: type, status: normalized });
+      }
 
       // Auto-continue if all permissions granted (INSTANT - no delay)
       if (result.microphone === 'granted' && result.screen === 'granted') {
