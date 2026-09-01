@@ -74,12 +74,14 @@ function isWired(fn) {
 // means a new event was written that nothing fires, which is the defect this
 // file exists to catch. Shrink it as they get wired.
 const KNOWN_UNWIRED = new Set([
-  'trackInsightImplementationRate', 'trackAutoUpdateToggled', 'trackInvisibilityToggled', 'trackWindowMoved',
-  'trackAudioDeviceChanged',
+  // Empty, and it should stay that way. Every tracker that once sat here was
+  // either wired to a real call site or deleted with the reason recorded in
+  // posthogService. A name appearing here again means someone wrote an event
+  // that nothing fires - the exact state that cost seven months of outcome data.
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
-  assert.ok(exported.length >= 35, `expected the full tracker surface, saw ${exported.length}`);
+  assert.ok(exported.length >= 30, `expected the full tracker surface, saw ${exported.length}`);
 
   const unwired = exported.filter((fn) => !isWired(fn));
   const surprises = unwired.filter((fn) => !KNOWN_UNWIRED.has(fn));
@@ -101,7 +103,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 5, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size === 0, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {

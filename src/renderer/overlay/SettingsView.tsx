@@ -2,7 +2,13 @@ import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { armPresetSessionReset } from '../lib/pending-preset-reset';
-import { trackPresetActivated, trackPresetDeactivated, trackSettingsOpened } from '../services/posthogService';
+import {
+  trackAutoUpdateToggled,
+  trackInvisibilityToggled,
+  trackPresetActivated,
+  trackPresetDeactivated,
+  trackSettingsOpened,
+} from '../services/posthogService';
 
 const WEB_APP_URL = 'https://app.taylos.ai';
 
@@ -282,6 +288,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     const newState = !autoUpdateEnabled;
     setAutoUpdateEnabled(newState);
     console.log('[SettingsView] 🔄 Auto-update:', newState);
+    // A rep who turns auto-update off stops receiving every fix after that
+    // point, and nothing else in the data would ever say so - they would simply
+    // look like a user stuck on an old build for no reason.
+    trackAutoUpdateToggled({ new_state: newState });
     
     // Persist to main process
     try {
@@ -315,6 +325,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     const newState = !isInvisible;
     setIsInvisible(newState);
     console.log('[SettingsView] 👻 Invisibility:', newState);
+    trackInvisibilityToggled({ new_state: newState });
     
     // NEW: Implement invisibility via IPC
     try {

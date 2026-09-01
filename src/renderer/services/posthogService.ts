@@ -482,15 +482,6 @@ export function trackInsightImplemented(properties: {
   sendDesktopEvent('insight_implemented', properties);
 }
 
-export function trackInsightImplementationRate(properties: {
-  chat_id: number;
-  total_clicked: number;
-  total_implemented: number;
-  implementation_rate: number;
-}) {
-  sendDesktopEvent('insight_implementation_rate', properties);
-}
-
 export function trackInsightsCopied(properties: {
   chat_id: number;
   content_length: number;
@@ -684,6 +675,26 @@ export function trackLanguageChanged(properties: {
   });
 }
 
+// trackInsightImplementationRate was deleted, not wired.
+//
+// It is a RATIO - implemented divided by clicked - and both of its inputs are
+// now live events. Sending a precomputed rate would make it the only number
+// here that cannot be re-sliced: no filtering by preset, language, session
+// state or version, because the division already happened on a machine that
+// knew none of those. Worse, a client-side rate is computed over whatever that
+// window happened to see, so two reps in the same account would report
+// different rates for the same data.
+//
+// Compute it in PostHog from insight_clicked and insight_implemented.
+
+// trackWindowMoved was deleted, not wired.
+//
+// Where a rep drags the overlay answers no question the product has. It was
+// instrumentation written because a control existed, not because anyone wanted
+// to know - which is how a tracker list reaches 40 entries with 26 of them
+// dead. If window placement ever becomes a real question, the event is four
+// lines and this comment says why it went.
+
 export function trackAutoUpdateToggled(properties: {
   new_state: boolean;
 }) {
@@ -695,29 +706,6 @@ export function trackInvisibilityToggled(properties: {
 }) {
   sendDesktopEvent('settings_invisibility_toggled', properties);
 }
-
-export function trackWindowMoved(properties: {
-  direction: 'left' | 'right';
-  distance_px?: number;
-}) {
-  sendDesktopEvent('settings_window_moved', properties);
-}
-
-// ============================================================================
-// DESKTOP APP LIFECYCLE EVENTS
-// ============================================================================
-
-// trackDesktopAppLaunched used to live here and was deleted, not wired.
-//
-// `desktop_app_launched` is already emitted directly from initPostHog for the
-// header view, and PostHog confirms it arriving. Wiring the tracker as well
-// would have double-counted every launch. Its extra properties were no loss:
-// commonProperties already attaches app_version and platform to every event,
-// and os_version / is_first_launch are not known at that point anyway.
-//
-// This is what the rest of KNOWN_UNWIRED needs before anything is wired to it -
-// checking whether the EVENT is already arriving from somewhere else, rather
-// than assuming a tracker with no call sites is a missing measurement.
 
 export function trackDesktopAppClosed(properties: {
   session_duration_seconds: number;
@@ -748,16 +736,18 @@ export function trackPermissionStatus(properties: {
   sendDesktopEvent('desktop_permission_status', properties);
 }
 
-export function trackAudioDeviceChanged(properties: {
-  device_type: 'input' | 'output';
-  device_name: string;
-}) {
-  sendDesktopEvent('desktop_audio_device_changed', properties);
-}
-
-// ============================================================================
-// VIEW CHANGE EVENTS
-// ============================================================================
+// trackAudioDeviceChanged was deleted, and this one is a real gap rather than
+// a dead duplicate.
+//
+// Nothing in this app observes device changes. There is no `devicechange`
+// listener and no enumerateDevices call anywhere, so the tracker had no
+// possible input - wiring it would have meant BUILDING the detection, which is
+// a feature, not instrumentation.
+//
+// It is worth building. A rep who switches to AirPods mid-call changes the
+// acoustic path underneath AEC, and that is exactly the class of problem the
+// AEC work spent weeks chasing with no signal for. When that detection exists,
+// this event belongs with it.
 
 export function trackViewChanged(properties: {
   from_view: string;
@@ -964,7 +954,6 @@ export default {
   trackInsightsFailed,
   trackInsightClicked,
   trackInsightImplemented,
-  trackInsightImplementationRate,
   trackInsightsCopied,
   checkForInsightImplementation,
   
@@ -986,13 +975,11 @@ export default {
   trackLanguageChanged,
   trackAutoUpdateToggled,
   trackInvisibilityToggled,
-  trackWindowMoved,
   
   // Desktop lifecycle
   trackDesktopAppClosed,
   trackShortcutUsed,
   trackPermissionStatus,
-  trackAudioDeviceChanged,
   
   // View changes
   trackViewChanged,
