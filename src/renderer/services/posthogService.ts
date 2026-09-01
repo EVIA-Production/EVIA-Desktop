@@ -41,6 +41,7 @@
 // no replay - and watching real sessions is the single thing this product needs
 // before launch.
 import posthog from 'posthog-js';
+import { redactTelemetrySecrets, sanitizeCapturedNetworkRequest } from './telemetrySafety';
 // The implementation verdict lives in main/ so it can be unit-tested from
 // Node. It is the number that claims the product works, which is exactly the
 // number that must not rest on assertions about source text.
@@ -51,7 +52,8 @@ import { judgeImplementation } from '../../main/insight-implementation';
 // ============================================================================
 
 const POSTHOG_KEY = 'phc_I09s0hYqFHpZv2okGU4hwd2Lth0ktSM5eSp3bRJOJXc';
-const POSTHOG_HOST = 'https://eu.i.posthog.com';
+const POSTHOG_HOST = 'https://api.taylos.ai/telemetry';
+const POSTHOG_UI_HOST = 'https://eu.posthog.com';
 
 let initialized = false;
 // This check was RIGHT and I misread it. Recording the correction, because the
@@ -80,9 +82,9 @@ const ANALYTICS_CALL_ID_KEY = 'taylos_analytics_call_id';
 const MAX_QUEUED_EVENTS = 200;
 const queuedEvents: Array<{ eventName: string; properties: AnalyticsProperties }> = [];
 
-// Product analytics must never become a second transcript store. This denylist
-// protects every event, including older helpers that predate the privacy rule.
-// Pre-launch these accounts trade their data for free access, and the
+// Product analytics is deliberately full-fidelity before launch. Meeting and
+// suggestion context remains intact; only credentials are removed by the
+// transport boundary below. Pre-launch these accounts trade their data for free access, and the
 // suggestion-quality work needs the real values: which chat, which preset, the
 // suggestion text itself, who the rep is. The previous version dropped exactly
 // those keys and cut every string at 80 characters, so an event proved a click
@@ -105,7 +107,8 @@ function currentAppVersion(): string {
 
 function sanitizeAnalyticsProperties(properties: AnalyticsProperties): AnalyticsProperties {
   const sanitized: AnalyticsProperties = {};
-  for (const [key, value] of Object.entries(properties)) {
+  const credentialSafe = redactTelemetrySecrets(properties) as AnalyticsProperties;
+  for (const [key, value] of Object.entries(credentialSafe)) {
     if (value === undefined || value === null) continue;
     if (typeof value === 'string') {
       sanitized[key] = value.length > MAX_PROPERTY_CHARS ? value.slice(0, MAX_PROPERTY_CHARS) : value;
@@ -119,13 +122,39 @@ function sanitizeAnalyticsProperties(properties: AnalyticsProperties): Analytics
     try {
       const encoded = JSON.stringify(value);
       sanitized[key] = encoded.length > MAX_PROPERTY_CHARS
-        ? JSON.parse(encoded.slice(0, MAX_PROPERTY_CHARS) + (encoded.startsWith('[') ? ']' : '}'))
+        ? encoded.slice(0, MAX_PROPERTY_CHARS)
         : value;
     } catch {
       // Unserialisable (circular, DOM node): skip rather than lose the event.
     }
   }
   return sanitized;
+}
+
+function createAnalyticsEventId(): string {
+  return typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function relayDesktopEvent(
+  eventName: string,
+  eventId: string,
+  properties: AnalyticsProperties,
+): void {
+  try {
+    const relay = (window as any)?.evia?.telemetry?.capture;
+    if (typeof relay !== 'function') return;
+    Promise.resolve(relay({
+      event_name: eventName,
+      event_id: eventId,
+      properties,
+    })).catch((error: unknown) => {
+      console.warn('[PostHog] Backend relay rejected event:', eventName, error);
+    });
+  } catch (error) {
+    console.warn('[PostHog] Backend relay unavailable:', eventName, error);
+  }
 }
 
 
@@ -144,10 +173,15 @@ function commonProperties(): AnalyticsProperties {
 }
 
 function sendDesktopEvent(eventName: string, properties: AnalyticsProperties = {}): void {
+  const eventId = createAnalyticsEventId();
   const payload = {
     ...sanitizeAnalyticsProperties(properties),
     ...commonProperties(),
+    $insert_id: eventId,
   };
+  // The same insert id travels direct and through the authenticated backend.
+  // PostHog deduplicates them; ad blockers no longer erase the user's session.
+  relayDesktopEvent(eventName, eventId, payload);
   if (!initialized) {
     if (queuedEvents.length < MAX_QUEUED_EVENTS) queuedEvents.push({ eventName, properties: payload });
     return;
@@ -230,6 +264,7 @@ export function initPostHog() {
   try {
   posthog.init(POSTHOG_KEY, {
     api_host: POSTHOG_HOST,
+    ui_host: POSTHOG_UI_HOST,
     person_profiles: 'identified_only',
     capture_pageview: false, // Manual control for Electron
     capture_pageleave: false,
@@ -254,19 +289,20 @@ export function initPostHog() {
     session_recording: {
       maskAllInputs: false,
       maskTextSelector: undefined,
-      blockSelector: undefined,
       collectFonts: true,
       recordCrossOriginIframes: false,
       recordHeaders: true,
       recordBody: true,
+      maskInputOptions: { password: true },
+      blockSelector: '[data-telemetry-secret]',
       captureCanvas: { recordCanvas: false },
-      maskCapturedNetworkRequestFn: (request: any) => request,
+      maskCapturedNetworkRequestFn: sanitizeCapturedNetworkRequest,
     },
     disable_surveys: true,
 
-    // Replay enablement is obtained through PostHog remote config. The recorder
-    // implementation itself is bundled above, so a blocked asset request cannot
-    // silently remove every Desktop replay.
+    // Replay enablement is obtained through PostHog remote config. The standard
+    // bundle contains the external-dependency loader; it fetches lazy-recorder
+    // at runtime, and desktop_replay_health proves whether that succeeded.
     advanced_disable_decide: false,
     capture_dead_clicks: false,
     capture_exceptions: false,
@@ -308,12 +344,13 @@ export function identifyUser(userId: string, properties?: {
 }) {
   if (!initialized) initPostHog();
   console.log('[PostHog] 🔑 Identifying authenticated Desktop user');
-  // Identity enables per-user funnels, but profile properties are deliberately
-  // excluded: email/name/username are not required to measure product health.
-  posthog.identify(userId, { source: 'desktop' });
+  posthog.identify(userId, sanitizeAnalyticsProperties({
+    ...properties,
+    source: 'desktop',
+  }));
   localStorage.setItem('posthog_distinct_id', userId);
   sendDesktopEvent('desktop_user_identified', {
-    profile_properties_omitted: Boolean(properties),
+    profile_properties_included: Boolean(properties),
   });
   console.log('[PostHog] ✅ User identified');
 }

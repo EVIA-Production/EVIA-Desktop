@@ -31,6 +31,13 @@ interface PrefsBridge {
 
 interface EviaBridge {
   createWs: (url: string) => WebSocketWrapper;
+  telemetry: {
+    capture: (payload: {
+      event_name: string;
+      event_id: string;
+      properties: Record<string, unknown>;
+    }) => Promise<{ queued: boolean; reason?: string }>;
+  };
   demo: {
     isEnabled: () => Promise<{ enabled: boolean }>;
   };

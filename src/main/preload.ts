@@ -40,6 +40,13 @@ const listenerMap = new Map<string, Map<any, any>>();
 
 contextBridge.exposeInMainWorld('evia', {
   createWs,
+  telemetry: {
+    capture: (payload: {
+      event_name: string;
+      event_id: string;
+      properties: Record<string, unknown>;
+    }) => ipcRenderer.invoke('telemetry:capture', payload),
+  },
   demo: {
     isEnabled: () => ipcRenderer.invoke('demo:is-enabled'),
   },

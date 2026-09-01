@@ -165,10 +165,23 @@ type DesktopTelemetryErrorDetail = {
   error_reason?: string;
 };
 
+type DesktopRelayedAnalyticsEvent = {
+  event_name: string;
+  event_id: string;
+  properties: Record<string, unknown>;
+  attempts: number;
+};
+
 const DESKTOP_TELEMETRY_INTERVAL_MS = 15 * 60 * 1000;
 const DESKTOP_TELEMETRY_REQUEST_TIMEOUT_MS = 5_000;
 let desktopTelemetryLaunchTimer: NodeJS.Timeout | null = null;
 let desktopTelemetryInterval: NodeJS.Timeout | null = null;
+let desktopRelayFlushTimer: NodeJS.Timeout | null = null;
+let desktopRelayFlushInFlight = false;
+const desktopRelayQueue = new Map<string, DesktopRelayedAnalyticsEvent>();
+const DESKTOP_RELAY_BATCH_SIZE = 25;
+const DESKTOP_RELAY_MAX_QUEUE = 500;
+const DESKTOP_RELAY_RETRY_MS = [2_000, 15_000, 60_000, 300_000, 900_000] as const;
 
 async function reportDesktopClientTelemetry(
   event: DesktopTelemetryEvent,
@@ -218,6 +231,109 @@ async function reportDesktopClientTelemetry(
     return false;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function scheduleDesktopRelayFlush(delayMs: number): void {
+  if (desktopRelayFlushTimer || desktopRelayFlushInFlight) return;
+  desktopRelayFlushTimer = setTimeout(() => {
+    desktopRelayFlushTimer = null;
+    void flushDesktopRelayQueue();
+  }, delayMs);
+}
+
+function queueDesktopAnalyticsRelay(payload: unknown): { queued: boolean; reason?: string } {
+  if (!app.isPackaged || IS_ISOLATED_HARNESS || isDemoMode) {
+    return { queued: false, reason: 'not_packaged' };
+  }
+  if (!payload || typeof payload !== 'object') return { queued: false, reason: 'invalid_payload' };
+
+  const candidate = payload as Record<string, unknown>;
+  const eventName = typeof candidate.event_name === 'string' ? candidate.event_name : '';
+  const eventId = typeof candidate.event_id === 'string' ? candidate.event_id : '';
+  const properties = candidate.properties;
+  if (!/^[a-z][a-z0-9_]{1,99}$/.test(eventName)) return { queued: false, reason: 'invalid_event_name' };
+  if (eventId.length < 8 || eventId.length > 100) return { queued: false, reason: 'invalid_event_id' };
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    return { queued: false, reason: 'invalid_properties' };
+  }
+  try {
+    if (Buffer.byteLength(JSON.stringify(properties), 'utf8') > 128_000) {
+      return { queued: false, reason: 'event_too_large' };
+    }
+  } catch {
+    return { queued: false, reason: 'unserializable_properties' };
+  }
+
+  if (desktopRelayQueue.size >= DESKTOP_RELAY_MAX_QUEUE) {
+    const oldest = desktopRelayQueue.keys().next().value;
+    if (oldest) desktopRelayQueue.delete(oldest);
+  }
+  desktopRelayQueue.set(eventId, {
+    event_name: eventName,
+    event_id: eventId,
+    properties: properties as Record<string, unknown>,
+    attempts: 0,
+  });
+  scheduleDesktopRelayFlush(250);
+  return { queued: true };
+}
+
+async function flushDesktopRelayQueue(): Promise<void> {
+  if (desktopRelayFlushInFlight || desktopRelayQueue.size === 0) return;
+  desktopRelayFlushInFlight = true;
+  const batch = Array.from(desktopRelayQueue.values()).slice(0, DESKTOP_RELAY_BATCH_SIZE);
+  let succeeded = false;
+
+  try {
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`${getBackendHttpBase()}/client/telemetry/events`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          app_version: app.getVersion(),
+          platform: process.platform,
+          arch: process.arch,
+          events: batch.map(({ attempts: _attempts, ...event }) => event),
+        }),
+        signal: controller.signal,
+      });
+      succeeded = response.ok;
+      if (!response.ok) {
+        console.warn(`[DesktopTelemetry] Event relay rejected batch: ${response.status}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (error) {
+    console.warn('[DesktopTelemetry] Event relay failed:', error);
+  } finally {
+    if (succeeded) {
+      for (const event of batch) desktopRelayQueue.delete(event.event_id);
+    } else {
+      for (const event of batch) {
+        event.attempts += 1;
+        if (event.attempts >= DESKTOP_RELAY_RETRY_MS.length) {
+          desktopRelayQueue.delete(event.event_id);
+        }
+      }
+    }
+    desktopRelayFlushInFlight = false;
+    if (desktopRelayQueue.size > 0) {
+      const attempts = Math.min(
+        ...Array.from(desktopRelayQueue.values(), (event) => event.attempts),
+      );
+      scheduleDesktopRelayFlush(
+        succeeded ? 250 : DESKTOP_RELAY_RETRY_MS[Math.min(attempts, DESKTOP_RELAY_RETRY_MS.length - 1)],
+      );
+    }
   }
 }
 
@@ -323,6 +439,10 @@ function stopDesktopClientTelemetry(): void {
   if (desktopTelemetryInterval) {
     clearInterval(desktopTelemetryInterval);
     desktopTelemetryInterval = null;
+  }
+  if (desktopRelayFlushTimer) {
+    clearTimeout(desktopRelayFlushTimer);
+    desktopRelayFlushTimer = null;
   }
 }
 
@@ -698,6 +818,10 @@ async function killExisting(name: string): Promise<boolean> {
 }
 
 // System Audio IPC Handlers - Using SystemAudioService (Glass binary approach)
+ipcMain.handle('telemetry:capture', (_event, payload: unknown) => {
+  return queueDesktopAnalyticsRelay(payload);
+});
+
 ipcMain.handle('system-audio:start', async () => {
   console.log('[Main] IPC: system-audio:start called')
   const result = await systemAudioMacService.start()

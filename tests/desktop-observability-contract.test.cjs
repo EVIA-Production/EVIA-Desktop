@@ -17,7 +17,9 @@ test('desktop replay captures the full session, text included', () => {
   // their data, and a masked replay cannot answer whether a suggestion was
   // any good. Guarded as a contract so nobody silently re-masks it - the
   // reverse of what this test asserted before 2026-08-27.
-  assert.match(analytics, /posthog-js\/dist\/module\.full\.no-external/);
+  assert.match(analytics, /^import posthog from 'posthog-js';$/m);
+  assert.doesNotMatch(analytics, /^import posthog from 'posthog-js\/dist\/module\.full\.no-external';$/m);
+  assert.match(analytics, /POSTHOG_HOST\s*=\s*'https:\/\/api\.taylos\.ai\/telemetry'/);
   assert.match(analytics, /disable_session_recording:\s*false/);
   assert.match(analytics, /startSessionRecording\(true\)/, 'all sampling and trigger gates must be overridden');
   assert.match(analytics, /sessionRecordingStarted\(\)/, 'recorder startup must be verified');
@@ -26,11 +28,12 @@ test('desktop replay captures the full session, text included', () => {
   assert.match(overlayEntry, /root\.render\(<App \/>\)[\s\S]*startAnalytics\(\)/);
   assert.match(analytics, /maskAllInputs:\s*false/);
   assert.match(analytics, /maskTextSelector:\s*undefined/);
-  assert.match(analytics, /blockSelector:\s*undefined/);
+  assert.match(analytics, /blockSelector:\s*'\[data-telemetry-secret\]'/);
+  assert.match(analytics, /maskInputOptions:\s*\{ password:\s*true \}/);
   assert.match(analytics, /enable_recording_console_log:\s*true/);
   assert.match(analytics, /recordHeaders:\s*true/);
   assert.match(analytics, /recordBody:\s*true/);
-  assert.doesNotMatch(analytics, /maskCapturedNetworkRequestFn:\s*\(\)\s*=>\s*null/);
+  assert.match(analytics, /maskCapturedNetworkRequestFn:\s*sanitizeCapturedNetworkRequest/);
 });
 
 test('every product event carries its full context', () => {
@@ -77,4 +80,10 @@ test('desktop reports its exact version to the backend independently of PostHog'
   assert.match(main, /app_version:\s*app\.getVersion\(\)/);
   assert.match(main, /platform:\s*process\.platform/);
   assert.match(main, /event:\s*event/);
+  assert.match(main, /\/client\/telemetry\/events/);
+  assert.match(main, /DESKTOP_RELAY_BATCH_SIZE\s*=\s*25/);
+  assert.match(main, /DESKTOP_RELAY_RETRY_MS/);
+  assert.match(main, /ipcMain\.handle\('telemetry:capture'/);
+  assert.match(analytics, /\$insert_id:\s*eventId/);
+  assert.match(analytics, /relayDesktopEvent\(eventName, eventId, payload\)/);
 });

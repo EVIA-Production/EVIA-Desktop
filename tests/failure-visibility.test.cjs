@@ -114,10 +114,9 @@ test('the posthog import must be one that can load the session recorder', () => 
 
 test('PostHog capture_exceptions stays off, and the comment says why', () => {
   // posthog-js lazy-loads `exception-autocapture` from its CDN. The bundle we
-  // ship (module.full.no-external) inlines the session recorder but contains no
-  // $exception code, so enabling it would restore the boot-time remote fetch
-  // that fix(privacy,startup) removed AND silently do nothing on a network that
-  // blocks PostHog. Our own handlers work where the CDN does not.
+  // ship intentionally keeps it off: enabling it adds another remote loader
+  // and silently does nothing where PostHog is blocked. Our own handlers also
+  // travel through the authenticated backend relay.
   assert.match(posthogSource, /capture_exceptions: false/);
   assert.match(posthogSource, /exception-autocapture/);
 });
