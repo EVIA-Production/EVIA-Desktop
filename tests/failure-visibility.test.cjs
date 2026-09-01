@@ -180,3 +180,28 @@ test('crash handlers are installed at module scope, not on app ready', () => {
   assert.notEqual(ready, -1, 'the module-scope ready hook moved; re-anchor this test');
   assert.ok(install < ready, 'must be listening before the app becomes ready');
 });
+
+test('every renderer CSP allows the telemetry host as a SCRIPT source', () => {
+  // The session recorder is not fetched, it is injected as a <script> element:
+  // posthog-js `loadExternalDependency` resolves "/static/<name>.js" against the
+  // asset host and hands it to a loader that does
+  // `document.querySelectorAll('script')` and appends a new one. So it is
+  // governed by script-src, NOT connect-src.
+  //
+  // api_host is https://api.taylos.ai/telemetry, and every overlay CSP listed
+  // https://*.taylos.ai under connect-src only. Events therefore worked while
+  // the recorder was silently refused - replay would have shipped broken in
+  // v1.0.106 with everything else correct.
+  const fs2 = require('node:fs');
+  const dir = path.join(__dirname, '..', 'src', 'renderer');
+  const pages = fs2.readdirSync(dir).filter((f) => f.endsWith('.html'));
+  const withCsp = pages.filter((f) =>
+    /script-src/.test(fs2.readFileSync(path.join(dir, f), 'utf8')));
+  assert.ok(withCsp.length >= 4, `expected the overlay entries to carry a CSP, saw ${withCsp.length}`);
+
+  for (const page of withCsp) {
+    const csp = fs2.readFileSync(path.join(dir, page), 'utf8').match(/script-src[^;]*/)[0];
+    assert.match(csp, /https:\/\/\*\.taylos\.ai/,
+      `${page}: script-src does not allow the telemetry host, so the recorder cannot load`);
+  }
+});
