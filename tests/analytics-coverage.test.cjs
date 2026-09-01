@@ -74,13 +74,10 @@ function isWired(fn) {
 // file exists to catch. Shrink it as they get wired.
 const KNOWN_UNWIRED = new Set([
   'trackSessionStateChanged', 'trackSessionStarted', 'trackSessionEnded', 'trackSessionClosed',
-  'trackAskResponseImplemented', 'trackInsightsViewed', 'trackInsightsCopied',
-  'trackTranscriptCopied', 'trackInsightImplementationRate',
-  'trackTranscriptViewToggled', 'trackPresetActivated', 'trackPresetDeactivated',
-  'trackSettingsOpened', 'trackLanguageChanged', 'trackAutoUpdateToggled',
-  'trackInvisibilityToggled', 'trackWindowMoved', 'trackDesktopAppLaunched',
-  'trackDesktopAppClosed', 'trackShortcutUsed',
-  'trackAudioDeviceChanged', 'trackViewChanged', 'trackTimeToFirstSuggestion',
+  'trackAskResponseImplemented', 'trackInsightsViewed', 'trackInsightImplementationRate', 'trackPresetActivated',
+  'trackPresetDeactivated', 'trackSettingsOpened', 'trackLanguageChanged', 'trackAutoUpdateToggled',
+  'trackInvisibilityToggled', 'trackWindowMoved', 'trackDesktopAppLaunched', 'trackDesktopAppClosed',
+  'trackShortcutUsed', 'trackAudioDeviceChanged', 'trackViewChanged', 'trackTimeToFirstSuggestion',
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
@@ -106,7 +103,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 23, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size <= 20, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {

@@ -20,12 +20,15 @@ import {
   beginAnalyticsCall,
   checkForInsightImplementation,
   trackInsightClicked,
+  trackInsightsCopied,
   trackInsightsFailed,
   trackInsightsLoaded,
   trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
   trackTranscriptFirstVisible,
+  trackTranscriptCopied,
+  trackTranscriptViewToggled,
   type InsightType,
   type SessionState,
 } from '../services/posthogService';
@@ -1877,6 +1880,16 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const toggleView = async () => {
     const newMode = viewMode === 'transcript' ? 'insights' : 'transcript';
     console.log(`[ListenView] 🔄 Toggling view: ${viewMode} → ${newMode}`);
+    // Which half of the product a rep actually watches mid-call. Suggestions
+    // that nobody switches to are not being ignored - they are not being seen.
+    trackTranscriptViewToggled({
+      chat_id: Number(
+        canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? 0,
+      ),
+      from_mode: viewMode,
+      to_mode: newMode,
+      session_state: (sessionStateRef.current || 'during') as SessionState,
+    });
     userSelectedViewRef.current = true;
     setViewMode(newMode);
     
@@ -2050,6 +2063,26 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       await navigator.clipboard.writeText(textToCopy);
       setCopyState('copied');
       setCopiedView(viewMode); // Track which view was copied
+
+      // Copying is the one thing a rep does that nobody prompts. It costs them
+      // an action and buys them nothing inside Taylos, so it is the least
+      // ambiguous evidence the output was worth keeping.
+      const copyChatId = Number(
+        canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? 0,
+      );
+      if (viewMode === 'transcript') {
+        trackTranscriptCopied({
+          chat_id: copyChatId,
+          line_count: visibleTranscripts.length,
+          speaker_count: new Set(visibleTranscripts.map((line) => line.speaker)).size,
+        });
+      } else {
+        trackInsightsCopied({
+          chat_id: copyChatId,
+          content_length: textToCopy.length,
+          sections_included: ['prospect', 'analysis', 'actions'],
+        });
+      }
       if (copyTimeout.current) {
         clearTimeout(copyTimeout.current);
       }
