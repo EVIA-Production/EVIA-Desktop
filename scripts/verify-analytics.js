@@ -41,7 +41,7 @@ Verify Taylos Desktop analytics against PostHog.
   4. export POSTHOG_PERSONAL_API_KEY=phx_...
      export POSTHOG_PROJECT_ID=12345          # optional
 
-  node scripts/verify-analytics.js [--minutes N] [--versions] [--events] [--json]
+  node scripts/verify-analytics.js [--minutes N] [--versions] [--events] [--history] [--json]
 
 The key is read from the environment and never printed.
 `);
@@ -177,7 +177,39 @@ async function resolveProject() {
     console.log('');
   }
 
-  // 3. The verdict.
+  // 3. Has a critical event ever gone quiet?
+  //
+  // This is the check that found the real defect. `insight_clicked` fired 204
+  // times in Dec 2025, 84 in Jan 2026, then NOTHING until 2026-09-01: the call
+  // site was lost in a refactor and no one noticed for seven months. A window
+  // check cannot see that - the event looks absent for the same reason a
+  // feature nobody used that hour looks absent.
+  if (has('--history')) {
+    console.log('Monthly volume per critical event (a gap is a lost call site):');
+    for (const { event } of CRITICAL) {
+      const months = await hogql(project.id, `
+        SELECT toStartOfMonth(timestamp) AS m, count() AS n
+        FROM events WHERE event = '${event}' GROUP BY m ORDER BY m
+      `);
+      if (!months.length) { console.log(`  ${event}: never seen`); continue; }
+      const spark = months.map(([m, n]) => `${String(m).slice(0, 7)}:${n}`).join('  ');
+      console.log(`  ${event}\n    ${spark}`);
+      // Any month with no row between the first and last sighting is a silence
+      // that had a cause.
+      const stamps = months.map(([m]) => String(m).slice(0, 7));
+      const gaps = [];
+      for (let i = 1; i < stamps.length; i++) {
+        const [py, pm] = stamps[i - 1].split('-').map(Number);
+        const [cy, cm] = stamps[i].split('-').map(Number);
+        const delta = (cy - py) * 12 + (cm - pm);
+        if (delta > 1) gaps.push(`${stamps[i - 1]} -> ${stamps[i]} (${delta - 1} silent month(s))`);
+      }
+      for (const gap of gaps) console.log(`    GAP  ${gap}`);
+    }
+    console.log('');
+  }
+
+  // 4. The verdict.
   const arrived = new Set(seen.map((r) => r[0]));
   const missing = CRITICAL.filter(({ event }) =>
     !arrived.has(event) && ![...arrived].some((e) => e.startsWith(event)));

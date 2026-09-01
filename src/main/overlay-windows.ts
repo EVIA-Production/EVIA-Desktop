@@ -3614,14 +3614,22 @@ export function createPermissionWindow(): BrowserWindow {
   applyGroupedWindowMaterial(permissionWindow, 'modal')
 
   // Load permission.html (separate entry point from overlay.html)
-  const permissionQuery = new URLSearchParams(materialQuery('modal'))
+  // Without appVersion every event from this window reports app_version
+  // 'unknown' - confirmed in production, where the permission window's events
+  // were the only ones that could not be attributed to a build. The overlay
+  // entry gets it in loadOverlay; this window loads its own HTML and was
+  // missed.
+  const permissionQuery = new URLSearchParams({
+    ...materialQuery('modal'),
+    appVersion: app.getVersion(),
+  })
   if (isDev) {
     const permissionUrl = `${VITE_DEV_SERVER_URL}/permission.html?${permissionQuery.toString()}`
     permissionWindow.loadURL(permissionUrl)
     console.log('[overlay-windows] 🔧 Permission loading from Vite:', permissionUrl)
   } else {
     permissionWindow.loadFile(path.join(__dirname, '../renderer/permission.html'), {
-      query: materialQuery('modal'),
+      query: { ...materialQuery('modal'), appVersion: app.getVersion() },
     })
   }
 
