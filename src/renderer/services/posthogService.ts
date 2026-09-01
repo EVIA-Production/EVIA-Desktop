@@ -17,6 +17,10 @@
 // runtime made the most important diagnostic surface depend on a second
 // network request that could be blocked while ordinary analytics still worked.
 import posthog from 'posthog-js/dist/module.full.no-external';
+// The implementation verdict lives in main/ so it can be unit-tested from
+// Node. It is the number that claims the product works, which is exactly the
+// number that must not rest on assertions about source text.
+import { judgeImplementation } from '../../main/insight-implementation';
 
 // ============================================================================
 // INITIALIZATION (Call once at app start)
@@ -540,66 +544,37 @@ export function checkForInsightImplementation(
   userSpeech: string
 ): void {
   if (!userSpeech || recentInsightClicks.length === 0) return;
-  
+
   const now = Date.now();
-  const speechLower = userSpeech.toLowerCase();
-  
+  // Collected first, removed after. Splicing inside a `for...of` over the same
+  // array shifts the remaining elements under the iterator and silently skips
+  // the next one, so two suggestions delivered in one breath reported as one.
+  const implemented: ClickedInsight[] = [];
+
   for (const insight of recentInsightClicks) {
-    // Skip if too old or different chat
     if (now - insight.clicked_at > IMPLEMENTATION_WINDOW_MS) continue;
     if (insight.chat_id !== chat_id) continue;
-    
-    // Simple keyword matching (can be enhanced with NLP)
-    const keywords = extractKeywords(insight.insight_text);
-    const matchCount = keywords.filter(kw => speechLower.includes(kw)).length;
-    const matchRatio = keywords.length > 0 ? matchCount / keywords.length : 0;
-    
-    if (matchRatio >= 0.3) { // 30% keyword match threshold
-      trackInsightImplemented({
-        chat_id,
-        insight_type: insight.insight_type,
-        insight_hash: insight.insight_hash,
-        implementation_method: 'speech',
-        time_since_click_ms: now - insight.clicked_at,
-        confidence_score: Math.round(matchRatio * 100),
-      });
-      
-      // Remove from tracking (implemented)
-      const idx = recentInsightClicks.indexOf(insight);
-      if (idx > -1) recentInsightClicks.splice(idx, 1);
-    }
+
+    const verdict = judgeImplementation(insight.insight_text, userSpeech);
+    if (!verdict.implemented) continue;
+
+    trackInsightImplemented({
+      chat_id,
+      insight_type: insight.insight_type,
+      insight_hash: insight.insight_hash,
+      implementation_method: 'speech',
+      time_since_click_ms: now - insight.clicked_at,
+      confidence_score: verdict.confidence,
+    });
+    implemented.push(insight);
+  }
+
+  for (const insight of implemented) {
+    const index = recentInsightClicks.indexOf(insight);
+    if (index > -1) recentInsightClicks.splice(index, 1);
   }
 }
 
-function extractKeywords(text: string): string[] {
-  // Simple keyword extraction: nouns and verbs (words > 4 chars)
-  //
-  // The stop list was English-only while the product sells in German, and the
-  // filter keeps every word longer than four characters. So "haben", "werden",
-  // "koennen", "unsere" all counted as content words, and a German suggestion
-  // could clear the 30% match threshold on filler alone. An implementation
-  // metric that over-reports is worse than none: it is the number that says the
-  // product works.
-  const stopWords = ['the', 'and', 'that', 'have', 'for', 'not', 'with', 'you', 'this', 'but', 'his', 'from', 'they', 'say', 'she', 'will', 'one', 'all', 'would', 'there', 'their', 'what', 'about', 'which', 'when', 'make', 'like', 'time', 'just', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'use',
-    // German filler that is longer than four characters and therefore survived.
-    'haben', 'hatte', 'hatten', 'werden', 'wurde', 'wurden', 'wird', 'sein',
-    'seine', 'seinen', 'ihre', 'ihren', 'ihrem', 'unser', 'unsere', 'unseren',
-    'koennen', 'können', 'konnte', 'sollen', 'sollte', 'muessen', 'müssen',
-    'wollen', 'wollte', 'moechten', 'möchten', 'dieser', 'diese', 'dieses',
-    'welche', 'welcher', 'nicht', 'auch', 'schon', 'noch', 'aber', 'oder',
-    'wenn', 'dann', 'dass', 'weil', 'damit', 'durch', 'gegen', 'ohne',
-    'ueber', 'über', 'unter', 'zwischen', 'immer', 'wieder', 'sehr', 'mehr',
-    'viele', 'vielen', 'einfach', 'gerne', 'genau', 'natuerlich', 'natürlich',
-    'eigentlich', 'wirklich', 'vielleicht', 'sagen', 'gesagt', 'machen',
-    'gemacht', 'geht', 'gehen', 'kommt', 'kommen', 'sehen', 'gerade'];
-  
-  return text
-    .toLowerCase()
-    .replace(/[^a-zäöüß\s]/g, '')
-    .split(/\s+/)
-    .filter(word => word.length > 4 && !stopWords.includes(word))
-    .slice(0, 10); // Max 10 keywords
-}
 
 // ============================================================================
 // RECORDING EVENTS

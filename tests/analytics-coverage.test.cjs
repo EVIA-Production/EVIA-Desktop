@@ -149,13 +149,24 @@ test('the outcome loop is closed: clicked, then actually said', () => {
   assert.match(block, /adapted\.event\.isFinal && adapted\.event\.source === 'mic'/,
     'must run on the rep\'s finals only - mic is speaker 1');
 
-  // And the matcher must not treat German filler as content. The stop list was
-  // English-only in a German-first product, and the filter keeps every word
-  // over four characters, so "haben"/"werden"/"koennen" scored as keywords and
-  // could clear the 30% threshold on filler alone.
+  // The verdict itself moved to src/main/insight-implementation.ts so it can be
+  // exercised from Node - see tests/insight-implementation.test.cjs, which
+  // checks the German filler and the single-keyword case against real inputs
+  // rather than against the presence of words in a source file.
   const posthog = read('src', 'renderer', 'services', 'posthogService.ts');
-  const stop = posthog.slice(posthog.indexOf('const stopWords ='), posthog.indexOf('return text'));
-  for (const word of ['haben', 'werden', 'koennen', 'unsere', 'nicht', 'wirklich']) {
-    assert.match(stop, new RegExp(`'${word}'`), `German filler "${word}" is not filtered`);
-  }
+  assert.match(posthog, /judgeImplementation\(insight\.insight_text, userSpeech\)/,
+    'the service must delegate the verdict, not re-implement it');
+  assert.doesNotMatch(posthog, /const stopWords =/,
+    'a second copy of the stop list would drift from the tested one');
+
+  // Splicing inside a for...of over the same array shifts the remaining
+  // elements under the iterator, so two suggestions delivered in one breath
+  // reported as one. Removal happens after the loop.
+  const fn = posthog.slice(
+    posthog.indexOf('export function checkForInsightImplementation'),
+    posthog.indexOf('// ===', posthog.indexOf('export function checkForInsightImplementation')),
+  );
+  assert.match(fn, /const implemented: ClickedInsight\[\] = \[\]/);
+  assert.match(fn, /for \(const insight of implemented\)/,
+    'removal must happen after iteration, not during it');
 });
