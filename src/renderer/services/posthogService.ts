@@ -13,10 +13,34 @@
  * Event Taxonomy: See /docs/POSTHOG_METRICS_TAXONOMY_V3.md
  */
 
-// Bundle the recorder with the Desktop build. Loading it from PostHog at
-// runtime made the most important diagnostic surface depend on a second
-// network request that could be blocked while ordinary analytics still worked.
-import posthog from 'posthog-js/dist/module.full.no-external';
+// SESSION REPLAY REQUIRES THIS EXACT IMPORT. Do not "optimise" it again.
+//
+// v1.0.101 switched this to 'posthog-js/dist/module.full.no-external' with the
+// commit message "Bundle the recorder with the Desktop build". That claim was
+// false and it silently killed session replay for five releases.
+//
+// posthog-js NEVER inlines the session recorder, in any bundle variant. It
+// fetches it at runtime as an external dependency named "lazy-recorder":
+//
+//   loadExternalDependency(instance, this._scriptName, cb)   // _scriptName -> "lazy-recorder"
+//
+// and the `no-external` build ships with NO loadExternalDependency
+// implementation at all - that is the entire point of that variant. So the
+// recorder could never load, sessionRecording.status stayed "lazy_loading"
+// forever, and recording_started was false on every session from v1.0.101
+// onward. Desktop replays exist up to v1.0.100 and stop dead there.
+//
+// Verified by grep against the shipped bundles: module.full.js defines
+// loadExternalDependency as "/static/" + name + ".js?v=" + version;
+// module.full.no-external.js does not define it at all. Neither contains
+// rrweb's MutationBuffer, so neither has the recorder inline.
+//
+// The cost is real and accepted: the recorder is a second network request, and
+// fix(privacy,startup) removed exactly such requests because they failed on one
+// user's network. But a replay that cannot start is not a cheaper replay, it is
+// no replay - and watching real sessions is the single thing this product needs
+// before launch.
+import posthog from 'posthog-js';
 // The implementation verdict lives in main/ so it can be unit-tested from
 // Node. It is the number that claims the product works, which is exactly the
 // number that must not rest on assertions about source text.
@@ -30,17 +54,23 @@ const POSTHOG_KEY = 'phc_I09s0hYqFHpZv2okGU4hwd2Lth0ktSM5eSp3bRJOJXc';
 const POSTHOG_HOST = 'https://eu.i.posthog.com';
 
 let initialized = false;
-// The recorder starts later than this check used to look.
+// This check was RIGHT and I misread it. Recording the correction, because the
+// wrong reading cost a round of investigation.
 //
-// Measured 2026-09-01: 45 health events in one day ALL reported
-// recording_started=false / status=lazy_loading, while PostHog held a real
-// recording from the same session. The check gave up 21.5s in and reported a
-// failure that had not happened - which is how replay came to look broken when
-// it was working. `lazy_loading` means posthog-js has not processed the /flags
-// response yet, not that recording is off; the terminal negative is "disabled".
+// 45 health events in one day all reported recording_started=false /
+// status=lazy_loading. A real recording existed from the same day, so this
+// looked like a false negative. It was not: that recording came from a machine
+// still on v1.0.100, and every session on v1.0.101-v1.0.105 produced no replay
+// at all. The health event was accurately reporting that the recorder never
+// started - see the import comment at the top of this file for why.
 //
-// A health signal that is always red is worse than none: it gets ignored, or it
-// sends someone chasing a fault that is not there. Both happened.
+// `lazy_loading` is literal: posthog-js is waiting for the "lazy-recorder"
+// script. With the `no-external` bundle that script could never arrive, so the
+// status was permanent rather than transitional.
+//
+// The longer ladder below is kept anyway. The recorder legitimately takes
+// longer than 21.5s on a slow network, and a check that gives up early would
+// produce the false negative I mistakenly thought I was seeing.
 const REPLAY_HEALTH_DELAYS_MS = [1_500, 5_000, 15_000, 45_000, 120_000] as const;
 
 type AnalyticsProperties = Record<string, unknown>;

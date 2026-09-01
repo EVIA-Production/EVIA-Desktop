@@ -92,6 +92,26 @@ test('it does not depend on PostHog init having run', () => {
   assert.match(posthogSource, /function flushQueuedEvents/);
 });
 
+test('the posthog import must be one that can load the session recorder', () => {
+  // v1.0.101 switched this to 'posthog-js/dist/module.full.no-external' under
+  // the claim that it bundled the recorder. It does not: posthog-js NEVER
+  // inlines the recorder, it fetches "lazy-recorder" through
+  // loadExternalDependency - and the no-external build ships no
+  // loadExternalDependency at all. Replay was dead from v1.0.101 to v1.0.105
+  // and Desktop recordings stop at v1.0.100.
+  assert.match(posthogSource, /^import posthog from 'posthog-js';$/m);
+  assert.doesNotMatch(posthogSource, /from 'posthog-js\/dist\/module\.full\.no-external'/);
+
+  // And the shipped bundle must actually carry the loader.
+  const fs2 = require('node:fs');
+  const assetDir = path.join(__dirname, '..', 'dist', 'renderer', 'assets');
+  if (!fs2.existsSync(assetDir)) return; // renderer not built in this run
+  const bundles = fs2.readdirSync(assetDir).filter((f) => f.endsWith('.js'));
+  const defines = bundles.some((f) =>
+    /loadExternalDependency\s*=/.test(fs2.readFileSync(path.join(assetDir, f), 'utf8')));
+  assert.ok(defines, 'no built bundle defines loadExternalDependency - the recorder cannot load');
+});
+
 test('PostHog capture_exceptions stays off, and the comment says why', () => {
   // posthog-js lazy-loads `exception-autocapture` from its CDN. The bundle we
   // ship (module.full.no-external) inlines the session recorder but contains no
