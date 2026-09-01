@@ -102,6 +102,26 @@ test('PostHog capture_exceptions stays off, and the comment says why', () => {
   assert.match(posthogSource, /exception-autocapture/);
 });
 
+test('replay health only calls it broken when the answer is terminal', () => {
+  // Measured 2026-09-01: 45 health events in one day all said
+  // recording_started=false while PostHog held a real recording from the same
+  // session. The check gave up 21.5s in. `lazy_loading` means the /flags
+  // response has not been processed yet - the terminal negative is `disabled`.
+  // A signal that is always red gets ignored, or sends someone chasing a fault
+  // that is not there. Both happened here.
+  assert.match(posthogSource, /verdict/);
+  assert.match(posthogSource, /status === 'disabled' \? 'disabled'/);
+  assert.match(posthogSource, /isLastAttempt \? 'never_started' : 'pending'/);
+  assert.match(posthogSource, /is_terminal:/);
+  // And it must stop retrying once the answer really is terminal.
+  assert.match(posthogSource, /if \(!recordingStarted && status !== 'disabled' && !isLastAttempt\)/);
+
+  const delays = posthogSource.match(/REPLAY_HEALTH_DELAYS_MS = \[([^\]]+)\]/);
+  assert.ok(delays, 'the delay ladder is gone');
+  const total = delays[1].split(',').map((d) => Number(d.replace(/[_ ]/g, ''))).reduce((a, b) => a + b, 0);
+  assert.ok(total >= 120000, `the window is ${total}ms; the old 21.5s one reported failures that had not happened`);
+});
+
 test('the main process reports what a dead renderer cannot', () => {
   assert.match(mainSource, /process\.on\('uncaughtException'/);
   assert.match(mainSource, /process\.on\('unhandledRejection'/);

@@ -30,7 +30,18 @@ const POSTHOG_KEY = 'phc_I09s0hYqFHpZv2okGU4hwd2Lth0ktSM5eSp3bRJOJXc';
 const POSTHOG_HOST = 'https://eu.i.posthog.com';
 
 let initialized = false;
-const REPLAY_HEALTH_DELAYS_MS = [1_500, 5_000, 15_000] as const;
+// The recorder starts later than this check used to look.
+//
+// Measured 2026-09-01: 45 health events in one day ALL reported
+// recording_started=false / status=lazy_loading, while PostHog held a real
+// recording from the same session. The check gave up 21.5s in and reported a
+// failure that had not happened - which is how replay came to look broken when
+// it was working. `lazy_loading` means posthog-js has not processed the /flags
+// response yet, not that recording is off; the terminal negative is "disabled".
+//
+// A health signal that is always red is worse than none: it gets ignored, or it
+// sends someone chasing a fault that is not there. Both happened.
+const REPLAY_HEALTH_DELAYS_MS = [1_500, 5_000, 15_000, 45_000, 120_000] as const;
 
 type AnalyticsProperties = Record<string, unknown>;
 
@@ -140,14 +151,26 @@ function verifyReplayRecording(attempt = 0): void {
   const delay = REPLAY_HEALTH_DELAYS_MS[Math.min(attempt, REPLAY_HEALTH_DELAYS_MS.length - 1)];
   setTimeout(() => {
     const recordingStarted = posthog.sessionRecordingStarted();
+    const status = replayStatus();
+    const isLastAttempt = attempt + 1 >= REPLAY_HEALTH_DELAYS_MS.length;
+    // Only a terminal answer is worth alerting on. Anything still mid-handshake
+    // is a timing report, and reading it as a fault is what produced a year of
+    // false negatives.
+    const verdict = recordingStarted ? 'recording'
+      : status === 'disabled' ? 'disabled'
+        : isLastAttempt ? 'never_started' : 'pending';
     sendDesktopEvent('desktop_replay_health', {
       attempt: attempt + 1,
+      attempts_total: REPLAY_HEALTH_DELAYS_MS.length,
+      elapsed_ms: REPLAY_HEALTH_DELAYS_MS.slice(0, attempt + 1).reduce((a, b) => a + b, 0),
       recording_started: recordingStarted,
-      replay_status: replayStatus(),
+      replay_status: status,
+      verdict,
+      is_terminal: recordingStarted || status === 'disabled' || isLastAttempt,
       posthog_session_id: posthog.get_session_id(),
     });
 
-    if (!recordingStarted && attempt + 1 < REPLAY_HEALTH_DELAYS_MS.length) {
+    if (!recordingStarted && status !== 'disabled' && !isLastAttempt) {
       verifyReplayRecording(attempt + 1);
     }
   }, delay);
