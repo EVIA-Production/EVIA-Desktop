@@ -22,6 +22,7 @@ const root = path.join(__dirname, '..');
 const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const posthogSource = read('src', 'renderer', 'services', 'posthogService.ts');
 const listenSource = read('src', 'renderer', 'overlay', 'ListenView.tsx');
+const entrySource = read('src', 'renderer', 'overlay', 'overlay-entry.tsx');
 
 function callSitesOutsideService(fn) {
   const files = [];
@@ -74,9 +75,8 @@ function isWired(fn) {
 // file exists to catch. Shrink it as they get wired.
 const KNOWN_UNWIRED = new Set([
   'trackSessionStateChanged', 'trackSessionStarted', 'trackSessionEnded', 'trackSessionClosed',
-  'trackInsightsViewed', 'trackInsightImplementationRate', 'trackPresetActivated', 'trackPresetDeactivated',
-  'trackSettingsOpened', 'trackAutoUpdateToggled', 'trackInvisibilityToggled', 'trackWindowMoved',
-  'trackDesktopAppClosed', 'trackAudioDeviceChanged', 'trackViewChanged',
+  'trackInsightImplementationRate', 'trackAutoUpdateToggled', 'trackInvisibilityToggled', 'trackWindowMoved',
+  'trackAudioDeviceChanged',
 ]);
 
 test('every exported tracker is either wired or explicitly listed as unwired', () => {
@@ -102,7 +102,7 @@ test('the known-unwired list never silently grows', () => {
     [],
     'a tracker on KNOWN_UNWIRED now has call sites - remove it from the list',
   );
-  assert.ok(KNOWN_UNWIRED.size <= 15, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
+  assert.ok(KNOWN_UNWIRED.size <= 9, 'KNOWN_UNWIRED grew; new dead trackers are not acceptable');
 });
 
 test('a clicked suggestion is recorded, because that is the product working', () => {
@@ -155,6 +155,21 @@ test('shortcut reporting removes exactly what it registered', () => {
   assert.match(listenSource, /for \(const \[channel, handler\] of shortcutBindings\) \{/);
   // Every press counts, including the ones whose handler returns early.
   assert.match(listenSource, /trackShortcutUsed\(\{ shortcut_name: name, source_view: viewModeRef\.current \}\);\s*\n\s*handler\(\);/);
+});
+
+test('an app that opens also closes, exactly once, from one window', () => {
+  // desktop_app_launched has fired since the beginning and had no counterpart,
+  // so every session in PostHog opened and none ended - session length was not
+  // a measurable quantity.
+  assert.match(entrySource, /trackDesktopAppClosed\(\{/);
+  // The header window only. Four overlay windows run this module; firing from
+  // all of them would report four closes per app.
+  assert.match(entrySource, /get\('view'\) === null/);
+  // pagehide, not beforeunload - beforeunload is unreliable on Electron
+  // teardown and would bias durations toward tidy exits.
+  assert.match(entrySource, /addEventListener\('pagehide'/);
+  assert.doesNotMatch(entrySource, /addEventListener\('beforeunload'/);
+  assert.match(entrySource, /if \(closeReported\) return/);
 });
 
 test('the outcome loop is closed: clicked, then actually said', () => {

@@ -19,6 +19,7 @@ import {
   initPostHog,
   identifyUser,
   installGlobalErrorReporting,
+  trackDesktopAppClosed,
   trackLanguageChanged,
   trackError,
   trackRecordingStarted,
@@ -30,6 +31,31 @@ import { bindWindowGroupFocus } from './window-group-focus'
 // it must not wait for React to mount or for initPostHog's idle callback: a
 // crash during startup is precisely the crash that otherwise leaves no trace.
 installGlobalErrorReporting()
+
+// One close event per app, from the window that owns the bar.
+//
+// `desktop_app_launched` has fired from initPostHog since the beginning and its
+// closing counterpart never fired at all, so every session in PostHog opens and
+// none of them end. Session length has therefore never been measurable, and
+// "how long does a rep keep Taylos open" is not a question the data could
+// answer.
+//
+// pagehide rather than beforeunload: beforeunload does not fire reliably when
+// Electron tears a window down, and a close event that misses half the closes
+// is worse than none - it would bias every duration toward the sessions that
+// happened to exit tidily.
+if (new URLSearchParams(window.location.search).get('view') === null) {
+  const appOpenedAt = Date.now()
+  let closeReported = false
+  window.addEventListener('pagehide', () => {
+    if (closeReported) return
+    closeReported = true
+    trackDesktopAppClosed({
+      session_duration_seconds: Math.max(0, Math.round((Date.now() - appOpenedAt) / 1000)),
+      sessions_completed: Number(localStorage.getItem('taylos_calls_this_run') || 0),
+    })
+  })
+}
 
 // Initialize immediately after the first render has been scheduled. Waiting for
 // requestIdleCallback left short open-and-test sessions completely invisible,

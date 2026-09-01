@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { armPresetSessionReset } from '../lib/pending-preset-reset';
+import { trackPresetActivated, trackPresetDeactivated, trackSettingsOpened } from '../services/posthogService';
 
 const WEB_APP_URL = 'https://app.taylos.ai';
 
@@ -19,6 +20,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
   const [activatingPresetId, setActivatingPresetId] = useState<number | string | null>(null);
+
+  // The settings window renders this component and nothing else, so mounting IS
+  // opening. Reported once per mount rather than per render.
+  useEffect(() => {
+    trackSettingsOpened({ from_view: 'settings' });
+  }, []);
   const [presetNotice, setPresetNotice] = useState<{ kind: 'warning' | 'error'; text: string } | null>(null);
   const [isInvisible, setIsInvisible] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -360,6 +367,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const result = await presetBridge.deactivate(preset.id);
         if (result?.ok) {
           console.log('[SettingsView] Preset deactivated:', preset.name);
+          trackPresetDeactivated({ preset_id: Number(preset.id) });
           setPresets(presets.map(p => ({ ...p, is_active: false })));
           setSelectedPreset(null);
           localStorage.removeItem('active_preset_context');
@@ -394,6 +402,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         const activation = result.activation;
         const updatedPreset = activation.prompt;
         console.log('[SettingsView] Preset activated:', updatedPreset.name);
+        // `preset_activated` already arrives in PostHog - from the web app,
+        // with no `source` property. Desktop activation was invisible, so the
+        // preset a rep actually runs a CALL on was the one nobody counted.
+        trackPresetActivated({
+          preset_id: Number(preset.id),
+          preset_name: String(updatedPreset.name ?? preset.name ?? ''),
+        });
         
         // Update local state
         const updatedPresets = presets.map(p => ({

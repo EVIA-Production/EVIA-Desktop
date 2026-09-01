@@ -21,6 +21,7 @@ import {
   checkForInsightImplementation,
   trackInsightClicked,
   trackInsightsCopied,
+  trackInsightsViewed,
   trackInsightsFailed,
   trackInsightsLoaded,
   trackSuggestionContext,
@@ -31,6 +32,7 @@ import {
   trackTranscriptFirstVisible,
   trackTranscriptCopied,
   trackTranscriptViewToggled,
+  trackViewChanged,
   type InsightType,
   type SessionState,
 } from '../services/posthogService';
@@ -1928,6 +1930,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       to_mode: newMode,
       session_state: (sessionStateRef.current || 'during') as SessionState,
     });
+    // Deliberately alongside, not instead of. transcript_view_toggled is about
+    // this one control; view_changed is the app-wide navigation event that
+    // other surfaces also emit, and insights_viewed is the one that says the
+    // suggestions were actually put on screen - which is what every downstream
+    // rate is a denominator of.
+    trackViewChanged({ from_view: viewMode, to_view: newMode, trigger: 'click' });
+    if (newMode === 'insights') {
+      trackInsightsViewed({
+        chat_id: Number(canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? 0),
+        session_state: (sessionStateRef.current || 'during') as SessionState,
+        trigger: 'manual',
+        transcript_count: transcriptsRef.current.length,
+      });
+    }
     userSelectedViewRef.current = true;
     setViewMode(newMode);
     
