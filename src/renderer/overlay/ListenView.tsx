@@ -18,12 +18,15 @@ import { prefetchSuggestion, prefetchOpener, resetSuggestionPrefetch } from '../
 import { BACKEND_URL } from '../config/config';
 import {
   beginAnalyticsCall,
+  trackInsightClicked,
   trackInsightsFailed,
   trackInsightsLoaded,
   trackSuggestionContext,
   trackInsightsRequested,
   trackRecordingStopped,
   trackTranscriptFirstVisible,
+  type InsightType,
+  type SessionState,
 } from '../services/posthogService';
 
 declare global {
@@ -1099,9 +1102,28 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // request we wrote for them to press. Only this component still knows
     // which control was clicked, so it is the last place that can say.
     querySource: AskQuerySource = 'insight_click',
+    // Which list and which row. Same reasoning: after this call the click is
+    // just a string, and "the second sales-analysis bullet" is unrecoverable.
+    insightType: InsightType = 'summary',
+    insightIndex = -1,
   ) => {
     const outboundPrompt = (promptOverride || insightText || '').trim();
     console.log('[ListenView] 📨 Insight clicked:', outboundPrompt.substring(0, 50));
+
+    // Taylos produced a suggestion; this is the only moment that says whether a
+    // human used it. Everything upstream measures that we ANSWERED - requested,
+    // loaded, failed - and none of it measures that the answer was worth
+    // anything. trackInsightClicked has existed since the taxonomy was written
+    // and was never once called.
+    trackInsightClicked({
+      chat_id: Number(
+        canonicalTranscriptStateRef.current.chatId ?? lastKnownChatIdRef.current ?? 0,
+      ),
+      insight_type: insightType,
+      insight_text: outboundPrompt,
+      insight_index: insightIndex,
+      session_state: (displayedInsights?.session_state || 'during') as SessionState,
+    });
     
     // Use session_state FROM THE INSIGHTS OBJECT, not localStorage!
     // Insights are generated WITH a specific session_state and MUST use that state when clicked
@@ -2184,7 +2206,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {getProspectInfo(displayedInsights).map((point, idx) => (
                   <p
                     key={`prospect-${idx}`}
-                    onClick={() => handleInsightClick(point)}
+                    onClick={() => handleInsightClick(point, undefined, 'insight_click', 'summary', idx)}
                     style={{
                       fontSize: '12px',
                       lineHeight: '1.3',
@@ -2225,7 +2247,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                 {getSalesAnalysis(displayedInsights).map((bullet, idx) => (
                   <p
                     key={`analysis-${idx}`}
-                    onClick={() => handleInsightClick(bullet)}
+                    onClick={() => handleInsightClick(bullet, undefined, 'insight_click', 'topic', idx)}
                     style={{
                       fontSize: '12px',
                       lineHeight: '1.3',
@@ -2266,7 +2288,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 	                {getInsightActions(displayedInsights).map((action, idx) => (
 	                  <p
                     key={`action-${idx}`}
-                    onClick={() => handleInsightClick(action.label, action.prompt, 'quick_action')}
+                    onClick={() => handleInsightClick(action.label, action.prompt, 'quick_action', 'action', idx)}
                     style={{
                       fontSize: '12px',
                       lineHeight: '1.4',
@@ -2328,7 +2350,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
                   {i18n.t('overlay.listen.nextActions')}
                 </h3>
                 <p
-                  onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'), 'quick_action')}
+                  onClick={() => handleInsightClick(i18n.t('overlay.listen.whatToSayNext'), i18n.t('overlay.listen.whatToSayNextPrompt'), 'quick_action', 'action', -1)}
                   style={{
                     fontSize: '12px',
                     lineHeight: '1.4',

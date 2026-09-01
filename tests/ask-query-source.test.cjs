@@ -41,11 +41,15 @@ test('each control declares what it is', () => {
   // The two authored buttons are requests to Taylos; the two bullet lists are
   // excerpts of the seller's own call. Same channel, opposite meaning.
   assert.match(listenView, /querySource: AskQuerySource = 'insight_click'/);
+  // Asserted on the source ARGUMENT, not on the whole argument list. The
+  // comment below already learned this lesson once for the IPC payload; these
+  // three broke the moment handleInsightClick gained insight_type and index for
+  // the click-outcome metric, while the provenance they check was unchanged.
   assert.match(
     listenView,
-    /handleInsightClick\(action\.label, action\.prompt, 'quick_action'\)/,
+    /handleInsightClick\(action\.label, action\.prompt, 'quick_action'[,)]/,
   );
-  assert.match(listenView, /whatToSayNextPrompt'\), 'quick_action'\)/);
+  assert.match(listenView, /whatToSayNextPrompt'\), 'quick_action'[,)]/);
   // Anchored to the send call itself rather than to "querySource," being the
   // last line before the closing brace. The old form broke the moment another
   // field was added after it, which asserted field ORDER while claiming to
@@ -56,9 +60,16 @@ test('each control declares what it is', () => {
   assert.match(payload, /\bquerySource,/, 'the IPC payload drops the source');
 
   // The two summary lists must NOT relabel themselves - they are the case the
-  // backend gets wrong without provenance.
-  assert.match(listenView, /handleInsightClick\(point\)\}/);
-  assert.match(listenView, /handleInsightClick\(bullet\)\}/);
+  // backend gets wrong without provenance. They now pass 'insight_click'
+  // explicitly rather than leaning on the default, which is the same claim
+  // stated out loud; what matters is that neither says 'quick_action'.
+  for (const control of ['point', 'bullet']) {
+    const call = listenView.match(new RegExp(`handleInsightClick\\(${control}[^)]*\\)`));
+    assert.ok(call, `the ${control} control lost its click handler`);
+    assert.doesNotMatch(call[0], /quick_action/, `${control} must not relabel itself`);
+    assert.match(call[0], /'insight_click'|^handleInsightClick\(\w+\)$/,
+      `${control} must carry insight_click provenance`);
+  }
 });
 
 test('the shortcut is never mistaken for a typed question', () => {
