@@ -703,18 +703,17 @@ export function trackWindowMoved(properties: {
 // DESKTOP APP LIFECYCLE EVENTS
 // ============================================================================
 
-export function trackDesktopAppLaunched(properties: {
-  version: string;
-  os_version?: string;
-  is_first_launch?: boolean;
-}) {
-  const platform = (window as any)?.platformInfo?.isWindows ? 'windows' : 'macos';
-  sendDesktopEvent('desktop_app_launched', {
-    ...properties,
-    platform,
-    source: 'desktop',
-  });
-}
+// trackDesktopAppLaunched used to live here and was deleted, not wired.
+//
+// `desktop_app_launched` is already emitted directly from initPostHog for the
+// header view, and PostHog confirms it arriving. Wiring the tracker as well
+// would have double-counted every launch. Its extra properties were no loss:
+// commonProperties already attaches app_version and platform to every event,
+// and os_version / is_first_launch are not known at that point anyway.
+//
+// This is what the rest of KNOWN_UNWIRED needs before anything is wired to it -
+// checking whether the EVENT is already arriving from somewhere else, rather
+// than assuming a tracker with no call sites is a missing measurement.
 
 export function trackDesktopAppClosed(properties: {
   session_duration_seconds: number;
@@ -981,7 +980,6 @@ export default {
   trackWindowMoved,
   
   // Desktop lifecycle
-  trackDesktopAppLaunched,
   trackDesktopAppClosed,
   trackShortcutUsed,
   trackPermissionStatus,
