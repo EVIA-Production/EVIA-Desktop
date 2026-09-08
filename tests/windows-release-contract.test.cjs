@@ -166,6 +166,19 @@ test('the Windows signing runner is interactive, elevated, and proves the HSM be
   assert.doesNotMatch(task, /New-Service|sc\.exe|LogonType Service/)
 })
 
+test('the Windows tray glyph keeps its high-density representations and contours every mark', () => {
+  const tray = read('src', 'main', 'tray.ts')
+
+  assert.match(tray, /readFileSync/)
+  assert.match(tray, /trayIconVariants\(\)/)
+  assert.match(tray, /\$\{parsed\.name\}@2x\$\{parsed\.ext\}/)
+  assert.match(tray, /\$\{parsed\.name\}@3x\$\{parsed\.ext\}/)
+  assert.match(tray, /nativeImage\.createFromBuffer\(readFileSync\(assetPath\)\)/)
+  assert.match(tray, /const outlineRadius = Math\.max\(1, Math\.round\(scaleFactor \* 0\.75\)\)/)
+  assert.match(tray, /perElementOutlineAlpha/)
+  assert.match(tray, /image\.addRepresentation\(\{ scaleFactor, width, height, buffer: output \}\)/)
+})
+
 test('the installer upgrade gate preserves profile state and exercises the public filename', () => {
   const upgrade = read('scripts', 'test-windows-installer-upgrade.ps1')
 

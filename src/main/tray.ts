@@ -27,7 +27,7 @@
  */
 
 import { app, nativeImage, Tray } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 type TrayLanguage = 'de' | 'en'
@@ -67,46 +67,68 @@ function trayIconPath(): string {
   return existsSync(unpacked) ? unpacked : inAsar
 }
 
-function createWindowsContrastIcon(source: Electron.NativeImage): Electron.NativeImage {
-  const { width, height } = source.getSize()
-  const input = source.toBitmap()
-  if (width <= 0 || height <= 0 || input.length !== width * height * 4) return source
+function trayIconVariants(): Array<{ assetPath: string; scaleFactor: number }> {
+  const basePath = trayIconPath()
+  const parsed = path.parse(basePath)
+  return [
+    { assetPath: basePath, scaleFactor: 1 },
+    { assetPath: path.join(parsed.dir, `${parsed.name}@2x${parsed.ext}`), scaleFactor: 2 },
+    { assetPath: path.join(parsed.dir, `${parsed.name}@3x${parsed.ext}`), scaleFactor: 3 },
+  ].filter(({ assetPath }) => existsSync(assetPath))
+}
 
-  const output = Buffer.alloc(input.length)
-  const alphaAt = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) return 0
-    return input[(y * width + x) * 4 + 3]
-  }
+function createWindowsContrastIcon(): Electron.NativeImage {
+  const image = nativeImage.createEmpty()
 
-  // Windows does not honor macOS template-image inversion. First dilate the
-  // source alpha by one physical pixel to form a black contour, then draw the
-  // original silhouette in white. The result remains visible on both light and
-  // dark taskbars without changing the established Taylos glyph.
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4
-      let outlineAlpha = 0
-      for (let oy = -1; oy <= 1; oy += 1) {
-        for (let ox = -1; ox <= 1; ox += 1) {
-          outlineAlpha = Math.max(outlineAlpha, alphaAt(x + ox, y + oy))
+  for (const { assetPath, scaleFactor } of trayIconVariants()) {
+    // Loading bytes rather than the template filename makes this physical
+    // representation explicit on Windows. It prevents Electron from reducing
+    // @2x/@3x to the 18px base glyph before the notification area selects it.
+    const source = nativeImage.createFromBuffer(readFileSync(assetPath))
+    const { width, height } = source.getSize()
+    const input = source.toBitmap()
+    if (width <= 0 || height <= 0 || input.length !== width * height * 4) continue
+
+    const output = Buffer.alloc(input.length)
+    const alphaAt = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= width || y >= height) return 0
+      return input[(y * width + x) * 4 + 3]
+    }
+    // This is a logical ~0.7px keyline at each supplied density. It wraps every
+    // separate Taylos mark, including interior gaps, instead of only framing the
+    // glyph's outer silhouette. Keeping the source's high-density pixels intact
+    // is what makes those individual edges remain visible on a light taskbar.
+    const outlineRadius = Math.max(1, Math.round(scaleFactor * 0.75))
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 4
+        let perElementOutlineAlpha = 0
+        for (let oy = -outlineRadius; oy <= outlineRadius; oy += 1) {
+          for (let ox = -outlineRadius; ox <= outlineRadius; ox += 1) {
+            perElementOutlineAlpha = Math.max(perElementOutlineAlpha, alphaAt(x + ox, y + oy))
+          }
+        }
+
+        output[offset] = 0
+        output[offset + 1] = 0
+        output[offset + 2] = 0
+        output[offset + 3] = perElementOutlineAlpha
+
+        const sourceAlpha = input[offset + 3]
+        if (sourceAlpha > 0) {
+          output[offset] = 255
+          output[offset + 1] = 255
+          output[offset + 2] = 255
+          output[offset + 3] = sourceAlpha
         }
       }
-      output[offset] = 0
-      output[offset + 1] = 0
-      output[offset + 2] = 0
-      output[offset + 3] = outlineAlpha
-
-      const sourceAlpha = input[offset + 3]
-      if (sourceAlpha > 0) {
-        output[offset] = 255
-        output[offset + 1] = 255
-        output[offset + 2] = 255
-        output[offset + 3] = sourceAlpha
-      }
     }
+
+    image.addRepresentation({ scaleFactor, width, height, buffer: output })
   }
 
-  return nativeImage.createFromBitmap(output, { width, height, scaleFactor: 1 })
+  return image
 }
 
 export function setTrayLanguage(next: string | null | undefined): void {
@@ -134,7 +156,8 @@ function createTray(): void {
   if (process.platform === 'darwin') {
     image.setTemplateImage(true)
   } else if (process.platform === 'win32') {
-    image = createWindowsContrastIcon(image)
+    const contrasted = createWindowsContrastIcon()
+    if (!contrasted.isEmpty()) image = contrasted
   }
   tray = new Tray(image)
   tray.setToolTip(TOOLTIP[currentLanguage()])
