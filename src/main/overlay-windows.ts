@@ -622,9 +622,14 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   // Keep overlays aligned if header width changes mid-drag or due to content
   headerWindow.on('resize', requestLiveLayout)
 
+  const createdHeaderWindow = headerWindow
   headerWindow.on('closed', () => {
-    headerWindow = null
-    restoreChildWindowsOnHeaderRestore = false
+    // A late close event from an old native window must not clear a replacement
+    // that a concurrent state transition has already installed.
+    if (headerWindow === createdHeaderWindow) {
+      headerWindow = null
+      restoreChildWindowsOnHeaderRestore = false
+    }
   })
 
   headerWindow.on('restore', () => {
@@ -821,7 +826,9 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   void loadRendererView(win, 'overlay', surface, name)
 
   win.on('closed', () => {
-    childWindows.delete(name)
+    if (childWindows.get(name) === win) {
+      childWindows.delete(name)
+    }
   })
 
   // Parent/desktop transitions can transiently hide a child BrowserWindow on

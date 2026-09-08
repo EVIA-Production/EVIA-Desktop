@@ -3,8 +3,10 @@ const assert = require('node:assert/strict');
 
 const {
   isInsightsResultCurrent,
+  liveInsightsRefreshDelayMs,
   mergeInsightsFetchIntent,
   postMeetingRetryDelayMs,
+  shouldCoalesceAutomaticLiveInsightsRequest,
   shouldPreemptInsightsRequest,
 } = require('../dist/main/insights-request-policy.js');
 
@@ -42,6 +44,27 @@ test('post-meeting work preempts live work, but live work never preempts post-me
   assert.equal(shouldPreemptInsightsRequest(after, during), false);
   assert.equal(shouldPreemptInsightsRequest(after, after), false);
   assert.equal(shouldPreemptInsightsRequest(null, after), false);
+});
+
+test('automatic live refreshes coalesce while manual and post-meeting work stay urgent', () => {
+  const active = { sessionState: 'during', fullReplace: false, manual: false };
+
+  assert.equal(shouldCoalesceAutomaticLiveInsightsRequest(active, {
+    sessionState: 'during', fullReplace: false, manual: false,
+  }), true);
+  assert.equal(shouldCoalesceAutomaticLiveInsightsRequest(active, {
+    sessionState: 'during', fullReplace: false, manual: true,
+  }), false);
+  assert.equal(shouldCoalesceAutomaticLiveInsightsRequest(active, {
+    sessionState: 'after', fullReplace: true, manual: false,
+  }), false);
+});
+
+test('live refresh delay is measured from request start even after an empty or stale result', () => {
+  assert.equal(liveInsightsRefreshDelayMs(0, 20_000), 450);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 10_250), 14_750);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 24_900), 450);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 25_500), 450);
 });
 
 test('a response is rejected when the meeting phase changed in flight', () => {
