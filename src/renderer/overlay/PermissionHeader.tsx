@@ -166,6 +166,34 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
   }, [checkPermissions]);
 
   const allGranted = permissions.microphone === 'granted' && permissions.screen === 'granted';
+  const isGerman = (localStorage.getItem('evia_language') || navigator.language || 'en')
+    .toLowerCase()
+    .startsWith('de');
+  const copy = isGerman ? {
+    close: 'Taylos schließen',
+    title: 'Meeting-Audio einrichten',
+    subtitle: 'Taylos nutzt diese Zugriffe nur, während du „Zuhören“ aktiviert hast.',
+    microphone: 'Deine Stimme',
+    prospect: 'Andere Teilnehmende',
+    micChecking: 'Systemdialog prüfen …',
+    micGranted: 'Mikrofon freigegeben',
+    micGrant: 'Mikrofon freigeben',
+    screenOpening: 'Systemeinstellungen werden geöffnet …',
+    screenGranted: 'Meeting-Audio freigegeben',
+    screenGrant: 'Meeting-Audio freigeben',
+  } : {
+    close: 'Close Taylos',
+    title: 'Set up meeting audio',
+    subtitle: 'Taylos uses these permissions only while Listen is active.',
+    microphone: 'Your voice',
+    prospect: 'Other participants',
+    micChecking: 'Check the system dialog …',
+    micGranted: 'Microphone allowed',
+    micGrant: 'Allow microphone',
+    screenOpening: 'Opening System Settings …',
+    screenGranted: 'Meeting audio allowed',
+    screenGrant: 'Allow meeting audio',
+  };
 
   return (
     <div className={`permission-container ${allGranted ? 'success' : ''}`}>
@@ -175,12 +203,12 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
           <div className="border-overlay" />
 
           {/* Close button */}
-          <button className="close-button" onClick={onClose} title="Close application">
+          <button className="close-button" onClick={onClose} title={copy.close}>
             ×
           </button>
           
           {/* Title */}
-          <h1 className="permission-title">Permission Setup Required</h1>
+          <h1 className="permission-title">{copy.title}</h1>
         </>
       )}
 
@@ -189,7 +217,7 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
         {!allGranted ? (
           <>
             <div className="permission-subtitle">
-              Grant access to microphone and screen recording to continue
+              {copy.subtitle}
             </div>
             
             {/* Permission Status Icons */}
@@ -201,14 +229,14 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
                     <svg className="check-icon" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    <span>Microphone ✓</span>
+                    <span>{copy.microphone} ✓</span>
                   </>
                 ) : (
                   <>
                     <svg className="permission-icon" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                     </svg>
-                    <span>Microphone</span>
+                    <span>{copy.microphone}</span>
                   </>
                 )}
               </div>
@@ -220,14 +248,14 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
                     <svg className="check-icon" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    <span>Screen ✓</span>
+                    <span>{copy.prospect} ✓</span>
                   </>
                 ) : (
                   <>
                     <svg className="permission-icon" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
                     </svg>
-                    <span>Screen Recording</span>
+                    <span>{copy.prospect}</span>
                   </>
                 )}
               </div>
@@ -242,10 +270,10 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
               <div className="button-border-overlay" />
               <span>
                 {isRequestingMic 
-                  ? 'Check system dialog...' 
+                  ? copy.micChecking
                   : permissions.microphone === 'granted' 
-                    ? 'Microphone Access Granted' 
-                    : 'Grant Microphone Access'}
+                    ? copy.micGranted
+                    : copy.micGrant}
               </span>
             </button>
 
@@ -257,10 +285,10 @@ const PermissionHeader: React.FC<PermissionHeaderProps> = ({ onContinue, onClose
               <div className="button-border-overlay" />
               <span>
                 {isRequestingScreen 
-                  ? 'Opening System Settings...' 
+                  ? copy.screenOpening
                   : permissions.screen === 'granted' 
-                    ? 'Screen Recording Granted' 
-                    : 'Grant Screen Recording Access'}
+                    ? copy.screenGranted
+                    : copy.screenGrant}
               </span>
             </button>
           </>

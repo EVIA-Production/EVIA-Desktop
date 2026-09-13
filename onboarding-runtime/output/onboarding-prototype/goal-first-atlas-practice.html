@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-platform="mac">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Taylos | Onboarding Preview</title>
+    <script>if(new URLSearchParams(location.search).has('native'))document.documentElement.dataset.native='true';</script>
+    <style>html[data-native=true],html[data-native=true] body{background:transparent!important}</style>
+    <link rel="icon" href="../../EVIA-Desktop/src/renderer/overlay/assets/taylos_mark.png" />
+    <link rel="stylesheet" href="goal-first-atlas-practice.css" />
+    <link rel="stylesheet" href="atlas-shell.css" />
+    <link rel="stylesheet" href="final-polish.css" />
+    <link rel="stylesheet" href="atlas-review.css" />
+    <script type="module" src="goal-first-atlas-practice.js"></script>
+    <script defer src="glass-lens.js"></script>
+  </head>
+  <body>
+    <header class="prototype-toolbar" aria-label="Prototype controls">
+      <div class="prototype-name">
+        <img src="../../EVIA-Desktop/src/renderer/overlay/assets/taylos_mark.png" alt="" />
+        <span>Taylos · Onboarding Preview</span>
+      </div>
+      <div class="prototype-phase" id="prototype-phase">Prepare</div>
+      <div class="prototype-controls">
+        <div class="platform-toggle" role="group" aria-label="Platform">
+          <button class="is-active" type="button" data-action="platform" data-platform="mac">macOS</button>
+          <button type="button" data-action="platform" data-platform="win">Windows</button>
+        </div>
+        <div class="platform-toggle layout-toggle" role="group" aria-label="Keyboard layout">
+          <button class="is-active" type="button" data-action="layout" data-layout="de">DE</button>
+          <button type="button" data-action="layout" data-layout="us">US</button>
+        </div>
+        <button class="icon-button t-learn" type="button" data-action="review-back" aria-label="Previous state" title="Previous state"><span class="t-learn-direction reverse" aria-hidden="true"><span class="t-learn-chevron"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path class="t-learn-arm t-learn-arm-top" d="M6 4L10 8"/><path class="t-learn-arm t-learn-arm-bot" d="M10 8L6 12"/></svg></span></span></button>
+        <span id="review-count">1 / 10</span>
+        <button class="icon-button t-learn" type="button" data-action="review-next" aria-label="Next state" title="Next state"><span class="t-learn-direction" aria-hidden="true"><span class="t-learn-chevron"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path class="t-learn-arm t-learn-arm-top" d="M6 4L10 8"/><path class="t-learn-arm t-learn-arm-bot" d="M10 8L6 12"/></svg></span></span></button>
+        <button class="icon-button" type="button" data-action="restart" aria-label="Replay opening" title="Replay opening"><span class="sf" style="--symbol:url('../TAYLOS_SF_SYMBOLS_PACKAGE/03_VECTOR_SVG/medium/progress.indicator.svg')"></span></button>
+      </div>
+    </header>
+    <main id="prototype-root"></main>
+    <noscript>This prototype requires JavaScript.</noscript>
+  </body>
+</html>

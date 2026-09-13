@@ -2,9 +2,17 @@ import http from 'http';
 import { Server as WebSocketServer, WebSocket } from 'ws';
 import { app, shell, BrowserWindow } from 'electron';
 import { exec } from 'child_process';
+import { captureSessionController } from './capture-session-controller';
 
-const PORT = 17394; // Taylos on phone pad
+const PORT = process.env.TAYLOS_LOCAL_REVIEW === '1' ? 17395 : 17394; // Taylos on phone pad
 const HOST = '127.0.0.1';
+
+function allowedBridgeOrigin(origin: string | undefined): string | null {
+  if (!origin) return null;
+  if (origin === 'https://app.taylos.ai') return origin;
+  if (/^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/.test(origin)) return origin;
+  return null;
+}
 
 /**
  * Activate the default browser without opening a new tab
@@ -122,10 +130,22 @@ class DesktopBridge {
     try {
       // HTTP Server for status checks (CORS enabled)
       this.httpServer = http.createServer((req, res) => {
-        // Set CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+        const allowedOrigin = allowedBridgeOrigin(origin);
+        if (origin && !allowedOrigin) {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        if (allowedOrigin) {
+          res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+          res.setHeader('Vary', 'Origin');
+        }
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.headers['access-control-request-private-network'] === 'true') {
+          res.setHeader('Access-Control-Allow-Private-Network', 'true');
+        }
 
         if (req.method === 'OPTIONS') {
           res.writeHead(204);
@@ -136,9 +156,11 @@ class DesktopBridge {
         if (req.url === '/status' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ 
+            running: true,
             status: 'running',
             version: app.getVersion(),
-            platform: process.platform
+            platform: process.platform,
+            capture_state: captureSessionController.getSnapshot().state,
           }));
         } else {
           res.writeHead(404);
@@ -147,7 +169,10 @@ class DesktopBridge {
       });
 
       // WebSocket Server for tab communication
-      this.wss = new WebSocketServer({ server: this.httpServer });
+      this.wss = new WebSocketServer({
+        server: this.httpServer,
+        verifyClient: (info: { origin?: string }) => Boolean(allowedBridgeOrigin(info.origin)),
+      });
       this.wss.on('error', (err: NodeJS.ErrnoException) => {
         console.error('[Bridge] WebSocket server error:', err.code || err.message);
       });

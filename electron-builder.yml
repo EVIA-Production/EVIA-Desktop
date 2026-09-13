@@ -24,6 +24,9 @@ files:
   - "!dist/*.dmg"
   - "!dist/*.zip"
   - "!dist/mac*/**"
+extraResources:
+  - from: onboarding-runtime
+    to: onboarding-preview
 asarUnpack:
   # The tray glyph is the discoverable way back from a hidden overlay. Unpacked
   # so it is a real file on disk: nativeImage resolves the @2x/@3x siblings by
@@ -45,9 +48,9 @@ mac:
   extendInfo:
     LSUIElement: false # Ensure app shows in Dock
     ElectronTeamID: ${APPLE_TEAM_ID} # Set via env var when signing
-    NSMicrophoneUsageDescription: "Taylos needs access to your microphone to transcribe your voice in meetings."
-    NSScreenCaptureUsageDescription: "Taylos needs access to screen recording to capture system audio from meetings and calls."
-    NSCameraUsageDescription: "Taylos may need camera access for screen recording functionality."
+    NSMicrophoneUsageDescription: "Taylos uses your microphone while you press Listen to transcribe your side of the conversation."
+    NSScreenCaptureUsageDescription: "Taylos uses this permission while you press Listen to capture the other participants' meeting audio."
+    NSAudioCaptureUsageDescription: "Taylos uses this permission while you press Listen to capture the other participants' meeting audio."
   target:
     - target: dir
     - target: dmg

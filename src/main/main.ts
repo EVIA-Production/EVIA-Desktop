@@ -1,5 +1,7 @@
 import './demo-bootstrap'
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow } from 'electron'
+import { registerNativeOnboarding } from './native-onboarding';
+import { webAppUrl } from './web-app-url';
+import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { getCachedAuthToken, setCachedAuthToken, clearCachedAuthToken } from './auth-token-cache'
 import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
@@ -20,13 +22,51 @@ import {
 
 let pendingDeepLink: string | null = null;
 let deepLinkHandlingReady = false;
-const PRIMARY_DEEP_LINK_SCHEME = 'taylos';
+const PRIMARY_DEEP_LINK_SCHEME = process.env.TAYLOS_LOCAL_REVIEW === '1' ? 'taylos-test' : 'taylos';
 const LEGACY_DEEP_LINK_SCHEME = 'evia';
 const isDemoMode = !app.isPackaged && process.env.TAYLOS_DEMO_MODE === '1';
 const IS_ISOLATED_HARNESS =
   isDemoMode ||
   process.env.TAYLOS_E2E === '1' ||
   (process.env.NODE_ENV === 'development' && process.env.TAYLOS_GLASS_COMPARE === '1');
+
+async function openOnboardingSetup(): Promise<void> {
+  if (captureSessionController.getSnapshot().state !== 'idle') {
+    dialog.showErrorBox('Finish your call first', 'Setup can be opened when Taylos is not recording or reviewing a call.');
+    return;
+  }
+  await headerController.restartNativeOnboarding();
+}
+
+function installApplicationMenu(): void {
+  const isGerman = app.getLocale().toLowerCase().startsWith('de');
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const },
+        { role: 'hideOthers' as const },
+        { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const },
+      ],
+    }] : []),
+    { role: 'editMenu' as const },
+    { role: 'windowMenu' as const },
+    {
+      role: 'help' as const,
+      submenu: [
+        {
+          label: isGerman ? 'Taylos-Einrichtung erneut starten' : 'Run Taylos Setup Again',
+          click: openOnboardingSetup,
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 function extractDeepLinkFromArgList(args: string[]): string | null {
   const raw = args.find(
@@ -127,8 +167,10 @@ if (!gotSingleInstanceLock) {
       const url = normalizeDeepLink(raw);
       console.log('[Protocol] second-instance found url:', describeDeepLink(url));
       routeDeepLink(url);
+      return; // The auth handler presents the onboarding only after its icon is ready.
     }
 
+    if(headerController.getCurrentState()==='onboarding'){headerController.focusOnboarding();return;}
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (mainWindow) {
       try {
@@ -546,6 +588,7 @@ async function boot() {
   }
   
   await app.whenReady();
+  installApplicationMenu();
   scheduleWindowsInstallerBootstrapCleanup();
 
   // The material comparison is an isolated visual harness. It must run before
@@ -604,7 +647,8 @@ async function boot() {
       });
   });
 
-  // Initialize header flow
+  // Register the same bundled onboarding in every packaged app.
+  registerNativeOnboarding();
   await headerController.initialize();
   startDesktopClientTelemetry();
 
@@ -639,7 +683,7 @@ const isDev = process.env.NODE_ENV === 'development'
 const platform = os.platform()
 
 function registerAutoUpdater() {
-  if (isDev) {
+  if (isDev || process.env.TAYLOS_LOCAL_REVIEW === '1') {
     console.log('[Updater] Skipping auto-updater in development');
     return;
   }
@@ -752,7 +796,7 @@ app.on("activate", () => {
   (async () => {
     try {
       const exists = !!getHeaderWindow();
-      if (exists) return;
+      if (exists || headerController.getCurrentState() !== 'ready') return;
 
       // Check token presence via keytar
       let hasToken = false;
@@ -1268,6 +1312,7 @@ ipcMain.handle('updater:get-status', async () => {
 // Shell API: Open external URLs/apps
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   try {
+    url = webAppUrl(url);
     // macOS behavior: if the browser is already open, some setups appear
     // to open the URL in the background. Force activation when possible.
     try {
@@ -1279,7 +1324,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     } catch {
       await shell.openExternal(url);
     }
-    console.log('[Shell] ✅ Opened external URL (activated):', url);
+    console.log('[Shell] ✅ Opened external URL (activated):', new URL(url).pathname);
     return { success: true };
   } catch (err: unknown) {
     console.error('[Shell] ❌ Failed to open URL:', err);
@@ -1390,6 +1435,12 @@ ipcMain.handle('capture-session:reconcile-no-capture', (_event, reason?: Capture
 ipcMain.on('session-state-changed', (_event, attemptedState: string) => {
   console.warn('[CaptureSession] Ignored legacy renderer state mutation:', attemptedState);
   broadcastCaptureSession(captureSessionController.getSnapshot());
+});
+
+ipcMain.handle('onboarding:restart', async (event) => {
+  if (!event.sender.getURL().startsWith('file://') && !event.sender.getURL().startsWith('http://localhost:5173/')) throw new Error('Untrusted setup request');
+  await openOnboardingSetup();
+  return { success:true };
 });
 
 // Permission handlers (Phase 3: Permission window)
@@ -1570,7 +1621,7 @@ ipcMain.on('audio-debug:save', (_event, { filename, buffer }: { filename: string
 
 // Register taylos:// protocol for deep linking (auth callback from web)
 const primaryProtocolRegistered = registerProtocolClient(PRIMARY_DEEP_LINK_SCHEME);
-const legacyProtocolRegistered = registerProtocolClient(LEGACY_DEEP_LINK_SCHEME);
+const legacyProtocolRegistered = process.env.TAYLOS_LOCAL_REVIEW !== '1' && registerProtocolClient(LEGACY_DEEP_LINK_SCHEME);
 console.log(`[Protocol] ✅ Registered ${PRIMARY_DEEP_LINK_SCHEME}:// protocol:`, primaryProtocolRegistered);
 console.log(`[Protocol] ✅ Registered ${LEGACY_DEEP_LINK_SCHEME}:// compatibility alias:`, legacyProtocolRegistered);
 
@@ -1606,6 +1657,7 @@ function broadcastAuthTokenChanged(token: string | null) {
 }
 
 function focusPrimaryDesktopWindow() {
+  if(headerController.getCurrentState()==='onboarding'){headerController.focusOnboarding();return;}
   const headerWindow = getHeaderWindow();
   if (headerWindow && !headerWindow.isDestroyed()) {
     forceFocus(headerWindow);
@@ -1749,6 +1801,7 @@ async function handleLaunchRequest(url: string) {
 // IPC Handler for navigation (Tab Reuse)
 ipcMain.handle('shell:navigate', async (_event, url: string) => {
   try {
+    url = webAppUrl(url);
     // Try to reuse existing tab via DesktopBridge WebSocket
     // Returns true if tab was reused, false if no connected tab found
     let tabReused = false;

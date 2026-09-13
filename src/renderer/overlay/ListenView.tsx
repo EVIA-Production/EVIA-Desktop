@@ -68,8 +68,10 @@ import { transcriptContextFromState } from '../../main/transcript-context';
 import { CaptureLiveTracker } from '../../main/capture-live-verdict';
 import {
   isInsightsResultCurrent,
+  liveInsightsRefreshDelayMs,
   mergeInsightsFetchIntent,
   postMeetingRetryDelayMs,
+  shouldCoalesceAutomaticLiveInsightsRequest,
   shouldPreemptInsightsRequest,
   type InsightsFetchIntent,
   type InsightsSessionState,
@@ -103,9 +105,11 @@ interface ListenViewProps {
   followLive: boolean;
   onToggleFollow: () => void;
   onClose?: () => void;
+  /** Complete scripted content for the local onboarding, absent in live calls. */
+  onboardingInsights?: Insight;
 }
 
-const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose }) => {
+const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFollow, onClose, onboardingInsights }) => {
   const [canonicalTranscriptState, setCanonicalTranscriptState] = useState<RealtimeTranscriptState>(
     createRealtimeTranscriptState,
   );
@@ -516,6 +520,34 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     }, delayMs);
   };
 
+  const scheduleLiveInsightsRefresh = () => {
+    if (
+      sessionStateRef.current !== 'during' ||
+      viewModeRef.current !== 'insights' ||
+      !hasGroundedProspectSpeech(transcriptsRef.current) ||
+      canonicalTranscriptStateRef.current.prospectRevision <= lastInsightsProspectRevisionRef.current
+    ) {
+      return;
+    }
+
+    if (liveInsightsRefreshTimerRef.current) {
+      clearTimeout(liveInsightsRefreshTimerRef.current);
+    }
+    const delayMs = liveInsightsRefreshDelayMs(lastInsightsFetchAtRef.current);
+    liveInsightsRefreshTimerRef.current = setTimeout(() => {
+      liveInsightsRefreshTimerRef.current = null;
+      if (
+        sessionStateRef.current === 'during' &&
+        viewModeRef.current === 'insights' &&
+        hasGroundedProspectSpeech(transcriptsRef.current) &&
+        canonicalTranscriptStateRef.current.prospectRevision > lastInsightsProspectRevisionRef.current
+      ) {
+        console.log('[ListenView] Grounded prospect speech arrived - refreshing visible insights');
+        void fetchInsightsNowRef.current();
+      }
+    }, delayMs);
+  };
+
   const adjustWindowHeight = () => {
     if (!window.api || !viewportRef.current) return;
 
@@ -653,6 +685,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     queuedInsightsFetchIntentRef.current = null;
     insightsRequestAbortControllerRef.current?.abort('session-reset');
     liveInsightsRefreshQueuedRef.current = false;
+    if (liveInsightsRefreshTimerRef.current) {
+      clearTimeout(liveInsightsRefreshTimerRef.current);
+      liveInsightsRefreshTimerRef.current = null;
+    }
     firstPartialLatencyByEventRef.current.clear();
     finalLatencyByEventRef.current.clear();
     analyticsRejectedCountRef.current = 0;
@@ -1128,7 +1164,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     insightsHistory.length > 0
       ? insightsHistory[insightsIndex >= 0 ? insightsIndex : insightsHistory.length - 1]
       : null;
-  const displayedInsights = insights || latestHistoricalInsight;
+  const displayedInsights = onboardingInsights ?? insights ?? latestHistoricalInsight;
 
   // Handle insight clicks - send to AskView via IPC
   // When user clicks an insight (summary point, topic bullet, or action), we:
@@ -1265,6 +1301,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       manual: options.manual === true,
     };
     if (insightsRequestInFlightRef.current) {
+      if (shouldCoalesceAutomaticLiveInsightsRequest(activeInsightsFetchIntentRef.current, incomingIntent)) {
+        liveInsightsRefreshQueuedRef.current = true;
+        console.log('[ListenView] Automatic live refresh coalesced behind active request');
+        return;
+      }
       queuedInsightsFetchIntentRef.current = mergeInsightsFetchIntent(
         queuedInsightsFetchIntentRef.current,
         incomingIntent,
@@ -1294,6 +1335,12 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // them inside `try` previously produced a bundle that threw ReferenceError
     // before the queued AFTER request could be drained.
     const insightsRequestStartedAtMs = Date.now();
+    if (latestSessionState === 'during') {
+      // This is a request-start throttle, not a success throttle. Empty and
+      // stale responses must consume the same interval as successful ones or
+      // their cleanup path can spin at roughly one request per second.
+      lastInsightsFetchAtRef.current = insightsRequestStartedAtMs;
+    }
     const analyticsTrigger = options.manual ? 'manual' : 'auto';
     const insightsRequestTranscriptCount = transcriptsRef.current.length;
     let analyticsRequestStarted = false;
@@ -1664,7 +1711,6 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           });
         }
         lastInsightsProspectRevisionRef.current = requestIdentity.prospectRevision;
-        lastInsightsFetchAtRef.current = Date.now();
         if (derivedSessionState === 'after') {
           postMeetingSucceeded = true;
         }
@@ -1752,16 +1798,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         schedulePostMeetingInsightsFetch(Math.max(postMeetingRetryMinimumMs, rateLimitDelay));
       } else if (liveInsightsRefreshQueuedRef.current) {
         liveInsightsRefreshQueuedRef.current = false;
-        setTimeout(() => {
-          if (
-            sessionStateRef.current === 'during' &&
-            viewModeRef.current === 'insights' &&
-            hasGroundedProspectSpeech(transcriptsRef.current) &&
-            canonicalTranscriptStateRef.current.prospectRevision > lastInsightsProspectRevisionRef.current
-          ) {
-            void fetchInsightsNowRef.current();
-          }
-        }, 0);
+        scheduleLiveInsightsRefresh();
       }
     }
   };
@@ -1815,26 +1852,11 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     if (!hasGroundedProspectSpeech(transcripts)) return;
     if (canonicalTranscriptState.prospectRevision <= lastInsightsProspectRevisionRef.current) return;
 
-    // One refresh per LIVE_INSIGHTS_MIN_INTERVAL_MS, not one per utterance.
+    // One refresh interval, not one request per utterance.
     // The prospect spoke 36 times in the measured call; at 1+3 attempts each
     // that is up to 144 requests against a 20/min budget, which is why the
     // whole call ran on 429s.
-    const LIVE_INSIGHTS_MIN_INTERVAL_MS = 12000;
-    const sinceLast = Date.now() - lastInsightsFetchAtRef.current;
-    if (sinceLast < LIVE_INSIGHTS_MIN_INTERVAL_MS) return;
-    if (liveInsightsRefreshTimerRef.current) clearTimeout(liveInsightsRefreshTimerRef.current);
-    liveInsightsRefreshTimerRef.current = setTimeout(() => {
-      liveInsightsRefreshTimerRef.current = null;
-      console.log('[ListenView] 🔄 Grounded prospect speech arrived - refreshing visible insights');
-      void fetchInsightsNowRef.current();
-    }, 450);
-
-    return () => {
-      if (liveInsightsRefreshTimerRef.current) {
-        clearTimeout(liveInsightsRefreshTimerRef.current);
-        liveInsightsRefreshTimerRef.current = null;
-      }
-    };
+    scheduleLiveInsightsRefresh();
   }, [canonicalTranscriptState.prospectRevision, transcripts, sessionState, viewMode]);
 
 

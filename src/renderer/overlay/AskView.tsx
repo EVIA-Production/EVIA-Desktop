@@ -536,7 +536,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         }
         liveTranscriptOverrideRef.current = transcriptContext || null;
         chatIdOverrideRef.current = explicitChatId ? String(explicitChatId) : null;
-        setPrompt(incomingPrompt);
+        setPrompt('');
         setShowTextInput(true);
         setIsStreaming(false);
         setErrorToast(null);

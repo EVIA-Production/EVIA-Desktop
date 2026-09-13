@@ -13,7 +13,7 @@
  */
 
 import { app, systemPreferences } from 'electron';
-import { clearCachedAuthToken } from './auth-token-cache'
+import { clearCachedAuthToken, setCachedAuthToken } from './auth-token-cache'
 import * as keytar from 'keytar';
 import { 
   createWelcomeWindow, 
@@ -33,7 +33,14 @@ import {
   getCachedSubscriptionStatus 
 } from './subscription-service';
 
-type AppState = 'welcome' | 'login' | 'permissions' | 'subscription_required' | 'ready';
+type AppState = 'welcome' | 'login' | 'onboarding' | 'permissions' | 'subscription_required' | 'ready';
+
+/**
+ * Native onboarding launcher. Injected by the host that bundles the onboarding
+ * (the local test package today); when nothing is injected the state machine
+ * behaves exactly as before, so production is untouched until this is wired.
+ */
+export type NativeOnboardingLauncher = (options: { restart?: boolean; onClose: (result: { finished: boolean }) => void }) => Promise<unknown>;
 
 interface StateData {
   hasToken: boolean;
@@ -47,6 +54,12 @@ export class HeaderController {
   private currentState: AppState = 'welcome';
   private stateFilePath: string;
   private permissionsCompleted: boolean = false;
+  private onboardingCompleted: boolean = false;
+  private onboardingDismissed = false;
+  private onboardingRestart = false;
+  private registrationLauncher: (() => Promise<void>) | null = null;
+  private nativeOnboardingLauncher: NativeOnboardingLauncher | null = null;
+  private onboardingHandle: { close?: () => void; focus?: () => void } | null = null;
 
   constructor() {
     this.stateFilePath = path.join(app.getPath('userData'), 'auth-state.json');
@@ -63,6 +76,7 @@ export class HeaderController {
         const data = fs.readFileSync(this.stateFilePath, 'utf8');
         const state = JSON.parse(data);
         this.permissionsCompleted = state.permissionsCompleted || false;
+        this.onboardingCompleted = state.onboardingCompleted || false;
         console.log('[HeaderController] Loaded persisted state:', state);
       }
     } catch (err) {
@@ -75,7 +89,7 @@ export class HeaderController {
    */
   private savePersistedState() {
     try {
-      const state = { permissionsCompleted: this.permissionsCompleted };
+      const state = { permissionsCompleted: this.permissionsCompleted, onboardingCompleted: this.onboardingCompleted };
       fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
       console.log('[HeaderController] Saved persisted state:', state);
     } catch (err) {
@@ -185,6 +199,13 @@ export class HeaderController {
       return 'welcome';
     }
     
+    // 🧭 NATIVE ONBOARDING: after auth, before subscription. The flow ends by
+    // opening checkout itself, so subscription_required is the natural next state.
+    if (this.nativeOnboardingLauncher && !this.onboardingCompleted && !this.onboardingDismissed) {
+      console.log('[HeaderController] 🧭 Onboarding not completed - launching native onboarding');
+      return 'onboarding';
+    }
+
     // 💳 SUBSCRIPTION CHECK: After auth, before permissions
     // User must have active subscription to use Taylos
     if (!data.hasSubscription) {
@@ -233,7 +254,7 @@ export class HeaderController {
     closeSubscriptionWindow();
     
     // CRITICAL: Close header window if transitioning to welcome, permissions, or subscription_required
-    if (newState === 'welcome' || newState === 'permissions' || newState === 'subscription_required') {
+    if (newState === 'welcome' || newState === 'permissions' || newState === 'subscription_required' || newState === 'onboarding') {
       const header = getHeaderWindow();
       if (header) {
         console.log('[HeaderController] Closing main header for state:', newState);
@@ -246,12 +267,17 @@ export class HeaderController {
     // Open appropriate window for new state
     switch (newState) {
       case 'welcome':
-        createWelcomeWindow();
+        if (this.registrationLauncher) await this.registrationLauncher();
+        else createWelcomeWindow();
         break;
         
       case 'subscription_required':
         console.log('[HeaderController] 💳 Showing subscription required window');
         createSubscriptionWindow();
+        break;
+
+      case 'onboarding':
+        await this.launchNativeOnboarding();
         break;
         
       case 'permissions':
@@ -293,6 +319,61 @@ export class HeaderController {
     }
   }
 
+  /** Host registers the bundled native onboarding here. Absent = old behaviour. */
+  public setNativeOnboardingLauncher(launcher: NativeOnboardingLauncher | null) {
+    this.nativeOnboardingLauncher = launcher;
+  }
+
+  public setRegistrationLauncher(launcher: () => Promise<void>) { this.registrationLauncher = launcher; }
+
+  public focusOnboarding() { this.onboardingHandle?.focus?.(); }
+
+  public isOnboardingCompleted(): boolean { return this.onboardingCompleted; }
+  public hasNativeOnboarding(): boolean { return this.nativeOnboardingLauncher !== null; }
+
+  /** Replay from the Help menu: clears the flag and re-enters the flow. */
+  public async restartNativeOnboarding() {
+    if (!this.nativeOnboardingLauncher) return;
+    const token = await keytar.getPassword('taylos', 'token');
+    if (!token) { await this.transitionTo('welcome'); return; }
+    this.onboardingDismissed = false;
+    this.onboardingRestart = true;
+    await this.transitionTo('onboarding');
+  }
+
+  private async launchNativeOnboarding() {
+    if (!this.nativeOnboardingLauncher) {
+      console.warn('[HeaderController] onboarding state without a launcher - falling through');
+      this.onboardingDismissed = true;
+      return this.reevaluateState();
+    }
+    if (this.onboardingHandle) { this.onboardingHandle.focus?.(); return; }
+    try {
+      const restart=this.onboardingRestart;this.onboardingRestart=false;
+      this.onboardingHandle = (await this.nativeOnboardingLauncher({
+        restart,
+        onClose: ({ finished }) => {
+          console.log('[HeaderController] 🧭 Native onboarding closed, finished =', finished);
+          this.onboardingHandle = null;
+          this.onboardingDismissed = !finished;
+          if (finished) {
+            this.onboardingCompleted = true;
+            const permissions = systemPreferences.getMediaAccessStatus('microphone') === 'granted' &&
+              (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted');
+            this.permissionsCompleted = permissions;
+            this.savePersistedState();
+          }
+          void this.reevaluateState();
+        },
+      })) as { close?: () => void; focus?: () => void } | null;
+    } catch (err) {
+      console.error('[HeaderController] ❌ Native onboarding failed to launch:', err);
+      this.onboardingHandle = null;
+      this.onboardingDismissed = true;
+      await this.reevaluateState();
+    }
+  }
+
   /**
    * Initialize on app launch - determine and show correct window
    */
@@ -318,6 +399,7 @@ export class HeaderController {
     
     try {
       await keytar.setPassword('taylos', 'token', token);
+      setCachedAuthToken(token);
       console.log('[HeaderController] ✅ Token stored in keytar');
       
       // 💳 Clear subscription cache to force fresh check with new token
@@ -359,6 +441,8 @@ export class HeaderController {
     try {
       await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
       this.permissionsCompleted = false;
+      this.onboardingCompleted = false;
+      this.onboardingDismissed = false;
       this.savePersistedState();
       
       // 💳 Clear subscription cache on logout
@@ -639,6 +723,8 @@ export class HeaderController {
     try {
       await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
       this.permissionsCompleted = false;
+      this.onboardingCompleted = false;
+      this.onboardingDismissed = false;
       this.savePersistedState();
       
       // 💳 Clear subscription cache

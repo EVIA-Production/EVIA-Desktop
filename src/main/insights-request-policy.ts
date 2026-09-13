@@ -36,6 +36,13 @@ export function shouldPreemptInsightsRequest(
   return active?.sessionState === 'during' && incoming.sessionState === 'after'
 }
 
+export function shouldCoalesceAutomaticLiveInsightsRequest(
+  active: InsightsFetchIntent | null,
+  incoming: InsightsFetchIntent,
+): boolean {
+  return active !== null && incoming.sessionState === 'during' && !incoming.manual
+}
+
 export function isInsightsResultCurrent(
   requestedSessionState: InsightsSessionState,
   currentSessionState: InsightsSessionState,
@@ -45,6 +52,21 @@ export function isInsightsResultCurrent(
 }
 
 const POST_MEETING_RETRY_DELAYS_MS = [300, 1_000, 3_000, 6_000, 12_000, 30_000]
+
+export const LIVE_INSIGHTS_MIN_INTERVAL_MS = 12_000
+export const LIVE_INSIGHTS_SETTLE_MS = 450
+
+export function liveInsightsRefreshDelayMs(
+  lastRequestStartedAtMs: number,
+  nowMs: number = Date.now(),
+): number {
+  if (!Number.isFinite(lastRequestStartedAtMs) || lastRequestStartedAtMs <= 0) {
+    return LIVE_INSIGHTS_SETTLE_MS
+  }
+
+  const elapsedMs = Math.max(0, nowMs - lastRequestStartedAtMs)
+  return Math.max(LIVE_INSIGHTS_SETTLE_MS, LIVE_INSIGHTS_MIN_INTERVAL_MS - elapsedMs)
+}
 
 export function postMeetingRetryDelayMs(attempt: number, rateLimitRemainingMs = 0): number {
   const safeAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0

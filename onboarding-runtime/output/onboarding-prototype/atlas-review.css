@@ -1,0 +1,249 @@
+/* Atlas remains the composition baseline. Retained improvements are explicit. */
+html[data-native=true],html[data-native=true] body,
+html[data-native=true] #prototype-root {width:100%;height:100%;min-height:100%;margin:0}
+html[data-native=true] .desktop {width:100%;height:100dvh;min-height:100dvh;box-sizing:border-box}
+.desktop::after {position:fixed;inset:0;width:auto;height:auto;pointer-events:none}
+.copy-block h1 {font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif;font-weight:500;letter-spacing:-.02em;color:#f5f5f7}
+.copy-block p {color:#bec1c8}
+.welcome-title h1 {font-weight:500;font-size:64px;letter-spacing:-.025em}
+.welcome-title p {font-weight:500}
+.onboarding-card[data-view=welcome] {--show-height:calc(var(--window-height) * .48)}
+.onboarding-card[data-view=welcome] .instruction-zone {padding-top:22px}
+.shortcut-button:focus-visible,.shortcut-alternative:focus-visible {outline:2px solid #fff;outline-offset:5px;border-radius:12px}
+.bar-spotlight {position:fixed;inset:0;z-index:45;pointer-events:none;opacity:0;
+ background:radial-gradient(ellipse 290px 140px at var(--bar-x,50%) var(--bar-y,30%),transparent 14%,#0001 35%,#0007 70%,#000b 100%)}
+.bar-spotlight.introducing {animation:none;opacity:var(--bar-emphasis,0)}
+@keyframes bar-orientation {0%{opacity:0}20%,68%{opacity:1}100%{opacity:0}}
+
+.preview-audio-note {font-size:13px;line-height:18px;color:#aeb4c0;margin:0}
+.permission-stage {display:grid!important;grid-template-columns:1fr 1.25fr;gap:20px;padding:25px;align-items:center}
+.permission-stage .permission-shot {position:relative!important;inset:auto!important;transform:none!important;width:100%!important;height:auto!important;margin:0!important;opacity:.56;filter:none!important;padding:12px;border:1px solid #ffffff22;border-radius:20px;background:#ffffff0b;backdrop-filter:blur(16px);box-shadow:inset 0 1px 0 #ffffff1c,0 16px 32px #0005;transition:opacity 180ms ease,border-color 180ms ease}
+.permission-stage .permission-shot.current {opacity:1;border-color:#ffffff70}
+.permission-shot .permission-image {position:relative;width:100%;max-height:265px;display:flex;justify-content:center}
+.permission-stage .permission-shot img,.permission-stage .permission-shot:first-child img {width:100%;height:auto;max-height:265px;object-fit:contain;filter:none;opacity:1;clip-path:none;mix-blend-mode:normal}
+.permission-shot figcaption {font-size:14px;line-height:20px;color:#eee;text-align:left;margin-top:9px}
+.permission-cursor {position:absolute;width:38px;height:46px;z-index:3;pointer-events:none;filter:drop-shadow(0 3px 3px #0009);overflow:visible}
+.permission-cursor path {fill:#111;stroke:white;stroke-width:1.8;stroke-linejoin:round}
+.permission-shot:not(.current) .permission-cursor {display:none}
+.permission-shot.microphone .permission-cursor {left:69%;top:84%}
+.permission-shot.call-audio .permission-cursor {left:61%;top:73%}
+.permission-stage.win {display:grid!important;grid-template-columns:1fr;padding:18px}
+.win-settings {top:auto;transform:none;width:min(640px,96%);padding:16px 20px 12px;background:#f3f3f3e8;border:1px solid #ffffffa6;backdrop-filter:blur(18px)}
+.win-row {position:relative}
+.win-row .permission-cursor {width:29px;height:36px;right:4px;top:50%}
+.win-row .permission-cursor path {fill:white;stroke:#111;stroke-width:1.6}
+.win-example-label {font:500 12px/18px -apple-system,sans-serif;color:#575b65;margin:0 0 8px}
+.permission-actions {display:flex;align-items:center;gap:10px}
+@media(max-height:800px) {
+ .welcome-title h1 {font-size:56px}.welcome-title p {font-size:22px;line-height:29px}
+ .onboarding-card:not([data-view=personalize]) .instruction-zone {padding-top:22px;padding-bottom:18px;gap:12px}
+ .permission-stage {padding:18px;gap:16px}
+ .permission-shot .permission-image,.permission-stage .permission-shot img {max-height:230px}
+}
+@media(max-width:760px) {
+ :root {--window-width:calc(100vw - 24px);--window-height:min(742px,calc(100dvh - 32px))}
+ .window-wrap {height:var(--window-height)}
+ .welcome-title h1 {font-size:38px}.welcome-title p {font-size:17px;line-height:23px}
+ .permission-stage {gap:10px;padding:12px}.permission-stage .permission-shot {padding:8px}
+ .permission-cursor {width:28px;height:34px}.permission-shot figcaption {font-size:12px}
+ .permission-actions {gap:5px}.permission-actions .button {font-size:12px;padding:0 10px}
+}
+@media(prefers-reduced-motion:reduce) {
+ .permission-shot,.product-shadow {transition:none!important}
+ .bar-spotlight {display:none}
+}
+
+/* Atlas text sizes and face; the Welcome hero keeps its approved lighter type. */
+.instruction-zone {font-family:var(--font)}
+.onboarding-card .copy-block h1 {font-family:var(--font);font-size:28px;line-height:1.3;font-weight:600;letter-spacing:0}
+.onboarding-card .copy-block p {font-family:var(--font);font-size:20px;line-height:1.4}
+.onboarding-card[data-view=welcome] .copy-block p {font-size:20px;line-height:1.4;color:#bec1c8}
+.onboarding-card[data-view=welcome] .copy-block p strong {font-size:28px;line-height:1.3;font-weight:700;color:#f5f5f7}
+.onboarding-card[data-view=prepare] .copy-block h1 {line-height:1.5}
+.shortcut-coach strong {font:600 20px/28px var(--font)}
+.next-instruction,.next-instruction.one-line,.stop-instruction {font-size:20px;line-height:29px}
+.instruction-zone .phase {font-family:var(--font)}
+/* The entire show field shares the copy's direction; native surfaces move in sync. */
+.showcase.stage-leaving .stage-art {animation:show-out 250ms cubic-bezier(.7,0,1,.42) both}
+.showcase.stage-entering .stage-art {animation:show-in 420ms cubic-bezier(0,.58,.3,1) both}
+.showcase[data-dir=back] {--show-direction:-1}
+.showcase[data-dir=fwd] {--show-direction:1}
+@keyframes show-out {from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(calc(-100% * var(--show-direction,1)))}}
+@keyframes show-in {from{opacity:0;transform:translateX(calc(100% * var(--show-direction,1)))}to{opacity:1;transform:translateX(0)}}
+.permission-shot .permission-image>img:not(.permission-cursor) {width:100%;height:auto;max-height:265px;object-fit:contain}
+.permission-shot .permission-image>img.permission-cursor {position:absolute;width:46px!important;height:46px!important;max-width:none!important;max-height:none!important;object-fit:contain;pointer-events:none}
+.permission-shot.microphone .permission-cursor {left:66%;top:77%}
+.permission-shot.call-audio .permission-cursor {left:58%;top:66%}
+.permission-stage .permission-shot {padding:0;border:0;background:transparent;backdrop-filter:none;box-shadow:none}
+.windows-permission-shots {position:relative;display:flex;flex-direction:column;gap:8px;width:min(390px,94%);margin:auto}
+.windows-permission-shot {margin:0;line-height:0;overflow:hidden;border-radius:10px;border:1px solid #ffffff25;box-shadow:0 8px 24px #0005}
+.windows-permission-shot img {display:block;width:100%;height:auto}
+.meeting,.meeting-art,.welcome-image>img {-webkit-user-drag:none;user-select:none;pointer-events:none}
+.meeting-art {width:100%;aspect-ratio:2503/1032;background:url('assets/practice-call.webp') center/contain no-repeat}
+@media(max-height:800px){
+ .onboarding-card .copy-block h1 {font-size:27px;line-height:35px}
+ .onboarding-card .copy-block p {font-size:19px;line-height:27px}
+ .onboarding-card[data-view=welcome] .copy-block p {font-size:19px;line-height:27px}
+ .onboarding-card[data-view=welcome] .copy-block p strong {font-size:27px;line-height:35px}
+ .windows-permission-shots {width:min(340px,94%)}
+}
+@media(prefers-reduced-motion:reduce){.showcase.stage-leaving,.showcase.stage-entering .stage-art {animation:none}}
+
+.showcase {overflow:hidden;background:var(--atlas-blue)}
+/* Exactly the original Atlas gradient, never scaled during a view replacement. */
+:root {--atlas-blue:linear-gradient(158deg,#C3DAF4 0%,#9FC1E8 46%,#7FA6DC 100%)}
+.onboarding-card[data-view=permissions] .showcase {background:#0A0B0D}
+.onboarding-card[data-view=personalize] .showcase {background:#111314}
+.permission-option .glass-toggle,.permission-option .glass-toggle i {transition:transform 480ms cubic-bezier(.22,1,.36,1),background 360ms ease,box-shadow 360ms ease}
+/* NSCursor.arrow hotspot is (5,5) in its 28x40 point image. Anchor that tip. */
+.permission-shot .permission-image {display:block!important;width:fit-content!important;max-width:100%;margin:auto}
+.permission-shot .permission-image>img:not(.permission-cursor) {display:block;width:auto!important;max-width:100%;height:auto!important;max-height:265px;object-fit:contain}
+.permission-shot .permission-image>img.permission-cursor {width:32.2px!important;height:46px!important;transform:translate(-5.75px,-5.75px)}
+.permission-shot.microphone .permission-cursor {left:72%;top:86.2%}
+.permission-shot.call-audio .permission-cursor {left:63%;top:77.3%}
+@media(max-height:800px){.permission-shot .permission-image>img:not(.permission-cursor){max-height:230px}}
+/* Keep original Windows text readable: main screenshot left, access rows right. */
+.windows-permission-shots {display:grid;grid-template-columns:1fr 1fr;gap:14px;width:min(900px,96%);align-items:center}
+.windows-permission-shot.shot-1 {grid-row:1 / span 2}
+.windows-permission-shot.shot-2 {align-self:end}
+.windows-permission-shot.shot-3 {align-self:start}
+
+/* Welcome's product illustration intentionally crosses into the copy area. */
+.onboarding-card[data-view=welcome] .showcase:not(.stage-leaving):not(.stage-entering) {overflow:visible}
+
+/* Aave-inspired source-fill refraction: moving lenses keep labels crisp. */
+.glass-tabs {position:relative;isolation:isolate}
+.glass-tabs button,.glass-tabs button.selected {position:relative;z-index:1;background:transparent;box-shadow:none;transition:color 300ms ease}
+.tabs-lens {position:absolute;left:0;top:3px;height:29px;pointer-events:none;border-radius:999px;
+ border:1px solid #fff9;box-shadow:inset 0 1px 0 #fffe,0 2px 5px #0002;
+ transition:transform 420ms cubic-bezier(.2,.95,.25,1.08),width 420ms cubic-bezier(.2,.95,.25,1.08)}
+.tabs-lens::before,.phase-lens::before {content:'';position:absolute;inset:0;border-radius:inherit;
+ background:linear-gradient(165deg,#ffffffa8,#ffffff38 60%,#ffffff80);filter:var(--lens-filter);pointer-events:none}
+.phase-lens {background:transparent}
+.permission-option .glass-toggle {--track-fill:#74787e;transition:background 300ms ease;overflow:visible}
+.permission-option .glass-toggle.on {--track-fill:#34c759}
+.permission-option .glass-toggle i,.permission-option .glass-toggle.on i {background:#ffffff25;overflow:visible;
+ border:1px solid #fffc;box-shadow:inset 0 1px 1px #fff,inset 0 -1px 1px #fffd,0 2px 4px #0003;
+ transition:transform 460ms cubic-bezier(.2,.95,.25,1.10);backdrop-filter:none}
+.toggle-refraction {position:absolute;inset:0;border-radius:inherit;overflow:hidden;filter:var(--lens-filter);pointer-events:none}
+.toggle-refraction::before {content:'';position:absolute;inset:-2px;width:68px;border-radius:999px;
+ background:linear-gradient(165deg,#ffffffab,transparent 35%,#fff6),var(--track-fill);border:2px solid #ffffff80;
+ transform:translateX(0);transition:transform 460ms cubic-bezier(.2,.95,.25,1.1),background 300ms ease}
+.glass-toggle.on .toggle-refraction::before {transform:translateX(calc(-1 * var(--toggle-travel)))}
+
+/* Transitions.dev notification badge — only the count moves. */
+.document-trigger {position:relative;display:block;width:28px;height:28px;margin:0 0 4px}
+.document-trigger .sf {display:block}
+.t-badge {position:absolute;top:-6px;right:-8px;pointer-events:none;z-index:1}
+.t-badge[data-open=true] {animation:document-badge-slide 260ms cubic-bezier(.22,1,.36,1)}
+.t-badge-dot {display:grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:99px;
+ background:#2375df;color:#fff;border:1.5px solid #fff;font:600 10px/1 var(--font);box-shadow:0 1px 3px #0002;
+ transform:scale(1);opacity:1;filter:blur(0);transition:transform 500ms cubic-bezier(.34,1.36,.64,1),opacity 400ms ease,filter 500ms ease}
+.t-badge[data-open=false] .t-badge-dot {transform:scale(0);opacity:0;filter:blur(2px);transition-duration:180ms}
+@keyframes document-badge-slide {from{transform:translate(-8.2px,12.4px)}to{transform:translate(0)}}
+/* Transitions.dev success check. A saved URL is not an indexed website. */
+.t-success-check {display:block;width:21px;height:21px;color:#239845;opacity:0;transform-origin:center}
+.t-success-check svg {display:block;overflow:visible}
+.t-success-check path {stroke-dasharray:20;stroke-dashoffset:20}
+.t-success-check[data-state=in] {animation:saved-check-in 500ms cubic-bezier(.22,1,.36,1) both,saved-check-bob 500ms cubic-bezier(.34,1.35,.64,1) both}
+.t-success-check[data-state=in] path {animation:saved-check-draw 500ms cubic-bezier(.22,1,.36,1) 80ms forwards}
+.t-success-check[data-state=settled] {opacity:1}
+.t-success-check[data-state=settled] path {stroke-dashoffset:0}
+@keyframes saved-check-in {from{opacity:0;transform:rotate(80deg);filter:blur(10px)}to{opacity:1;transform:rotate(0);filter:blur(0)}}
+@keyframes saved-check-bob {from{translate:0 40px}to{translate:0 0}}
+@keyframes saved-check-draw {to{stroke-dashoffset:0}}
+@media(prefers-reduced-motion:reduce) {
+ .tabs-lens,.phase-lens,.glass-tabs button,.permission-option .glass-toggle,.permission-option .glass-toggle i,.toggle-refraction::before,.t-badge-dot {transition:none!important}
+ .t-badge,.t-success-check {animation:none!important}
+ .t-success-check {opacity:1}.t-success-check path {animation:none!important;stroke-dashoffset:0}
+}
+@media(prefers-reduced-transparency:reduce){.tabs-lens,.phase-lens,.permission-option .glass-toggle i{background:#fff}.toggle-refraction{display:none}}
+
+/* Each of the five sunbeams owns its own random, slow drift. */
+.light-field .rays.beam {width:150vmax;height:150vmax;opacity:.7;filter:blur(10px);
+ background:conic-gradient(from 0deg,transparent 0deg 69deg,#fff5de80 72deg 82deg,transparent 86deg)}
+.light-field .rays.beam::after {background:none}
+.website-group.saved .apple-row-action {background:#239845;color:#fff}
+.website-group.saved .t-success-check {color:#fff}
+/* Keep the approved white switch thumb; motion and edge highlights provide depth. */
+.permission-option .glass-toggle i,.permission-option .glass-toggle.on i {background:#fff}
+.toggle-refraction::before {background:linear-gradient(165deg,#fff 10%,#f5f7fa 45%,#e7ecf2 72%,#fff);border-color:#fff}
+
+/* The full Welcome instruction is the bold line; explanation starts below it. */
+.onboarding-card[data-view=welcome] .copy-block h1 {font-weight:700}
+
+.onboarding-language{position:absolute;right:24px;top:18px;display:flex;gap:3px;z-index:8;padding:3px;border-radius:20px;background:#14171b99;border:1px solid #ffffff20}
+.onboarding-language button{font:500 12px/20px Inter,-apple-system,sans-serif;border:0;border-radius:16px;background:none;color:#b9b9be;padding:3px 10px;cursor:pointer}
+.onboarding-language button[aria-pressed=true]{background:#ffffff1f;color:white}
+.onboarding-card:not([data-view=welcome]) .onboarding-language{display:none}
+html[lang=de] .apple-row-label{min-width:118px;max-width:145px}
+html[lang=de] .permission-actions{flex-wrap:wrap;justify-content:flex-end}
+html[lang=de] .welcome-title h1{font-size:clamp(38px,4.2vw,60px)}
+/* Keep progress between navigation and the two Windows permission actions. */
+html[data-platform=win] .onboarding-card[data-view=permissions] .card-footer{display:grid;grid-template-columns:auto minmax(64px,1fr) auto;gap:14px}
+html[data-platform=win] .onboarding-card[data-view=permissions] .footer-position.middle{position:static;transform:none;justify-self:center;width:auto}
+html[data-platform=win] .onboarding-card[data-view=permissions] .permission-actions{justify-self:end}
+@media(max-width:760px){html[data-platform=win] .onboarding-card[data-view=permissions] .permission-actions{flex-wrap:wrap;justify-content:flex-end}}
+
+/* Hold an already decoded icon until the host presents the first native frame. */
+.awaiting-presentation .launch-icon {opacity:1;transform:translate(-50%,-50%);animation:none}
+.awaiting-presentation .onboarding-card {opacity:0;pointer-events:none}
+@keyframes mark-hold {
+  0%,92% {opacity:1;transform:translate(-50%,-50%) scale(1)}
+  97%,100% {opacity:0;transform:translate(-50%,-50%) scale(1)}
+}
+
+/* Transitions.dev error shake, kept beside its field without shifting the form. */
+.website-group.t-input-wrap {position:relative;border:1px solid transparent}
+.website-group .t-input {border:1px solid transparent;border-radius:6px;transition:border-color 150ms ease-out}
+.website-group .apple-row {border-bottom:0}
+.website-group .t-input.is-error {border-color:#c83e3e;transition-duration:280ms;box-shadow:none}
+.website-group .t-error-msg {position:absolute;left:12px;right:0;top:100%;margin:2px 0 0;
+ color:#b52929;font:400 11px/14px -apple-system,BlinkMacSystemFont,sans-serif;
+ opacity:0;visibility:hidden;transition:opacity 280ms ease-out,visibility 0s linear 280ms}
+.website-group.is-error .t-error-msg {opacity:1;visibility:visible;transition-delay:0s}
+.website-group .t-input.is-shaking {animation:t-input-shake 280ms linear}
+@keyframes t-input-shake {
+ 0% {transform:translateX(0);animation-timing-function:cubic-bezier(.22,1,.36,1)}
+ 28.57% {transform:translateX(6px);animation-timing-function:cubic-bezier(.22,1,.36,1)}
+ 50% {transform:translateX(-6px);animation-timing-function:cubic-bezier(.22,1,.36,1)}
+ 78.57% {transform:translateX(4px);animation-timing-function:cubic-bezier(.22,1,.36,1)}
+ 100% {transform:translateX(0)}
+}
+/* Transitions.dev toggle: preserve the approved white thumb and its 28px travel. */
+.permission-option .glass-toggle {--toggle-ov1:1px;--toggle-ov2:0px;transition:background 0ms}
+.permission-option .glass-toggle i,.permission-option .glass-toggle.on i {transform:none;translate:0 0;transition:none;will-change:translate}
+.permission-option .glass-toggle[data-on=true] i {translate:var(--toggle-travel) 0}
+.permission-option .glass-toggle.is-init[data-on=true] i {animation:t-toggle-on 350ms cubic-bezier(.34,1.35,.64,1) both}
+.permission-option .glass-toggle.is-init[data-on=false] i {animation:t-toggle-off 350ms cubic-bezier(.34,1.35,.64,1) both}
+@keyframes t-toggle-on {
+ 0% {translate:0 0}
+ 55% {translate:calc(var(--toggle-travel) + var(--toggle-ov1)) 0}
+ 80% {translate:calc(var(--toggle-travel) - var(--toggle-ov2)) 0}
+ 100% {translate:var(--toggle-travel) 0}
+}
+@keyframes t-toggle-off {
+ 0% {translate:var(--toggle-travel) 0}
+ 55% {translate:calc(0px - var(--toggle-ov1)) 0}
+ 80% {translate:var(--toggle-ov2) 0}
+ 100% {translate:0 0}
+}
+/* Transitions.dev learn-more chevron, mirrored for Back. */
+.t-learn-direction {display:inline-flex;flex:none;width:20px;height:20px}
+.t-learn-direction.reverse {transform:rotate(180deg)}
+.t-learn-chevron {display:inline-flex;transform:translateX(0);transition:transform 350ms cubic-bezier(.22,1,.36,1)}
+.t-learn-chevron svg {width:20px;height:20px;overflow:visible}
+.t-learn-arm {transform-box:view-box;transform-origin:10px 8px;vector-effect:non-scaling-stroke;transition:transform 350ms cubic-bezier(.22,1,.36,1)}
+.t-learn:is(:hover,:focus-visible) .t-learn-chevron {transform:translateX(2px)}
+.t-learn:is(:hover,:focus-visible) .t-learn-arm-top {transform:rotate(8deg)}
+.t-learn:is(:hover,:focus-visible) .t-learn-arm-bot {transform:rotate(-8deg)}
+@media(prefers-reduced-motion:reduce) {
+ .website-group .t-input.is-shaking,.permission-option .glass-toggle i {animation:none!important}
+ .t-learn-chevron,.t-learn-arm {transition:none!important}
+}
+
+/* Rejected documents use the same local feedback, without adding copy. */
+.apple-drop {transition:border-color 280ms ease-out,background 280ms ease-out}
+.apple-drop.is-error {border-color:#c83e3e;background:#fff0f0}
+.apple-drop.is-shaking {animation:t-input-shake 280ms linear}
+@media(prefers-reduced-motion:reduce) {.apple-drop.is-shaking{animation:none!important}}

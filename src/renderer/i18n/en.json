@@ -85,8 +85,6 @@
       "shortcutToggleClickThrough": "Let Clicks Pass Through",
       "shortcutToggleClickThroughDescription": "Passes mouse clicks through Taylos to the window underneath. Use the same shortcut to turn it off again.",
       "shortcutManualScreenshot": "Manual Screenshot",
-      "shortcutPreviousResponse": "Previous Response",
-      "shortcutNextResponse": "Next Response",
       "myPresets": "My Presets",
       "presetsCount": "{{count}}",
       "noPresetsMessage": "No custom presets yet.",
@@ -98,6 +96,7 @@
       "presetContextPending": "Preset activated. Taylos will verify its context when the next conversation starts.",
       "presetLockedDuringSession": "Stop listening before changing the preset.",
       "personalizeButton": "Personalize / Meeting Notes",
+      "runSetupAgain": "Run setup again",
       "automaticUpdates": "Automatic Updates",
       "automaticUpdatesOn": "Automatic Updates: On",
       "automaticUpdatesOff": "Automatic Updates: Off",
@@ -118,7 +117,7 @@
     },
     "errors": {
       "network": "Network error. Please check your connection.",
-      "auth": "Authentication failed. Please login again.",
+      "auth": "Login expired. Please sign in again.",
       "unknown": "An unexpected error occurred.",
       "screenshot": "Failed to capture screenshot"
     },

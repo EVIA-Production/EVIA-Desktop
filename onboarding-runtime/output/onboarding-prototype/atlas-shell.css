@@ -1,0 +1,898 @@
+/* Atlas reference: 708 x 500, with a 262 px illustration zone. The
+   880 x 622 shell preserves that proportion, allowing the retained rim. */
+:root {--window-width:880px;--window-height:622px;--show-height:318px}
+.desktop {padding:24px;min-height:calc(100vh - 44px)}
+.window-wrap {width:var(--window-width);max-width:calc(100vw - 40px);height:var(--window-height)}
+.onboarding-card {border-radius:28px;padding:11px 11px 0;grid-template-rows:var(--show-height) 1fr;box-shadow:0 36px 70px -10px #000b,0 14px 24px #0009,inset 0 1px 0 #ffffff13}
+.showcase {border-radius:18px;position:relative;display:block}
+.stage-art {position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;border-radius:inherit}
+.watermark {z-index:7;left:17px;top:17px}
+.watermark .taylos-mark {width:19px;height:19px}
+.native-overlay-frame {position:absolute;z-index:4;border:0;background:transparent;left:-32px;top:-32px;width:calc(100% + 64px);height:calc(100% + 64px)}
+.native-overlay-frame[hidden] {display:none}
+.stage-caption {z-index:6;top:15px;left:60px;right:60px;width:fit-content;max-width:calc(100% - 120px);margin:0 auto;padding:8px 15px;font-size:16px;line-height:22px;font-weight:500;color:#f5faff;background:#132c46d9;border:1px solid #ffffff42;border-radius:13px;box-shadow:inset 0 1px 0 #ffffff16,0 5px 13px #16355436;backdrop-filter:blur(18px);pointer-events:none}
+[data-view=transcript] .stage-caption {font-size:11px;line-height:16px;padding:4px 8px;top:12px;left:auto;right:12px;max-width:150px;text-align:center}
+.welcome-title {top:16px;left:20px;right:20px}
+.welcome-title h1 {font-size:29px;line-height:35px;margin-bottom:1px}
+.welcome-title p {font-size:16px;line-height:23px}
+.welcome-image > img {height:233px}
+.instruction-zone {position:relative;display:grid;grid-template-rows:minmax(0,1fr) 44px;gap:18px;padding:32px 25px 24px;min-width:0}
+.instruction-main {display:flex;flex-direction:column;gap:13px;justify-content:flex-start;min-height:0;min-width:0}
+.copy-block h1 {font-size:26px;line-height:32px;margin:0 0 9px;font-weight:600}
+.copy-block p {font-size:17px;line-height:24px;margin:0;color:#afb1b7;max-width:none}
+.copy-block p:empty {display:none}
+.interaction-zone {display:block;min-height:0}
+.interaction-zone:empty {display:none}
+.card-footer {height:44px;gap:12px}
+.button {height:44px;min-width:102px;font-size:16px;line-height:20px;padding:0 23px;font-weight:550}
+.button.white {min-width:196px}
+.footer-position {height:44px}
+.phase-mount {position:absolute;z-index:9;left:25px;top:-17px}
+.phases {display:flex;align-items:center;gap:7px;height:35px;padding:0;pointer-events:none}
+.phase {width:16px;height:16px;display:block;padding:0;border-radius:50%;background:#7d8389c9;border:1px solid #ffffff3d;box-shadow:inset 0 1px 1px #ffffff47,inset 0 -1px 1px #0005,0 2px 6px #0003}
+.phase.active {display:flex;align-items:center;width:auto;height:35px;padding:0 16px;border-radius:999px;background:linear-gradient(165deg,#ffffff25,#ffffff09),#242e3bec;color:#fff;font-size:17px;line-height:23px;font-weight:550;backdrop-filter:blur(22px);border:1px solid #ffffff66;box-shadow:inset 0 1px 0 #ffffff6b,inset 0 -1px 0 #0006,0 4px 9px #0004;animation:phase-glass-in 380ms cubic-bezier(.16,1,.3,1)}
+@keyframes phase-glass-in {from {opacity:.4;transform:translateY(3px) scaleX(.91)}to {opacity:1;transform:none}}
+.step-dots {padding:5px 0;gap:8px;height:21px}
+.step-dots i {width:9px;height:9px;background:#777d83;border:1px solid #ffffff24;box-shadow:inset 0 1px 1px #ffffff17}
+.step-dots i.active {width:30px;height:11px;border:1px solid #ffffff94;background:linear-gradient(165deg,#fff,#e3eaf5c9);box-shadow:inset 0 1px 0 white,inset 0 -1px 1px #94a5be,0 2px 6px #0006}
+[data-view=welcome] .instruction-main,[data-view=ask] .instruction-main {display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:24px;align-items:center}
+[data-view=welcome] .copy-block h1 {font-size:25px;line-height:31px}
+[data-view=ask] .copy-block h1 {margin:0}
+.shortcut-coach {height:auto;gap:8px;justify-content:center}
+.shortcut-coach > span {font-size:14px;line-height:19px;text-align:center;max-width:310px}
+.shortcut-alternative {font-size:15px;line-height:21px;display:block;text-align:center;max-width:330px}
+.shortcut-alternative .inline-mark {vertical-align:middle;width:19px;height:19px;margin:0 1px}
+.keys.large {gap:13px}
+.keys.large kbd {width:89px;height:71px;font-size:32px;border-radius:16px;background:linear-gradient(143deg,#ffffffed,#eaf1fae0);border:1px solid #fff;backdrop-filter:blur(20px);box-shadow:inset 0 2px 0 white,inset 0 -1px 2px #e2ecfa,0 5px 0 #b3bfce,0 10px 18px #0004}
+.keys.large .key-plus {font-size:22px;font-weight:400;color:#b5b9c1}
+.shortcut-button {padding-bottom:5px}
+.permission-controls {gap:14px}
+.permission-option {height:84px;padding:14px;gap:11px}
+.permission-option b {font-size:18px;margin-bottom:5px}
+.permission-option small {font-size:13px}
+.permission-primary {min-width:210px}
+.permission-stage h2 {font-size:23px;line-height:30px}
+.permission-art {margin-bottom:19px}
+.sound-source,.receiver {width:78px;height:78px;border-radius:21px}
+.receiver {padding:0;background:none;border:0;box-shadow:none}
+.receiver .taylos-mark {width:78px;height:78px;filter:none}
+.history-coach {align-items:flex-start;gap:13px}
+.history-coach p {font-size:17px;line-height:24px}
+.history-coach > div {gap:30px}
+.keys.medium kbd {height:39px;min-width:44px;font-size:21px}
+.history-shortcut > span:first-child {font-size:14px}
+.meeting {top:73px;width:610px;height:232px}
+.personalization-stage {width:calc(100% - 76px)}
+.profile-editor {height:270px;grid-template-columns:187px 1fr}
+.editor-nav {padding:14px 8px}
+.editor-nav button {font-size:13px;padding:11px}
+.editor-fields {padding:15px 20px}
+.editor-fields header {margin-bottom:10px}
+.editor-fields input {height:31px}
+.editor-fields label {margin-bottom:8px}
+.profile-controls form label {font-size:14px;margin-bottom:6px}
+.website-input {height:43px}
+.website-input input {height:38px}
+.website-input button {height:32px}
+.profile-meta {margin-top:9px}
+.profile-meta .document-button {font-size:13px}
+#document-status {font-size:12px}
+.launch-icon {width:126px;height:126px;background:none;border:0;border-radius:0;box-shadow:none}
+.launch-icon > img {width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 20px 15px #0009)}
+.launching .launch-icon {animation:logo-reveal 3150ms ease both}
+@media(max-width:760px) {
+  :root {--window-width:880px;--window-height:700px;--show-height:318px}
+  .window-wrap {width:calc(100vw - 24px);max-width:none;height:700px}
+  .desktop {padding:20px 12px}
+  .instruction-zone {padding:30px 13px 18px;grid-template-rows:minmax(0,1fr) 44px;gap:12px}
+  .instruction-main {gap:12px}
+  .copy-block h1 {font-size:21px;line-height:27px}
+  .copy-block p {font-size:15px;line-height:21px}
+  [data-view=welcome] .instruction-main,[data-view=ask] .instruction-main {grid-template-columns:1fr;gap:13px;align-content:start}
+  [data-view=welcome] .copy-block h1 {font-size:21px;line-height:27px}
+  .shortcut-coach {gap:5px}
+  .keys.large kbd {width:69px;height:51px;font-size:26px}
+  .shortcut-coach > span {font-size:12px;line-height:16px}
+  .shortcut-alternative {font-size:13px;line-height:18px}
+  .phase-mount {left:13px;top:-15px}
+  .phase.active {height:31px;font-size:15px}
+  .phase {width:13px;height:13px}
+  .button {min-width:76px;height:44px;font-size:13px;padding:0 10px}
+  .button.white,.permission-primary {min-width:0;max-width:155px}
+  .footer-position.middle {position:static;transform:none}
+  .stage-caption {left:35px;right:10px;max-width:calc(100% - 45px);font-size:13px;line-height:18px;padding:6px 10px}
+  .meeting {max-width:calc(100% - 44px)}
+  .watermark {display:none}
+  [data-view=transcript] .stage-caption {top:2px;left:auto;right:9px;font-size:10px;padding:2px 6px;max-width:130px;transform:translateY(-100%)}
+  .welcome-title {left:12px;right:12px}
+  .welcome-title h1 {font-size:25px}
+  .welcome-title p {font-size:14px;line-height:20px}
+  .welcome-image > img {height:217px}
+  .personalization-stage {width:calc(100% - 28px);margin-top:12px}
+  .profile-editor {height:278px;grid-template-columns:1fr;grid-template-rows:45px 1fr}
+  .editor-nav {padding:5px}.editor-nav button {font-size:10px;padding:3px}
+  .editor-fields {padding:9px 12px}
+  .editor-fields header {margin-bottom:5px}
+  .editor-fields label {font-size:12px;margin-bottom:5px}
+  .history-coach > div {gap:16px}
+  .history-coach p {font-size:15px;line-height:21px}
+  .history-shortcut {flex-direction:row;gap:5px}
+  .keys.medium kbd {min-width:30px;height:32px;font-size:18px;padding:0 5px}
+  .history-shortcut > span:first-child {font-size:12px}
+  .permission-option {height:85px;padding:10px;gap:6px}
+  .permission-option b {font-size:14px}.permission-option small {font-size:12px}
+}
+
+/* Final approved composition. Geometry is fixed; the product stays mounted. */
+:root {--card:#0b0b0c}
+html[data-native=true] .prototype-toolbar {display:none}
+html[data-native=true] #prototype-root,html[data-native=true] .desktop {min-height:100vh}
+.desktop::before {background:linear-gradient(113deg,transparent 10%,#b0c9d90d 25%,transparent 41%),linear-gradient(65deg,#111213,#22262a);filter:none;transform:none}
+.desktop::after {background:linear-gradient(145deg,#0001,#0005)}
+.onboarding-card {box-shadow:0 40px 80px -8px #000d,0 14px 30px #0009,inset 0 1px 0 #ffffff1c}
+.native-overlay-frame {z-index:8}
+.instruction-main {justify-content:center}
+.copy-block h1 {font-size:27px;line-height:33px;font-weight:600}
+.copy-block p {font-size:18px;line-height:25px;color:#b0b0b5}
+[data-view=welcome] .copy-block h1 {font-size:26px;line-height:32px}
+[data-view=ask] .copy-block h1 {margin-bottom:10px}
+[data-view=goal] .instruction-main {display:grid;grid-template-columns:1.1fr 1fr;gap:34px;align-items:center}
+.next-instruction {font-size:19px;line-height:27px;color:#e8e8ec}
+.next-instruction strong {font-weight:550}
+.next-instruction p {font-size:16px;line-height:23px;color:#a5a5ad;margin:12px 0 0}
+[data-view=transcript] .interaction-zone,[data-view=insights] .interaction-zone {max-width:710px}
+[data-view=prepare] .copy-block {max-width:750px}
+[data-view=prepare] .copy-block h1 {font-size:27px;line-height:39px;font-weight:500}
+[data-view=suggestion] .instruction-main {display:grid;grid-template-columns:1fr 1.08fr;gap:27px;align-items:center}
+[data-view=suggestion] .copy-block h1 {font-size:25px;line-height:33px}
+.stop-instruction {font-size:18px;line-height:29px;color:#dedee3;margin-bottom:15px}
+.inline-product-button {display:inline-flex;align-items:center;vertical-align:baseline;gap:5px;white-space:nowrap;padding:2px 12px;border-radius:999px;background:linear-gradient(#505053,#39393b);box-shadow:inset 0 1px 1px #ffffff7a,inset 0 -1px 1px #0009,0 2px 4px #0005;border:1px solid #ffffff29;font-size:15px;line-height:23px;color:white;font-weight:600}
+.inline-product-button .sf {width:14px;height:14px}
+.inline-product-button.stop {background:linear-gradient(#a82a30,#78131a);color:#fff}
+.inline-product-button.insights {background:#323234;font-weight:500}
+.history-coach {gap:9px}
+.history-coach p {font-size:15px;line-height:21px;color:#b8b8bf}
+.history-coach > div {gap:16px}
+.history-shortcut {gap:7px}
+.history-shortcut:disabled {opacity:.48}
+.keys.medium kbd {height:38px;min-width:41px;padding:0 8px;color:#25262a;background:linear-gradient(145deg,#fff,#d8e4f2);box-shadow:0 3px 0 #97a7bb,inset 0 1px 0 white;border:1px solid #ffffffae}
+.keys.medium kbd.pressed {transform:translateY(3px);box-shadow:inset 0 2px 3px #8794a04a}
+.keys.large kbd {background:linear-gradient(132deg,#fff 10%,#ecf3ff 46%,#aac6ef 100%);box-shadow:inset 0 2px 1px #fff,inset 0 -1px 2px #a5b7d0,0 5px 0 #879ab5,0 11px 20px #0007;color:#262e3e}
+.shortcut-coach strong {font-size:19px;line-height:25px;font-weight:550;text-align:center;margin-bottom:3px}
+.shortcut-coach > span {font-size:16px;line-height:22px}
+.shortcut-alternative {font-size:17px;line-height:23px;color:#d2d2d7}
+.phase-mount {top:-20px}
+.phases {height:40px;gap:7px;padding:4px 9px;background:#b9b9b948;border:1px solid #ffffff66;border-radius:999px;box-shadow:inset 0 1px 1px #ffffff7a,inset 0 -1px 1px #0002,0 4px 11px #0004;backdrop-filter:blur(24px) saturate(.6)}
+.phase {width:12px;height:12px;flex:none;border:0;background:#ffffff6a;box-shadow:inset 0 1px 1px #ffffff5c}
+.phase.active {height:32px;padding:0 15px;background:linear-gradient(155deg,#fff,#eeeeeede);border:1px solid #ffffffc0;color:#242426;box-shadow:inset 0 1px 1px white,0 2px 5px #0002;backdrop-filter:blur(16px);font-size:16px;line-height:21px;animation:phase-glass-in 380ms cubic-bezier(.16,1,.3,1)}
+.step-dots i.active {animation:none}
+.permission-option {background:linear-gradient(145deg,#ffffff12,#ffffff07);border:1px solid #ffffff18;box-shadow:inset 0 1px 0 #ffffff0c;border-radius:18px;height:96px;padding:15px}
+.permission-option.active {background:linear-gradient(145deg,#ffffff1c,#ffffff0a);border-color:#ffffff36;box-shadow:inset 0 1px 1px #ffffff24}
+.permission-option.queued {opacity:.4}
+.permission-option small {font-size:14px;line-height:19px;display:block;color:#a5a5ac;white-space:normal}
+.permission-option b {font-size:19px;line-height:24px}
+.glass-toggle {width:51px;height:31px;flex:0 0 51px;border-radius:999px;background:#737375;box-shadow:inset 0 1px 3px #0003;border:0;transition:background 360ms}
+.glass-toggle i {display:block;position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:linear-gradient(145deg,#fffffff2,#ededede0);border:1px solid #fff9;box-shadow:inset 0 1px 1px #fff,0 1px 4px #0004;backdrop-filter:blur(8px);transform:translateX(0)}
+.glass-toggle.on {background:#32d74b}
+.glass-toggle.on i {transform:translateX(20px);background:linear-gradient(145deg,#ffffffae,#ffffff46);box-shadow:inset 0 1px 1px #fff,inset 0 -1px 1px #fff6,0 2px 6px #00601633}
+.permission-primary {background:linear-gradient(165deg,#6286e6,#9ec5f6);border:1px solid #c5d8ffbb;box-shadow:inset 0 1px 1px #fff9,inset 0 -1px 1px #607ad58c,0 5px 14px #0a0d2540;color:white;font-weight:550;border-radius:11px}
+.permission-primary:hover {background:linear-gradient(165deg,#7496f0,#b2d4ff)}
+[data-view=review] .copy-block h1 {font-size:27px;line-height:35px}
+[data-view=review] .copy-block p {margin-top:14px;font-size:20px;line-height:28px;color:#e1e1e5}
+[data-view=personalize].onboarding-card {display:grid;grid-template-columns:340px 1fr;grid-template-rows:1fr;padding:0;overflow:hidden}
+[data-view=personalize] .showcase {grid-column:2;grid-row:1;width:100%;height:100%;border-radius:0;background-color:#111314;background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);background-size:40px 40px;border-left:1px solid #ffffff0c}
+[data-view=personalize] .watermark {display:none}
+[data-view=personalize] .instruction-zone {grid-column:1;grid-row:1;padding:40px 27px 30px;grid-template-rows:1fr 44px;gap:28px}
+[data-view=personalize] .instruction-main {gap:24px;justify-content:center}
+[data-view=personalize] .copy-block h1 {font-size:30px;line-height:38px}
+[data-view=personalize] .copy-block p {font-size:18px;line-height:26px;margin-top:20px}
+[data-view=personalize] .phase-mount,[data-view=personalize] .footer-position {display:none}
+[data-view=personalize] .card-footer {gap:9px}
+[data-view=personalize] .button {padding:0 13px;min-width:0}
+[data-view=personalize] .permission-primary {flex:1}
+.profile-reassurance {font-size:16px;line-height:23px;margin:0;color:#aaaab2}
+.personalization-stage {width:100%;height:100%;padding:36px 25px;display:flex;align-items:center}
+.profile-editor {width:100%;height:100%;display:flex;flex-direction:column;padding:12px;background:#fff;color:#202024;border:1px solid #ffffffc0;border-radius:23px;box-shadow:0 16px 36px #0007,inset 0 1px 1px white;backdrop-filter:none;overflow:hidden}
+.editor-nav {display:grid;grid-template-columns:1fr 1fr;flex:none;gap:4px;padding:6px;margin:0 0 12px;background:#f2f2f4;border:0;border-radius:12px}
+.editor-nav button {font-size:12px;line-height:17px;padding:8px 5px;text-align:center;background:transparent;color:#747479;border:1px solid transparent;border-radius:8px}
+.editor-nav button.selected {background:white;color:#222226;box-shadow:0 1px 4px #00000014;border-color:#00000007}
+.editor-fields {flex:1;min-height:0;overflow-y:auto;padding:5px 12px;background:#f7f7f8;border-radius:12px;scrollbar-width:thin;color-scheme:light}
+.editor-fields header {padding:12px 0;margin:0;border:0}
+.editor-fields header h2 {font-size:18px;line-height:24px;color:#242426}
+.editor-fields label {display:flex;flex-direction:column;gap:6px;padding:11px 0;margin:0;border-top:1px solid #0000000b;font-size:13px;line-height:18px;color:#333337;font-weight:450}
+.editor-fields input {width:100%;height:32px;padding:6px 9px;border-radius:6px;background:white;border:1px solid #00000012;box-shadow:0 1px 1px #00000003;font-size:13px;line-height:18px;color:#28282b}
+.editor-fields input::placeholder {color:#96969c;opacity:1}
+.document-row {padding:15px 8px 5px;display:flex;flex-direction:column;gap:6px}
+.document-row .document-button {display:flex;gap:8px;align-items:center;color:#303034;font-size:15px;line-height:22px;cursor:pointer;font-weight:500}
+.document-button input {display:none}
+.document-row #document-status {font-size:12px;line-height:18px;color:#8a8a91;overflow-wrap:anywhere}
+.launch-icon > img {filter:drop-shadow(-4px -4px 8px #ffffff12) drop-shadow(0 22px 16px #000b)}
+@keyframes logo-reveal {0%{opacity:0;transform:translate(-50%,-43%) rotateY(-15deg) scale(.92)}14%,72%{opacity:1;transform:translate(-50%,-50%) rotateY(0) scale(1)}86%{opacity:.9;transform:translate(-50%,-50%) rotateY(65deg) rotateZ(-8deg) scale(1.5)}100%{opacity:0;transform:translate(-50%,-50%) rotateY(90deg) scale(3.4)}}
+@media(max-width:760px) {
+ .copy-block h1,[data-view=welcome] .copy-block h1,[data-view=suggestion] .copy-block h1,[data-view=prepare] .copy-block h1,[data-view=review] .copy-block h1 {font-size:21px;line-height:28px}
+ .copy-block p {font-size:16px;line-height:22px}
+ [data-view=goal] .instruction-main,[data-view=suggestion] .instruction-main {grid-template-columns:1fr;gap:12px}
+ .next-instruction,.stop-instruction {font-size:16px;line-height:23px}
+ .next-instruction p {font-size:14px;line-height:19px;margin-top:6px}
+ .shortcut-alternative {font-size:14px;line-height:19px}
+ .shortcut-coach strong,.shortcut-coach > span {font-size:14px;line-height:19px}
+ .history-coach p {font-size:13px;line-height:18px}
+ .stop-instruction {margin-bottom:10px}
+ .permission-option {padding:10px;height:102px;gap:7px}
+ .permission-option > .sf {display:none}
+ .permission-option b {font-size:15px;line-height:19px}
+ .permission-option small {font-size:12px;line-height:16px}
+ .glass-toggle {width:43px;height:27px;flex-basis:43px}
+ .glass-toggle i {width:23px;height:23px}
+ .glass-toggle.on i {transform:translateX(16px)}
+ [data-view=personalize].onboarding-card {grid-template-columns:1fr;grid-template-rows:170px 1fr}
+ [data-view=personalize] .showcase {grid-column:1;grid-row:2}
+ [data-view=personalize] .instruction-zone {grid-column:1;grid-row:1;padding:22px 22px 0;display:block}
+ [data-view=personalize] .instruction-main {gap:8px}
+ [data-view=personalize] .copy-block h1 {font-size:22px;line-height:28px}
+ [data-view=personalize] .copy-block p {font-size:14px;line-height:20px;margin:8px 0}
+ .profile-reassurance {font-size:13px;line-height:18px}
+ [data-view=personalize] .card-footer {position:absolute;top:610px;left:22px;right:22px;z-index:10}
+ .personalization-stage {padding:12px 15px 73px;margin:0}
+ .editor-fields header h2 {font-size:16px}
+ [data-view=review] .copy-block p {font-size:17px;line-height:24px}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FINAL PASS — 2026-09-06
+   Presentation layer: the onboarding is a card floating on the user's own
+   desktop, not a fullscreen black app. Everything below overrides the earlier
+   sheets deliberately.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  /* two thirds of the screen, never larger than the design size */
+  --window-width:min(1040px,68vw);
+  --window-height:min(742px,78vh);
+  --show-height:min(392px,41vh);
+  --beam-hue-a:#7FB4FF; --beam-hue-b:#B79BFF; --beam-hue-c:#FFD9A6;
+}
+
+/* ── the ground the card sits on ─────────────────────────────────────────────
+   In the native window the surface is transparent, so this scrim darkens the
+   real desktop instead of replacing it. In a browser tab there is no desktop
+   to show, so a wallpaper stands in. */
+.desktop{padding:0;min-height:100vh;justify-content:center;overflow:hidden}
+.desktop::before{
+  background:url("../../Website/cosmic-saas-launchpad/public/hero-zoom-bg.png") center / cover;
+  filter:blur(22px) saturate(.5) brightness(.55);transform:scale(1.08)}
+.desktop::after{background:rgba(6,8,12,.58)}
+html[data-native],html[data-native] body{background:transparent}
+html[data-native] .desktop::before{display:none}
+html[data-native] .desktop::after{background:rgba(4,6,10,.55);backdrop-filter:saturate(.72) brightness(.86)}
+html[data-native] .prototype-toolbar{display:none}
+
+/* ── light field: beams from behind the card, running off every screen edge ── */
+.light-field{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;
+  opacity:0;transition:opacity 1.1s cubic-bezier(.22,.61,.36,1)}
+.light-field.lit{opacity:1}
+/* the rays themselves — a fan, wider than the screen, fading out of frame */
+.light-field .rays{position:absolute;left:50%;top:50%;width:230vmax;height:230vmax;
+  transform:translate(-50%,-50%);mix-blend-mode:screen;
+  filter:blur(34px);
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(214,232,255,.052) 0deg 3.4deg, transparent 3.4deg 17deg);
+  -webkit-mask-image:radial-gradient(closest-side,transparent 15%,#000 30%,rgba(0,0,0,.55) 58%,transparent 86%);
+          mask-image:radial-gradient(closest-side,transparent 15%,#000 30%,rgba(0,0,0,.55) 58%,transparent 86%);
+  animation:ray-drift 132s linear infinite}
+.light-field .rays.fine{
+  filter:blur(58px);
+  background:repeating-conic-gradient(from 7deg at 50% 50%,
+    rgba(176,206,255,.045) 0deg 6deg, transparent 6deg 31deg);
+  animation:ray-drift 208s linear infinite reverse}
+@keyframes ray-drift{to{transform:translate(-50%,-50%) rotate(360deg)}}
+/* refracted colour, the way light breaks around the panel edge */
+.light-field .bloom{position:absolute;border-radius:50%;filter:blur(90px);mix-blend-mode:screen;
+  animation:bloom-breathe 17s ease-in-out infinite}
+.light-field .b1{left:8%;top:6%;width:46vw;height:40vh;background:var(--beam-hue-a);opacity:.30}
+.light-field .b2{right:2%;top:26%;width:40vw;height:46vh;background:var(--beam-hue-b);opacity:.26;animation-delay:-6s}
+.light-field .b3{left:22%;bottom:-6%;width:52vw;height:38vh;background:var(--beam-hue-c);opacity:.19;animation-delay:-11s}
+@keyframes bloom-breathe{0%,100%{transform:scale(1) translate(0,0)}50%{transform:scale(1.16) translate(2%,-3%)}}
+/* the glow the card itself casts back into the field */
+.window-wrap::before{content:"";position:absolute;inset:-16%;z-index:-1;pointer-events:none;
+  background:radial-gradient(closest-side,rgba(150,190,255,.36),rgba(120,150,255,.10) 52%,transparent 74%);
+  filter:blur(46px);opacity:0;transition:opacity 1.3s ease .25s}
+.lit-stage .window-wrap::before{opacity:1}
+
+/* ── card ─────────────────────────────────────────────────────────────────── */
+.onboarding-card{
+  box-shadow:0 62px 120px -18px rgba(0,0,0,.78),0 22px 44px rgba(0,0,0,.55),
+             0 0 0 1px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.10);
+  overflow:visible}
+/* the product panels must be free to travel over the copy, the footer and the
+   phase indicator — exactly as they would over any other window */
+.showcase{overflow:visible}
+.native-overlay-frame{z-index:20;left:-40px;top:-40px;
+  width:calc(100% + 80px);height:calc(100% + var(--window-height) - var(--show-height) - 40px)}
+.instruction-zone{z-index:2}
+.phase-mount{z-index:9}
+
+/* ── icon reveal: the mark collapses into the window like a black hole ────── */
+.launch-icon{width:min(268px,26vmin);height:min(268px,26vmin);
+  border-radius:24%;border:0;background:none;box-shadow:none;opacity:0}
+.launch-icon>img{width:100%;height:100%;object-fit:contain;
+  filter:drop-shadow(0 34px 46px rgba(0,0,0,.62)) drop-shadow(0 0 70px rgba(90,150,255,.45))}
+.launching .launch-icon{animation:mark-collapse 2050ms cubic-bezier(.5,.02,.2,1) both}
+.launching .onboarding-card{animation:card-emerge 900ms cubic-bezier(.16,1,.3,1) 1350ms both}
+@keyframes mark-collapse{
+  0%  {opacity:0;transform:translate(-50%,-50%) rotate(-32deg) scale(.42)}
+  16% {opacity:1;transform:translate(-50%,-50%) rotate(0deg)   scale(1)}
+  48% {opacity:1;transform:translate(-50%,-50%) rotate(190deg) scale(1.06)}
+  /* the accretion: spin accelerates while the mark is pulled to nothing */
+  100%{opacity:0;transform:translate(-50%,-50%) rotate(1080deg) scale(.02)}
+}
+@keyframes card-emerge{
+  from{opacity:0;transform:scale(.72) rotate(-4deg);filter:blur(12px)}
+  to  {opacity:1;transform:scale(1) rotate(0);filter:blur(0)}
+}
+.launching .onboarding-card>*{animation:card-content-in 620ms ease 1850ms both}
+@keyframes card-content-in{from{opacity:0}to{opacity:1}}
+
+/* ── welcome: the image is the view, the words live on it ────────────────── */
+.welcome-image{background:#0A0B0D}
+/* Cluely's coordinate grid: dark ground, hairline tiles */
+.welcome-image::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:42px 42px;
+  -webkit-mask-image:radial-gradient(128% 108% at 50% 42%,#000 38%,transparent 92%);
+          mask-image:radial-gradient(128% 108% at 50% 42%,#000 38%,transparent 92%)}
+/* the shadow is baked into the asset; scale to the largest size the stage holds
+   and let the PNG's empty lower band bleed past the edge */
+.welcome-image>img{position:absolute;left:50%;bottom:-12.5%;top:auto;transform:translateX(-50%);
+  width:auto;max-width:none;height:128%;object-fit:contain;border-radius:0;filter:none}
+/* the words sit on the image, headline over rule over subline */
+.welcome-image::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:linear-gradient(180deg,rgba(4,7,14,.72) 0%,rgba(4,7,14,.58) 26%,rgba(4,7,14,.34) 44%,transparent 66%)}
+.welcome-title{top:4%;left:6%;right:6%;text-align:center;color:#fff;z-index:3}
+.welcome-title h1{font-size:clamp(30px,3.5vw,46px);line-height:1.06;font-weight:700;
+  letter-spacing:-.028em;margin:0 0 14px;
+  text-shadow:0 3px 5px rgba(0,0,0,.62),0 12px 40px rgba(0,0,0,.62),0 1px 0 rgba(0,0,0,.42)}
+.welcome-title p{font-size:clamp(15px,1.42vw,20px);line-height:1.34;font-weight:500;
+  max-width:34ch;margin:0 auto;color:rgba(255,255,255,.96);
+  text-shadow:0 3px 5px rgba(0,0,0,.66),0 10px 30px rgba(0,0,0,.6)}
+
+/* ── copy transition: exponential exit left, mirrored entry from the right ── */
+.copy-block,.interaction-zone{will-change:transform,opacity}
+.leaving .copy-block,.leaving .interaction-zone{animation:copy-out 260ms cubic-bezier(.7,0,1,.42) both}
+.entering .copy-block,.entering .interaction-zone{animation:copy-in 380ms cubic-bezier(0,.58,.3,1) both}
+.entering .interaction-zone{animation-delay:40ms}
+.leaving .interaction-zone{animation-delay:26ms}
+@keyframes copy-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(-125%)}}
+@keyframes copy-in{from{opacity:0;transform:translateX(125%)}to{opacity:1;transform:translateX(0)}}
+
+/* ── phase indicator: Apple's segmented picker, read-only ────────────────── */
+/* the mount is inside the copy region, so -18px straddles the seam between the
+   show field and the text — where the user asked the indicator to sit */
+.phase-mount{left:50%;right:auto;transform:translateX(-50%);top:-18px}
+.phases{gap:0;padding:3px;border-radius:999px;height:auto;
+  background:rgba(126,132,142,.26);
+  -webkit-backdrop-filter:blur(28px) saturate(200%);backdrop-filter:blur(28px) saturate(200%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.30),inset 0 -1px 1px rgba(0,0,0,.20),
+             0 6px 18px rgba(0,0,0,.28);border:.5px solid rgba(255,255,255,.24)}
+.phase{width:auto;height:auto;padding:6px 15px;border-radius:999px;background:none;border:0;
+  box-shadow:none;font-size:13px;line-height:16px;font-weight:590;color:rgba(255,255,255,.52);
+  white-space:nowrap;transition:color .28s ease}
+.phase::before{content:attr(aria-label)}
+.phase>span{display:none}
+.phase.active{padding:6px 15px;height:auto;font-size:13px;line-height:16px;font-weight:590;color:#fff;
+  background:linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,.17));
+  border:.5px solid rgba(255,255,255,.34);
+  box-shadow:0 2px 7px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.52);
+  animation:seg-slide 420ms cubic-bezier(.32,1.28,.5,1)}
+@keyframes seg-slide{from{transform:scale(.92);opacity:.55}to{transform:scale(1);opacity:1}}
+
+@media (prefers-reduced-motion:reduce){
+  .light-field .rays,.light-field .bloom{animation:none}
+  .launching .launch-icon,.launching .onboarding-card,.launching .onboarding-card>*{animation-duration:1ms}
+  .leaving .copy-block,.leaving .interaction-zone,
+  .entering .copy-block,.entering .interaction-zone{animation-duration:1ms}
+}
+
+/* ── personalization: Cluely split, Apple window on the right ─────────────── */
+.onboarding-card[data-view="personalize"]{
+  grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,.84fr) minmax(0,1.16fr);
+  padding:0;overflow:hidden}
+.onboarding-card[data-view="personalize"] .showcase{
+  order:2;height:auto;width:100%;border-radius:0;background:#0A0B0D;place-items:stretch}
+.onboarding-card[data-view="personalize"] .instruction-zone{
+  order:1;padding:44px 40px 30px;grid-template-rows:minmax(0,1fr) 44px}
+.onboarding-card[data-view="personalize"] .phase-mount{display:none}
+.onboarding-card[data-view="personalize"] .instruction-main{justify-content:center;gap:0}
+.onboarding-card[data-view="personalize"] .copy-block h1{
+  font-size:clamp(24px,2.5vw,32px);line-height:1.14;letter-spacing:-.022em;margin-bottom:12px}
+.onboarding-card[data-view="personalize"] .copy-block p{font-size:16px;line-height:23px}
+.copy-media:empty{display:none}
+.copy-media{position:relative;margin-bottom:22px;border-radius:14px;overflow:hidden;
+  background:#0E1013;border:1px solid rgba(255,255,255,.09);aspect-ratio:16/8}
+.copy-media img{width:100%;height:100%;object-fit:cover;opacity:.62}
+.asset-slot{position:absolute;left:10px;bottom:8px;font:500 9.5px/1 ui-monospace,Menlo,monospace;
+  letter-spacing:.06em;color:rgba(255,255,255,.5)}
+
+/* the white macOS window, laid out like Apple's component kit */
+.personalization-stage{position:absolute;inset:0;width:auto;display:grid;place-items:center;
+  padding:26px;background:#0A0B0D}
+.personalization-stage::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:42px 42px;
+  -webkit-mask-image:radial-gradient(118% 100% at 50% 46%,#000 36%,transparent 92%);
+          mask-image:radial-gradient(118% 100% at 50% 46%,#000 36%,transparent 92%)}
+.apple-window{position:relative;width:100%;max-width:460px;max-height:100%;display:flex;
+  flex-direction:column;background:#FBFBFD;border-radius:12px;overflow:hidden;
+  box-shadow:0 40px 90px rgba(0,0,0,.72),0 6px 18px rgba(0,0,0,.5),0 0 0 .5px rgba(255,255,255,.12)}
+.apple-titlebar{display:flex;align-items:center;gap:12px;padding:10px 12px;
+  background:linear-gradient(180deg,#FBFBFD,#F1F2F5);border-bottom:.5px solid #D8DADF}
+.traffic{display:flex;gap:6px}
+.traffic i{width:11px;height:11px;border-radius:50%;background:#FEBC2E;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.10)}
+.traffic i:first-child{background:#FF5F57}
+.traffic i:last-child{background:#28C840}
+/* Apple's segmented control, the same material as the phase indicator */
+.glass-tabs{display:flex;gap:0;margin-left:auto;margin-right:auto;padding:2px;border-radius:8px;
+  background:rgba(118,124,136,.16);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.07)}
+.glass-tabs button{appearance:none;border:0;background:none;cursor:pointer;
+  padding:4px 13px;border-radius:6px;font:590 12.5px/16px inherit;color:#3C4046;
+  transition:background .18s ease,box-shadow .18s ease}
+.glass-tabs button.selected{background:#fff;color:#111214;
+  box-shadow:0 1px 2.5px rgba(0,0,0,.16),0 0 0 .5px rgba(0,0,0,.06)}
+.apple-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:13px}
+.apple-group{border-radius:9px;background:#fff;box-shadow:0 0 0 .5px rgba(0,0,0,.11)}
+.apple-row{display:flex;align-items:center;gap:10px;padding:8px 11px;min-height:34px;
+  border-bottom:.5px solid #ECEDF0}
+.apple-row:last-child{border-bottom:0}
+.apple-row-label{flex:0 0 40%;font:400 13px/17px inherit;color:#1D1D1F}
+.apple-field{flex:1;display:flex}
+.apple-field input{width:100%;height:24px;min-width:0;border:0;background:none;outline:none;
+  text-align:right;text-overflow:ellipsis;font:400 13px/17px inherit;color:#1D1D1F}
+.apple-field input::placeholder{color:#AFB2B8}
+.apple-field input:focus{text-align:left;padding:0 7px;height:26px;border-radius:6px;
+  background:#fff;box-shadow:0 0 0 3px rgba(0,113,227,.22),0 0 0 .5px #0071E3}
+.apple-row-action{appearance:none;border:0;cursor:pointer;height:22px;min-width:44px;padding:0 10px;
+  border-radius:6px;background:#0071E3;color:#fff;font:590 12px/1 inherit;display:grid;place-items:center}
+.website-group.loading .apple-row-action,.website-group.found .apple-row-action{background:#E8EAEE}
+.apple-row-action .sf.found{background:#28A745;width:13px;height:13px}
+.apple-spinner{width:13px;height:13px;border-radius:50%;border:2px solid rgba(0,0,0,.14);
+  border-top-color:#0071E3;animation:apple-spin .7s linear infinite}
+@keyframes apple-spin{to{transform:rotate(360deg)}}
+.apple-note{margin:0;padding:7px 11px 8px;font:400 11.5px/15px inherit;color:#82858C;
+  border-top:.5px solid #ECEDF0}
+.website-group.loading .apple-note{color:#0071E3}
+.website-group.found .apple-note{color:#1E8E3E}
+/* the dashed drop target, Apple's import affordance */
+.apple-drop{position:relative;display:grid;place-items:center;gap:2px;padding:16px 12px;
+  border-radius:9px;border:1.5px dashed #C3C7CE;background:#F7F8FA;cursor:pointer;
+  text-align:center;transition:border-color .18s,background .18s}
+.apple-drop:hover,.apple-drop.dragover{border-color:#0071E3;background:#F0F6FF}
+.apple-drop.filled{border-style:solid;border-color:#B9DCC4;background:#F3FAF5}
+.apple-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.apple-drop .sf{width:17px;height:17px;background:#7C818A}
+.apple-drop b{font:590 13px/17px inherit;color:#1D1D1F}
+.apple-drop small{font:400 11.5px/15px inherit;color:#8A8E96}
+.apple-footnote{margin:0;text-align:center;font:400 11.5px/16px inherit;color:#8A8E96}
+
+/* ── inline product buttons, drawn as the product draws them ─────────────── */
+.inline-product-button{display:inline-flex;align-items:center;gap:6px;vertical-align:-3px;
+  height:26px;padding:0 11px;border-radius:8px;font:590 13.5px/1 inherit;
+  background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);color:#EFF2F6;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.13)}
+.inline-product-button .sf{width:13px;height:13px;background:currentColor}
+.inline-product-button.stop{background:rgba(255,59,48,.92);border-color:rgba(255,120,110,.55);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 2px 8px rgba(255,59,48,.32)}
+.inline-product-button.insights{background:rgba(255,255,255,.17);border-color:rgba(255,255,255,.26)}
+
+/* ── inline controls: literal copies of the product's own buttons ─────────── */
+.inline-control{display:inline-flex;align-items:center;vertical-align:-6px;position:relative;
+  font-family:inherit;-webkit-user-select:none;user-select:none}
+/* EviaBar.tsx → .evia-listen-button, overlay-glass.css:326 */
+.inline-control.evia-listen-button{height:26px;min-width:78px;padding:0 13px;border-radius:999px;
+  border:none;background:transparent;gap:6px;color:#fff;justify-content:center;
+  box-shadow:inset 0 1px .5px rgba(255,255,255,.45),inset 0 -1px 1px rgba(0,0,0,.18),
+             0 1px 2px rgba(0,0,0,.22)}
+.inline-control.evia-listen-button::before{content:'';position:absolute;inset:0;border-radius:999px;
+  background:rgba(255,255,255,.14);z-index:-1}
+.inline-control.evia-listen-button.listen-active::before{background:rgba(215,0,0,.5)}
+.inline-control .evia-listen-label{font-size:12px;font-weight:600;line-height:1}
+.inline-control .evia-listen-icon{width:12px;height:11px;display:inline-flex;align-items:center;justify-content:center}
+/* ListenView.tsx → .toggle-button, shown hovered so it reads as a control */
+.inline-control.toggle-button{gap:5px;padding:4px 8px;border-radius:5px;height:24px;
+  font-size:11px;font-weight:500;color:#fff;background:rgba(255,255,255,.1);
+  vertical-align:-5px;line-height:1}
+.inline-control.toggle-button svg{flex-shrink:0;width:12px;height:12px}
+
+/* The live views carry the real Insights panel — three bullets per section and
+   three actions. The show field grows to hold it rather than the panel shrinking. */
+.onboarding-card[data-view="transcript"],
+.onboarding-card[data-view="insights"],
+.onboarding-card[data-view="suggestion"],
+.onboarding-card[data-view="review"]{--show-height:min(452px,47vh)}
+
+/* ── permission switch: Apple's Toggle, 1:1 ──────────────────────────────────
+   51×31 track, 27px knob on a 2px inset, Apple system green when on, and the
+   knob's own lift shadow. The knob travels on a spring; the track cross-fades. */
+.glass-toggle{width:51px;height:31px;border-radius:999px;border:none;
+  background:rgba(120,120,128,.32);
+  box-shadow:inset 0 0 0 .5px rgba(0,0,0,.06);
+  transition:background .28s cubic-bezier(.32,.94,.6,1),box-shadow .28s ease}
+.glass-toggle i{width:27px;height:27px;left:2px;top:2px;border-radius:50%;
+  background:#fff;
+  box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16),0 0 0 .5px rgba(0,0,0,.04);
+  transition:transform .34s cubic-bezier(.34,1.28,.44,1)}
+.glass-toggle.on{background:#34C759;
+  box-shadow:inset 0 0 0 .5px rgba(0,0,0,.04),0 0 0 1px rgba(52,199,89,.30),0 6px 18px rgba(52,199,89,.38)}
+.glass-toggle.on i{transform:translateX(20px)}
+
+/* permission cards: icon, title, one line of purpose, switch — nothing else */
+.permission-option{height:auto;min-height:78px;padding:15px 16px;gap:13px;border-radius:14px;
+  background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.085)}
+.permission-option > .sf{width:22px;height:22px;color:#C6CEDA}
+.permission-option b{font-size:16px;font-weight:590;margin-bottom:3px}
+.permission-option small{font-size:13px;line-height:18px;color:#9AA2AD}
+.permission-option.granted{border-color:rgba(52,199,89,.34);background:rgba(52,199,89,.07)}
+/* the live views give the copy a little more headroom, so a coach mark that has
+   to sit below the windows never lands on the headline */
+.onboarding-card[data-view="transcript"] .instruction-zone,
+.onboarding-card[data-view="insights"] .instruction-zone,
+.onboarding-card[data-view="suggestion"] .instruction-zone,
+.onboarding-card[data-view="review"] .instruction-zone{padding-top:46px}
+
+/* ── light field: natural white sunlight, no colour cast ─────────────────── */
+.light-field .rays{
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(255,255,255,.058) 0deg 3.4deg, transparent 3.4deg 17deg)}
+.light-field .rays.fine{
+  background:repeating-conic-gradient(from 7deg at 50% 50%,
+    rgba(255,255,255,.05) 0deg 6deg, transparent 6deg 31deg)}
+/* the haze around the card is daylight, not tinted glow */
+.light-field .b1,.light-field .b2,.light-field .b3{background:#FFFFFF}
+.light-field .b1{opacity:.13}
+.light-field .b2{opacity:.10}
+.light-field .b3{opacity:.07}
+.window-wrap::before{
+  background:radial-gradient(closest-side,rgba(255,255,255,.30),rgba(255,255,255,.09) 52%,transparent 74%)}
+
+/* ── permission artwork: the real macOS prompt ───────────────────────────── */
+.permission-stage{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:0;height:100%;padding:26px}
+.permission-shot{margin:0 0 20px;max-width:min(430px,58%);border-radius:18px;overflow:hidden;
+  box-shadow:0 26px 54px rgba(6,14,32,.34),0 2px 6px rgba(6,14,32,.18)}
+.permission-shot img{display:block;width:100%;height:auto}
+.permission-stage h2{margin:0 0 5px;font-size:23px;line-height:30px;font-weight:640;color:#12233B}
+.permission-stage p{margin:0;font-size:14px;line-height:19px;color:#40556F}
+
+/* ── personalization window: Liquid Glass, not the pre-Tahoe chrome ──────── */
+.apple-window{max-width:472px;border-radius:24px;
+  background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(246,247,250,.68));
+  -webkit-backdrop-filter:blur(48px) saturate(190%);backdrop-filter:blur(48px) saturate(190%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.92),inset 0 0 0 .5px rgba(255,255,255,.55),
+             0 44px 96px rgba(0,0,0,.66),0 6px 20px rgba(0,0,0,.44)}
+/* no title bar, no traffic lights — the segmented control floats on the glass */
+.apple-titlebar{padding:13px 14px 4px;background:none;border-bottom:0;justify-content:center}
+.traffic{display:none}
+.glass-tabs{margin:0;padding:3px;border-radius:999px;
+  background:rgba(120,124,136,.14);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.5),inset 0 1px 1px rgba(0,0,0,.05)}
+.glass-tabs button{padding:5px 15px;border-radius:999px;font:590 12.5px/16px inherit;color:#3A3E45}
+.glass-tabs button.selected{background:rgba(255,255,255,.94);color:#101114;
+  box-shadow:0 1px 3px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,1),0 0 0 .5px rgba(0,0,0,.04)}
+.apple-body{padding:10px 13px 14px;gap:11px}
+.apple-group{border-radius:15px;background:rgba(255,255,255,.62);
+  -webkit-backdrop-filter:blur(24px) saturate(170%);backdrop-filter:blur(24px) saturate(170%);
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.72),0 1px 2px rgba(20,30,50,.07)}
+.apple-row{border-bottom:.5px solid rgba(60,66,80,.10)}
+.apple-row-action{height:24px;border-radius:999px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.36),0 1px 2px rgba(0,60,160,.28)}
+.website-group.loading .apple-row-action,
+.website-group.found .apple-row-action{background:rgba(120,124,136,.16);box-shadow:none}
+.apple-note{border-top:.5px solid rgba(60,66,80,.10)}
+.apple-drop{border-radius:15px;border:1.5px dashed rgba(60,70,90,.28);
+  background:rgba(255,255,255,.34);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+.apple-drop:hover,.apple-drop.dragover{border-color:#0071E3;background:rgba(0,113,227,.07)}
+.apple-drop.filled{border-style:solid;border-color:rgba(40,167,69,.45);background:rgba(52,199,89,.10)}
+.apple-footnote{color:#5C6270;padding:2px 6px 0}
+/* white light needs more amplitude than tinted light to read on a dark scrim */
+.light-field .rays{filter:blur(24px);
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(255,255,255,.17) 0deg 3.4deg, transparent 3.4deg 17deg)}
+.light-field .rays.fine{filter:blur(44px);
+  background:repeating-conic-gradient(from 7deg at 50% 50%,
+    rgba(255,255,255,.12) 0deg 6deg, transparent 6deg 31deg)}
+.light-field .b1{opacity:.26}
+.light-field .b2{opacity:.20}
+.light-field .b3{opacity:.14}
+.window-wrap::before{
+  background:radial-gradient(closest-side,rgba(255,255,255,.52),rgba(255,255,255,.16) 52%,transparent 74%)}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PASS 3 — 2026-09-06 late
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Inter, vendored, because the native window blocks external font requests */
+@font-face{font-family:"Taylos Inter";src:url("assets/fonts/inter-400.woff2") format("woff2");
+  font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Taylos Inter";src:url("assets/fonts/inter-500.woff2") format("woff2");
+  font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Taylos Inter";src:url("assets/fonts/inter-600.woff2") format("woff2");
+  font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Taylos Inter";src:url("assets/fonts/inter-700.woff2") format("woff2");
+  font-weight:700;font-style:normal;font-display:swap}
+:root{--font:"Taylos Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+
+/* ── sunlight: warmer, stronger, still natural ───────────────────────────── */
+.light-field .rays{filter:blur(20px);
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(255,249,236,.30) 0deg 3deg, transparent 3deg 15deg)}
+.light-field .rays.fine{filter:blur(40px);
+  background:repeating-conic-gradient(from 7deg at 50% 50%,
+    rgba(255,246,226,.20) 0deg 5deg, transparent 5deg 27deg)}
+.light-field .b1{background:#FFF6E4;opacity:.34}
+.light-field .b2{background:#FFFBF2;opacity:.26}
+.light-field .b3{background:#FFEFD2;opacity:.20}
+.window-wrap::before{
+  background:radial-gradient(closest-side,rgba(255,250,238,.62),rgba(255,246,228,.20) 52%,transparent 74%)}
+
+/* ── welcome: words dead-centre in the show field, artwork breaking out ──── */
+.onboarding-card[data-view="welcome"]{overflow:hidden}
+.welcome-image{overflow:visible}
+.welcome-image>img{height:190%;bottom:-52%;z-index:2;
+  filter:drop-shadow(0 44px 60px rgba(0,0,0,.72)) drop-shadow(0 12px 22px rgba(0,0,0,.5))}
+.welcome-image::after{z-index:3}
+.welcome-title{top:50%;bottom:auto;left:8%;right:8%;transform:translateY(-50%);
+  z-index:4;display:flex;flex-direction:column;align-items:center;text-align:center}
+.welcome-title h1{margin:0;font-size:clamp(32px,3.7vw,50px);line-height:1.04;font-weight:700;
+  letter-spacing:-.03em}
+.welcome-title .rule{display:block;width:min(320px,46%);height:1.5px;margin:18px 0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent)}
+.welcome-title p{margin:0;font-size:clamp(15px,1.5vw,21px);line-height:1.32;font-weight:500;
+  max-width:36ch}
+
+/* ── transition: the copy leaves at the card edge and never past it ─────── */
+.instruction-main{overflow:hidden;margin-inline:-25px;padding-inline:25px}
+.instruction-main[data-dir="back"].leaving .copy-block,
+.instruction-main[data-dir="back"].leaving .interaction-zone{animation-name:copy-out-right}
+.instruction-main[data-dir="back"].entering .copy-block,
+.instruction-main[data-dir="back"].entering .interaction-zone{animation-name:copy-in-left}
+@keyframes copy-out-right{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(125%)}}
+@keyframes copy-in-left{from{opacity:0;transform:translateX(-125%)}to{opacity:1;transform:translateX(0)}}
+
+/* ── phase indicator back on the right ──────────────────────────────────── */
+.phase-mount{left:auto;right:28px;transform:none}
+
+/* ── inline controls sit on the text baseline at the text's own size ────── */
+.inline-control{vertical-align:baseline;position:relative;top:.19em;font-size:inherit}
+.inline-control.evia-listen-button{height:1.62em;min-width:0;padding:0 .72em;gap:.36em}
+.inline-control .evia-listen-label{font-size:1em;font-weight:600}
+.inline-control .evia-listen-icon{width:.7em;height:.65em}
+.inline-control .evia-listen-icon svg{width:100%;height:100%}
+.inline-control.toggle-button{height:1.62em;padding:0 .58em;gap:.32em;font-size:1em;font-weight:500;
+  border-radius:.36em}
+.inline-control.toggle-button svg{width:.75em;height:.75em}
+
+/* the insights instruction holds one line at any card width */
+.next-instruction.one-line{white-space:nowrap;font-size:clamp(12px,1.32vw,17px)}
+
+/* ── permissions: the two real prompts on the kacheln, no caption ───────── */
+.permission-stage{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;
+  align-items:center;justify-items:center;gap:26px;padding:30px 34px;height:auto;
+  background:#0A0B0D}
+.permission-stage::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:42px 42px;
+  -webkit-mask-image:radial-gradient(122% 106% at 50% 46%,#000 36%,transparent 92%);
+          mask-image:radial-gradient(122% 106% at 50% 46%,#000 36%,transparent 92%)}
+.permission-shot{position:relative;margin:0;max-width:100%;max-height:100%;border-radius:16px;
+  overflow:hidden;opacity:.42;transform:scale(.94);
+  box-shadow:0 26px 54px rgba(0,0,0,.62),0 2px 6px rgba(0,0,0,.4);
+  transition:opacity .34s var(--ease),transform .34s var(--ease)}
+.permission-shot.current{opacity:1;transform:scale(1)}
+.permission-shot img{display:block;width:100%;height:auto}
+
+/* ── the practice call runs over the real meeting window ────────────────── */
+.meeting{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(88%,720px);height:auto;background:none;border:0;box-shadow:none;padding:0;
+  display:block;z-index:1;pointer-events:none}
+.meeting img{width:100%;height:auto;display:block;
+  filter:drop-shadow(0 30px 46px rgba(0,0,0,.5))}
+
+/* ── permission switch: the glass toggle from the reference, not the solid one ─ */
+.glass-toggle{background:rgba(120,124,136,.26);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.34),inset 0 -1px 1px rgba(0,0,0,.20),
+             0 1px 2px rgba(0,0,0,.22)}
+.glass-toggle i{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(240,243,247,.88));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 2px rgba(120,130,145,.32),
+             0 2px 6px rgba(0,0,0,.26),0 0 0 .5px rgba(0,0,0,.05)}
+.glass-toggle.on{background:linear-gradient(180deg,rgba(66,214,110,.86),rgba(40,182,84,.80));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.55),inset 0 -1px 2px rgba(0,80,30,.28),
+             0 0 0 1px rgba(52,199,89,.34),0 6px 20px rgba(52,199,89,.46)}
+
+/* ── personalization: kacheln behind the illustration, roomier left column ─ */
+.copy-media{background:#0A0B0D;border:1px solid rgba(255,255,255,.08);aspect-ratio:16/9}
+.copy-media::before{content:"";position:absolute;inset:0;z-index:1;
+  background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);
+  background-size:34px 34px}
+.copy-media img{position:relative;z-index:2;object-fit:contain;opacity:1;padding:8px}
+.onboarding-card[data-view="personalize"] .instruction-zone{padding:34px 42px 26px}
+.onboarding-card[data-view="personalize"] .instruction-main{justify-content:flex-start;gap:0}
+.onboarding-card[data-view="personalize"] .copy-media{margin-bottom:26px}
+.onboarding-card[data-view="personalize"] .copy-block h1{
+  font-size:clamp(28px,2.9vw,38px);line-height:1.1;margin-bottom:14px}
+.onboarding-card[data-view="personalize"] .copy-block p{font-size:clamp(15px,1.5vw,19px);line-height:1.45}
+/* Finish Setup is the one action here: centred in its column, above the fold */
+.onboarding-card[data-view="personalize"] .card-footer{justify-content:center;gap:16px;height:auto}
+.onboarding-card[data-view="personalize"] .footer-position{display:none}
+.onboarding-card[data-view="personalize"] .button.permission-primary{min-width:210px}
+
+/* the glass window lets the kacheln read through it */
+.apple-window{background:linear-gradient(180deg,rgba(255,255,255,.62),rgba(244,246,250,.50));
+  -webkit-backdrop-filter:blur(56px) saturate(210%);backdrop-filter:blur(56px) saturate(210%)}
+.apple-group{background:rgba(255,255,255,.46)}
+.apple-drop{background:rgba(255,255,255,.24)}
+/* the meeting fills the show field, so the product glass has real content to bend */
+.meeting{width:min(96%,900px);top:47%}
+/* phase index sits on the left of the seam */
+.phase-mount{left:28px;right:auto}
+
+/* ── sunlight: few, strong, irregular beams held close to the card ───────── */
+.light-field .rays{width:150vmax;height:150vmax;filter:blur(14px);
+  background:conic-gradient(from 0deg at 50% 50%,
+    transparent 0.00deg 20.54deg,
+    rgba(255,247,230,0.333) 20.54deg 22.87deg,
+    transparent 22.87deg 48.06deg,
+    rgba(255,247,230,0.267) 48.06deg 50.33deg,
+    transparent 50.33deg 81.52deg,
+    rgba(255,247,230,0.278) 81.52deg 82.78deg,
+    transparent 82.78deg 108.21deg,
+    rgba(255,247,230,0.285) 108.21deg 111.21deg,
+    transparent 111.21deg 133.32deg,
+    rgba(255,247,230,0.45) 133.32deg 135.86deg,
+    transparent 135.86deg 166.23deg,
+    rgba(255,247,230,0.455) 166.23deg 168.24deg,
+    transparent 168.24deg 185.96deg,
+    rgba(255,247,230,0.318) 185.96deg 189.04deg,
+    transparent 189.04deg 215.87deg,
+    rgba(255,247,230,0.322) 215.87deg 217.24deg,
+    transparent 217.24deg 252.90deg,
+    rgba(255,247,230,0.376) 252.90deg 254.41deg,
+    transparent 254.41deg 277.89deg,
+    rgba(255,247,230,0.37) 277.89deg 279.85deg,
+    transparent 279.85deg 297.88deg,
+    rgba(255,247,230,0.301) 297.88deg 299.11deg,
+    transparent 299.11deg 333.79deg,
+    rgba(255,247,230,0.323) 333.79deg 335.88deg,
+    transparent 335.88deg 360deg);
+  -webkit-mask-image:radial-gradient(closest-side,transparent 20%,#000 31%,rgba(0,0,0,.7) 47%,transparent 68%);
+          mask-image:radial-gradient(closest-side,transparent 20%,#000 31%,rgba(0,0,0,.7) 47%,transparent 68%);
+  animation:ray-drift 210s linear infinite}
+.light-field .rays.fine{width:132vmax;height:132vmax;filter:blur(28px);
+  background:conic-gradient(from 23deg at 50% 50%,
+    transparent 0.00deg 0.00deg,
+    rgba(255,247,230,0.202) 0.00deg 3.96deg,
+    transparent 3.96deg 55.30deg,
+    rgba(255,247,230,0.194) 55.30deg 60.51deg,
+    transparent 60.51deg 102.27deg,
+    rgba(255,247,230,0.283) 102.27deg 106.72deg,
+    transparent 106.72deg 157.61deg,
+    rgba(255,247,230,0.297) 157.61deg 161.05deg,
+    transparent 161.05deg 195.31deg,
+    rgba(255,247,230,0.266) 195.31deg 199.31deg,
+    transparent 199.31deg 247.34deg,
+    rgba(255,247,230,0.165) 247.34deg 251.64deg,
+    transparent 251.64deg 309.53deg,
+    rgba(255,247,230,0.24) 309.53deg 315.02deg,
+    transparent 315.02deg 360deg);
+  -webkit-mask-image:radial-gradient(closest-side,transparent 22%,#000 33%,transparent 64%);
+          mask-image:radial-gradient(closest-side,transparent 22%,#000 33%,transparent 64%);
+  animation:ray-drift 340s linear infinite reverse}
+/* the haze hugs the card instead of washing the whole screen */
+.light-field .b1{left:22%;top:16%;width:34vw;height:32vh;opacity:.30}
+.light-field .b2{right:16%;top:30%;width:30vw;height:34vh;opacity:.24}
+.light-field .b3{left:32%;bottom:8%;width:36vw;height:26vh;opacity:.18}
+
+/* Glass reads as glass only when there is something behind it to bend. On a flat
+   dark ground there is nothing, so the panel gets its own light source. */
+.personalization-stage::after{content:"";position:absolute;left:50%;top:46%;
+  width:64%;height:78%;transform:translate(-50%,-50%);pointer-events:none;
+  background:radial-gradient(closest-side,rgba(150,180,235,.30),rgba(120,150,215,.10) 55%,transparent 76%);
+  filter:blur(52px)}
+.apple-window{z-index:1}
+.apple-footnote{color:#4E5563}
+/* the illustration fills its frame */
+.copy-media img{padding:0;object-fit:cover}
+.onboarding-card[data-view="personalize"] .copy-media{aspect-ratio:16/8.6}
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PASS 4 — 2026-09-07
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── sunbeams: five broad shafts, not thirteen thin ones ────────────────── */
+.light-field .rays{width:150vmax;height:150vmax;filter:blur(26px);
+  background:conic-gradient(from 0deg at 50% 50%,
+    transparent 0.00deg 69.07deg,
+    rgba(255,247,231,0.31) 69.07deg 80.33deg,
+    transparent 80.33deg 125.08deg,
+    rgba(255,247,231,0.341) 125.08deg 137.60deg,
+    transparent 137.60deg 202.36deg,
+    rgba(255,247,231,0.375) 202.36deg 215.83deg,
+    transparent 215.83deg 291.57deg,
+    rgba(255,247,231,0.402) 291.57deg 301.93deg,
+    transparent 301.93deg 360deg);
+  animation:ray-drift 260s linear infinite}
+.light-field .rays.fine{width:128vmax;height:128vmax;filter:blur(46px);
+  background:conic-gradient(from 41deg at 50% 50%,
+    transparent 0.00deg 112.78deg,
+    rgba(255,247,231,0.227) 112.78deg 128.71deg,
+    transparent 128.71deg 218.02deg,
+    rgba(255,247,231,0.219) 218.02deg 234.08deg,
+    transparent 234.08deg 360deg);
+  animation:ray-drift 420s linear infinite reverse}
+
+/* ── opening: the mark holds, then winds up into a galaxy and is swallowed ─ */
+.launch-icon{width:min(340px,31vmin);height:min(340px,31vmin);
+  background:none;border:0;box-shadow:none;border-radius:0}
+.launch-icon>img{filter:none}
+.launching .launch-icon{animation:mark-galaxy 3900ms cubic-bezier(.62,0,.32,1) both}
+.launching .onboarding-card{animation:card-emerge 820ms cubic-bezier(.16,1,.3,1) 3450ms both}
+.launching .onboarding-card>*{animation:card-content-in 560ms ease 3800ms both}
+@keyframes mark-galaxy{
+  /* two and a half seconds of stillness before anything moves */
+  0%   {opacity:0;transform:translate(-50%,-50%) scale(.97)}
+  7%   {opacity:1;transform:translate(-50%,-50%) scale(1)}
+  65%  {opacity:1;transform:translate(-50%,-50%) rotate(0deg) scale(1,1)}
+  /* the disc winds up and flattens the way a galaxy does */
+  76%  {transform:translate(-50%,-50%) rotate(150deg) scale(1.04,.90) skewX(-5deg)}
+  85%  {transform:translate(-50%,-50%) rotate(470deg) scale(1.14,.60) skewX(-13deg)}
+  93%  {opacity:.86;transform:translate(-50%,-50%) rotate(980deg) scale(1.26,.28) skewX(-21deg)}
+  100% {opacity:0;transform:translate(-50%,-50%) rotate(1680deg) scale(.05,.015) skewX(-28deg)}
+}
+
+/* ── welcome: whole artwork visible, breathing room above, bar still breaking out ─ */
+.welcome-image>img{height:150%;bottom:-34%}
+.welcome-title h1{
+  font-size:clamp(38px,4.4vw,60px);font-weight:500;letter-spacing:-.03em;
+  background:linear-gradient(178deg,#FFFFFF 0%,#FCFDFE 40%,#B7BFCC 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:none;
+  filter:drop-shadow(0 3px 7px rgba(0,0,0,.62)) drop-shadow(0 14px 38px rgba(0,0,0,.55))}
+.welcome-title p{font-weight:450}
+
+/* ── the copy is clipped side to side only, never top or bottom ─────────── */
+.instruction-main{overflow:visible;clip-path:inset(-200vh 0 -200vh 0)}
+
+/* ── the practice call sits behind the product, quiet and smaller ───────── */
+.meeting{width:min(70%,640px);top:44%}
+.meeting img{filter:none;
+  -webkit-mask-image:radial-gradient(112% 108% at 50% 44%,#000 58%,transparent 96%);
+          mask-image:radial-gradient(112% 108% at 50% 44%,#000 58%,transparent 96%)}
+
+/* ── permission prompts: full frame, black knocked out by the blend ─────── */
+.permission-shot{border-radius:0;box-shadow:none;overflow:visible}
+.permission-shot img{mix-blend-mode:screen;border-radius:14px}
+
+/* ── personalization footer: the action centred, Back beneath it ────────── */
+.onboarding-card[data-view="personalize"] .card-footer{
+  flex-direction:column-reverse;align-items:center;justify-content:flex-start;
+  gap:10px;padding-bottom:8px;margin-top:-26px}
+.onboarding-card[data-view="personalize"] .button.permission-primary{min-width:236px}
+.onboarding-card[data-view="personalize"] .button.quiet{min-width:0}
+
+/* both prompts fit inside the show field, whole, nothing cropped away */
+.permission-stage{grid-template-rows:minmax(0,1fr);align-items:center}
+.permission-shot{min-height:0;min-width:0;max-height:100%;max-width:100%}
+.permission-shot img{max-height:100%;max-width:100%;width:auto;height:auto;object-fit:contain}
+/* the microphone capture carries a near-black surround the blend cannot remove,
+   so it is trimmed geometrically — measured to keep every pixel of the dialog */
+.permission-shot:first-child img{mix-blend-mode:normal;
+  clip-path:inset(2.6% 4.4% 3.4% 4.2% round 2.6%)}
+/* bind the height so a tall capture cannot escape the show field */
+.permission-shot{height:100%}
+.permission-shot img{height:100%;width:auto;max-width:100%}

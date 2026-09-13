@@ -677,13 +677,13 @@ function App() {
       const errorMessage = language === 'de'
         ? {
             microphone_permission: 'Taylos braucht Mikrofonzugriff. Erlaube ihn in den Systemeinstellungen und versuche es erneut.',
-            authentication: 'Deine Anmeldung ist abgelaufen. Öffne Taylos erneut und melde dich an.',
+            authentication: 'Login abgelaufen. Bitte melde dich erneut an.',
             network: 'Taylos konnte keine sichere Verbindung herstellen. Prüfe das Internet und versuche es erneut.',
             capture_start: 'Das Zuhören konnte nicht gestartet werden. Starte Taylos neu und versuche es erneut.',
           }[failureKind]
         : {
             microphone_permission: 'Taylos needs microphone access. Allow it in System Settings and try again.',
-            authentication: 'Your sign-in expired. Reopen Taylos and sign in again.',
+            authentication: 'Login expired. Please sign in again.',
             network: 'Taylos could not establish a secure connection. Check your internet and try again.',
             capture_start: 'Listening could not start. Restart Taylos and try again.',
           }[failureKind];

@@ -16,9 +16,10 @@ interface SettingsViewProps {
   language: 'de' | 'en';
   onToggleLanguage: () => void;
   onClose?: () => void;
+  onboarding?: boolean;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage, onClose, onboarding = false }) => {
   const [accountInfo, setAccountInfo] = useState<string>('');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
@@ -254,7 +255,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       console.error('[SettingsView] Error requesting navigation:', error);
     }
   };
-  
+
+  const handleRunSetup = async () => {
+    try { await (window as any).evia?.onboarding?.restart(); }
+    catch (error) { console.error('[SettingsView] Failed to open setup:', error); }
+  };
+
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
     const eviaShell = (window as any).evia?.shell;
@@ -558,7 +564,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       })()}
 
       {/* My Presets Section */}
-      <div className="preset-section">
+      {!onboarding && <div className="preset-section">
         <div className="preset-header">
           <div>
             <span className="preset-title">{t('myPresets')}</span>
@@ -619,17 +625,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         )}
       </div>
 
+      }
       {/* Action Buttons - Move buttons and Auto Updates removed per Mac parity */}
       <div className="buttons-section">
-        <button className="settings-button full-width" onClick={handlePersonalize}>
+        {!onboarding && <button className="settings-button full-width" onClick={handleRunSetup}>
+          <span>{t('runSetupAgain')}</span>
+        </button>}
+
+        {!onboarding && <button className="settings-button full-width" onClick={handlePersonalize}>
           <span>{t('personalizeButton')}</span>
-        </button>
+        </button>}
 
         <button className="settings-button full-width" onClick={handleToggleInvisibility}>
           <span>{isInvisible ? t('disableInvisibility') : t('enableInvisibility')}</span>
         </button>
 
-        <div className="bottom-buttons">
+        {!onboarding && <div className="bottom-buttons">
           {isLoggedIn ? (
             <button className="settings-button half-width" onClick={handleLogout}>
               <span>{t('logout')}</span>
@@ -645,7 +656,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
           <button className="settings-button half-width danger" onClick={handleQuit}>
             <span>{t('quit')}</span>
           </button>
-        </div>
+        </div>}
       </div>
       </div>
     </div>

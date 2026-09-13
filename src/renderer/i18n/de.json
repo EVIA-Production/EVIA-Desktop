@@ -85,8 +85,6 @@
       "shortcutToggleClickThrough": "Klicks durchlassen",
       "shortcutToggleClickThroughDescription": "Lässt Mausklicks durch Taylos an das Fenster darunter weiter. Mit derselben Tastenkombination wieder ausschalten.",
       "shortcutManualScreenshot": "Manueller Screenshot",
-      "shortcutPreviousResponse": "Vorherige Antwort",
-      "shortcutNextResponse": "Nächste Antwort",
       "myPresets": "Meine Vorlagen",
       "presetsCount": "{{count}}",
       "noPresetsMessage": "Noch keine benutzerdefinierten Vorlagen.",
@@ -98,6 +96,7 @@
       "presetContextPending": "Vorlage aktiviert. Taylos prüft den Kontext beim Start des nächsten Gesprächs.",
       "presetLockedDuringSession": "Beende das Zuhören, bevor du die Vorlage wechselst.",
       "personalizeButton": "Personalisieren / Besprechungsnotizen",
+      "runSetupAgain": "Einrichtung erneut starten",
       "automaticUpdates": "Automatische Updates",
       "automaticUpdatesOn": "Automatische Updates: An",
       "automaticUpdatesOff": "Automatische Updates: Aus",
@@ -118,7 +117,7 @@
     },
     "errors": {
       "network": "Netzwerkfehler. Bitte überprüf deine Verbindung.",
-      "auth": "Authentifizierung fehlgeschlagen. Bitte melde dich erneut an.",
+      "auth": "Login abgelaufen. Bitte melde dich erneut an.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
       "screenshot": "Screenshot konnte nicht aufgenommen werden"
     },

@@ -184,6 +184,7 @@ contextBridge.exposeInMainWorld('evia', {
     quit: () => ipcRenderer.invoke('app:quit')
   },
   // Permissions API (Phase 3: Permission window)
+  onboarding: { restart: () => ipcRenderer.invoke('onboarding:restart') },
   permissions: {
     check: () => ipcRenderer.invoke('permissions:check'),
     requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),

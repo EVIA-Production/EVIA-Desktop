@@ -93,6 +93,17 @@ test('normal desktop instances are single-process on every platform', () => {
   );
 });
 
+test('late close callbacks cannot orphan replacement overlay windows', () => {
+  assert.match(
+    overlayWindowsSource,
+    /const createdHeaderWindow = headerWindow[\s\S]*if \(headerWindow === createdHeaderWindow\) \{[\s\S]*headerWindow = null/,
+  );
+  assert.match(
+    overlayWindowsSource,
+    /win\.on\('closed', \(\) => \{[\s\S]{0,300}if \(childWindows\.get\(name\) === win\) \{[\s\S]{0,100}childWindows\.delete\(name\)/,
+  );
+});
+
 test('macOS screenshot shortcuts remain reserved for the operating system', () => {
   assert.match(overlayWindowsSource, /'Cmd\+Shift\+3'/);
   assert.match(overlayWindowsSource, /'Cmd\+Shift\+4'/);
@@ -414,6 +425,20 @@ test('post-meeting insights supersede live work and can be regenerated without r
   assert.match(insightsServiceSource, /signal: requestController\.signal/);
   assert.match(insightsServiceSource, /Request timed out after/);
   assert.doesNotMatch(insightsServiceSource, /\? data\.session_state\s*:\s*sessionState/);
+});
+
+test('failed automatic live insights cannot spin a request loop', () => {
+  const fetchBody = listenSource
+    .split('const fetchInsightsNow = async', 2)[1]
+    .split('fetchInsightsNowRef.current = fetchInsightsNow', 1)[0];
+
+  assert.match(fetchBody, /shouldCoalesceAutomaticLiveInsightsRequest/);
+  assert.match(fetchBody, /lastInsightsFetchAtRef\.current = insightsRequestStartedAtMs/);
+  assert.match(fetchBody, /scheduleLiveInsightsRefresh\(\)/);
+  assert.doesNotMatch(
+    fetchBody,
+    /liveInsightsRefreshQueuedRef\.current = false;\s*setTimeout\([\s\S]{0,500}fetchInsightsNowRef\.current\(\)[\s\S]{0,50}, 0\)/,
+  );
 });
 
 test('insights request cleanup cannot reference state scoped inside try', () => {
