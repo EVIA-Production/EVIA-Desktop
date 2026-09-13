@@ -3,12 +3,12 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-function controller({token=null,subscribed=false,completed=false}={}){
+function controller({token=null,subscribed=false,completed=false,legacyState=null}={}){
  const windows=[],persisted=[];
  const deps={
   electron:{app:{getPath:()=>'/test'},systemPreferences:{getMediaAccessStatus:()=> 'granted'}},
   keytar:{getPassword:async()=>token,setPassword:async(_s,_k,value)=>{token=value},deletePassword:async()=>{token=null}},
-  fs:{existsSync:()=>completed,readFileSync:()=>JSON.stringify({onboardingCompleted:true}),writeFileSync:(_p,s)=>persisted.push(JSON.parse(s))},path,
+  fs:{existsSync:()=>completed||!!legacyState,readFileSync:()=>JSON.stringify(legacyState||{onboardingCompleted:true}),writeFileSync:(_p,s)=>persisted.push(JSON.parse(s))},path,
   './auth-token-cache':{clearCachedAuthToken(){},setCachedAuthToken(){}},
   './subscription-service':{hasActiveSubscription:async()=>subscribed,clearSubscriptionCache(){},getCachedSubscriptionStatus:()=>null},
   './overlay-windows':{createWelcomeWindow:()=>windows.push('welcome'),closeWelcomeWindow(){},createPermissionWindow:()=>windows.push('permissions'),closePermissionWindow(){},createSubscriptionWindow:()=>windows.push('checkout'),closeSubscriptionWindow(){},createHeaderWindow:()=>windows.push('ready'),getHeaderWindow:()=>null},
@@ -57,4 +57,16 @@ test('the production registration launcher replaces the legacy welcome window',a
  h.c.setRegistrationLauncher(async()=>{registrations++;});
  h.c.setNativeOnboardingLauncher(async()=>({}));
  await h.c.initialize();assert.equal(registrations,1);assert.deepEqual(h.windows,[]);
+});
+
+test('an install that predates the bundled onboarding is not forced through it on update',async()=>{
+ const h=controller({token:jwt(),subscribed:true,legacyState:{permissionsCompleted:true}});let count=0;
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();assert.equal(count,0);assert.equal(h.c.isOnboardingCompleted(),true);assert.deepEqual(h.windows,['ready']);
+ await h.c.restartNativeOnboarding();assert.equal(count,1);
+});
+test('a pre-1.0.109 install that never finished permissions still gets first-run setup',async()=>{
+ const h=controller({token:jwt(),legacyState:{permissionsCompleted:false}});let count=0;
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();assert.equal(count,1);
 });

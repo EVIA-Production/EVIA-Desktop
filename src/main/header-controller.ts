@@ -77,6 +77,15 @@ export class HeaderController {
         const state = JSON.parse(data);
         this.permissionsCompleted = state.permissionsCompleted || false;
         this.onboardingCompleted = state.onboardingCompleted || false;
+        // An install written before the bundled onboarding existed has no
+        // onboardingCompleted key but did finish the old permission flow. It is
+        // an established account, not a first run: forcing it through setup on
+        // update would also replace its active preset with "My Sales Profile".
+        // Help → Run Taylos Setup Again and Settings keep the flow reachable.
+        if (!('onboardingCompleted' in state) && this.permissionsCompleted) {
+          this.onboardingCompleted = true;
+          console.log('[HeaderController] Pre-onboarding install detected - treating setup as complete');
+        }
         console.log('[HeaderController] Loaded persisted state:', state);
       }
     } catch (err) {
