@@ -1336,9 +1336,8 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // before the queued AFTER request could be drained.
     const insightsRequestStartedAtMs = Date.now();
     if (latestSessionState === 'during') {
-      // This is a request-start throttle, not a success throttle. Empty and
-      // stale responses must consume the same interval as successful ones or
-      // their cleanup path can spin at roughly one request per second.
+      // Failed and stale responses consume the same interval as successful
+      // responses; otherwise cleanup can immediately start another request.
       lastInsightsFetchAtRef.current = insightsRequestStartedAtMs;
     }
     const analyticsTrigger = options.manual ? 'manual' : 'auto';

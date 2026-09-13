@@ -22,6 +22,7 @@ import {
 } from './window-material'
 import { appendAudioDiagnostic } from './audio-diagnostics'
 import {
+  clampRectToDisplay,
   centerWindowGroupX,
   centerWindowX,
   resizeRectKeepingVisualAnchor,
@@ -624,10 +625,8 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   const createdHeaderWindow = headerWindow
   headerWindow.on('closed', () => {
-    // close() can mark the old native window destroyed before this callback is
-    // delivered. A concurrent state transition may already have installed a
-    // replacement by then; clearing the global blindly would orphan that live
-    // replacement and let the next interaction create a second header.
+    // A late close event from an old native window must not clear a replacement
+    // that a concurrent state transition has already installed.
     if (headerWindow === createdHeaderWindow) {
       headerWindow = null
       restoreChildWindowsOnHeaderRestore = false
@@ -669,7 +668,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   // CRITICAL FIX: Prevent dragging header off-screen
   // This handler fires BEFORE the window moves, allowing us to clamp the position
   headerWindow.on('will-move', (event, newBounds) => {
-    const clamped = clampBounds(newBounds)
+    const clamped = clampBounds(newBounds, false, { x: newBounds.x, y: newBounds.y })
     if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
       event.preventDefault()
       if (headerWindow && !headerWindow.isDestroyed()) {
@@ -828,8 +827,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
   void loadRendererView(win, 'overlay', surface, name)
 
   win.on('closed', () => {
-    // The same native close/create race applies to child windows. Only the
-    // instance that still owns the map entry may remove it.
     if (childWindows.get(name) === win) {
       childWindows.delete(name)
     }
@@ -1038,11 +1035,15 @@ function getWorkAreaBounds() {
   return display.workArea
 }
 
-function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.Rectangle {
+function clampBounds(
+  bounds: Electron.Rectangle,
+  skipPadding = false,
+  targetPoint?: Electron.Point,
+): Electron.Rectangle {
   // Use bounds center point to find display (avoid circular dependency with header)
   const centerX = bounds.x + bounds.width / 2
   const centerY = bounds.y + bounds.height / 2
-  const display = screen.getDisplayNearestPoint({ x: centerX, y: centerY })
+  const display = screen.getDisplayNearestPoint(targetPoint ?? { x: centerX, y: centerY })
 
   const screenBounds = display.bounds  // Full screen (for X axis - reach actual edge)
   const workArea = display.workArea    // Work area (for Y axis - avoid menu bar)
@@ -1062,12 +1063,20 @@ function clampBounds(bounds: Electron.Rectangle, skipPadding = false): Electron.
   console.log(`[clampBounds] 📏 Boundaries: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY}, padding=${padding}`)
   console.log(`[clampBounds] 📏 Right edge gap: ${screenBounds.x + screenBounds.width - (bounds.x + bounds.width)}px (should be ${padding}px after clamping)`)
 
-  const clamped = {
-    x: Math.max(minX, Math.min(bounds.x, maxX)),
-    y: Math.max(minY, Math.min(bounds.y, maxY)),
-    width: bounds.width,
-    height: bounds.height,
-  }
+  const clamped = clampRectToDisplay(bounds, {
+    bounds: {
+      x: screenBounds.x + padding,
+      y: screenBounds.y,
+      width: screenBounds.width - padding * 2,
+      height: screenBounds.height,
+    },
+    workArea: {
+      x: workArea.x,
+      y: workArea.y + padding,
+      width: workArea.width,
+      height: workArea.height - padding * 2,
+    },
+  })
 
   console.log(`[clampBounds] 📤 Output: (${clamped.x}, ${clamped.y}), clamped: x=${bounds.x !== clamped.x}, y=${bounds.y !== clamped.y}`)
   console.log(`[clampBounds] 📏 Final right edge gap: ${screenBounds.x + screenBounds.width - (clamped.x + clamped.width)}px`)
@@ -2674,8 +2683,9 @@ ipcMain.handle('win:moveHeaderTo', (_event, x: number, y: number) => {
   const requestedBounds = { ...currentBounds, x, y }
   console.log(`[win:moveHeaderTo] 📐 Requested bounds:`, requestedBounds)
 
-  // Clamp bounds
-  const clampedBounds = clampBounds(requestedBounds)
+  // Select from the requested leading edge. Selecting from the window centre
+  // traps the pill on the old display while will-move keeps clamping it back.
+  const clampedBounds = clampBounds(requestedBounds, false, { x, y })
   console.log(`[win:moveHeaderTo] 🔒 Clamped bounds:`, clampedBounds)
   console.log(`[win:moveHeaderTo] 📏 Clamping applied: x=${x !== clampedBounds.x}, y=${y !== clampedBounds.y}`)
 

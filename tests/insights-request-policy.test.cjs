@@ -62,9 +62,9 @@ test('automatic live refreshes coalesce while manual and post-meeting work stay 
 
 test('live refresh delay is measured from request start even after an empty or stale result', () => {
   assert.equal(liveInsightsRefreshDelayMs(0, 20_000), 450);
-  assert.equal(liveInsightsRefreshDelayMs(10_000, 10_250), 11_750);
-  assert.equal(liveInsightsRefreshDelayMs(10_000, 21_900), 450);
-  assert.equal(liveInsightsRefreshDelayMs(10_000, 22_500), 450);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 10_250), 14_750);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 24_900), 450);
+  assert.equal(liveInsightsRefreshDelayMs(10_000, 25_500), 450);
 });
 
 test('a response is rejected when the meeting phase changed in flight', () => {

@@ -53,7 +53,7 @@ export function isInsightsResultCurrent(
 
 const POST_MEETING_RETRY_DELAYS_MS = [300, 1_000, 3_000, 6_000, 12_000, 30_000]
 
-export const LIVE_INSIGHTS_MIN_INTERVAL_MS = 12_000
+export const LIVE_INSIGHTS_MIN_INTERVAL_MS = 15_000
 export const LIVE_INSIGHTS_SETTLE_MS = 450
 
 export function liveInsightsRefreshDelayMs(

@@ -2,11 +2,48 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 
 const {
+  clampRectToDisplay,
   centerWindowGroupX,
   centerWindowX,
   positionPopoverFromRightAnchor,
   resizeRectKeepingVisualAnchor,
 } = require('../dist/main/window-anchor-geometry.js')
+
+test('window clamps inside a display to the right of the primary display', () => {
+  const result = clampRectToDisplay(
+    { x: 1500, y: 5, width: 500, height: 49 },
+    {
+      bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 1440, y: 32, width: 1920, height: 1048 },
+    },
+  )
+
+  assert.deepEqual(result, { x: 1500, y: 32, width: 500, height: 49 })
+})
+
+test('window clamps inside a display to the left of the primary display', () => {
+  const result = clampRectToDisplay(
+    { x: -2100, y: 1200, width: 500, height: 49 },
+    {
+      bounds: { x: -1920, y: 0, width: 1920, height: 1080 },
+      workArea: { x: -1920, y: 0, width: 1920, height: 1040 },
+    },
+  )
+
+  assert.deepEqual(result, { x: -1920, y: 991, width: 500, height: 49 })
+})
+
+test('horizontal clamp uses display bounds while vertical clamp uses work area', () => {
+  const result = clampRectToDisplay(
+    { x: 3350, y: -100, width: 500, height: 49 },
+    {
+      bounds: { x: 1440, y: -120, width: 1920, height: 1200 },
+      workArea: { x: 1440, y: -80, width: 1880, height: 1120 },
+    },
+  )
+
+  assert.deepEqual(result, { x: 2860, y: -80, width: 500, height: 49 })
+})
 
 test('bar shrink preserves the current rendered visual center', () => {
   const current = { x: 500, y: 80, width: 900, height: 49 }

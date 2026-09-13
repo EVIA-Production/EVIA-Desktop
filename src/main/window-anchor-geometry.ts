@@ -5,8 +5,33 @@ export type WindowRect = {
   height: number
 }
 
+export type DisplayGeometry = {
+  bounds: WindowRect
+  workArea: WindowRect
+}
+
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value))
+}
+
+export function clampRectToDisplay(
+  rect: WindowRect,
+  display: DisplayGeometry,
+): WindowRect {
+  return {
+    x: Math.round(clamp(
+      rect.x,
+      display.bounds.x,
+      display.bounds.x + display.bounds.width - rect.width,
+    )),
+    y: Math.round(clamp(
+      rect.y,
+      display.workArea.y,
+      display.workArea.y + display.workArea.height - rect.height,
+    )),
+    width: rect.width,
+    height: rect.height,
+  }
 }
 
 export function resizeRectKeepingVisualAnchor(
