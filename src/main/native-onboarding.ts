@@ -3,8 +3,19 @@ import path from 'path';
 import fs from 'fs';
 import * as keytar from 'keytar';
 import { headerController } from './header-controller';
-import { suspendOverlayShortcuts, resumeOverlayShortcuts } from './overlay-windows';
+import { getHeaderWindow, suspendOverlayShortcuts } from './overlay-windows';
+import { desktopBridge } from './desktop-bridge';
 import { webAppUrl } from './web-app-url';
+
+async function openWebCheckout() {
+  const token = await keytar.getPassword('taylos', 'token');
+  const checkout = webAppUrl('https://app.taylos.ai/checkout?source=desktop');
+  if (await desktopBridge.navigateTo(checkout)) return;
+  const fallback = token
+    ? webAppUrl(`https://app.taylos.ai/checkout?source=desktop&desktop_token=${encodeURIComponent(token)}`)
+    : checkout;
+  await shell.openExternal(fallback);
+}
 
 export function onboardingPermissions() {
   const microphone = systemPreferences.getMediaAccessStatus('microphone');
@@ -83,6 +94,7 @@ export function registerNativeOnboarding() {
   headerController.setRegistrationLauncher(async () => {
     await shell.openExternal(webAppUrl('https://app.taylos.ai/register?source=desktop'));
   });
+  headerController.setCheckoutLauncher(openWebCheckout);
   headerController.setNativeOnboardingLauncher(async ({ onClose, restart }) => {
     process.env.TAYLOS_EMBEDDED_ONBOARDING = '1';
     const entry = app.isPackaged
@@ -94,6 +106,8 @@ export function registerNativeOnboarding() {
     const accountId=account?.sub || account?.username;
     let resume=null,lastCheckpoint='';
     if(!restart)try{const saved=JSON.parse(fs.readFileSync(progressPath,'utf8'));if(saved.account===accountId)resume=saved.checkpoint;}catch{}
+    const header = getHeaderWindow();
+    if (header && !header.isDestroyed()) header.close();
     const visible = BrowserWindow.getAllWindows().filter(win=>win.isVisible());
     suspendOverlayShortcuts();
     visible.forEach(win=>win.hide());
@@ -118,15 +132,13 @@ export function registerNativeOnboarding() {
           const token = await keytar.getPassword('taylos','token');
           if (!token) throw new Error('Please sign in again to finish setup.');
           await saveContext(context, token);
-          await shell.openExternal(webAppUrl(`https://app.taylos.ai/checkout?source=desktop&desktop_token=${encodeURIComponent(token)}`));
         },
         onClose: (result: { finished: boolean }) => {
           if(result.finished && fs.existsSync(progressPath))fs.unlinkSync(progressPath);
-          resumeOverlayShortcuts();onClose(result);
+          onClose(result);
         },
       });
     } catch (error) {
-      resumeOverlayShortcuts();
       dialog.showErrorBox('Taylos setup could not open', 'Please reopen Taylos or use Help → Run Taylos Setup Again. Your setup has not been marked complete.');
       throw error;
     }

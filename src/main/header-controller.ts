@@ -24,6 +24,7 @@ import {
   closeSubscriptionWindow,
   createHeaderWindow,
   getHeaderWindow,
+  resumeOverlayShortcuts,
 } from './overlay-windows';
 import path from 'path';
 import fs from 'fs';
@@ -58,6 +59,7 @@ export class HeaderController {
   private onboardingDismissed = false;
   private onboardingRestart = false;
   private registrationLauncher: (() => Promise<void>) | null = null;
+  private checkoutLauncher: (() => Promise<void>) | null = null;
   private nativeOnboardingLauncher: NativeOnboardingLauncher | null = null;
   private onboardingHandle: { close?: () => void; focus?: () => void } | null = null;
 
@@ -208,8 +210,8 @@ export class HeaderController {
       return 'welcome';
     }
     
-    // 🧭 NATIVE ONBOARDING: after auth, before subscription. The flow ends by
-    // opening checkout itself, so subscription_required is the natural next state.
+    // 🧭 NATIVE ONBOARDING: after auth, before subscription. Finish Setup saves
+    // the profile, then this machine opens checkout in the existing browser tab.
     if (this.nativeOnboardingLauncher && !this.onboardingCompleted && !this.onboardingDismissed) {
       console.log('[HeaderController] 🧭 Onboarding not completed - launching native onboarding');
       return 'onboarding';
@@ -281,8 +283,8 @@ export class HeaderController {
         break;
         
       case 'subscription_required':
-        console.log('[HeaderController] 💳 Showing subscription required window');
-        createSubscriptionWindow();
+        console.log('[HeaderController] 💳 Subscription required — sending the existing browser tab to checkout');
+        await this.openCheckout();
         break;
 
       case 'onboarding':
@@ -306,6 +308,13 @@ export class HeaderController {
         }
         
         console.log('[HeaderController] ✅ Auth valid - proceeding to show header');
+
+        const stillSubscribed = await hasActiveSubscription();
+        if (!stillSubscribed) {
+          console.log('[HeaderController] 💳 Ready blocked — no paid access yet, returning to checkout');
+          await this.transitionTo('subscription_required');
+          return;
+        }
         
         // Check if header already exists
         const existingHeader = getHeaderWindow();
@@ -319,6 +328,7 @@ export class HeaderController {
           existingHeader.moveTop();
           existingHeader.focus();
         }
+        resumeOverlayShortcuts();
         break;
         
       case 'login':
@@ -334,6 +344,16 @@ export class HeaderController {
   }
 
   public setRegistrationLauncher(launcher: () => Promise<void>) { this.registrationLauncher = launcher; }
+
+  public setCheckoutLauncher(launcher: () => Promise<void>) { this.checkoutLauncher = launcher; }
+
+  public async openCheckout() {
+    if (this.checkoutLauncher) {
+      await this.checkoutLauncher();
+      return;
+    }
+    createSubscriptionWindow();
+  }
 
   public focusOnboarding() { this.onboardingHandle?.focus?.(); }
 

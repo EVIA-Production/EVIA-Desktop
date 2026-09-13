@@ -256,11 +256,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
     }
   };
 
-  const handleRunSetup = async () => {
-    try { await (window as any).evia?.onboarding?.restart(); }
-    catch (error) { console.error('[SettingsView] Failed to open setup:', error); }
-  };
-
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
     const eviaShell = (window as any).evia?.shell;
@@ -628,10 +623,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       }
       {/* Action Buttons - Move buttons and Auto Updates removed per Mac parity */}
       <div className="buttons-section">
-        {!onboarding && <button className="settings-button full-width" onClick={handleRunSetup}>
-          <span>{t('runSetupAgain')}</span>
-        </button>}
-
         {!onboarding && <button className="settings-button full-width" onClick={handlePersonalize}>
           <span>{t('personalizeButton')}</span>
         </button>}

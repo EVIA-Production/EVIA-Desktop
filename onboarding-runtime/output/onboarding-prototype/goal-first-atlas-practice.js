@@ -10,7 +10,6 @@ import {translate, goalsDe} from './onboarding-i18n.js';
   const mark = "../../EVIA-Desktop/src/renderer/overlay/assets/taylos_mark.png";
   const appIcon = "../../EVIA-Desktop/src/main/assets/icon-mac.png";
   const sfPath = "../TAYLOS_SF_SYMBOLS_PACKAGE/03_VECTOR_SVG/medium/";
-  const checkout = "https://app.taylos.ai/checkout?source=desktop";
   let livePermissions = false, permissionBusy = false;
   const documentFiles = new Map();
   // Keep the picker and validation aligned with the existing text extractors.
@@ -381,7 +380,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
     return '<span class="t-learn-direction'+(back?' reverse':'')+'" aria-hidden="true"><span class="t-learn-chevron"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="t-learn-arm t-learn-arm-top" d="M6 4L10 8"/><path class="t-learn-arm t-learn-arm-bot" d="M10 8L6 12"/></svg></span></span>';
   }
   function footer() {
-    const left=state.view==="welcome" ? '<a class="button quiet" data-action="finish" href="' + checkout + '">Skip Setup</a>' :
+    const left=state.view==="welcome" ? '<button class="button quiet" data-action="finish" type="button">Skip Setup</button>' :
       '<button class="button quiet t-learn" data-action="back">' + navigationChevron(true) + ' Back</button>';
     let right="";
     if(state.view==="prepare") right='<button class="button white t-learn" data-action="listen">Start Practice Call ' + navigationChevron() + '</button>';
@@ -390,7 +389,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
         (state.permission===0 ? "Allow microphone" : state.permission===1 ? "Allow call audio" : "Start practice call") + '</button>'
       : '<div class="permission-actions"><button class="button quiet" data-action="continue-preview">' + (livePermissions ? 'Continue' : 'Continue preview') + '</button><button class="button permission-primary" data-action="open-mic-settings">Open Windows Settings</button></div>';
     if(state.view==="review") right='<button class="button white t-learn" data-action="done">Personalize Suggestions ' + navigationChevron() + '</button>';
-    if(state.view==="personalize") right='<a class="button permission-primary" data-action="finish" href="' + checkout + '">Finish Setup</a>';
+    if(state.view==="personalize") right='<button class="button permission-primary" data-action="finish" type="button">Finish Setup</button>';
     if(state.view==="personalize") return right+'<div class="personalization-footer-row">'+left+'<a class="legal-link" href="https://taylos.ai/legal" target="_blank" rel="noopener noreferrer">Legal</a></div>';
     return left + '<div class="footer-position ' + (right ? "middle" : "right") + '">' + progress() + '</div>' + right;
   }

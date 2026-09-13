@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const bridge = read('src/main/desktop-bridge.ts');
 const main = read('src/main/main.ts');
 const settings = read('src/renderer/overlay/SettingsView.tsx');
+const native = read('src/main/native-onboarding.ts');
 const builder = read('electron-builder.yml');
 
 test('the web onboarding receives truthful local desktop and capture state', () => {
@@ -26,14 +27,20 @@ test('the localhost bridge permits only Taylos web and loopback development orig
   assert.doesNotMatch(bridge, /Access-Control-Allow-Origin['"],\s*['"]\*['"]/);
 });
 
-test('setup can be reopened from a localized native menu and desktop settings', () => {
+test('setup can be reopened from a localized native Help menu', () => {
   assert.match(main, /Taylos-Einrichtung erneut starten/);
   assert.match(main, /Run Taylos Setup Again/);
   assert.match(main, /registerNativeOnboarding\(\)/);
-  assert.match(settings, /onboarding\?\.restart\(\)/);
+  assert.match(main, /onboarding:restart/);
   assert.doesNotMatch(settings, /onboarding\?restart=1/);
-  assert.match(settings, /handleRunSetup/);
-  assert.match(settings, /t\('runSetupAgain'\)/);
+  assert.doesNotMatch(settings, /handleRunSetup/);
+  assert.doesNotMatch(settings, /t\('runSetupAgain'\)/);
+});
+
+test('finish setup reuses the Opening Taylos browser tab for checkout', () => {
+  assert.match(native, /setCheckoutLauncher\(openWebCheckout\)/);
+  assert.match(native, /desktopBridge\.navigateTo\(checkout\)/);
+  assert.doesNotMatch(native, /saveContext\(context, token\);\s*await shell\.openExternal/);
 });
 
 test('macOS permission copy names only audio capabilities Taylos actually requests', () => {

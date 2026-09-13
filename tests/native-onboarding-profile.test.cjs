@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 function host(responses,choice=0){
  const calls=[],writes=[];
- const deps={electron:{app:{getPath:()=>'/test'},dialog:{showMessageBox:async()=>({response:choice})}},path,fs:{mkdirSync(){},writeFileSync:(p)=>writes.push(p)},keytar:{},'./header-controller':{},'./overlay-windows':{},'./web-app-url':{webAppUrl:s=>s}};
+ const deps={electron:{app:{getPath:()=>'/test'},dialog:{showMessageBox:async()=>({response:choice})}},path,fs:{mkdirSync(){},writeFileSync:(p)=>writes.push(p)},keytar:{},'./header-controller':{},'./overlay-windows':{},'./desktop-bridge':{desktopBridge:{navigateTo:async()=>false}},'./web-app-url':{webAppUrl:s=>s}};
  const module={exports:{}};
  const fetch=async(url,init)=>{calls.push({url,init});const response=responses.shift();if(!response)throw Error('Unexpected request');return {ok:response.status<400,status:response.status,json:async()=>response.body};};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/native-onboarding.js'),'utf8'),{require:id=>deps[id],module,exports:module.exports,Buffer,Blob,FormData,Uint8Array,AbortSignal,fetch,process:{platform:'darwin',env:{}}});

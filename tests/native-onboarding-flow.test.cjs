@@ -11,7 +11,7 @@ function controller({token=null,subscribed=false,completed=false,legacyState=nul
   fs:{existsSync:()=>completed||!!legacyState,readFileSync:()=>JSON.stringify(legacyState||{onboardingCompleted:true}),writeFileSync:(_p,s)=>persisted.push(JSON.parse(s))},path,
   './auth-token-cache':{clearCachedAuthToken(){},setCachedAuthToken(){}},
   './subscription-service':{hasActiveSubscription:async()=>subscribed,clearSubscriptionCache(){},getCachedSubscriptionStatus:()=>null},
-  './overlay-windows':{createWelcomeWindow:()=>windows.push('welcome'),closeWelcomeWindow(){},createPermissionWindow:()=>windows.push('permissions'),closePermissionWindow(){},createSubscriptionWindow:()=>windows.push('checkout'),closeSubscriptionWindow(){},createHeaderWindow:()=>windows.push('ready'),getHeaderWindow:()=>null},
+  './overlay-windows':{createWelcomeWindow:()=>windows.push('welcome'),closeWelcomeWindow(){},createPermissionWindow:()=>windows.push('permissions'),closePermissionWindow(){},createSubscriptionWindow:()=>windows.push('checkout'),closeSubscriptionWindow(){},createHeaderWindow:()=>windows.push('ready'),getHeaderWindow:()=>null,resumeOverlayShortcuts(){}},
  };
  const module={exports:{}};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/header-controller.js'),'utf8'),{require:id=>{if(!(id in deps))throw Error(id);return deps[id]},exports:module.exports,module,Buffer,process:{platform:'darwin',env:{}},console:{log(){},warn(){},error(){}}});
@@ -26,10 +26,12 @@ test('fresh launch waits for real registration; successful auth opens native bef
  await h.c.handleAuthCallback(jwt());assert.equal(opened,1);assert.ok(!h.windows.includes('checkout'));
 });
 test('only a finished onboarding is persisted complete and then reaches checkout',async()=>{
- const h=controller({token:jwt()});let finish;
+ const h=controller({token:jwt()});let finish;let checkouts=0;
+ h.c.setCheckoutLauncher(async()=>{checkouts++;});
  h.c.setNativeOnboardingLauncher(async({onClose})=>{finish=onClose;return {close(){}}});
  await h.c.initialize();finish({finished:true});await flush();
- assert.equal(h.c.isOnboardingCompleted(),true);assert.equal(h.persisted.at(-1).permissionsCompleted,true);assert.ok(h.windows.includes('checkout'));
+ assert.equal(h.c.isOnboardingCompleted(),true);assert.equal(h.persisted.at(-1).permissionsCompleted,true);
+ assert.equal(checkouts,1);assert.ok(!h.windows.includes('ready'));
 });
 test('closing early does not complete setup or immediately reopen it',async()=>{
  const h=controller({token:jwt()});let finish,count=0;
@@ -47,9 +49,11 @@ test('replay without authentication returns to registration',async()=>{
  const h=controller();let count=0;h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
  await h.c.restartNativeOnboarding();assert.equal(count,0);assert.deepEqual(h.windows,['welcome']);
 });
-test('a completed returning account goes straight to subscription gate',async()=>{
- const h=controller({token:jwt(),completed:true});let count=0;h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
- await h.c.initialize();assert.equal(count,0);assert.deepEqual(h.windows,['checkout']);
+test('a completed returning account goes straight to checkout without opening the bar',async()=>{
+ const h=controller({token:jwt(),completed:true});let count=0;let checkouts=0;
+ h.c.setCheckoutLauncher(async()=>{checkouts++;});
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();assert.equal(count,0);assert.equal(checkouts,1);assert.ok(!h.windows.includes('ready'));
 });
 
 test('the production registration launcher replaces the legacy welcome window',async()=>{

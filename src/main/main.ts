@@ -171,6 +171,7 @@ if (!gotSingleInstanceLock) {
     }
 
     if(headerController.getCurrentState()==='onboarding'){headerController.focusOnboarding();return;}
+    if(headerController.getCurrentState()==='subscription_required'){void headerController.openCheckout();return;}
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (mainWindow) {
       try {
@@ -796,7 +797,15 @@ app.on("activate", () => {
   (async () => {
     try {
       const exists = !!getHeaderWindow();
-      if (exists || headerController.getCurrentState() !== 'ready') return;
+      const state = headerController.getCurrentState();
+      if (state !== 'ready') {
+        const leaked = getHeaderWindow();
+        if (leaked && !leaked.isDestroyed()) leaked.close();
+        if (state === 'onboarding') headerController.focusOnboarding();
+        else if (state === 'subscription_required') await headerController.openCheckout();
+        return;
+      }
+      if (exists) return;
 
       // Check token presence via keytar
       let hasToken = false;
@@ -1658,6 +1667,8 @@ function broadcastAuthTokenChanged(token: string | null) {
 
 function focusPrimaryDesktopWindow() {
   if(headerController.getCurrentState()==='onboarding'){headerController.focusOnboarding();return;}
+  if(headerController.getCurrentState()==='subscription_required'){void headerController.openCheckout();return;}
+  if(headerController.getCurrentState()!=='ready') return;
   const headerWindow = getHeaderWindow();
   if (headerWindow && !headerWindow.isDestroyed()) {
     forceFocus(headerWindow);

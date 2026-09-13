@@ -1671,9 +1671,13 @@ function handleHeaderToggle() {
   const currentState = headerController.getCurrentState()
   const hasHeaderWindow = !!(headerWindow && !headerWindow.isDestroyed())
 
-  if (currentState !== 'ready' && !hasHeaderWindow) {
+  if (currentState !== 'ready') {
     console.log('[overlay-windows] ⛔ Header toggle blocked - user not ready (state:', currentState, ')')
-    return // Don't allow toggle if not authenticated + permissions granted
+    if (hasHeaderWindow && headerWindow && !headerWindow.isDestroyed()) {
+      hideComposedWindow(headerWindow)
+      headerWindow.close()
+    }
+    return
   }
 
   const headerVisible = !!(headerWindow && !headerWindow.isDestroyed() && headerWindow.isVisible() && !headerWindow.isMinimized())
