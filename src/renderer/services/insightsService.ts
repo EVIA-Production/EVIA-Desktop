@@ -56,6 +56,14 @@ export interface Insight {
    */
   preset_unusable?: boolean;
   preset_warning?: string;
+  /**
+   * `missing` = no preset bound to this chat; `blank` = bound but unusable.
+   * Older backends send only `preset_unusable` + the sentence; the Listen
+   * window renders the sentence verbatim in that case.
+   */
+  preset_status?: 'missing' | 'blank' | 'ok' | string;
+  preset_missing?: boolean;
+  preset_name?: string | null;
 }
 
 interface FetchInsightsParams {

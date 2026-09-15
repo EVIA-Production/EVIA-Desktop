@@ -21,7 +21,17 @@
       "reconnected": "Audio wiederhergestellt",
       "waitingForSpeech": "Auf Sprache warten...",
       "waitingForProspectSpeech": "Warte auf eine Prospect-Aussage...",
-      "presetContextUnavailable": "Der Vorlagenkontext für dieses Gespräch ist nicht verfügbar. Taylos hört weiter zu, pausiert aber vorlagenbasierte KI.",
+      "presetNotice": {
+        "unavailableTitle": "Vorlagenkontext nicht verfügbar",
+        "mismatchTitle": "Andere Vorlage aktiv",
+        "mismatchDetailBound": "Dieses Gespräch läuft mit „{{bound}}“. „{{active}}“ gilt ab dem nächsten Gespräch.",
+        "mismatchDetailNone": "Dieses Gespräch läuft ohne Vorlage. „{{active}}“ gilt ab dem nächsten Gespräch.",
+        "missingTitle": "Keine Vorlage aktiv",
+        "blankTitle": "Vorlage ist noch leer",
+        "blankTitleNamed": "„{{name}}“ ist noch leer",
+        "unnamedPreset": "Vorlage",
+        "dismiss": "Ausblenden"
+      },
       "noInsightsYet": "Noch keine Erkenntnisse",
       "generatingInsights": "Erkenntnisse werden generiert...",
       "noContext": "Noch kein Kontext",

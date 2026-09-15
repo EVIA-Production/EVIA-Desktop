@@ -339,6 +339,8 @@ type PersistedState = {
   openAtLogin?: boolean
   shortcuts?: ShortcutConfig  // User-customized keyboard shortcuts
   current_chat_id?: string | null
+  /** Preset the current chat was bound to at creation; null = none. */
+  current_chat_preset_id?: number | null
 }
 let persistedState: PersistedState = {}
 

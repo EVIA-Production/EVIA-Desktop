@@ -67,9 +67,10 @@ export function consumePresetSessionReset(): boolean {
 export function clearSessionBinding(): void {
   try {
     localStorage.removeItem('current_chat_id')
+    localStorage.removeItem('current_chat_preset_id')
   } catch {}
   try {
-    ;(window as any).evia?.prefs?.set?.({ current_chat_id: null })
+    ;(window as any).evia?.prefs?.set?.({ current_chat_id: null, current_chat_preset_id: null })
   } catch {}
   try {
     ;(window as any).evia?.liveTranscript?.clear?.()

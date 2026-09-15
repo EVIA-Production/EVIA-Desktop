@@ -9,6 +9,15 @@ import {
   InsightActionItem,
 } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
+import { PresetNoticeView } from './PresetNotice';
+import { SFSymbol } from './sf-symbols';
+import {
+  noticeFromContextStatus,
+  noticeFromInsights,
+  pickPresetNotice,
+  presetNoticeKey,
+  type PresetNotice,
+} from '../lib/preset-notice';
 import { showToast, ToastContainer } from '../components/ToastNotification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -202,11 +211,21 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsRefreshPending, setInsightsRefreshPending] = useState(false);
   const [presetContextWarning, setPresetContextWarning] = useState(false);
-  // The preset is still the blank template. This is not a degraded state to
-  // work around - no suggestion generated against an empty preset can be
-  // grounded, so the seller has to see it before the next call rather than
-  // conclude the suggestions are bad.
-  const [presetEmptyWarning, setPresetEmptyWarning] = useState<string | null>(null);
+  // The call is bound to a different preset than the one the user has active
+  // (a web-app activation the Desktop never saw, or a chat id that outlived a
+  // restart). The binding cannot change mid-call; the rep can at least be told.
+  const [presetMismatch, setPresetMismatch] = useState<PresetNotice | null>(null);
+  // No preset bound, or the bound one is still the blank template. This is
+  // not a degraded state to work around - no suggestion generated against
+  // nothing can be grounded, so the seller has to see it before the next call
+  // rather than conclude the suggestions are bad. Cleared at every session
+  // boundary: the previous session's notice used to survive into a new call
+  // that had a preset, until the first insights response replaced it.
+  const [presetInsightNotice, setPresetInsightNotice] = useState<PresetNotice | null>(null);
+  // The notice the rep closed. Identity, not a flag: a different notice (other
+  // kind, other preset) shows again; the same one stays closed until the next
+  // session boundary resets everything.
+  const [dismissedPresetNotice, setDismissedPresetNotice] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true); // Glass parity: auto-scroll when at bottom
   
   const autoScrollRef = useRef(true); // FIX: Use ref to avoid re-render dependency issues
@@ -731,6 +750,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setCopiedView(null);
       setIsLoadingInsights(false);
       setPresetContextWarning(false);
+      setPresetMismatch(null);
+      setPresetInsightNotice(null);
+      setDismissedPresetNotice(null);
       setAutoScroll(true);
       autoScrollRef.current = true;
       shouldScrollAfterUpdate.current = true;
@@ -840,15 +862,29 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         setInsightsIndex(-1);
         setInsightsRefreshPending(false);
         setViewMode('insights');
+        // The notices describe THIS call's binding. The post-call view must
+        // not keep telling the rep about it, and the next call decides afresh.
+        setPresetContextWarning(false);
+        setPresetMismatch(null);
+        setPresetInsightNotice(null);
+        setDismissedPresetNotice(null);
         schedulePostMeetingInsightsFetch();
         return;
       }
 
       if (msg.type === 'context_status') {
-        const contextAvailable = msg.data?.available !== false;
-        setPresetContextWarning(!contextAvailable);
-        if (!contextAvailable) {
+        const status = noticeFromContextStatus(msg.data);
+        setPresetContextWarning(status.unavailable);
+        setPresetMismatch(status.mismatch);
+        if (status.unavailable) {
           console.warn('[ListenView] Bound preset context unavailable; preset-dependent AI is paused');
+        }
+        if (status.mismatch) {
+          console.warn(
+            '[ListenView] This chat is bound to preset %s while %s is active; the binding is fixed for this call',
+            status.mismatch.boundName ?? 'none',
+            status.mismatch.activeName ?? 'unnamed',
+          );
         }
         return;
       }
@@ -1541,9 +1577,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
           signal: requestAbortController.signal,
           requestTimeoutMs: 15_000,
         });
-        setPresetEmptyWarning(
-          fetchedInsights?.preset_unusable ? (fetchedInsights.preset_warning || null) : null,
-        );
+        setPresetInsightNotice(noticeFromInsights(fetchedInsights));
         preparedSnapshotRef.current = null;
         const preparedFields = fetchedInsights?.action_items?.[0];
         if (requestTranscript && preparedFields?.prepared_suggestion) {
@@ -2200,6 +2234,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     ? i18n.t('overlay.listen.showInsights')
     : `${i18n.t('overlay.listen.listening')} ${elapsedTime}`;
 
+  // One slot: degraded context beats a wrong binding beats an empty binding.
+  const candidatePresetNotice = pickPresetNotice({
+    unavailable: presetContextWarning,
+    mismatch: presetMismatch,
+    insight: presetInsightNotice,
+  });
+  const presetNotice =
+    candidatePresetNotice && presetNoticeKey(candidatePresetNotice) !== dismissedPresetNotice
+      ? candidatePresetNotice
+      : null;
+  const dismissPresetNotice = () => {
+    if (candidatePresetNotice) setDismissedPresetNotice(presetNoticeKey(candidatePresetNotice));
+  };
+
   return (
     <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
       {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
@@ -2253,12 +2301,20 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         </div>
         {isSessionActive && captureLive === false && (
           <div className="taylos-status-alert" role="status" aria-live="polite">
-            <svg className="taylos-status-alert__glyph" viewBox="0 0 16 16" fill="none"
-                 stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-              <path d="M8 1.9 15 14H1L8 1.9Z" strokeLinejoin="round" />
-              <path d="M8 6.4v3.1" />
-              <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
-            </svg>
+            <span className="taylos-status-alert__symbol" aria-hidden="true">
+              <SFSymbol
+                name="exclamationmark.triangle"
+                pointSize={13}
+                fallback={
+                  <svg className="taylos-status-alert__glyph" viewBox="0 0 16 16" fill="none"
+                       stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+                    <path d="M8 1.9 15 14H1L8 1.9Z" strokeLinejoin="round" />
+                    <path d="M8 6.4v3.1" />
+                    <circle cx="8" cy="11.6" r="0.55" fill="currentColor" stroke="none" />
+                  </svg>
+                }
+              />
+            </span>
             <div className="taylos-status-alert__text">
               <span className="taylos-status-alert__title">
                 {i18n.getLanguage() === 'de' ? 'Keine Verbindung' : 'No Connection'}
@@ -2271,17 +2327,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div>
           </div>
         )}
+        {presetNotice && (
+          <PresetNoticeView notice={presetNotice} onDismiss={dismissPresetNotice} />
+        )}
         <div className="glass-scroll" ref={viewportRef}>
-          {presetContextWarning && (
-            <div className="listen-context-warning" role="status">
-              {i18n.t('overlay.listen.presetContextUnavailable')}
-            </div>
-          )}
-          {presetEmptyWarning && (
-            <div className="listen-context-warning" role="status">
-              {presetEmptyWarning}
-            </div>
-          )}
           {viewMode === 'transcript' ? (
             visibleTranscripts.length > 0 ? (
               // Turns, in the order the words were spoken - not one bubble per

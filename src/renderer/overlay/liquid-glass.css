@@ -710,33 +710,60 @@ html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)
   background: rgba(255, 255, 255, 0.18) !important;
 }
 
-/* ── Capture status, built as a macOS system alert ────────────────────────────
+/* ── Status notices, built the way macOS shows a non-blocking problem ──────────
  *
- * Apple's HIG puts Liquid Glass on system-level alerts and sheets, and states
- * that an error message must keep its contrast REGARDLESS of the material. So
- * the surface is glass; the legibility is not negotiable. "Hierarchy through
- * depth", not through a saturated red panel - a red block is a web toast, and
- * the previous banner read as exactly that.
+ * One component for every "something needs you" state in the Listen window:
+ * the capture alert ("No Connection") and the preset notices (no preset,
+ * blank preset, another preset active, context unavailable). One language.
  *
- * Structure copied from a real macOS alert: a template-style status glyph, a
- * short title in emphasised body text, and one explanatory sentence beneath it
- * in secondary weight. Lensing, not scattering, so it uses the same filter as
- * every other Taylos surface rather than inventing its own.
+ * Material - HIG "Materials": "Don't use Liquid Glass in the content layer ...
+ * use standard materials for elements in the content layer." The panel itself
+ * is the glass; a notice inside it is content, so it takes a standard fill
+ * (macOS secondary fill on dark) and a hairline, not a second lens.
+ *
+ * Type - HIG macOS text styles: Callout 12/15 emphasised (SF weight 590) for
+ * the header, Subheadline 11.5/14 in the secondary label colour for the one
+ * detail line the mismatch notice keeps. Nothing below 11 pt.
+ *
+ * Symbols - the real SF Symbols at Semibold (sf-symbols.tsx), which is how
+ * macOS pairs a symbol with an emphasised label. Amber and the triangle are
+ * reserved for a degraded system state (connection, snapshot); guidance takes
+ * a document symbol in the label colour (white).
+ *
+ * Dismiss - an `xmark` in the trailing corner, revealed on hover the way
+ * macOS reveals secondary controls, always reachable by keyboard. A closed
+ * notice stays closed for the session; a different one shows again.
  */
 .taylos-status-alert {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 9px;
   margin: 0 8px 6px;
-  padding: 9px 12px 10px;
+  padding: 8px 30px 9px 12px;   /* trailing room for the dismiss control */
   border-radius: 10px;
-  background: rgba(28, 28, 30, 0.55);
-  -webkit-backdrop-filter: var(--taylos-glass-filter);
-  backdrop-filter: var(--taylos-glass-filter);
-  /* The hairline is how macOS separates a glass panel from what it floats on. */
+  background: rgba(255, 255, 255, 0.075);
+  /* The hairline is how macOS separates a fill from what it sits on. */
   box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.12),
-    0 1px 3px rgba(0, 0, 0, 0.28);
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.11),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+  animation: taylos-status-alert-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Header-only notices sit on one 15px line; centre the symbol on it. */
+.taylos-status-alert--compact {
+  align-items: center;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+@keyframes taylos-status-alert-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taylos-status-alert { animation: none; }
 }
 
 /* System amber, not alarm red. Nothing is broken and nothing is lost - the
@@ -751,8 +778,33 @@ html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)
   color: rgba(255, 214, 10, 0.95);
 }
 
+/* A fixed box for the symbol so different glyph shapes share one column. */
+.taylos-status-alert__symbol {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 15px;
+  color: rgba(255, 214, 10, 0.95);
+}
+
+.taylos-status-alert__symbol > svg {
+  display: block;
+  max-width: 16px;
+  max-height: 16px;
+}
+
+/* Guidance, not caution: the symbol takes the label colour, like a monochrome
+ * symbol next to its label in a macOS list. Only degraded state gets a hue. */
+.taylos-status-alert--guidance .taylos-status-alert__glyph,
+.taylos-status-alert--guidance .taylos-status-alert__symbol {
+  color: rgba(255, 255, 255, 0.96);
+}
+
 .taylos-status-alert__text {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
@@ -761,6 +813,7 @@ html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)
 .taylos-status-alert__title {
   font-size: 12px;
   font-weight: 590;              /* SF's emphasised body weight */
+  line-height: 15px;
   letter-spacing: -0.08px;
   color: rgba(255, 255, 255, 0.96);
 }
@@ -768,6 +821,62 @@ html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)
 .taylos-status-alert__detail {
   font-size: 11.5px;
   font-weight: 400;
+  line-height: 14px;
   letter-spacing: -0.05px;
   color: rgba(235, 235, 245, 0.62);   /* macOS secondary label */
+}
+
+/* Dismiss: trailing corner, hidden until the pointer is on the notice or the
+ * control has keyboard focus. Tertiary label colour at rest, secondary on
+ * hover - the same two steps macOS uses for a close control on a tip. */
+.taylos-status-alert__dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.42);   /* macOS tertiary label */
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
+  -webkit-app-region: no-drag;
+}
+
+.taylos-status-alert--compact .taylos-status-alert__dismiss {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.taylos-status-alert:hover .taylos-status-alert__dismiss,
+.taylos-status-alert__dismiss:focus-visible {
+  opacity: 1;
+}
+
+.taylos-status-alert__dismiss:hover {
+  color: rgba(235, 235, 245, 0.72);
+  background: var(--taylos-glass-control);
+}
+
+.taylos-status-alert__dismiss:active {
+  background: var(--taylos-glass-control-press);
+}
+
+.taylos-status-alert__dismiss:focus-visible {
+  outline: 2px solid rgba(10, 132, 255, 0.85);
+  outline-offset: 1px;
+}
+
+.taylos-status-alert__dismiss > svg {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taylos-status-alert__dismiss { transition: none; }
 }

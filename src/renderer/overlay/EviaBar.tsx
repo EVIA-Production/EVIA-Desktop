@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 're
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { consumePresetSessionReset, clearSessionBinding } from '../lib/pending-preset-reset';
+import { ensureSessionMatchesActivePreset } from '../lib/preset-binding';
 
 const ListenIcon = new URL('./assets/Listen.svg', import.meta.url).href;
 const SettingsIcon = new URL('./assets/setting.svg', import.meta.url).href;
@@ -615,6 +616,25 @@ const EviaBar: React.FC<EviaBarProps> = ({
       startInProgressRef.current = true;
       console.log('[EviaBar] Listen → Stop: Showing listen window');
       let generation = current.generation;
+      // The Desktop's own preset changes arm the reset above. A change made in
+      // the web app, or a chat id that outlived a restart, do not - so ask the
+      // backend which preset is active and compare it with the chat this call
+      // would reuse. Started now, awaited only where the chat id is consumed,
+      // so the transition and window show pay for it. Fails open on a slow
+      // connection: the Listen click is never held on this.
+      const bindingCheck = ensureSessionMatchesActivePreset(
+        {
+          readPrefs: () => (window as any).evia?.prefs?.get?.() ?? Promise.resolve(null),
+          listPresets: () => (window as any).evia?.presets?.list?.() ?? Promise.resolve(null),
+          clearBinding: () => {
+            clearSessionBinding();
+            (window as any).evia?.ipc?.send?.('session:closed');
+          },
+          isIdle: () => !isListeningRef.current,
+          log: (message) => console.log('[EviaBar]', message),
+        },
+        { timeoutMs: 700 },
+      );
       try {
         const transition: CaptureTransitionResult = await captureApi.beginStart();
         if (!transition.accepted || !transition.changed) return;
@@ -626,6 +646,11 @@ const EviaBar: React.FC<EviaBarProps> = ({
 
         await (window as any).evia?.windows?.ensureShown?.('listen');
         onViewChange?.('listen');
+
+        const bindingVerdict = await bindingCheck;
+        if (bindingVerdict === 'reset') {
+          console.log('[EviaBar] 🔄 Chat no longer matches the active preset - starting a new session');
+        }
 
         const captureStarted = await onSetListening(true);
         if (!captureStarted) {

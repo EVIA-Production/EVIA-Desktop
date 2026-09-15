@@ -496,8 +496,16 @@ test('bound preset context status reaches the normal Listen window', () => {
   const forwardedContextStatusMatches = audioSource.match(/msg\.type === 'context_status'/g) || [];
   assert.equal(forwardedContextStatusMatches.length, 2, 'mic and system sockets must forward context status');
   assert.match(listenSource, /if \(msg\.type === 'context_status'\)/);
-  assert.match(listenSource, /setPresetContextWarning\(!contextAvailable\)/);
-  assert.match(listenSource, /presetContextUnavailable/);
+  // The status feeds the notice model (unavailable + bound-vs-active
+  // mismatch), and the unavailable state renders through the shared notice
+  // component rather than a bare string.
+  assert.match(listenSource, /noticeFromContextStatus\(msg\.data\)/);
+  assert.match(listenSource, /setPresetContextWarning\(status\.unavailable\)/);
+  const noticeSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'lib', 'preset-notice.ts'),
+    'utf8',
+  );
+  assert.match(noticeSource, /unavailableTitle/);
 });
 
 test('development builds reach production services through the dev-only HTTP proxy', () => {

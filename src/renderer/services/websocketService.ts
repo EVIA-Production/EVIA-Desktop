@@ -179,9 +179,20 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
         throw new Error(`Invalid chat id: ${JSON.stringify(data)}`);
       }
       chatId = String(newId);
+      // The preset this chat was bound to, kept next to the id so a later
+      // Listen click can tell whether the chat still matches the active preset
+      // (lib/preset-binding). `null` is a real answer - bound to no preset.
+      const boundPresetId =
+        typeof data?.preset_id === 'number' && data.preset_id > 0 ? data.preset_id : null;
       localStorage.setItem('current_chat_id', chatId);
-      try { await (window as any).evia?.prefs?.set?.({ current_chat_id: chatId }); } catch {}
-      console.log('[Chat] Created chat id', chatId);
+      localStorage.setItem('current_chat_preset_id', boundPresetId === null ? '' : String(boundPresetId));
+      try {
+        await (window as any).evia?.prefs?.set?.({
+          current_chat_id: chatId,
+          current_chat_preset_id: boundPresetId,
+        });
+      } catch {}
+      console.log('[Chat] Created chat id', chatId, 'bound to preset', boundPresetId ?? 'none');
       break;
     } catch (err) {
       console.error(`[Chat] Create failed attempt ${attempt + 1}`, err);
@@ -207,8 +218,9 @@ export async function getOrCreateChatId(backendUrl: string, token: string, force
  */
 export async function clearChatIdEverywhere(reason: string): Promise<void> {
   localStorage.removeItem('current_chat_id');
+  localStorage.removeItem('current_chat_preset_id');
   try {
-    await (window as any).evia?.prefs?.set?.({ current_chat_id: null });
+    await (window as any).evia?.prefs?.set?.({ current_chat_id: null, current_chat_preset_id: null });
     console.log(`[Chat] Cleared chat id from localStorage and shared prefs (${reason})`);
   } catch (error) {
     console.warn('[Chat] Could not clear shared prefs chat id', error);

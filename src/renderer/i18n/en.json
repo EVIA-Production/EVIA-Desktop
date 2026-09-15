@@ -21,7 +21,17 @@
       "reconnected": "Audio reconnected",
       "waitingForSpeech": "Waiting for speech...",
       "waitingForProspectSpeech": "Waiting for prospect speech...",
-      "presetContextUnavailable": "This conversation's preset context is unavailable. Listening continues, but preset-based AI is paused.",
+      "presetNotice": {
+        "unavailableTitle": "Preset Context Unavailable",
+        "mismatchTitle": "Another Preset Is Active",
+        "mismatchDetailBound": "This conversation runs on “{{bound}}”. “{{active}}” applies from the next conversation.",
+        "mismatchDetailNone": "This conversation runs without a preset. “{{active}}” applies from the next conversation.",
+        "missingTitle": "No Preset Active",
+        "blankTitle": "Preset Is Still Blank",
+        "blankTitleNamed": "“{{name}}” is still blank",
+        "unnamedPreset": "Preset",
+        "dismiss": "Dismiss"
+      },
       "noInsightsYet": "No insights yet",
       "generatingInsights": "Generating insights...",
       "noContext": "No context yet",

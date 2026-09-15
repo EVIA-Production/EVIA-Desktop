@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { i18n } from '../i18n/i18n';
 import { armPresetSessionReset } from '../lib/pending-preset-reset';
+import { isAccidentalDeactivate, recordActivation, type RecentActivation } from '../lib/preset-toggle-guard';
+import { openPersonalizePage } from '../lib/open-personalize';
 import {
   trackAutoUpdateToggled,
   trackInvisibilityToggled,
@@ -27,6 +29,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [presets, setPresets] = useState<any[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
   const [activatingPresetId, setActivatingPresetId] = useState<number | string | null>(null);
+  // The last successful activation, for the double-click guard below.
+  const recentActivationRef = useRef<RecentActivation | null>(null);
 
   // The settings window renders this component and nothing else, so mounting IS
   // opening. Reported once per mount rather than per render.
@@ -258,30 +262,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
   const handleCreatePreset = async () => {
     console.log('[SettingsView] ➕ Create first preset clicked - opening /personalize');
-    const eviaShell = (window as any).evia?.shell;
-    const eviaAuth = (window as any).evia?.auth;
-    
-    if (!eviaShell?.navigate) {
-      console.error('[SettingsView] Shell navigation API not available');
-      // Fallback
-      if ((window as any).evia?.windows?.openExternal) {
-        (window as any).evia.windows.openExternal(`${WEB_APP_URL}/personalize`);
-      }
-      return;
-    }
-    
-    try {
-      const token = await eviaAuth?.getToken?.();
-      const url = token
-        ? `${WEB_APP_URL}/personalize?desktop_token=${encodeURIComponent(token)}`
-        : `${WEB_APP_URL}/personalize`;
-      
-      console.log('[SettingsView] 🧭 Requesting navigation via bridge');
-      await eviaShell.navigate(url);
-      console.log('[SettingsView] ✅ Navigation request sent');
-    } catch (error) {
-      console.error('[SettingsView] Error requesting navigation:', error);
-    }
+    await openPersonalizePage();
   };
 
   // FIX ISSUE #2: Persist auto-update toggle via IPC
@@ -367,6 +348,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
 
     // Toggle off: clicking the already-active preset deactivates it
     if (preset.is_active) {
+      // ...unless it was activated a moment ago. A double-click, or a second
+      // click while the row still looked unchanged, used to activate and then
+      // silently deactivate (PostHog: pairs 543 ms apart, 8 Sep 2026), and the
+      // rep's next call ran on no preset at all.
+      if (isAccidentalDeactivate(recentActivationRef.current, preset.id, Date.now())) {
+        console.log('[SettingsView] Ignoring deactivate click within the activation window');
+        return;
+      }
       setActivatingPresetId(preset.id);
       setPresetNotice(null);
       try {
@@ -429,6 +418,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         }));
         setPresets(updatedPresets);
         setSelectedPreset(updatedPreset);
+        recentActivationRef.current = recordActivation(preset.id, Date.now());
         localStorage.setItem('active_preset_context', JSON.stringify(activation.context));
         armFreshSessionForNextInteraction(preset.id, 'activated');
       } else {
