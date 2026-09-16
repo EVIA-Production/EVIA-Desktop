@@ -12,6 +12,9 @@
     <link rel="stylesheet" href="atlas-shell.css" />
     <link rel="stylesheet" href="final-polish.css" />
     <link rel="stylesheet" href="atlas-review.css" />
+    <!-- Bundled PostHog + its replay recorder (no external loads); only initialised when the shell passes ?analytics=1. -->
+    <script src="vendor/posthog.js"></script>
+    <script src="vendor/posthog-recorder.js"></script>
     <script type="module" src="goal-first-atlas-practice.js"></script>
     <script defer src="glass-lens.js"></script>
   </head>

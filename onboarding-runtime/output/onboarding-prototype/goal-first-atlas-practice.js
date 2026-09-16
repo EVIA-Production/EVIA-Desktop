@@ -1,4 +1,5 @@
 import {translate, goalsDe} from './onboarding-i18n.js';
+import {analytics} from './onboarding-analytics.js';
 (() => {
   "use strict";
   // The real renderer is an ES module bundle and needs the local HTTP origin.
@@ -543,7 +544,9 @@ import {translate, goalsDe} from './onboarding-i18n.js';
     const result = await window.taylosLocal.request('onboarding:permissions');
     if (!result?.live) return;
     livePermissions = true;
+    const before = state.permission;
     state.permission = result.microphone === 'granted' ? (result.screen === 'granted' ? 2 : 1) : 0;
+    if (state.permission !== before) analytics.track('onboarding_permission_state', { microphone: state.permission >= 1, call_audio: state.permission >= 2 });
     if (state.view === 'permissions') render(true);
   }
   async function permissionViewNeeded() { await refreshPermissions(); return !livePermissions || state.permission < 2; }
@@ -553,6 +556,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
     try {
       await refreshPermissions();
       if (state.permission === 2) { go('transcript'); return; }
+      analytics.track('onboarding_permission_requested', { kind: state.permission === 0 ? 'microphone' : 'call_audio' });
       await window.taylosLocal.request(state.permission === 0 ? 'onboarding:request-microphone' : 'onboarding:request-screen');
       await refreshPermissions();
       if (state.permission === 2) go('transcript');
@@ -582,13 +586,16 @@ import {translate, goalsDe} from './onboarding-i18n.js';
         main.classList.remove('leaving');stage.classList.remove('stage-leaving');
         state.direction=forward?1:-1;
         state.view=view;state.visible=true;state.success="";state.toast="";
+        analytics.step(view,views.indexOf(view),views.length,forward?1:-1);
         render(true);save();
         main.classList.add('entering');if(artworkChanges)stage.classList.add('stage-entering');
         setTimeout(()=>{main.classList.remove('entering');stage.classList.remove('stage-entering');},420);
       },250);
       return;
     }
+    const forward=views.indexOf(view)>=views.indexOf(state.view);
     state.view=view;state.visible=true;state.success="";state.toast="";
+    analytics.step(view,views.indexOf(view),views.length,forward?1:-1);
     render(true);save();
   }
   async function goSkippingPermissions(view, direction) {
@@ -659,11 +666,11 @@ import {translate, goalsDe} from './onboarding-i18n.js';
   document.addEventListener("click",async event=>{
     const b=event.target.closest("[data-action]");if(!b)return;
     const a=b.dataset.action;
-    if(a==='close'){if(window.taylosLocal)window.taylosLocal.close();else{wrap.hidden=true;root.querySelector('.light-field').classList.remove('lit');}return;}
-    if(a==="language"){changeLanguage(b.dataset.language);return;}
+    if(a==='close'){analytics.terminal('onboarding_closed',{reason:'close',finished:false});if(window.taylosLocal)window.taylosLocal.close();else{wrap.hidden=true;root.querySelector('.light-field').classList.remove('lit');}return;}
+    if(a==="language"){analytics.track('onboarding_language_changed',{language:b.dataset.language});changeLanguage(b.dataset.language);return;}
     if(a==="platform"){state.platform=b.dataset.platform;render();return;}
     if(a==="layout"){manualLayout=true;state.layout=b.dataset.layout;state.showLabel=state.layout==="de"?"#":"\\";render();return;}
-    if(a==="restart"){restart();return;}
+    if(a==="restart"){analytics.track('onboarding_restarted');restart();return;}
     if(a==="review-next"||a==="review-back"){
       clearTimeout(introTimer);state.launching=false;card.inert=false;wrap.classList.remove("launching");wrap.classList.add("launched");
       const i=views.indexOf(state.view)+(a==="review-next"?1:-1);if(views[i])go(views[i]);return;
@@ -671,7 +678,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
     if(state.launching)return;
     if(a==="show")show();
     else if(a==="open-ask")ask();
-    else if(a==="choose-goal"){state.goal=b.dataset.goal;go("prepare");}
+    else if(a==="choose-goal"){state.goal=b.dataset.goal;analytics.track('onboarding_goal_chosen',{goal:b.dataset.goal});go("prepare");}
     else if(a==="listen"&&state.view==="prepare")goSkippingPermissions(state.permission===2?"transcript":"permissions",1);
     else if(a==="continue-preview"){if(livePermissions)await grantRealPermission();else {state.permission=2;go("transcript");}}
     else if(a==="grant"){
@@ -684,7 +691,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
     else if(a==="suggestion"){state.history=1;go("suggestion");}
     else if(a==="previous")history(-1);
     else if(a==="next")history(1);
-    else if(a==="stop"&&["transcript","insights","suggestion"].includes(state.view))go("review");
+    else if(a==="stop"&&["transcript","insights","suggestion"].includes(state.view)){analytics.track('onboarding_practice_completed',{from:state.view});go("review");}
     else if(a==="done"&&state.view==="review")go("personalize");
     else if(a==="section"){
       state.section=b.dataset.section;
@@ -695,14 +702,16 @@ import {translate, goalsDe} from './onboarding-i18n.js';
       stageArt.querySelector('.context-fields').replaceWith(next.querySelector('.context-fields'));
     }
     else if(a==="open-mic-settings"){
+      analytics.track('onboarding_windows_settings_opened');
       if(window.taylosLocal)window.taylosLocal.send({type:'navigate',url:'ms-settings:privacy-microphone'});
       else toast('Opens Windows Settings on a Windows machine.');
     }
     else if(a==="back"){
       const i=views.indexOf(state.view);if(i>0)goSkippingPermissions(views[i-1],-1);
     }else if(a==="finish"){
-      if(state.view==='personalize' && state.website.trim() && !validWebsite(state.website.trim())){event.preventDefault();setWebsiteError(true);return;}
+      if(state.view==='personalize' && state.website.trim() && !validWebsite(state.website.trim())){analytics.track('onboarding_website_rejected');event.preventDefault();setWebsiteError(true);return;}
       save();
+      analytics.terminal('onboarding_finish_clicked',{skipped:state.view==='welcome',goal:state.goal||null,has_custom_goal:!!state.customGoal.trim(),has_website:!!state.website.trim(),document_count:documentFiles.size,fields_filled:Object.values(state.fields).filter(v=>String(v||'').trim()).length,language:state.language});
       if(window.taylosLocal){
         event.preventDefault();if(b.getAttribute('aria-disabled')==='true')return;
         b.setAttribute('aria-disabled','true');b.textContent='Saving your setup…';
@@ -802,6 +811,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
       documentFeedback(e.target,invalid);
       if(invalid){e.target.value='';return;}
       for(const file of files)documentFiles.set(file.name,file);
+      analytics.track('onboarding_document_added',{document_count:documentFiles.size});
       state.documents=documents;
       const drop=e.target.closest('.apple-drop'),badge=drop.querySelector('.t-badge');
       drop.classList.add('filled');badge.querySelector('.t-badge-dot').textContent=String(documents.length);
@@ -857,7 +867,7 @@ import {translate, goalsDe} from './onboarding-i18n.js';
 return;
     }
     if(d?.type==='shortcuts'){customShortcuts=d.shortcuts||{};controls.innerHTML=L(interaction());syncKeys();return;}
-    if(d?.type==='finish-error'){toast(d.message || 'Could not finish setup. Please try again.');const finish=root.querySelector('[data-action=finish]');if(finish){finish.removeAttribute('aria-disabled');finish.textContent='Finish Setup';}return;}
+    if(d?.type==='finish-error'){analytics.track('onboarding_finish_failed',{message:String(d.message||'').slice(0,120)});toast(d.message || 'Could not finish setup. Please try again.');const finish=root.querySelector('[data-action=finish]');if(finish){finish.removeAttribute('aria-disabled');finish.textContent='Finish Setup';}return;}
     if(d?.type==="taylos-ready"){sendNative();return;}
     if(d?.type==="taylos-key"){
         document.dispatchEvent(new KeyboardEvent(d.kind,{code:d.code,key:d.key,metaKey:d.metaKey,ctrlKey:d.ctrlKey,altKey:d.altKey,shiftKey:d.shiftKey,repeat:d.repeat,bubbles:true}));return;
@@ -974,14 +984,23 @@ return;
   async function present() {
     wrap.classList.add('awaiting-presentation');
     document.documentElement.dataset.intro='true';
+    let resumed=false;
     if(window.taylosLocal){
       try {
         const initial=await window.taylosLocal.request('onboarding:initial-state');
         const checkpoint=initial?.checkpoint;
         if(checkpoint && views.includes(checkpoint.view)){
+          resumed=true;
           Object.assign(state,{view:checkpoint.view,goal:checkpoint.goal||null,customGoal:checkpoint.customGoal||'',fields:checkpoint.fields||{},website:checkpoint.website||''});
         }
       } catch {}
+      if(analytics.enabled){
+        let account=null;
+        try{const identityResult=await window.taylosLocal.request('auth:identity');if(identityResult?.authenticated)account=identityResult.user;}catch{}
+        analytics.init({username:account?.username||null,email:account?.email||null});
+        analytics.track('onboarding_started',{resumed,view:state.view,language:state.language,goal:state.goal||null});
+        analytics.step(state.view,views.indexOf(state.view),views.length,0);
+      }
     }
     render();detectLayout();void refreshPermissions();
     const icon=wrap.querySelector('.launch-base');

@@ -74,3 +74,34 @@ test('a pre-1.0.109 install that never finished permissions still gets first-run
  h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
  await h.c.initialize();assert.equal(count,1);
 });
+// 2026-09-16: a tester's whole first run left no event and no replay - the
+// onboarding window served its own page, blocked every other host and loaded
+// no PostHog. These pin the pieces that make the flow visible.
+const runtime=path.join(__dirname,'../onboarding-runtime/output/onboarding-prototype');
+const read=file=>fs.readFileSync(path.join(runtime,file),'utf8');
+test('the onboarding page bundles PostHog and its replay recorder, and initialises analytics',()=>{
+ const html=read('goal-first-atlas-practice.html');
+ assert.match(html,/vendor\/posthog\.js/);
+ assert.match(html,/vendor\/posthog-recorder\.js/,'the recorder is a separate lazy bundle; without it replay never starts');
+ assert.ok(fs.existsSync(path.join(runtime,'vendor/posthog.js'))&&fs.existsSync(path.join(runtime,'vendor/posthog-recorder.js')));
+ const page=read('goal-first-atlas-practice.js');
+ assert.match(page,/import \{analytics\} from '\.\/onboarding-analytics\.js'/);
+ assert.match(page,/analytics\.track\('onboarding_started'/);
+ assert.equal((page.match(/analytics\.step\(/g)||[]).length,3,'first view plus both branches of go()');
+ assert.match(page,/analytics\.terminal\('onboarding_finish_clicked'/);
+ assert.match(page,/analytics\.terminal\('onboarding_closed'/);
+});
+test('the shell lets PostHog EU through its request allowlist only when analytics is on, and waits for the last event',()=>{
+ const shell=read('local-onboarding.cjs');
+ assert.match(shell,/https:\/\/eu\.i\.posthog\.com\//);
+ assert.match(shell,/const analytics = embedded \|\| process\.env\.TAYLOS_ONBOARDING_ANALYTICS === '1'/);
+ assert.match(shell,/analytics && analyticsHosts\.some/);
+ assert.match(shell,/analytics=1&app_version=/);
+ assert.match(shell,/if\(analytics\) await new Promise\(resolve=>setTimeout\(resolve,600\)\)/);
+});
+test('onboarding replay masks what the tester types',()=>{
+ const analytics=read('onboarding-analytics.js');
+ assert.match(analytics,/maskAllInputs: true/);
+ assert.match(analytics,/maskTextSelector: '\[data-ph-mask\], \.context-fields/);
+ assert.match(analytics,/params\.get\('analytics'\) === '1'/,'previews and screenshot runs stay silent');
+});
