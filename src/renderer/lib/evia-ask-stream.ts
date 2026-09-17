@@ -65,6 +65,12 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
   // If we have both transcript AND a user question (not just transcript alone)
   if (transcript && prompt && transcript !== prompt) {
     payload.prompt_override = prompt;  // Send question separately for Glass pattern
+    // The backend reads `transcript` first and only then falls back to the
+    // Glass convention above. Measured 2026-09-17 (chat 1935): without the
+    // explicit field the server preferred its own one-speaker Redis buffer
+    // over the 563 characters this click carried, and the seller read
+    // "Wo wundern Sie sich?" aloud. Both fields, so the contract is explicit.
+    payload.transcript = transcript;
     console.log('[evia-ask-stream] 📄 Sending with transcript context:', transcript.length, 'chars + question:', prompt.substring(0, 50));
   } else if (!transcript) {
     console.log('[evia-ask-stream] ⚠️ No transcript context - sending question only');

@@ -131,10 +131,15 @@ function prefetchPayload(transcript, question) {
   };
 }
 
-/** What evia-ask-stream.ts posts on a click. `transcript` field is never set. */
+/** What evia-ask-stream.ts posts on a click. Since 2026-09-18 the `transcript`
+ *  field is set too, so the server never has to fall back to the Glass
+ *  convention (or, before that fix, to its one-speaker Redis buffer). */
 function clickPayload(transcript, question) {
   const payload = { prompt: transcript || question, session_state: 'during' };
-  if (transcript && question && transcript !== question) payload.prompt_override = question;
+  if (transcript && question && transcript !== question) {
+    payload.prompt_override = question;
+    payload.transcript = transcript;
+  }
   return payload;
 }
 
