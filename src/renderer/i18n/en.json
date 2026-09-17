@@ -106,7 +106,7 @@
       "presetContextPending": "Preset activated. Taylos will verify its context when the next conversation starts.",
       "presetLockedDuringSession": "Stop listening before changing the preset.",
       "personalizeButton": "Personalize / Meeting Notes",
-      "runSetupAgain": "Run setup again",
+      "runSetupAgain": "Start Tutorial again",
       "automaticUpdates": "Automatic Updates",
       "automaticUpdatesOn": "Automatic Updates: On",
       "automaticUpdatesOff": "Automatic Updates: Off",

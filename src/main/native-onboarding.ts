@@ -139,7 +139,7 @@ export function registerNativeOnboarding() {
         },
       });
     } catch (error) {
-      dialog.showErrorBox('Taylos setup could not open', 'Please reopen Taylos or use Help → Run Taylos Setup Again. Your setup has not been marked complete.');
+      dialog.showErrorBox('Taylos setup could not open', 'Please reopen Taylos or use Help → Start Tutorial again. Your setup has not been marked complete.');
       throw error;
     }
   });

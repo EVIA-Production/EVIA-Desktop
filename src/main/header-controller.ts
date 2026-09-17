@@ -83,7 +83,7 @@ export class HeaderController {
         // onboardingCompleted key but did finish the old permission flow. It is
         // an established account, not a first run: forcing it through setup on
         // update would also replace its active preset with "My Sales Profile".
-        // Help → Run Taylos Setup Again and Settings keep the flow reachable.
+        // Help → Start Tutorial again and Settings keep the flow reachable.
         if (!('onboardingCompleted' in state) && this.permissionsCompleted) {
           this.onboardingCompleted = true;
           console.log('[HeaderController] Pre-onboarding install detected - treating setup as complete');

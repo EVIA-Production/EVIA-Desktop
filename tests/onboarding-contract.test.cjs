@@ -28,8 +28,8 @@ test('the localhost bridge permits only Taylos web and loopback development orig
 });
 
 test('setup can be reopened from a localized native Help menu', () => {
-  assert.match(main, /Taylos-Einrichtung erneut starten/);
-  assert.match(main, /Run Taylos Setup Again/);
+  assert.match(main, /Starte Tutorial erneut/);
+  assert.match(main, /Start Tutorial again/);
   assert.match(main, /registerNativeOnboarding\(\)/);
   assert.match(main, /onboarding:restart/);
   assert.doesNotMatch(settings, /onboarding\?restart=1/);

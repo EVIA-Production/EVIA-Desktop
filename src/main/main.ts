@@ -59,7 +59,7 @@ function installApplicationMenu(): void {
       role: 'help' as const,
       submenu: [
         {
-          label: isGerman ? 'Taylos-Einrichtung erneut starten' : 'Run Taylos Setup Again',
+          label: isGerman ? 'Starte Tutorial erneut' : 'Start Tutorial again',
           click: openOnboardingSetup,
         },
       ],
