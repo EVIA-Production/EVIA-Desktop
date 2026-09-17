@@ -18,11 +18,12 @@ const glassCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', '
 const liquidCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'overlay', 'liquid-glass.css'), 'utf8');
 
 function block(source, startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
+  const normalized = source.replace(/\r\n/g, '\n');
+  const start = normalized.indexOf(startMarker);
   assert.notEqual(start, -1, `missing ${startMarker}`);
-  const end = source.indexOf(endMarker, start);
+  const end = normalized.indexOf(endMarker, start);
   assert.notEqual(end, -1, `missing ${endMarker}`);
-  return source.slice(start, end);
+  return normalized.slice(start, end);
 }
 
 test('resetSessionPresentation clears all notice state, including a dismissal', () => {
