@@ -159,7 +159,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
         // user must read for it sit at 45%, so the one live control is the
         // brightest thing on screen (and the red Stop pill is not).
         const keep=state?.flow==='focus' && FOCUS_KEEP[state.view];
-        const dim=keep && !keep.includes(name) ? .45 : 1;
+        const dim=keep && ['bar','ask','listen'].includes(name) && !keep.includes(name) ? .45 : 1;
         win.setOpacity(slideOpacity*dim*(name==='bar'?(.3+.7*(1-Math.pow(1-revealProgress,3))):1));
         if (!win.isVisible()) {
           win.showInactive();
@@ -225,20 +225,27 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     const below=(left)=>({left,top:b.y+b.height+12,side:'below'});
     // Shift a bubble above the host when necessary so it clears the central bar.
     // It remains attached to its real target and never covers product controls.
+    const focus=state?.flow==='focus';
     const sideTop=clamp(b.y+r.y+r.height/2-height/2,work.y+8,work.y+work.height-height-8);
     const vertical=[above(center),above(b.x),above(b.x+b.width-width)];
-    const sides=[
-      {left:b.x-width-12,top:sideTop,side:'left'},
-      {left:b.x+b.width+12,top:sideTop,side:'right'},
-      ];
-    const candidates=name==='bar'?[...vertical,...sides,below(center)]:[...sides,...vertical,below(center)];
+    // Beside the target: centred on it, or aligned to its bottom / top edge when
+    // the centred box would run into a lit window above or below (focus flow).
+    const sideTops=focus?[sideTop,clamp(b.y+r.y+r.height-height,work.y+8,work.y+work.height-height-8),clamp(b.y+r.y,work.y+8,work.y+work.height-height-8)]:[sideTop];
+    const sides=sideTops.flatMap(top=>[
+      {left:b.x-width-12,top,side:'left'},
+      {left:b.x+b.width+12,top,side:'right'},
+      ]);
+    const candidates=data.side?[...sides,...vertical,below(center)]:name==='bar'?[...vertical,...sides,below(center)]:[...sides,...vertical,below(center)];
     const fits=c=>c.left>=work.x+8 && c.left+width<=work.x+work.width-8 && c.top>=work.y+8 && c.top+height<=work.y+work.height-8;
-    const avoids=c=>activeNames().every(key=>{const o=productBounds.get(key)||windows.get(key).getBounds();return !(c.left<o.x+o.width && c.left+width>o.x && c.top<o.y+o.height && c.top+height>o.y);});
+    // Focus flow: a callout may lie over a shadowed window; only the lit ones are obstacles.
+    const keep=focus&&FOCUS_KEEP[state.view];
+    const obstacles=keep?activeNames().filter(key=>keep.includes(key)||key===name):activeNames();
+    const avoids=c=>obstacles.every(key=>{const o=productBounds.get(key)||windows.get(key).getBounds();return !(c.left<o.x+o.width && c.left+width>o.x && c.top<o.y+o.height && c.top+height>o.y);});
     const chosen=candidates.find(c=>fits(c)&&avoids(c));
     if(!chosen){coach.hide();return;}
     const {left,top,side}=chosen;
     // window-local coordinates: the bubble is translated inside the overlay
-    const content={type:'coach',title:data.title,body:data.body,side,
+    const content={type:'coach',title:data.title,body:data.body,side,flow:state?.flow||'',
       x:Math.round(left-work.x),y:Math.round(top-work.y),width,
       arrow:side==='left'||side==='right'?clamp(b.y+r.y+r.height/2-top,18,height-18):clamp(b.x+r.x+r.width/2-left,28,width-28)};
     const key=JSON.stringify(content);

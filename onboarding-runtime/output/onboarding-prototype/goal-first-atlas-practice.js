@@ -278,7 +278,7 @@ import {analytics} from './onboarding-analytics.js';
   }
   function watermark() { return '<span class="watermark">' + logo() + '</span>'; }
   function welcomeImage() {
-    return '<div class="welcome-image"><img src="' + (focus ? 'assets/welcome-meeting-clean.webp' : 'assets/welcome-meeting.webp') + '" alt="' + (focus ? 'A video meeting' : 'Taylos live sales assistant shown over a meeting') + '" />' +
+    return '<div class="welcome-image"><img src="' + (focus ? 'assets/welcome-meeting-focus.webp' : 'assets/welcome-meeting.webp') + '" alt="' + (focus ? 'A video meeting' : 'Taylos live sales assistant shown over a meeting') + '" />' +
       '<div class="welcome-title"><h1>Welcome to Taylos</h1><span class="rule"></span>' +
       '<p>' + (focus ? copyFocus.welcome[1] : 'The sales call AI that tells you live what sales experts would say.') + '</p></div></div>';
   }
