@@ -18,9 +18,10 @@ import {analytics} from './onboarding-analytics.js';
   let documentErrorTimer=0;
   const views = ["welcome", "ask", "goal", "prepare", "permissions", "transcript", "insights", "suggestion", "review", "personalize"];
   const storageKey = "taylos-onboarding-final-preview-v2";
-  // ?flow=focus — one instruction per step, on the control that advances it;
-  // one live control; steps advance only by the real product action.
-  const flow = new URLSearchParams(location.search).get("flow") === "focus" ? "focus" : "";
+  // The focus flow is the flow: one instruction per step, on the control that
+  // advances it; one live control; steps advance only by the real product
+  // action. ?flow=classic keeps the previous card-copy flow for comparison.
+  const flow = new URLSearchParams(location.search).get("flow") === "classic" ? "" : "focus";
   const focus = flow === "focus";
   document.documentElement.dataset.flow = flow;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -37,7 +38,7 @@ import {analytics} from './onboarding-analytics.js';
     // Review only: ?tap=1 previews the macOS 14.4+ System Audio Recording variant of the permissions step.
     permissionTap: new URLSearchParams(location.search).get("tap") === "1"
   };
-  // The focus-flow prototype is reviewed in German too; the shipped flow stays English-only.
+  // German ships with the focus flow (system language); the classic flow stays English-only.
   const ONBOARDING_LANGUAGES = focus ? ['en','de'] : ['en'];
   state.language = ONBOARDING_LANGUAGES.includes(state.language) ? state.language : 'en';
   const t = text => translate(text,state.language);
@@ -315,7 +316,7 @@ import {analytics} from './onboarding-analytics.js';
     const button=isMac()
       ? '<button class="button permission-primary perm-cta" data-action="grant">'+(step===0?'Continue':step===1?(tap?'Continue':'Open System Settings'):'Start practice call')+'</button>'
       : '<div class="perm-cta-row"><button class="button quiet" data-action="continue-preview">'+(livePermissions?'Continue':'Continue preview')+'</button><button class="button permission-primary perm-cta" data-action="open-mic-settings">Open Windows Settings</button></div>';
-    const left='<div class="perm-left"><h1>'+(isMac()?'Let Taylos hear both sides of the call.':'Let Taylos hear you.')+'</h1>'+list+
+    const left='<div class="perm-left"><h1>Let Taylos hear your call.</h1>'+list+
       '<p class="perm-trust">Taylos listens only while you press Listen. You can change this anytime in System Settings.</p>'+button+'</div>';
     let right='';
     if(isMac() && step===0) right='<figure class="perm-shot mic"><img src="assets/permission-mic-cut.webp" alt="macOS asks for the microphone: click Allow." draggable="false" /><img class="perm-cursor mic" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>';
@@ -331,9 +332,8 @@ import {analytics} from './onboarding-analytics.js';
     if(isMac() && step===1 && !tap) right=
       '<figure class="perm-shot audio"><img src="assets/permission-audio-cut.webp" alt="macOS asks for screen and system audio recording: click Open System Settings." draggable="false" /><img class="perm-cursor audio" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>'+
       '<figure class="perm-shot settings"><img src="assets/permission-settings-screen-audio.webp" alt="System Settings: switch on Taylos under Screen &amp; System Audio Recording." draggable="false" /></figure>'+
-      '<figure class="perm-shot quit"><img src="assets/permission-quit-reopen.webp" alt="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen." draggable="false" /></figure>'+
-      '<p class="perm-caption">If macOS asks, click Quit &amp; Reopen. Setup continues where you left off.</p>';
-    if(isMac() && step===2) right='<div class="perm-done">'+sf('checkmark','perm-done-check')+'<span>Both sides can be heard.</span></div>';
+      '<figure class="perm-shot quit"><img src="assets/permission-quit-reopen.webp" alt="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen." draggable="false" /></figure>';
+    if(isMac() && step===2) right='<div class="perm-done">'+sf('checkmark','perm-done-check')+'</div>';
     if(!isMac()) right='<figure class="perm-shot settings"><img src="assets/windows-microphone-1.jpeg" alt="Windows Settings: Microphone access" draggable="false" /></figure>'+
       '<figure class="perm-shot settings"><img src="assets/windows-microphone-3.jpeg" alt="Windows Settings: Let desktop apps access your microphone" draggable="false" /></figure>';
     return '<div class="perm-cluely"><div class="perm-left-col">'+left+'</div><div class="perm-right-col'+(isMac()&&step===1?' stack3':'')+'">'+right+'</div></div>';
@@ -603,7 +603,7 @@ import {analytics} from './onboarding-analytics.js';
     document.querySelector("#review-count").textContent=(views.indexOf(state.view)+1)+" / "+views.length;
     document.querySelector("#prototype-phase").textContent=focus?"Focus flow prototype":"Interactive prototype";
     const flowToggle=document.querySelector("#flow-toggle");
-    if(flowToggle){flowToggle.classList.toggle("is-active",focus);const q=new URLSearchParams(location.search);if(focus)q.delete("flow");else q.set("flow","focus");q.delete("view");flowToggle.href="?"+q.toString();}
+    if(flowToggle){flowToggle.classList.toggle("is-active",focus);const q=new URLSearchParams(location.search);if(focus)q.set("flow","classic");else q.delete("flow");q.delete("view");flowToggle.href="?"+q.toString();}
     document.querySelectorAll("[data-action=platform]").forEach(b=>b.classList.toggle("is-active",b.dataset.platform===state.platform));
     document.querySelectorAll("[data-action=layout]").forEach(b=>b.classList.toggle("is-active",b.dataset.layout===state.layout));
     if (animate && renderedView!==state.view && !reduced.matches) {
@@ -798,7 +798,7 @@ import {analytics} from './onboarding-analytics.js';
     else if(a==="grant"){
       if(livePermissions){await grantRealPermission();return;}
       if(state.permission<1){state.permission++;render(true);}
-      else {state.permission=2;render();transitionTimer=setTimeout(()=>go("transcript"),460);}
+      else {state.permission=2;if(focus)go("transcript");else {render();transitionTimer=setTimeout(()=>go("transcript"),460);}}
     }
     else if(a==="insights"&&["transcript","insights"].includes(state.view))go("insights");
     else if(a==="transcript"&&["transcript","insights"].includes(state.view))go("transcript");

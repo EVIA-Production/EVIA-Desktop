@@ -102,6 +102,7 @@ export const de = {
 "“Taylos” would like to record system audio.":"„Taylos“ möchte Systemaudio aufnehmen.",
 "Taylos uses this permission while you press Listen to capture the other participants’ meeting audio.":"Taylos nutzt diese Berechtigung, solange Zuhören läuft, um den Ton der anderen Teilnehmer aufzunehmen.",
 "Don’t Allow":"Nicht erlauben", "Allow":"Erlauben",
+"Let Taylos hear your call.":"Lass Taylos dein Gespräch hören.",
 "This is the Taylos bar.":"Das ist die Taylos-Leiste.",
 "Click Ask to prepare for a practice call.":"Klicke auf Fragen, um ein Übungsgespräch vorzubereiten.",
 "What do you want from this call?":"Was willst du in diesem Gespräch erreichen?",
