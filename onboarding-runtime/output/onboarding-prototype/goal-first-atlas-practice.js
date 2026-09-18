@@ -33,7 +33,9 @@ import {analytics} from './onboarding-analytics.js';
     // still resolved from the system so re-enabling is one entry here.
     layout: "de", showLabel: "#", history: 1, section: "company",
     fields: saved.fields || {}, website: saved.website || "", documents: [],
-    launching: true, success: "", toast: "", paused: false, websiteError: false
+    launching: true, success: "", toast: "", paused: false, websiteError: false,
+    // Review only: ?tap=1 previews the macOS 14.4+ System Audio Recording variant of the permissions step.
+    permissionTap: new URLSearchParams(location.search).get("tap") === "1"
   };
   // The focus-flow prototype is reviewed in German too; the shipped flow stays English-only.
   const ONBOARDING_LANGUAGES = focus ? ['en','de'] : ['en'];
