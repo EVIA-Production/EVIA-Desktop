@@ -20,6 +20,13 @@ test('the Windows release builds one x64 and ARM64 NSIS installer', () => {
   assert.match(builder, /artifactName: "Taylos\.\$\{ext\}"/)
 })
 
+test('Windows excludes the unused macOS onboarding bridge while macOS retains it', () => {
+  const builder = read('electron-builder.yml')
+
+  assert.match(builder, /from: onboarding-runtime\n\s+to: onboarding-preview\n(?:\s+#.*\n)*\s+filter:\n\s+- "\*\*\/\*"\n\s+- "!output\/onboarding-prototype\/native-controls\.node"/)
+  assert.match(builder, /mac:\n\s+extraResources:\n\s+- from: onboarding-runtime\/output\/onboarding-prototype\/native-controls\.node\n\s+to: onboarding-preview\/output\/onboarding-prototype\/native-controls\.node/)
+})
+
 test('the packaged WASAPI fallback selects a native helper at runtime', () => {
   const service = read('src', 'main', 'system-audio-windows-service.ts')
   const build = read('scripts', 'build-windows-audio-helper.js')

@@ -27,6 +27,11 @@ files:
 extraResources:
   - from: onboarding-runtime
     to: onboarding-preview
+    # This bundle includes a universal Mach-O bridge used only by macOS. It is
+    # restored below for macOS, but must never reach Windows signing.
+    filter:
+      - "**/*"
+      - "!output/onboarding-prototype/native-controls.node"
 asarUnpack:
   # The tray glyph is the discoverable way back from a hidden overlay. Unpacked
   # so it is a real file on disk: nativeImage resolves the @2x/@3x siblings by
@@ -37,6 +42,9 @@ asarUnpack:
   - "native/macos-liquid-glass/build/Release/taylos_liquid_glass.node"
 # Run afterPack script to sign SystemAudioDump with entitlements
 mac:
+  extraResources:
+    - from: onboarding-runtime/output/onboarding-prototype/native-controls.node
+      to: onboarding-preview/output/onboarding-prototype/native-controls.node
   icon: build/icon.icns
   category: public.app-category.productivity
   artifactName: "taylos.${ext}"
