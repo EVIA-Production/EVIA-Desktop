@@ -177,11 +177,8 @@ import {analytics} from './onboarding-analytics.js';
     personalize: ["Improve Your Suggestions", "Add information about your situation so Taylos can give more relevant tips"]
   };
   const copyFocus = {
-    welcome: ["Welcome to Taylos", "Taylos tells you, live, what a top salesperson would say next."],
-    permissions: ["Taylos needs to hear both sides.", ""],
-    permissionsWin: ["Let Taylos use your microphone.",
-      "In Windows Settings, enable microphone access for desktop apps, then return to Taylos."],
-    personalize: ["Tell Taylos what you sell.", "Better words for your real calls. Add more anytime in the dashboard."]
+    welcome: ["Welcome to Taylos", "The sales call AI that tells you live what sales experts would say."],
+    personalize: ["Personalize your suggestions", "Add information about your situation so Taylos can give more relevant tips"]
   };
   // The one product action that advances each guided step of the focus flow.
   // Mirrors focusExpected in native-source/guides.ts. Anything else is off-target.
@@ -279,7 +276,7 @@ import {analytics} from './onboarding-analytics.js';
   }
   function watermark() { return '<span class="watermark">' + logo() + '</span>'; }
   function welcomeImage() {
-    return '<div class="welcome-image"><img src="assets/welcome-meeting.webp" alt="Taylos live sales assistant shown over a meeting" />' +
+    return '<div class="welcome-image"><img src="' + (focus ? 'assets/welcome-meeting-clean.webp' : 'assets/welcome-meeting.webp') + '" alt="' + (focus ? 'A video meeting' : 'Taylos live sales assistant shown over a meeting') + '" />' +
       '<div class="welcome-title"><h1>Welcome to Taylos</h1><span class="rule"></span>' +
       '<p>' + (focus ? copyFocus.welcome[1] : 'The sales call AI that tells you live what sales experts would say.') + '</p></div></div>';
   }
@@ -387,9 +384,11 @@ import {analytics} from './onboarding-analytics.js';
   }
   function interaction() {
     if(focus) {
-      if(state.view==="welcome") return '<div class="focus-welcome"><button class="button permission-primary focus-show" data-action="show">Show the Taylos bar</button>' +
-        '<p class="focus-footnote">Later: ' + keys("show","small") + ' shows and hides it.</p></div>';
+      if(state.view==="welcome") return '<div class="focus-welcome"><p class="focus-lead">Set up Taylos in 3 minutes. First:</p>' +
+        '<button class="button permission-primary focus-show" data-action="show"><span class="focus-sheen" aria-hidden="true"></span><span>Show the Taylos bar</span></button>' +
+        '<p class="focus-footnote">or: ' + keys("show","small") + ' and the ' + logo("inline-mark") + ' ' + (isMac() ? "menu bar" : "system tray") + ' icon show and hide it.</p></div>';
       if(state.view==="permissions") return permissionControls();
+      if(state.view==="suggestion") return '<div class="focus-history">' + historyControls() + '</div>';
       return '';
     }
     if(state.view==="welcome") return shortcutCoach("show");
@@ -517,7 +516,7 @@ import {analytics} from './onboarding-analytics.js';
     updateArtwork();
     nativeFrame.hidden=!!window.taylosLocal || !state.visible || ["welcome","permissions","personalize"].includes(state.view);
     sendNative();
-    const c=focus ? ((state.view==="permissions" && !isMac() && copyFocus.permissionsWin) || copyFocus[state.view] || ["",""])
+    const c=focus ? (state.view==="permissions" ? ((!isMac() && copy.permissionsWin) || copy.permissions) : (copyFocus[state.view] || ["",""]))
       : ((state.view==="permissions" && !isMac() && copy.permissionsWin) || copy[state.view]);
     copyBlock.querySelector(".copy-media").innerHTML = "";
     copyBlock.querySelector("h1").innerHTML=rich(c[0]);

@@ -2,57 +2,70 @@
    (almost nothing) and where the instruction lives (on the control, in the
    product surface). Scoped so the default flow is untouched. */
 
-/* Guided steps: the product gets the height the paragraph used to take. */
+/* Guided steps: the product gets the height the paragraph used to take. The
+   field keeps its blue; the windows that are not part of a step sit under a
+   shadow (drawn in the product bundle), so the live control is the clearing. */
 html[data-flow=focus] .onboarding-card[data-view=ask],
 html[data-flow=focus] .onboarding-card[data-view=goal],
 html[data-flow=focus] .onboarding-card[data-view=prepare],
 html[data-flow=focus] .onboarding-card[data-view=transcript],
 html[data-flow=focus] .onboarding-card[data-view=insights],
-html[data-flow=focus] .onboarding-card[data-view=suggestion],
 html[data-flow=focus] .onboarding-card[data-view=review] {--show-height:calc(var(--window-height) - 118px)}
+html[data-flow=focus] .onboarding-card[data-view=suggestion] {--show-height:calc(var(--window-height) - 176px)}
 html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .instruction-zone {grid-template-rows:minmax(0,1fr) 44px;padding:30px 25px 18px;gap:0}
-html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .copy-block,
-html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .interaction-zone {display:none}
-html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .instruction-main {display:none}
-
-/* The field behind the product: quiet. A plain dark plane reads as "your
-   screen"; the gradient read as a product shot. Natively this plane is the
-   real desktop, dimmed. */
-html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .showcase {background:#0d1117}
+html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]) .copy-block {display:none}
+html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]):not([data-view=suggestion]) .interaction-zone,
+html[data-flow=focus] .onboarding-card:not([data-view=welcome]):not([data-view=permissions]):not([data-view=personalize]):not([data-view=suggestion]) .instruction-main {display:none}
 html[data-flow=focus] .showcase.stage-leaving .stage-art,
 html[data-flow=focus] .showcase.stage-entering .stage-art {animation-name:focus-fade-out}
 html[data-flow=focus] .showcase.stage-entering .stage-art {animation-name:focus-fade-in}
 @keyframes focus-fade-out {to{opacity:0}}
 @keyframes focus-fade-in {from{opacity:0}}
+/* The meeting illustration behind the call is context, not a control. */
+html[data-flow=focus] .meeting-art {opacity:.55}
 
-/* Welcome: brand moment above, one action below. The meeting image stays as
-   atmosphere; the baked-in bar is masked out so only one bar-shaped thing ever
-   exists, and the real one appears on the next screen. */
+/* Suggestion: the back-and-forth shortcuts sit quietly in the centre of the
+   lower strip, for whoever looks. */
+html[data-flow=focus] .onboarding-card[data-view=suggestion] .instruction-main {display:flex;align-items:center;justify-content:center;padding:0}
+html[data-flow=focus] .onboarding-card[data-view=suggestion] .interaction-zone {display:block}
+html[data-flow=focus] .focus-history {display:flex;justify-content:center;opacity:.72}
+html[data-flow=focus] .focus-history .history-coach p {font-size:13px;color:#9a9ea6;margin:0 0 6px;text-align:center}
+html[data-flow=focus] .focus-history .history-coach > div {display:flex;gap:14px;justify-content:center}
+html[data-flow=focus] .focus-history .history-shortcut {transform:scale(.88)}
+
+/* Welcome: brand moment above (the cleaned hero: no bar, no Leave button), one
+   action below. */
 html[data-flow=focus] .onboarding-card[data-view=welcome] {--show-height:calc(var(--window-height) * .56)}
 html[data-flow=focus] .welcome-image {overflow:hidden}
-html[data-flow=focus] .welcome-image>img {position:absolute;left:50%;top:4%;bottom:auto;transform:translateX(-50%);width:92%;height:auto;max-height:none;filter:none;opacity:.5;
-  -webkit-mask-image:linear-gradient(to bottom,#000 50%,transparent 64%);mask-image:linear-gradient(to bottom,#000 50%,transparent 64%)}
-html[data-flow=focus] .welcome-image::after {background:linear-gradient(180deg,#08090bb0 0%,#08090b90 40%,#08090bd8 75%,#0A0B0D 100%)}
+html[data-flow=focus] .welcome-image>img {position:absolute;left:50%;top:3%;bottom:auto;transform:translateX(-50%);width:98%;height:auto;max-height:none;filter:none;opacity:.78;-webkit-mask-image:none;mask-image:none}
+html[data-flow=focus] .welcome-image::after {background:linear-gradient(180deg,#08090b8c 0%,#08090b70 35%,#08090bb8 70%,#0A0B0D 100%)}
 html[data-flow=focus] .welcome-title {top:50%;transform:translateY(-50%)}
 html[data-flow=focus] .welcome-title h1 {font-size:60px;margin-bottom:14px}
 html[data-flow=focus] .welcome-title p {font-size:22px;line-height:31px;max-width:640px}
 html[data-flow=focus] .onboarding-card[data-view=welcome] .instruction-main {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
 html[data-flow=focus] .onboarding-card[data-view=welcome] .copy-block {display:none}
 html[data-flow=focus] .onboarding-card[data-view=welcome] .interaction-zone {display:block}
-html[data-flow=focus] .focus-welcome {display:flex;flex-direction:column;align-items:center;gap:16px;padding-top:6px}
-html[data-flow=focus] .focus-show {height:58px;min-width:300px;padding:0 34px;font-size:19px;border-radius:14px}
-html[data-flow=focus] .focus-footnote {margin:0;font-size:14px;line-height:20px;color:#9a9ea6;display:flex;align-items:center;gap:6px}
+html[data-flow=focus] .focus-welcome {display:flex;flex-direction:column;align-items:center;gap:12px;padding-top:2px}
+html[data-flow=focus] .focus-lead {margin:0;font-size:17px;line-height:24px;color:#e6e8ec;font-weight:500}
+html[data-flow=focus] .focus-show {position:relative;overflow:hidden;height:58px;min-width:300px;padding:0 34px;font-size:19px;border-radius:14px;
+  animation:focus-show-breathe 2600ms ease-in-out infinite}
+html[data-flow=focus] .focus-show > span:last-child {position:relative;z-index:1}
+/* A light sweeps across the one button, every few seconds: the eye goes to the
+   thing that moves, and only this moves. */
+html[data-flow=focus] .focus-sheen {position:absolute;top:-40%;bottom:-40%;left:-45%;width:38%;pointer-events:none;
+  background:linear-gradient(105deg,transparent 0%,#ffffff00 30%,#ffffffb8 50%,#ffffff00 70%,transparent 100%);
+  transform:skewX(-18deg) translateX(0);animation:focus-sheen 2600ms cubic-bezier(.4,0,.2,1) infinite}
+@keyframes focus-sheen {0%{transform:skewX(-18deg) translateX(0)} 55%{transform:skewX(-18deg) translateX(420%)} 100%{transform:skewX(-18deg) translateX(420%)}}
+@keyframes focus-show-breathe {0%,100%{box-shadow:inset 0 1px 1px #fff9,inset 0 -1px 1px #607ad58c,0 5px 14px #0a0d2540,0 0 0 0 #7fa6ff00} 45%{box-shadow:inset 0 1px 1px #fff9,inset 0 -1px 1px #607ad58c,0 8px 22px #0a0d2560,0 0 0 6px #7fa6ff22}}
+@media (prefers-reduced-motion:reduce){html[data-flow=focus] .focus-sheen,html[data-flow=focus] .focus-show{animation:none}}
+html[data-flow=focus] .focus-footnote {margin:0;font-size:14px;line-height:20px;color:#9a9ea6;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+html[data-flow=focus] .focus-footnote .inline-mark {width:18px;height:18px;vertical-align:middle;margin:0 1px}
 html[data-flow=focus] .keys.small kbd {height:22px;min-width:24px;padding:0 6px;font-size:13px;border-radius:5px;background:#ffffff1f;color:#e6e8ec;border:1px solid #ffffff2a}
 html[data-flow=focus] .keys.small .key-plus {color:#7d8289;font-size:12px}
 
-/* Card-only steps keep their copy, one line each. */
-html[data-flow=focus] .onboarding-card[data-view=permissions] .copy-block h1 {font-size:28px}
+/* Card-only steps keep their copy exactly as shipped. */
 html[data-flow=focus] .onboarding-card[data-view=personalize] .copy-block h1 {font-size:30px;line-height:36px}
-html[data-flow=focus] .onboarding-card[data-view=personalize] .copy-block p {font-size:17px;line-height:25px}
 
 /* Prototype toolbar toggle */
 .flow-toggle {display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;border:1px solid #ffffff22;background:#ffffff0d;color:#c9cdd4;font-size:12px;text-decoration:none}
 .flow-toggle.is-active {background:#5b8def33;border-color:#5b8def88;color:#fff}
-/* The meeting illustration behind the call is context, not a control: no red
-   Leave button competing with Stop. */
-html[data-flow=focus] .meeting-art {opacity:.3}
