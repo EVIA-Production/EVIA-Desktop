@@ -26,9 +26,14 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     const platformPath = process.platform === 'darwin'
       ? 'macos-liquid-glass/build/Release/taylos_liquid_glass.node'
       : `windows-liquid-glass/prebuilds/win32-${process.arch}/taylos_windows_glass.node`;
-    bridge = require(process.env.TAYLOS_EMBEDDED_ONBOARDING === '1' && app.isPackaged
-      ? process.platform === 'darwin' ? path.join(app.getAppPath(),'native',platformPath) : path.join(process.resourcesPath,'native',platformPath)
-      : path.join(root,'EVIA-Desktop/native',platformPath));
+    // Packaged: the app's own native module. Otherwise the repository checkout,
+    // whether this runtime runs from the workspace (root/EVIA-Desktop) or from
+    // the staged copy inside the desktop repository (../../../native).
+    const candidates = process.env.TAYLOS_EMBEDDED_ONBOARDING === '1' && app.isPackaged
+      ? [process.platform === 'darwin' ? path.join(app.getAppPath(),'native',platformPath) : path.join(process.resourcesPath,'native',platformPath)]
+      : [path.join(root,'EVIA-Desktop/native',platformPath), path.resolve(__dirname,'../../../native',platformPath)];
+    const found = candidates.find(candidate => require('node:fs').existsSync(candidate));
+    bridge = require(found || candidates[0]);
     if (!bridge.isSupported()) bridge = null;
   } catch (error) { console.warn('Product material fallback:',error.message); }
   console.log('Product native glass:', Boolean(bridge));
