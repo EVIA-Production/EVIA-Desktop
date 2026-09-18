@@ -112,7 +112,11 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     const paired = active.includes('listen') && active.includes('ask');
     const width = paired ? dimensions.ask[0] + dimensions.listen[0] + 8 : active.includes('ask') ? dimensions.ask[0] : active.includes('listen') ? Math.max(dimensions.listen[0],dimensions.bar[0]) : dimensions.bar[0];
     const panelHeight = paired ? Math.max(dimensions.ask[1],dimensions.listen[1]) : active.includes('ask') ? dimensions.ask[1] : active.includes('listen') ? dimensions.listen[1] : 0;
-    const height = dimensions.bar[1] + (panelHeight ? panelHeight + 8 : 0);
+    // Focus flow: centre the fully opened product (bar + call panels) so the bar
+    // never moves between steps.
+    const height = state?.flow==='focus'
+      ? dimensions.bar[1] + Math.max(dimensions.ask[1],dimensions.listen[1]) + 8
+      : dimensions.bar[1] + (panelHeight ? panelHeight + 8 : 0);
     const cx = area.x + stage.x + stage.width/2;
     // Center the union of the visible bar and call panels in the blue field.
     const baseY = area.y + stage.y + (stage.height-height)/2;
@@ -169,12 +173,13 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
         }
       } else win.hide();
     }
-    const shadowRects=active.filter(name=>ready.has(name)).map(name=>{
+    const shadowNames=active.filter(name=>ready.has(name));
+    const shadowRects=shadowNames.map(name=>{
       const [x,y,width,height]=rects[name];return {x:x-area.x,y:y-area.y,width,height,radius:radii[name]};
     });
     const emphasis=active.includes('bar') && state.view==='ask' && !state.reducedMotion ? 1-Math.pow(revealProgress,4) : 0;
     const nextGeometry=JSON.stringify({rects:shadowRects,emphasis});
-    if(nextGeometry!==geometryKey){geometryKey=nextGeometry;send(owner,{type:'product-geometry',rects:shadowRects,emphasis});}
+    if(nextGeometry!==geometryKey){geometryKey=nextGeometry;send(owner,{type:'product-geometry',rects:shadowRects,names:shadowNames,emphasis});}
     positionCoach();
     if(nativeControls?.layoutProduct) {
       updatePointerRegions();

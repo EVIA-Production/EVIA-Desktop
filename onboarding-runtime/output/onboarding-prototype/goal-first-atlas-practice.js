@@ -177,11 +177,13 @@ import {analytics} from './onboarding-analytics.js';
     personalize: ["Improve Your Suggestions", "Add information about your situation so Taylos can give more relevant tips"]
   };
   const copyFocus = {
-    welcome: ["Welcome to Taylos", "The sales call AI that tells you live what sales experts would say."],
+    welcome: ["Welcome to Taylos", "The sales call AI that tells you live what sales experts would say next."],
     personalize: ["Personalize your suggestions", "Add information about your situation so Taylos can give more relevant tips"]
   };
   // The one product action that advances each guided step of the focus flow.
   // Mirrors focusExpected in native-source/guides.ts. Anything else is off-target.
+  // Windows that stay lit per step (mirrors FOCUS_KEEP in native-windows.cjs).
+  const FOCUS_KEEP={ask:['bar'],goal:['ask'],prepare:['bar','ask'],transcript:['listen'],insights:['listen'],suggestion:['ask','bar'],review:['bar','listen']};
   const focusExpected = {
     ask: ["ask"], goal: ["goal", "custom-goal"], prepare: ["listen"], transcript: ["insights"],
     insights: ["suggestion"], suggestion: ["stop"], review: ["done", "post-action"]
@@ -384,8 +386,8 @@ import {analytics} from './onboarding-analytics.js';
   }
   function interaction() {
     if(focus) {
-      if(state.view==="welcome") return '<div class="focus-welcome"><p class="focus-lead">Set up Taylos in 3 minutes. First:</p>' +
-        '<button class="button permission-primary focus-show" data-action="show"><span class="focus-sheen" aria-hidden="true"></span><span>Show the Taylos bar</span></button>' +
+      if(state.view==="welcome") return '<div class="focus-welcome">' +
+        '<button class="button permission-primary focus-show" data-action="show">Show the Taylos bar</button>' +
         '<p class="focus-footnote">or: ' + keys("show","small") + ' and the ' + logo("inline-mark") + ' ' + (isMac() ? "menu bar" : "system tray") + ' icon show and hide it.</p></div>';
       if(state.view==="permissions") return permissionControls();
       if(state.view==="suggestion") return '<div class="focus-history">' + historyControls() + '</div>';
@@ -924,6 +926,16 @@ import {analytics} from './onboarding-analytics.js';
       if(bar){barSpotlight.style.setProperty('--bar-x',(bar.x+bar.width/2)+'px');barSpotlight.style.setProperty('--bar-y',(bar.y+bar.height/2)+'px');}
       barSpotlight.style.setProperty('--bar-emphasis',String(d.emphasis || 0));
       barSpotlight.classList.toggle('introducing',!!bar && d.emphasis>0 && !reduced.matches);
+      // Focus flow: the field stays lit around the windows that matter on this
+      // step (the same light as the bar introduction), on every guided step.
+      const keep=focus && FOCUS_KEEP[state.view];
+      const lit=keep && d.names ? rects.filter((r,i)=>keep.includes(d.names[i])) : [];
+      if(lit.length){
+        const l=Math.min(...lit.map(r=>r.x)),t=Math.min(...lit.map(r=>r.y)),rg=Math.max(...lit.map(r=>r.x+r.width)),b=Math.max(...lit.map(r=>r.y+r.height));
+        barSpotlight.style.setProperty('--bar-x',((l+rg)/2)+'px');barSpotlight.style.setProperty('--bar-y',((t+b)/2)+'px');
+        barSpotlight.style.setProperty('--spot-rx',Math.round((rg-l)*.72+60)+'px');barSpotlight.style.setProperty('--spot-ry',Math.round((b-t)*.8+60)+'px');
+      }
+      barSpotlight.classList.toggle('focus-spot',lit.length>0);
 return;
     }
     if(d?.type==='shortcuts'){customShortcuts=d.shortcuts||{};controls.innerHTML=L(interaction());syncKeys();return;}
