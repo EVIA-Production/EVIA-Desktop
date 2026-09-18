@@ -292,25 +292,39 @@ import {analytics} from './onboarding-analytics.js';
   // Focus flow: one thing to look at. The two sides of the call as a status
   // list; the step that needs the user to act elsewhere shows the exact row to
   // switch on. No replica of the macOS dialog - the real one appears on Continue.
+  // Focus flow, Cluely-like: left the checklist and the one button; right what
+  // the user is about to see - the system dialog, the System Settings row to
+  // switch on, and the quit-and-reopen alert macOS may show afterwards.
   function permissionStageFocus() {
     const step=state.permission;
-    const rows=[
-      ['mic.fill','Your voice','Microphone'],
-      ['waveform','The other person','System audio'],
-    ];
-    const list='<div class="perm-list">'+rows.map(([symbol,title,sub],i)=>{
+    const rows=isMac()
+      ? [['mic.fill','Allow Taylos to hear you','Microphone. Your side of the call.'],
+         ['waveform','Allow Taylos to hear the other person','System audio. macOS files this under “Screen &amp; System Audio Recording”. Taylos uses only the audio.']]
+      : [['mic.fill','Allow Taylos to hear you','Microphone. Your side of the call.'],
+         ['waveform','Allow Taylos to hear the other person','System audio. Automatic on Windows.']];
+    const list='<div class="perm-rows">'+rows.map(([symbol,title,body],i)=>{
       const done=isMac() ? step>i : i===1 || step>0;
       const active=isMac() ? step===i : i===0 && step===0;
-      const auto=!isMac() && i===1;
       return '<div class="perm-row '+(done?'done':active?'active':'queued')+'">'+sf(symbol)+
-        '<span class="perm-text"><b>'+title+'</b><small>'+sub+'</small></span>'+
-        '<span class="perm-status">'+(done?(auto?'Automatic on Windows':'Allowed')+'<i class="perm-check" aria-hidden="true"></i>':active?'Waiting…':'')+'</span></div>';
+        '<span class="perm-text"><b>'+title+'</b><small>'+body+'</small></span>'+
+        '<span class="glass-toggle '+(done?'on':'')+'" role="img" aria-label="'+(done?'Allowed':'Not yet allowed')+'" data-on="'+done+'"'+(active?' data-action="grant"':'')+'><i><span class="toggle-refraction"></span></i></span></div>';
     }).join('')+'</div>';
-    let detail='';
-    if(isMac() && step===1) detail='<div class="perm-settings" aria-hidden="true"><div class="perm-settings-crumb">Privacy &amp; Security &rsaquo; Screen &amp; System Audio Recording</div>'+
-      '<div class="perm-settings-row">'+logo('perm-app-mark')+'<span>Taylos</span><span class="perm-switch on"><i></i></span></div></div>';
-    if(!isMac() && step===0) detail='<figure class="perm-win-shot"><img draggable="false" src="assets/windows-microphone-3.jpeg" alt="Windows microphone settings: Let desktop apps access your microphone" /></figure>';
-    return '<div class="perm-stage">'+list+detail+'</div>';
+    const button=isMac()
+      ? '<button class="button permission-primary perm-cta" data-action="grant">'+(step===0?'Continue':step===1?'Open System Settings':'Start practice call')+'</button>'
+      : '<div class="perm-cta-row"><button class="button quiet" data-action="continue-preview">'+(livePermissions?'Continue':'Continue preview')+'</button><button class="button permission-primary perm-cta" data-action="open-mic-settings">Open Windows Settings</button></div>';
+    const left='<div class="perm-left"><h1>'+(isMac()?'Let Taylos hear both sides of the call.':'Let Taylos hear you.')+'</h1>'+list+
+      '<p class="perm-trust">Taylos listens only while you press Listen. You can change this anytime in System Settings.</p>'+button+'</div>';
+    let right='';
+    if(isMac() && step===0) right='<figure class="perm-shot"><img src="assets/permission-mic.webp" alt="macOS asks for the microphone: click Allow." draggable="false" /><img class="perm-cursor mic" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>';
+    if(isMac() && step===1) right=
+      '<figure class="perm-shot"><img src="assets/permission-audio.webp" alt="macOS asks for screen and system audio recording: click Open System Settings." draggable="false" /><img class="perm-cursor audio" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>'+
+      '<figure class="perm-shot settings"><img src="assets/permission-settings-screen-audio.webp" alt="System Settings: switch on Taylos under Screen &amp; System Audio Recording." draggable="false" /></figure>'+
+      '<div class="perm-alert" role="img" aria-label="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen."><b>“Taylos” may not be able to record the contents of your screen until it is quit.</b><p>You can choose to quit “Taylos” now, or do it on your own later.</p><span class="perm-alert-btn primary">Quit &amp; Reopen</span><span class="perm-alert-btn">Later</span></div>'+
+      '<p class="perm-caption">If macOS asks, click Quit &amp; Reopen. Setup continues where you left off.</p>';
+    if(isMac() && step===2) right='<div class="perm-done">'+sf('checkmark','perm-done-check')+'<span>Both sides can be heard.</span></div>';
+    if(!isMac()) right='<figure class="perm-shot settings"><img src="assets/windows-microphone-1.jpeg" alt="Windows Settings: Microphone access" draggable="false" /></figure>'+
+      '<figure class="perm-shot settings"><img src="assets/windows-microphone-3.jpeg" alt="Windows Settings: Let desktop apps access your microphone" draggable="false" /></figure>';
+    return '<div class="perm-cluely"><div class="perm-left-col">'+left+'</div><div class="perm-right-col'+(isMac()&&step===1?' stack3':'')+'">'+right+'</div></div>';
   }
   function permissionStage() {
     if (focus) return permissionStageFocus();
@@ -413,16 +427,7 @@ import {analytics} from './onboarding-analytics.js';
       if(state.view==="welcome") return '<div class="focus-welcome">' +
         '<button class="button permission-primary focus-show" data-action="show">Show the Taylos bar</button>' +
         '<p class="focus-footnote">or: ' + keys("show","small") + ' and the ' + logo("inline-mark") + ' ' + (isMac() ? "menu bar" : "system tray") + ' icon show and hide it.</p></div>';
-      if(state.view==="permissions") {
-        const step=state.permission;
-        const line=isMac()
-          ? (step===0 ? 'macOS will ask. Click Allow.'
-            : step===1 ? 'macOS bundles this with “Screen &amp; System Audio Recording”. Taylos uses only the audio. Turn on Taylos in System Settings, then come back.'
-            : 'Both sides can be heard.')
-          : (step===0 ? 'In Windows Settings, turn on “Let desktop apps access your microphone”, then come back.' : 'Both sides can be heard.');
-        return '<div class="perm-guide"><p class="perm-line">'+line+'</p>'+
-          '<p class="perm-trust">Taylos listens only while you press Listen. You can change this anytime in System Settings.</p></div>';
-      }
+      if(state.view==="permissions") return '';
       if(state.view==="suggestion") return '<div class="focus-history">' + historyControls() + '</div>';
       return '';
     }
@@ -444,10 +449,10 @@ import {analytics} from './onboarding-analytics.js';
       '<button class="button quiet t-learn" data-action="back">' + navigationChevron(true) + ' Back</button>';
     let right="";
     if(state.view==="prepare" && !focus) right='<button class="button white t-learn" data-action="listen">Start Practice Call ' + navigationChevron() + '</button>';
-    if(state.view==="permissions") right = isMac()
+    if(state.view==="permissions" && focus) right='';
+    else if(state.view==="permissions") right = isMac()
       ? '<button class="button permission-primary" data-action="grant">' +
-        (focus ? (state.permission===0 ? "Continue" : state.permission===1 ? "Open System Settings" : "Start practice call")
-               : (state.permission===0 ? "Allow microphone" : state.permission===1 ? "Allow call audio" : "Start practice call")) + '</button>'
+        (state.permission===0 ? "Allow microphone" : state.permission===1 ? "Allow call audio" : "Start practice call") + '</button>'
       : '<div class="permission-actions"><button class="button quiet" data-action="continue-preview">' + (livePermissions ? 'Continue' : 'Continue preview') + '</button><button class="button permission-primary" data-action="open-mic-settings">Open Windows Settings</button></div>';
     if(state.view==="review" && !focus) right='<button class="button white t-learn" data-action="done">Personalize Suggestions ' + navigationChevron() + '</button>';
     if(state.view==="personalize") right='<button class="button permission-primary" data-action="finish" type="button">Finish Setup</button>';
@@ -552,7 +557,7 @@ import {analytics} from './onboarding-analytics.js';
     updateArtwork();
     nativeFrame.hidden=!!window.taylosLocal || !state.visible || ["welcome","permissions","personalize"].includes(state.view);
     sendNative();
-    const c=focus ? (state.view==="permissions" ? (isMac() ? ["Let Taylos hear both sides of the call.",""] : ["Let Taylos hear you.",""]) : (copyFocus[state.view] || ["",""]))
+    const c=focus ? (copyFocus[state.view] || ["",""])
       : ((state.view==="permissions" && !isMac() && copy.permissionsWin) || copy[state.view]);
     copyBlock.querySelector(".copy-media").innerHTML = "";
     copyBlock.querySelector("h1").innerHTML=rich(c[0]);

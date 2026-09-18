@@ -57,10 +57,24 @@ test('a completed returning account goes straight to checkout without opening th
 });
 
 test('the production registration launcher replaces the legacy welcome window',async()=>{
- const h=controller();let registrations=0;
- h.c.setRegistrationLauncher(async()=>{registrations++;});
+ const h=controller();let registrations=0;let returning=null;
+ h.c.setRegistrationLauncher(async(options)=>{registrations++;returning=options.returning;});
  h.c.setNativeOnboardingLauncher(async()=>({}));
- await h.c.initialize();assert.equal(registrations,1);assert.deepEqual(h.windows,[]);
+ await h.c.initialize();assert.equal(registrations,1);assert.equal(returning,false);assert.deepEqual(h.windows,[]);
+});
+test('an expired session opens sign-in, not sign-up: an existing user must land on the dashboard',async()=>{
+ const expired=`x.${Buffer.from(JSON.stringify({sub:'test',exp:Date.now()/1000-60})).toString('base64url')}.x`;
+ const h=controller({token:expired});let returning=null;
+ h.c.setRegistrationLauncher(async(options)=>{returning=options.returning;});
+ h.c.setNativeOnboardingLauncher(async()=>({}));
+ await h.c.initialize();assert.equal(returning,true);
+});
+test('a machine that finished setup before opens sign-in after logout',async()=>{
+ const h=controller({token:jwt(),completed:true});let returning=null;
+ h.c.setRegistrationLauncher(async(options)=>{returning=options.returning;});
+ h.c.setCheckoutLauncher(async()=>{});
+ h.c.setNativeOnboardingLauncher(async()=>({}));
+ await h.c.initialize();await h.c.handleLogout();assert.equal(returning,true);
 });
 
 test('an install that predates the bundled onboarding is not forced through it on update',async()=>{

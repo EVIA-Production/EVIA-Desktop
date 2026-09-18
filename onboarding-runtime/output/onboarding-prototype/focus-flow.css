@@ -70,49 +70,64 @@ html[data-flow=focus] .onboarding-card[data-view=personalize] .apple-row-action 
   background:radial-gradient(ellipse var(--spot-rx,420px) var(--spot-ry,260px) at var(--bar-x,50%) var(--bar-y,40%),transparent 42%,#04081438 66%,#04081480 88%,#0408149e 100%);
   transition:background 420ms cubic-bezier(.16,1,.3,1)}
 
-/* ---- Permissions (focus flow) --------------------------------------------
-   One thing to look at: the two sides of the call as a status list. The step
-   that needs the user to act in System Settings shows the exact row to switch
-   on. No replica of the macOS dialog: the real one appears on Continue. */
-html[data-flow=focus] .onboarding-card[data-view=permissions] .showcase {background:#0A0B0D}
-html[data-flow=focus] .perm-stage {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;width:100%;height:100%;padding:24px}
-html[data-flow=focus] .perm-list {display:flex;flex-direction:column;gap:10px;width:min(560px,92%)}
-html[data-flow=focus] .perm-row {display:flex;align-items:center;gap:14px;height:66px;padding:0 20px;border-radius:16px;background:#14161a;border:1px solid #ffffff14;color:#f5f5f7;transition:background 360ms cubic-bezier(.16,1,.3,1),border-color 360ms,opacity 360ms}
-html[data-flow=focus] .perm-row .sf {width:22px;height:22px;flex:none;background:#e9ebef}
-html[data-flow=focus] .perm-row .perm-text {display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+/* ---- Permissions (focus flow), Cluely-like ----------------------------
+   The card becomes two columns. Left: the title, the checklist (switch = status),
+   the trust line, the one button. Right: what the user is about to see - the
+   system dialog with the cursor on the button to press, the System Settings row
+   to switch on, and the quit-and-reopen alert macOS may show afterwards. */
+html[data-flow=focus] .onboarding-card[data-view=permissions] {--show-height:calc(var(--window-height) - 96px)}
+html[data-flow=focus] .onboarding-card[data-view=permissions] .showcase {background:#0A0B0D;border-radius:18px}
+html[data-flow=focus] .onboarding-card[data-view=permissions] .instruction-zone {grid-template-rows:minmax(0,1fr) 44px;padding:22px 25px 18px;gap:0}
+html[data-flow=focus] .onboarding-card[data-view=permissions] .copy-block,
+html[data-flow=focus] .onboarding-card[data-view=permissions] .interaction-zone,
+html[data-flow=focus] .onboarding-card[data-view=permissions] .instruction-main {display:none}
+html[data-flow=focus] .perm-cluely {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);width:100%;height:100%;overflow:hidden;border-radius:inherit}
+html[data-flow=focus] .perm-left-col {display:flex;align-items:center;justify-content:center;padding:30px 34px 70px 40px}
+html[data-flow=focus] .perm-left {display:flex;flex-direction:column;gap:18px;width:100%;max-width:440px}
+html[data-flow=focus] .perm-left h1 {margin:0 0 6px;font:600 30px/36px var(--font);letter-spacing:-.01em;color:#f5f5f7}
+html[data-flow=focus] .perm-rows {display:flex;flex-direction:column;gap:12px}
+html[data-flow=focus] .perm-row {display:grid;grid-template-columns:26px minmax(0,1fr) auto;column-gap:14px;align-items:start;padding:16px 18px;border-radius:16px;background:#141518;border:1px solid #ffffff14;color:#f5f5f7;transition:background 360ms cubic-bezier(.16,1,.3,1),border-color 360ms,opacity 360ms}
+html[data-flow=focus] .perm-row .sf {width:22px;height:22px;margin-top:2px;background:#e9ebef}
+html[data-flow=focus] .perm-row .perm-text {display:flex;flex-direction:column;gap:5px;min-width:0}
 html[data-flow=focus] .perm-row b {font-size:17px;line-height:22px;font-weight:600}
-html[data-flow=focus] .perm-row small {font-size:13px;line-height:17px;color:#9a9ea6}
-html[data-flow=focus] .perm-status {display:inline-flex;align-items:center;gap:8px;font-size:13px;line-height:18px;color:#9a9ea6;white-space:nowrap}
-html[data-flow=focus] .perm-row.active {background:#1b1e24;border-color:#ffffff40;box-shadow:0 0 0 1px #ffffff14,0 10px 30px #0006}
-html[data-flow=focus] .perm-row.active .perm-status {color:#e6e8ec}
-html[data-flow=focus] .perm-row.queued {opacity:.5}
-html[data-flow=focus] .perm-row.done {opacity:.92}
-html[data-flow=focus] .perm-row.done .perm-status {color:#7ad38f}
-html[data-flow=focus] .perm-check {width:18px;height:18px;border-radius:50%;background:#2ea043;position:relative;flex:none}
-html[data-flow=focus] .perm-check::after {content:'';position:absolute;left:6px;top:3px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
-/* Active row: the same looming ring the product steps use. */
-html[data-flow=focus] .perm-row.active {position:relative}
-html[data-flow=focus] .perm-row.active::after {content:'';position:absolute;inset:-7px;border-radius:22px;border:2px solid #ffffffd9;box-shadow:0 0 0 1px #0000004d,0 0 18px #ffffff66;pointer-events:none;animation:perm-beacon 1500ms cubic-bezier(.2,.7,.3,1) infinite}
-@keyframes perm-beacon {0%{transform:scale(.985);opacity:0} 18%{opacity:1} 70%{opacity:.35} 100%{transform:scale(1.035);opacity:0}}
-@media (prefers-reduced-motion:reduce){html[data-flow=focus] .perm-row.active::after{animation:none;opacity:.9}}
-/* The System Settings row the user has to switch on (an illustration, not a dialog). */
-html[data-flow=focus] .perm-settings {width:min(560px,92%);display:flex;flex-direction:column;gap:8px}
-html[data-flow=focus] .perm-settings-crumb {font-size:12px;line-height:16px;color:#8d9199;padding-left:4px}
-html[data-flow=focus] .perm-settings-row {display:flex;align-items:center;gap:12px;height:48px;padding:0 14px;border-radius:12px;background:#e9e9ec;color:#1d1d1f;font:500 14px/18px var(--font);box-shadow:0 8px 24px #0006}
-html[data-flow=focus] .perm-settings-row .perm-app-mark {width:24px;height:24px;border-radius:6px}
-html[data-flow=focus] .perm-settings-row > span:nth-child(2) {flex:1}
-html[data-flow=focus] .perm-switch {width:38px;height:22px;border-radius:999px;background:#d1d1d6;position:relative;flex:none}
-html[data-flow=focus] .perm-switch.on {background:#34c759}
-html[data-flow=focus] .perm-switch i {position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #0004;transition:left 300ms}
-html[data-flow=focus] .perm-switch.on i {left:18px}
-html[data-flow=focus] .perm-win-shot {margin:0;width:min(560px,92%);border-radius:10px;overflow:hidden;border:1px solid #ffffff25;box-shadow:0 8px 24px #0005;line-height:0}
-html[data-flow=focus] .perm-win-shot img {width:100%;height:auto;display:block}
-/* Lower zone: the title, one sentence for this step, the trust line, the button. */
-html[data-flow=focus] .onboarding-card[data-view=permissions] .copy-block h1 {font-size:28px;line-height:34px;margin-bottom:4px}
-html[data-flow=focus] .onboarding-card[data-view=permissions] .interaction-zone {display:block}
-html[data-flow=focus] .perm-guide {display:flex;flex-direction:column;gap:6px}
-html[data-flow=focus] .perm-line {margin:0;font-size:18px;line-height:26px;color:#e6e8ec;max-width:820px}
+html[data-flow=focus] .perm-row small {font-size:13.5px;line-height:19px;color:#9a9ea6}
+html[data-flow=focus] .perm-row .glass-toggle {margin-top:1px}
+html[data-flow=focus] .perm-row.active {background:#1b1d22;border-color:#ffffff3d;box-shadow:0 0 0 1px #ffffff10,0 12px 30px #0006}
+html[data-flow=focus] .perm-row.active .glass-toggle {cursor:pointer}
+html[data-flow=focus] .perm-row.queued {opacity:.45}
+html[data-flow=focus] .perm-row.done {opacity:.85}
 html[data-flow=focus] .perm-trust {margin:0;font-size:13px;line-height:18px;color:#8d9199}
-html[data-flow=focus] .onboarding-card[data-view=permissions] .interaction-zone {display:block;width:100%}
-html[data-flow=focus] .onboarding-card[data-view=permissions] .instruction-main {display:flex;flex-direction:column;align-items:stretch;gap:10px}
-html[data-flow=focus] .perm-guide {width:100%;align-items:flex-start}
+html[data-flow=focus] .perm-cta {height:52px;width:100%;font-size:17px;border-radius:14px;margin-top:4px}
+html[data-flow=focus] .perm-cta-row {display:flex;gap:10px}
+html[data-flow=focus] .perm-cta-row .button {height:52px;border-radius:14px;flex:1}
+/* Right column: the dark "screen" with a faint grid, as in the shipped step. */
+html[data-flow=focus] .perm-right-col {position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:26px 30px;background:#0d0e11;
+  background-image:linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff08 1px,transparent 1px);background-size:36px 36px;border-left:1px solid #ffffff0d}
+html[data-flow=focus] .perm-shot {position:relative;margin:0;width:min(440px,100%);line-height:0;border-radius:14px;overflow:hidden;box-shadow:0 18px 40px #000a}
+html[data-flow=focus] .perm-shot > img:first-child {display:block;width:100%;height:auto}
+html[data-flow=focus] .perm-shot.settings {width:min(440px,100%)}
+html[data-flow=focus] .perm-cursor {position:absolute;width:30px!important;height:auto;z-index:3;pointer-events:none;filter:drop-shadow(0 3px 3px #0009)}
+html[data-flow=focus] .perm-cursor.mic {left:72%;top:78%}
+html[data-flow=focus] .perm-cursor.audio {left:60%;top:70%}
+/* The quit-and-reopen alert, drawn (no screenshot of it exists yet). */
+html[data-flow=focus] .perm-alert {width:min(300px,100%);padding:18px 18px 14px;border-radius:14px;background:#ececee;color:#1d1d1f;box-shadow:0 18px 40px #000a;font-family:var(--font)}
+html[data-flow=focus] .perm-alert b {display:block;font-size:13.5px;line-height:18px;font-weight:700}
+html[data-flow=focus] .perm-alert p {margin:8px 0 12px;font-size:12.5px;line-height:17px;color:#3a3a3c}
+html[data-flow=focus] .perm-alert-btn {display:block;height:34px;line-height:34px;border-radius:9px;text-align:center;font-size:14px;font-weight:600;background:#d9d9de;color:#1d1d1f;margin-top:8px}
+html[data-flow=focus] .perm-alert-btn.primary {background:#3478f6;color:#fff;margin-top:0}
+html[data-flow=focus] .perm-caption {margin:0;font-size:13px;line-height:18px;color:#c7cad1;text-align:center;max-width:400px}
+html[data-flow=focus] .perm-done {display:flex;flex-direction:column;align-items:center;gap:14px;color:#f5f5f7;font:600 20px/26px var(--font)}
+html[data-flow=focus] .perm-done-check {width:56px;height:56px;background:#7ad38f}
+@media (max-height:760px){
+  html[data-flow=focus] .perm-right-col {gap:10px;padding:18px 22px}
+  html[data-flow=focus] .perm-shot,html[data-flow=focus] .perm-shot.settings {width:min(380px,100%)}
+  html[data-flow=focus] .perm-alert {width:min(270px,100%);padding:14px 14px 10px}
+}
+/* Three things to show for system audio: dialog, the Settings row, the quit alert. */
+html[data-flow=focus] .perm-right-col.stack3 {gap:10px;padding:18px 26px;justify-content:center}
+html[data-flow=focus] .perm-right-col.stack3 .perm-shot,html[data-flow=focus] .perm-right-col.stack3 .perm-shot.settings {width:min(372px,100%)}
+html[data-flow=focus] .perm-right-col.stack3 .perm-alert {width:min(262px,100%);padding:12px 14px 10px}
+html[data-flow=focus] .perm-right-col.stack3 .perm-alert b {font-size:12.5px;line-height:16px}
+html[data-flow=focus] .perm-right-col.stack3 .perm-alert p {margin:6px 0 9px;font-size:11.5px;line-height:15px}
+html[data-flow=focus] .perm-right-col.stack3 .perm-alert-btn {height:30px;line-height:30px;font-size:13px;margin-top:6px}
+html[data-flow=focus] .perm-right-col.stack3 .perm-caption {font-size:12.5px;line-height:17px}

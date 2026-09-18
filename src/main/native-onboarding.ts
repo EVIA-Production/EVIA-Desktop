@@ -91,8 +91,11 @@ export async function saveContext(context: any, token: string) {
 
 /** The regular app owns authentication, real permissions and profile persistence. */
 export function registerNativeOnboarding() {
-  headerController.setRegistrationLauncher(async () => {
-    await shell.openExternal(webAppUrl('https://app.taylos.ai/register?source=desktop'));
+  headerController.setRegistrationLauncher(async ({ returning }) => {
+    // A returning user signs in and lands on the dashboard; the sign-up page's
+    // OAuth would route them through /desktop/open ("Opening Taylos"), which
+    // exists only for a new account's native onboarding.
+    await shell.openExternal(webAppUrl(returning ? 'https://app.taylos.ai/login?source=desktop' : 'https://app.taylos.ai/register?source=desktop'));
   });
   headerController.setCheckoutLauncher(openWebCheckout);
   headerController.setNativeOnboardingLauncher(async ({ onClose, restart }) => {

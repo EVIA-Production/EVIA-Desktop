@@ -58,7 +58,11 @@ export class HeaderController {
   private onboardingCompleted: boolean = false;
   private onboardingDismissed = false;
   private onboardingRestart = false;
-  private registrationLauncher: (() => Promise<void>) | null = null;
+  private registrationLauncher: ((options: { returning: boolean }) => Promise<void>) | null = null;
+  // True once this machine has held a session (expired token, explicit logout,
+  // or a finished setup): the browser then opens sign-in, not sign-up, so an
+  // existing user lands on the dashboard instead of the "Opening Taylos" page.
+  private hadSession = false;
   private checkoutLauncher: (() => Promise<void>) | null = null;
   private nativeOnboardingLauncher: NativeOnboardingLauncher | null = null;
   private onboardingHandle: { close?: () => void; focus?: () => void } | null = null;
@@ -131,6 +135,7 @@ export class HeaderController {
               console.log('[HeaderController] ⚠️ Token expired, removing and treating as no token');
               await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
               hasToken = false; // Treat expired token as no token
+              this.hadSession = true;
             }
           }
         }
@@ -138,6 +143,7 @@ export class HeaderController {
         console.warn('[HeaderController] Failed to validate token, removing:', err);
         await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
         hasToken = false; // Treat invalid token as no token
+        this.hadSession = true;
       }
     }
     
@@ -278,7 +284,7 @@ export class HeaderController {
     // Open appropriate window for new state
     switch (newState) {
       case 'welcome':
-        if (this.registrationLauncher) await this.registrationLauncher();
+        if (this.registrationLauncher) await this.registrationLauncher({ returning: this.hadSession || this.onboardingCompleted });
         else createWelcomeWindow();
         break;
         
@@ -343,7 +349,7 @@ export class HeaderController {
     this.nativeOnboardingLauncher = launcher;
   }
 
-  public setRegistrationLauncher(launcher: () => Promise<void>) { this.registrationLauncher = launcher; }
+  public setRegistrationLauncher(launcher: (options: { returning: boolean }) => Promise<void>) { this.registrationLauncher = launcher; }
 
   public setCheckoutLauncher(launcher: () => Promise<void>) { this.checkoutLauncher = launcher; }
 
@@ -472,6 +478,7 @@ export class HeaderController {
       this.permissionsCompleted = false;
       this.onboardingCompleted = false;
       this.onboardingDismissed = false;
+      this.hadSession = true;
       this.savePersistedState();
       
       // 💳 Clear subscription cache on logout
@@ -587,6 +594,7 @@ export class HeaderController {
           if (this.currentState === 'ready') {
             console.log('[HeaderController] ⚠️ Redirecting to welcome (expired token)');
             await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken()); // Remove expired token
+            this.hadSession = true;
             await this.transitionTo('welcome');
           }
           return false;
