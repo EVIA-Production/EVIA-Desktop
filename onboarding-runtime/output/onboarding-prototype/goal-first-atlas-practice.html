@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="atlas-shell.css" />
     <link rel="stylesheet" href="final-polish.css" />
     <link rel="stylesheet" href="atlas-review.css" />
+    <link rel="stylesheet" href="focus-flow.css" />
     <!-- Bundled PostHog + its replay recorder (no external loads); only initialised when the shell passes ?analytics=1. -->
     <script src="vendor/posthog.js"></script>
     <script src="vendor/posthog-recorder.js"></script>
@@ -30,6 +31,7 @@
           <button class="is-active" type="button" data-action="platform" data-platform="mac">macOS</button>
           <button type="button" data-action="platform" data-platform="win">Windows</button>
         </div>
+        <a class="flow-toggle" id="flow-toggle" href="?flow=focus" title="Toggle the focus flow prototype">Focus flow</a>
         <div class="platform-toggle layout-toggle" role="group" aria-label="Keyboard layout">
           <button class="is-active" type="button" data-action="layout" data-layout="de">DE</button>
           <button type="button" data-action="layout" data-layout="us">US</button>

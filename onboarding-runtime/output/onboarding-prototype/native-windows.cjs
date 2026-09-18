@@ -179,7 +179,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   }
   function animateSlide(phase,direction=1) {
     clearInterval(slideTimer);
-    if(state?.reducedMotion){slideX=0;slideOpacity=1;layout();return;}
+    if(state?.reducedMotion||state?.flow==='focus'){slideX=0;slideOpacity=1;layout();return;}
     const duration=phase==='out'?250:420, start=Date.now();
     const distance=96;
     const frame=()=>{

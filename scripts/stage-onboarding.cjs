@@ -8,7 +8,7 @@ const destination=path.join(desktop,'onboarding-runtime');
 // Start from an empty runtime so removed or re-hashed build assets cannot linger.
 fs.rmSync(path.join(destination,'output'),{recursive:true,force:true});
 fs.rmSync(path.join(destination,'EVIA-Desktop'),{recursive:true,force:true});
-const files=['local-onboarding.cjs','local-preload.cjs','native-windows.cjs','native-controls.node','native-controls.mm','native-product-layout.h','native-product-layout.test.mm','display-fit.cjs','permission-return.cjs','onboarding-i18n.js','goal-first-atlas-practice.html','goal-first-atlas-practice.js','onboarding-analytics.js','vendor','goal-first-atlas-practice.css','atlas-shell.css','final-polish.css','atlas-review.css','glass-lens.js','assets','native-build'];
+const files=['local-onboarding.cjs','local-preload.cjs','native-windows.cjs','native-controls.node','native-controls.mm','native-product-layout.h','native-product-layout.test.mm','display-fit.cjs','permission-return.cjs','onboarding-i18n.js','goal-first-atlas-practice.html','goal-first-atlas-practice.js','onboarding-analytics.js','vendor','goal-first-atlas-practice.css','atlas-shell.css','final-polish.css','atlas-review.css','focus-flow.css','glass-lens.js','assets','native-build'];
 for(const file of files){
  const target=path.join(destination,'output/onboarding-prototype',file);
  fs.mkdirSync(path.dirname(target),{recursive:true});

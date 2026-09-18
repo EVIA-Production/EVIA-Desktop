@@ -18,6 +18,11 @@ import {analytics} from './onboarding-analytics.js';
   let documentErrorTimer=0;
   const views = ["welcome", "ask", "goal", "prepare", "permissions", "transcript", "insights", "suggestion", "review", "personalize"];
   const storageKey = "taylos-onboarding-final-preview-v2";
+  // ?flow=focus — one instruction per step, on the control that advances it;
+  // one live control; steps advance only by the real product action.
+  const flow = new URLSearchParams(location.search).get("flow") === "focus" ? "focus" : "";
+  const focus = flow === "focus";
+  document.documentElement.dataset.flow = flow;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   const saved = (() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; } })();
   const state = {
@@ -30,7 +35,8 @@ import {analytics} from './onboarding-analytics.js';
     fields: saved.fields || {}, website: saved.website || "", documents: [],
     launching: true, success: "", toast: "", paused: false, websiteError: false
   };
-  const ONBOARDING_LANGUAGES = ['en'];
+  // The focus-flow prototype is reviewed in German too; the shipped flow stays English-only.
+  const ONBOARDING_LANGUAGES = focus ? ['en','de'] : ['en'];
   state.language = ONBOARDING_LANGUAGES.includes(state.language) ? state.language : 'en';
   const t = text => translate(text,state.language);
   function L(markup) {
@@ -170,6 +176,19 @@ import {analytics} from './onboarding-analytics.js';
     review: ["After the call, Taylos helps you to improve, follow up and learns from every call.", "To get the most from Taylos, improve its suggestions through Personalization."],
     personalize: ["Improve Your Suggestions", "Add information about your situation so Taylos can give more relevant tips"]
   };
+  const copyFocus = {
+    welcome: ["Welcome to Taylos", "Taylos tells you, live, what a top salesperson would say next."],
+    permissions: ["Taylos needs to hear both sides.", ""],
+    permissionsWin: ["Let Taylos use your microphone.",
+      "In Windows Settings, enable microphone access for desktop apps, then return to Taylos."],
+    personalize: ["Tell Taylos what you sell.", "Better words for your real calls. Add more anytime in the dashboard."]
+  };
+  // The one product action that advances each guided step of the focus flow.
+  // Mirrors focusExpected in native-source/guides.ts. Anything else is off-target.
+  const focusExpected = {
+    ask: ["ask"], goal: ["goal", "custom-goal"], prepare: ["listen"], transcript: ["insights"],
+    insights: ["suggestion"], suggestion: ["stop"], review: ["done", "post-action"]
+  };
   const captions = {
     ask: "",
     goal: "",
@@ -262,7 +281,7 @@ import {analytics} from './onboarding-analytics.js';
   function welcomeImage() {
     return '<div class="welcome-image"><img src="assets/welcome-meeting.webp" alt="Taylos live sales assistant shown over a meeting" />' +
       '<div class="welcome-title"><h1>Welcome to Taylos</h1><span class="rule"></span>' +
-      '<p>The sales call AI that tells you live what sales experts would say.</p></div></div>';
+      '<p>' + (focus ? copyFocus.welcome[1] : 'The sales call AI that tells you live what sales experts would say.') + '</p></div></div>';
   }
   root.addEventListener('dragstart',event=>{if(event.target.closest('.welcome-image,.meeting'))event.preventDefault();});
   root.addEventListener('contextmenu',event=>{if(event.target.closest('.welcome-image,.meeting'))event.preventDefault();});
@@ -367,6 +386,12 @@ import {analytics} from './onboarding-analytics.js';
       '<button data-action="' + type + '" class="history-shortcut"' + ((type==='previous' ? state.history===0 : state.history===1) ? ' disabled' : '') + '><span>' + t(label) + '</span>' + keys(type,"medium") + '</button>').join("") + '</div></div>';
   }
   function interaction() {
+    if(focus) {
+      if(state.view==="welcome") return '<div class="focus-welcome"><button class="button permission-primary focus-show" data-action="show">Show the Taylos bar</button>' +
+        '<p class="focus-footnote">Later: ' + keys("show","small") + ' shows and hides it.</p></div>';
+      if(state.view==="permissions") return permissionControls();
+      return '';
+    }
     if(state.view==="welcome") return shortcutCoach("show");
     if(state.view==="ask") return shortcutCoach("ask");
     if(state.view==="goal") return '<div class="next-instruction"><strong>Now choose your goal - let\'s start a practice call.</strong><p>You can change this before any call.</p></div>';
@@ -384,12 +409,12 @@ import {analytics} from './onboarding-analytics.js';
     const left=state.view==="welcome" ? '<button class="button quiet" data-action="finish" type="button">Skip Setup</button>' :
       '<button class="button quiet t-learn" data-action="back">' + navigationChevron(true) + ' Back</button>';
     let right="";
-    if(state.view==="prepare") right='<button class="button white t-learn" data-action="listen">Start Practice Call ' + navigationChevron() + '</button>';
+    if(state.view==="prepare" && !focus) right='<button class="button white t-learn" data-action="listen">Start Practice Call ' + navigationChevron() + '</button>';
     if(state.view==="permissions") right = isMac()
       ? '<button class="button permission-primary" data-action="grant">' +
         (state.permission===0 ? "Allow microphone" : state.permission===1 ? "Allow call audio" : "Start practice call") + '</button>'
       : '<div class="permission-actions"><button class="button quiet" data-action="continue-preview">' + (livePermissions ? 'Continue' : 'Continue preview') + '</button><button class="button permission-primary" data-action="open-mic-settings">Open Windows Settings</button></div>';
-    if(state.view==="review") right='<button class="button white t-learn" data-action="done">Personalize Suggestions ' + navigationChevron() + '</button>';
+    if(state.view==="review" && !focus) right='<button class="button white t-learn" data-action="done">Personalize Suggestions ' + navigationChevron() + '</button>';
     if(state.view==="personalize") right='<button class="button permission-primary" data-action="finish" type="button">Finish Setup</button>';
     if(state.view==="personalize") return right+'<div class="personalization-footer-row">'+left+'<a class="legal-link" href="https://taylos.ai/legal" target="_blank" rel="noopener noreferrer">Legal</a></div>';
     return left + '<div class="footer-position ' + (right ? "middle" : "right") + '">' + progress() + '</div>' + right;
@@ -492,7 +517,8 @@ import {analytics} from './onboarding-analytics.js';
     updateArtwork();
     nativeFrame.hidden=!!window.taylosLocal || !state.visible || ["welcome","permissions","personalize"].includes(state.view);
     sendNative();
-    const c=(state.view==="permissions" && !isMac() && copy.permissionsWin) || copy[state.view];
+    const c=focus ? ((state.view==="permissions" && !isMac() && copyFocus.permissionsWin) || copyFocus[state.view] || ["",""])
+      : ((state.view==="permissions" && !isMac() && copy.permissionsWin) || copy[state.view]);
     copyBlock.querySelector(".copy-media").innerHTML = "";
     copyBlock.querySelector("h1").innerHTML=rich(c[0]);
     copyBlock.querySelector("p").innerHTML=rich(c[1]);
@@ -523,7 +549,9 @@ import {analytics} from './onboarding-analytics.js';
       renderedPhase=phaseMarkup;
     }
     document.querySelector("#review-count").textContent=(views.indexOf(state.view)+1)+" / "+views.length;
-    document.querySelector("#prototype-phase").textContent="Interactive prototype";
+    document.querySelector("#prototype-phase").textContent=focus?"Focus flow prototype":"Interactive prototype";
+    const flowToggle=document.querySelector("#flow-toggle");
+    if(flowToggle){flowToggle.classList.toggle("is-active",focus);const q=new URLSearchParams(location.search);if(focus)q.delete("flow");else q.set("flow","focus");q.delete("view");flowToggle.href="?"+q.toString();}
     document.querySelectorAll("[data-action=platform]").forEach(b=>b.classList.toggle("is-active",b.dataset.platform===state.platform));
     document.querySelectorAll("[data-action=layout]").forEach(b=>b.classList.toggle("is-active",b.dataset.layout===state.layout));
     if (animate && renderedView!==state.view && !reduced.matches) {
@@ -559,7 +587,7 @@ import {analytics} from './onboarding-analytics.js';
       analytics.track('onboarding_permission_requested', { kind: state.permission === 0 ? 'microphone' : 'call_audio' });
       await window.taylosLocal.request(state.permission === 0 ? 'onboarding:request-microphone' : 'onboarding:request-screen');
       await refreshPermissions();
-      if (state.permission === 2) go('transcript');
+      if (state.permission === 2) { advanceVia='auto'; go('transcript'); }
       else toast('Allow Taylos in System Settings, then return here to continue.');
     } catch { toast('Could not check permissions. Please try again.'); }
     finally { permissionBusy = false; }
@@ -586,7 +614,7 @@ import {analytics} from './onboarding-analytics.js';
         main.classList.remove('leaving');stage.classList.remove('stage-leaving');
         state.direction=forward?1:-1;
         state.view=view;state.visible=true;state.success="";state.toast="";
-        analytics.step(view,views.indexOf(view),views.length,forward?1:-1);
+        analytics.step(view,views.indexOf(view),views.length,forward?1:-1,takeAdvanceVia());
         render(true);save();
         main.classList.add('entering');if(artworkChanges)stage.classList.add('stage-entering');
         setTimeout(()=>{main.classList.remove('entering');stage.classList.remove('stage-entering');},420);
@@ -595,8 +623,35 @@ import {analytics} from './onboarding-analytics.js';
     }
     const forward=views.indexOf(view)>=views.indexOf(state.view);
     state.view=view;state.visible=true;state.success="";state.toast="";
-    analytics.step(view,views.indexOf(view),views.length,forward?1:-1);
+    analytics.step(view,views.indexOf(view),views.length,forward?1:-1,takeAdvanceVia());
     render(true);save();
+  }
+  // How the step that is being left was advanced: the product control the tip
+  // named ("action"), a card button, a shortcut, or automatically. Reported with
+  // onboarding_step_viewed so the callout-vs-card question has a number.
+  let advanceVia='button';
+  function takeAdvanceVia(){const via=advanceVia;advanceVia='button';return via;}
+  let firstProductClickAt=0;
+  const presentedAt=Date.now();
+  function noteProductAction(action){
+    if(firstProductClickAt)return;
+    firstProductClickAt=Date.now();
+    analytics.track('onboarding_first_product_click',{control:action,ms_since_presented:firstProductClickAt-presentedAt});
+  }
+  const offTargetCounts={};
+  function offTarget(control){
+    offTargetCounts[state.view]=(offTargetCounts[state.view]||0)+1;
+    analytics.track('onboarding_off_target_click',{control:String(control||'').slice(0,40),count_on_step:offTargetCounts[state.view]});
+    sendProduct({type:'taylos-nudge',control:String(control||'')});
+  }
+  // In the focus flow only the step's own action advances it; everything else
+  // the product reports is answered with a nudge instead of a jump.
+  function focusAllows(action){
+    if(!focus)return true;
+    const expected=focusExpected[state.view];
+    if(!expected)return true;
+    if(expected.includes(action))return true;
+    offTarget(action);return false;
   }
   async function goSkippingPermissions(view, direction) {
     if (view === "permissions" && !(await permissionViewNeeded())) {
@@ -664,7 +719,11 @@ import {analytics} from './onboarding-analytics.js';
     },reduced.matches?200:3400);
   }
   document.addEventListener("click",async event=>{
-    const b=event.target.closest("[data-action]");if(!b)return;
+    const b=event.target.closest("[data-action]");
+    if(!b){
+      if(focus && !state.launching && event.target.closest('.showcase') && !event.target.closest('iframe,.restore-overlay') && !['welcome','permissions','personalize'].includes(state.view))offTarget('field');
+      return;
+    }
     const a=b.dataset.action;
     if(a==='close'){analytics.terminal('onboarding_closed',{reason:'close',finished:false});if(window.taylosLocal)window.taylosLocal.close();else{wrap.hidden=true;root.querySelector('.light-field').classList.remove('lit');}return;}
     if(a==="language"){analytics.track('onboarding_language_changed',{language:b.dataset.language});changeLanguage(b.dataset.language);return;}
@@ -676,6 +735,8 @@ import {analytics} from './onboarding-analytics.js';
       const i=views.indexOf(state.view)+(a==="review-next"?1:-1);if(views[i])go(views[i]);return;
     }
     if(state.launching)return;
+    advanceVia='button';
+    if(focus && b.classList.contains('focus-show'))b.blur();
     if(a==="show")show();
     else if(a==="open-ask")ask();
     else if(a==="choose-goal"){state.goal=b.dataset.goal;analytics.track('onboarding_goal_chosen',{goal:b.dataset.goal});go("prepare");}
@@ -836,7 +897,7 @@ import {analytics} from './onboarding-analytics.js';
   }
   function sendNative() {
     const r=stage.getBoundingClientRect();
-    sendProduct({type:"taylos-preview-state",view:state.view,language:state.language,goal:goal(),goals:localizedGoals(),goalId:state.goal,platform:state.platform,showLabel:state.showLabel,history:state.history,visible:state.visible,launching:!!state.launching,reducedMotion:reduced.matches,direction:state.direction||1,stage:{x:r.x,y:r.y,width:r.width,height:r.height},stageArea:stage.offsetHeight+40,checkpoint:{view:state.view,goal:state.goal,customGoal:state.customGoal,fields:state.fields,website:state.website}});
+    sendProduct({type:"taylos-preview-state",flow,view:state.view,language:state.language,goal:goal(),goals:localizedGoals(),goalId:state.goal,platform:state.platform,showLabel:state.showLabel,history:state.history,visible:state.visible,launching:!!state.launching,reducedMotion:reduced.matches,direction:state.direction||1,stage:{x:r.x,y:r.y,width:r.width,height:r.height},stageArea:stage.offsetHeight+40,checkpoint:{view:state.view,goal:state.goal,customGoal:state.customGoal,fields:state.fields,website:state.website}});
   }
   let geometryFrame=0;
   function requestGeometry(){
@@ -847,7 +908,7 @@ import {analytics} from './onboarding-analytics.js';
   nativeFrame.addEventListener("load",sendNative);
   function receiveProduct(d) {
     if(d?.type==='onboarding-presented'){requestAnimationFrame(()=>{wrap.classList.remove('awaiting-presentation');intro();});return;}
-    if(d?.type==='permissions-updated'){void refreshPermissions().then(()=>{if(state.view==='permissions'&&state.permission===2)go('transcript');});return;}
+    if(d?.type==='permissions-updated'){void refreshPermissions().then(()=>{if(state.view==='permissions'&&state.permission===2){advanceVia='auto';go('transcript');}});return;}
     if(d?.type==='language'){changeLanguage(d.language);return;}
     if(d?.type==='bar-introduction') {
       clearTimeout(spotlightWatchdog);
@@ -872,7 +933,12 @@ return;
     if(d?.type==="taylos-key"){
         document.dispatchEvent(new KeyboardEvent(d.kind,{code:d.code,key:d.key,metaKey:d.metaKey,ctrlKey:d.ctrlKey,altKey:d.altKey,shiftKey:d.shiftKey,repeat:d.repeat,bubbles:true}));return;
     }
+    if(d?.type==='taylos-off-target'){offTarget(d.control);return;}
     if(d?.type!=="taylos-action")return;
+    if(d.action==="settings")return;
+    noteProductAction(d.action);
+    if(!focusAllows(d.action))return;
+    advanceVia='action';
     if(d.action==="goal"&&goals[d.goal]){state.goal=d.goal;go("prepare");return;}
     if(d.action==="custom-goal"&&d.prompt?.trim()){state.goal="custom";state.customGoal=d.prompt.trim();go("prepare");return;}
     if(d.action==="post-action"){sendProduct({type:"taylos-post-action",prompt:d.prompt});return;}
@@ -882,7 +948,7 @@ return;
     if(d.action==="insights"&&state.view==="transcript")go("insights");
     if(d.action==="transcript"&&state.view==="insights")go("transcript");
     if(d.action==="suggestion"){state.history=1;go("suggestion");}
-    if(d.action==="stop")go("review");
+    if(d.action==="stop"&&["transcript","insights","suggestion"].includes(state.view))go("review");
     if(d.action==="done")go("personalize");
   }
   window.taylosLocal?.onMessage(receiveProduct);
@@ -893,18 +959,22 @@ return;
     if(d?.type==="taylos-key"){
         document.dispatchEvent(new KeyboardEvent(d.kind,{code:d.code,key:d.key,metaKey:d.metaKey,ctrlKey:d.ctrlKey,altKey:d.altKey,shiftKey:d.shiftKey,repeat:d.repeat,bubbles:true}));return;
     }
+    if(d?.type==='taylos-off-target'){offTarget(d.control);return;}
     if(d?.type!=="taylos-action")return;
+    if(d.action==="settings")return;
+    noteProductAction(d.action);
+    if(!focusAllows(d.action))return;
+    advanceVia='action';
     if(d.action==="goal"&&goals[d.goal]){state.goal=d.goal;go("prepare");return;}
     if(d.action==="custom-goal"&&typeof d.prompt==="string"&&d.prompt.trim()){state.goal="custom";state.customGoal=d.prompt.trim();go("prepare");return;}
     if(d.action==="post-action"){nativeFrame.contentWindow.postMessage({type:"taylos-post-action",prompt:d.prompt},location.origin);return;}
-    if(d.action==="settings")return;
     if(d.action==="show"){show();return;}
     if(d.action==="ask"){ask();return;}
     if(d.action==="listen"&&state.view==="prepare")goSkippingPermissions(state.permission===2?"transcript":"permissions",1);
     if(d.action==="insights"&&state.view==="transcript")go("insights");
     if(d.action==="transcript"&&state.view==="insights")go("transcript");
     if(d.action==="suggestion"){state.history=1;go("suggestion");}
-    if(d.action==="stop")go("review");
+    if(d.action==="stop"&&["transcript","insights","suggestion"].includes(state.view))go("review");
     if(d.action==="done")go("personalize");
   });
   document.addEventListener("keydown",e=>{
@@ -931,8 +1001,8 @@ return;
       if(Object.entries(expected).some(([k,v])=>Boolean(e[k])!==v))return false;
       return e.key.toLowerCase()===key || e.code.toLowerCase()===key || (key==='space'&&e.code==='Space') || (key==='return'&&e.code==='Enter');
     };
-    if(matches('show',modifier&&(isMac()?e.code==='Backslash':e.code==='Space'))){e.preventDefault();show();}
-    else if(matches('ask',modifier&&e.code==='Enter')){e.preventDefault();ask();}
+    if(matches('show',modifier&&(isMac()?e.code==='Backslash':e.code==='Space'))){e.preventDefault();advanceVia='shortcut';show();}
+    else if(matches('ask',modifier&&e.code==='Enter')){e.preventDefault();advanceVia='shortcut';ask();}
     else if(state.view==='suggestion'&&matches('previous',e.altKey&&e.code==='KeyJ')){e.preventDefault();history(-1);}
     else if(state.view==='suggestion'&&matches('next',e.altKey&&e.code==='KeyK')){e.preventDefault();history(1);}
   });
@@ -943,6 +1013,7 @@ return;
   });
   window.addEventListener("blur",()=>{pressed.clear();syncKeys();});
   window.taylosLocal?.onAction(actionName=>{
+    if(['show','ask'].includes(actionName))advanceVia='shortcut';
     if(actionName==='show')show();
     if(actionName==='ask')ask();
     if(actionName==='previous')history(-1);

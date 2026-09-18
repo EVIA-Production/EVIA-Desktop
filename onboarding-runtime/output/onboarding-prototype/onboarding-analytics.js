@@ -79,13 +79,16 @@ function track(event, properties = {}, options = {}) {
   catch (error) { console.warn('[onboarding-analytics] capture failed', error); }
 }
 
-/** One event per step change, with time spent on the step being left. */
-function step(view, index, total, direction) {
+/** One event per step change, with time spent on the step being left and how
+ * it was left: the product control the callout named ("action"), a card
+ * button, a keyboard shortcut, or automatically. */
+function step(view, index, total, direction, advancedVia = 'button') {
   if (!ready) return;
   const now = Date.now();
   track('onboarding_step_viewed', {
     step: view, index, of: total, direction,
     previous_step: lastStep, ms_on_previous_step: lastStep ? now - stepEnteredAt : null,
+    advanced_via: lastStep ? advancedVia : null,
   });
   lastStep = view; stepEnteredAt = now;
 }
