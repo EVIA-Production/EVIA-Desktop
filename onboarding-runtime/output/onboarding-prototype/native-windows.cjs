@@ -17,6 +17,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   let coachTarget=null, coachContent='', revealTimer, revealPending=false, revealProgress=1, geometryKey='', slideTimer, slideX=0, slideOpacity=1;
   let pendingBarSize=null;
   let coachSize={width:270,height:76};
+  const dimmed=new Map();
   const ready = new Set();
   let inputDiagnosticTimer, pointerTimer;
   const pointerIgnored=new Map(), scaledWindows=new Set();
@@ -159,8 +160,9 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
         // user must read for it sit at 45%, so the one live control is the
         // brightest thing on screen (and the red Stop pill is not).
         const keep=state?.flow==='focus' && FOCUS_KEEP[state.view];
-        const dim=keep && ['bar','ask','listen'].includes(name) && !keep.includes(name) ? .45 : 1;
-        win.setOpacity(slideOpacity*dim*(name==='bar'?(.3+.7*(1-Math.pow(1-revealProgress,3))):1));
+        const dim=!!(keep && ['bar','ask','listen'].includes(name) && !keep.includes(name));
+        if(dimmed.get(name)!==dim){dimmed.set(name,dim);send(win,{type:'focus-dim',dim});}
+        win.setOpacity(slideOpacity*(name==='bar'?(.3+.7*(1-Math.pow(1-revealProgress,3))):1));
         if (!win.isVisible()) {
           win.showInactive();
           // AppKit may reposition a hidden child while ordering it onto a
@@ -235,11 +237,16 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
       {left:b.x-width-12,top,side:'left'},
       {left:b.x+b.width+12,top,side:'right'},
       ]);
-    const candidates=data.side?[...sides,...vertical,below(center)]:name==='bar'?[...vertical,...sides,below(center)]:[...sides,...vertical,below(center)];
+    // 'below': under the control itself, over whatever sits there.
+    const beneath=[
+      {left:clamp(b.x+r.x+r.width/2-width/2,work.x+8,work.x+work.width-width-8),top:b.y+r.y+r.height+12,side:'below'},
+      {left:clamp(b.x+r.x,work.x+8,work.x+work.width-width-8),top:b.y+r.y+r.height+12,side:'below'},
+    ];
+    const candidates=data.placement==='below'?beneath:data.placement==='side'?[...sides,...vertical,below(center)]:name==='bar'?[...vertical,...sides,below(center)]:[...sides,...vertical,below(center)];
     const fits=c=>c.left>=work.x+8 && c.left+width<=work.x+work.width-8 && c.top>=work.y+8 && c.top+height<=work.y+work.height-8;
     // Focus flow: a callout may lie over a shadowed window; only the lit ones are obstacles.
     const keep=focus&&FOCUS_KEEP[state.view];
-    const obstacles=keep?activeNames().filter(key=>keep.includes(key)||key===name):activeNames();
+    const obstacles=data.placement==='below'?[name]:keep?activeNames().filter(key=>keep.includes(key)||key===name):activeNames();
     const avoids=c=>obstacles.every(key=>{const o=productBounds.get(key)||windows.get(key).getBounds();return !(c.left<o.x+o.width && c.left+width>o.x && c.top<o.y+o.height && c.top+height>o.y);});
     const chosen=candidates.find(c=>fits(c)&&avoids(c));
     if(!chosen){coach.hide();return;}

@@ -37,9 +37,10 @@ html[data-flow=focus] .focus-history .history-shortcut {transform:scale(.88)}
    action below. */
 html[data-flow=focus] .onboarding-card[data-view=welcome] {--show-height:calc(var(--window-height) * .56)}
 html[data-flow=focus] .welcome-image {overflow:hidden}
-html[data-flow=focus] .welcome-image>img {position:absolute;left:50%;top:2%;bottom:auto;transform:translateX(-50%);width:100%;height:auto;max-height:none;filter:none;opacity:.85;-webkit-mask-image:none;mask-image:none}
-/* Readable title at the top, and the picture darkens the further down it goes,
-   so it never competes with the heading. */
+html[data-flow=focus] .welcome-image>img {position:absolute;left:50%;top:-3%;bottom:auto;transform:translateX(-50%);width:100%;height:auto;max-height:none;filter:none;opacity:.6;
+  -webkit-mask-image:linear-gradient(to bottom,#000 46%,transparent 66%);mask-image:linear-gradient(to bottom,#000 46%,transparent 66%)}
+/* Readable title at the top, and the picture darkens the further down it goes
+   until it is gone, so it never competes with the heading. */
 html[data-flow=focus] .welcome-image::after {background:linear-gradient(180deg,#08090bb0 0%,#08090b90 38%,#08090bd8 74%,#0A0B0D 100%)}
 html[data-flow=focus] .welcome-title {top:50%;transform:translateY(-50%)}
 html[data-flow=focus] .welcome-title h1 {font-size:60px;margin-bottom:14px}
