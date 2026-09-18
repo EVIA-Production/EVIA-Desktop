@@ -92,6 +92,23 @@ test('audio failures persist content-free rotating diagnostics', () => {
   assert.match(overlaySource, /\[MIC-DIAGNOSTIC\]/)
 })
 
+test('the helper captures through a Core Audio tap from macOS 14.4 and keeps ScreenCaptureKit below it', () => {
+  const swiftSource = read('native/mac/SystemAudioCapture/Sources/SystemAudioCapture/main.swift')
+  assert.match(swiftSource, /CATapDescription\(stereoGlobalTapButExcludeProcesses: \[\]\)/)
+  assert.match(swiftSource, /kAudioAggregateDeviceTapAutoStartKey/)
+  assert.match(swiftSource, /if #available\(macOS 14\.4, \*\), selectedBackend\(\) == "tap"/)
+  assert.match(swiftSource, /TAYLOS_SYSTEM_AUDIO_BACKEND/)
+  // Both permission questions Electron asks, and the denial the tap would otherwise hide as silence.
+  for (const marker of ['--audio-permission-status', '--request-audio-permission', 'kTCCServiceAudioCapture', 'system_audio_permission_denied']) {
+    assert.match(swiftSource, new RegExp(marker.replace(/[-]/g, '\\-')))
+  }
+  const permission = read('src/main/system-audio-permission-mac.ts')
+  assert.match(permission, /major > 23 \|\| \(major === 23 && minor >= 4\)/)
+  assert.match(read('src/main/system-audio-mac-service.ts'), /macSupportsAudioTap\(\)/)
+  assert.match(read('src/main/native-onboarding.ts'), /probeAudioCapturePermission/)
+  assert.match(read('electron-builder.yml'), /NSAudioCaptureUsageDescription/)
+})
+
 test('bundled system-audio helper is universal and launches on macOS 12', { skip: process.platform !== 'darwin' }, () => {
   const lipo = execFileSync('lipo', ['-info', binary], { encoding: 'utf8' })
   assert.match(lipo, /arm64/)

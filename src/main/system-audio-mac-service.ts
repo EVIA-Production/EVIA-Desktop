@@ -16,6 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { appendAudioDiagnostic } from './audio-diagnostics';
+import { macSupportsAudioTap, probeAudioCapturePermission, requestAudioCapturePermission } from './system-audio-permission-mac';
 
 const TARGET_SAMPLE_RATE = 24000;
 const CAPTURE_READY_TIMEOUT_MS = 8000;
@@ -275,6 +276,22 @@ export class SystemAudioMacService {
    */
   private async checkAndRequestPermission(): Promise<void> {
     if (process.platform !== 'darwin') return; // macOS only
+    // macOS 14.4+: the helper captures through a Core Audio tap under System
+    // Audio Recording; the screen permission is not involved.
+    if (macSupportsAudioTap()) {
+      const helperPath = this.getSystemAudioPath();
+      if (helperPath) {
+        const probe = await probeAudioCapturePermission(helperPath);
+        console.log('[SystemAudioMacService] System audio recording permission:', probe?.state ?? 'unavailable');
+        if (probe && probe.tap) {
+          if (probe.state !== 'authorized') {
+            const after = await requestAudioCapturePermission(helperPath);
+            console.log('[SystemAudioMacService] Permission after request:', after?.state ?? 'unavailable');
+          }
+          return;
+        }
+      }
+    }
     try {
       const screenStatus = systemPreferences.getMediaAccessStatus('screen');
       console.log('[SystemAudioMacService] Screen recording permission status:', screenStatus);
@@ -308,6 +325,9 @@ export class SystemAudioMacService {
   /**
    * Get the path to SystemAudioDump binary (dev vs production)
    */
+  /** Path of the SystemAudioDump helper, or null when it is missing. */
+  public helperPath(): string | null { return this.getSystemAudioPath(); }
+
   private getSystemAudioPath(): string | null {
     const candidates = [
       app.isPackaged

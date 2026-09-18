@@ -6,6 +6,8 @@ import { headerController } from './header-controller';
 import { getHeaderWindow, suspendOverlayShortcuts } from './overlay-windows';
 import { desktopBridge } from './desktop-bridge';
 import { webAppUrl } from './web-app-url';
+import { systemAudioMacService } from './system-audio-mac-service';
+import { macSupportsAudioTap, probeAudioCapturePermission, requestAudioCapturePermission } from './system-audio-permission-mac';
 
 async function openWebCheckout() {
   const token = await keytar.getPassword('taylos', 'token');
@@ -17,10 +19,22 @@ async function openWebCheckout() {
   await shell.openExternal(fallback);
 }
 
-export function onboardingPermissions() {
+/**
+ * What the checklist shows. On macOS 14.4+ "screen" reports the System Audio
+ * Recording decision (the helper's Core Audio tap needs no screen permission)
+ * and `tap` is true, so the setup copy can promise a plain prompt instead of
+ * the System Settings detour.
+ */
+export async function onboardingPermissions() {
   const microphone = systemPreferences.getMediaAccessStatus('microphone');
-  const screen = process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted';
-  return { live: true, microphone, screen };
+  if (process.platform !== 'darwin') return { live: true, microphone, screen: 'granted', tap: false };
+  const helper = macSupportsAudioTap() ? systemAudioMacService.helperPath() : null;
+  const probe = helper ? await probeAudioCapturePermission(helper) : null;
+  if (probe?.tap) {
+    const screen = probe.state === 'authorized' ? 'granted' : probe.state === 'denied' ? 'denied' : 'not-determined';
+    return { live: true, microphone, screen, tap: true };
+  }
+  return { live: true, microphone, screen: systemPreferences.getMediaAccessStatus('screen'), tap: false };
 }
 
 async function requestPermissions(channel: string) {
@@ -30,8 +44,16 @@ async function requestPermissions(channel: string) {
       if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
     } else if (process.platform === 'win32') await shell.openExternal('ms-settings:privacy-microphone');
   } else if (channel === 'onboarding:request-screen' && process.platform === 'darwin') {
-    try { await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }); } catch { /* The system dialog can deny capture. */ }
-    if (systemPreferences.getMediaAccessStatus('screen') !== 'granted') await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    const helper = macSupportsAudioTap() ? systemAudioMacService.helperPath() : null;
+    const probe = helper ? await probeAudioCapturePermission(helper) : null;
+    if (helper && probe?.tap) {
+      // One prompt, answered in place. Only a denial needs System Settings.
+      const after = probe.state === 'authorized' ? probe : await requestAudioCapturePermission(helper);
+      if (after?.state !== 'authorized') await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    } else {
+      try { await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }); } catch { /* The system dialog can deny capture. */ }
+      if (systemPreferences.getMediaAccessStatus('screen') !== 'granted') await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    }
   }
   return onboardingPermissions();
 }

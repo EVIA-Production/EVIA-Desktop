@@ -131,3 +131,13 @@ html[data-flow=focus] .perm-right-col.stack3 {gap:16px;padding:18px 26px;justify
 html[data-flow=focus] .perm-right-col.stack3 .perm-shot.audio,html[data-flow=focus] .perm-right-col.stack3 .perm-shot.settings {width:min(372px,100%)}
 html[data-flow=focus] .perm-right-col.stack3 .perm-shot.quit {width:min(232px,100%)}
 html[data-flow=focus] .perm-right-col.stack3 .perm-caption {font-size:12.5px;line-height:17px}
+/* The System Audio Recording prompt (macOS 14.4+), drawn like the microphone
+   alert until the real screenshot replaces it. */
+html[data-flow=focus] .perm-alert-audio {position:relative;width:min(300px,100%);padding:22px 22px 18px;border-radius:22px;background:#e6e6e8;color:#1d1d1f;box-shadow:0 18px 40px #000a;font-family:var(--font);filter:none}
+html[data-flow=focus] .perm-alert-audio .perm-alert-icon {display:flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:14px;background:#8e8e93;margin-bottom:18px}
+html[data-flow=focus] .perm-alert-audio .perm-alert-icon .sf {width:28px;height:28px;background:#fff}
+html[data-flow=focus] .perm-alert-audio b {display:block;font-size:14.5px;line-height:19px;font-weight:700}
+html[data-flow=focus] .perm-alert-audio p {margin:8px 0 14px;font-size:12.5px;line-height:17px;color:#2c2c2e}
+html[data-flow=focus] .perm-alert-audio .perm-alert-row {display:grid;grid-template-columns:1fr 1fr;gap:10px}
+html[data-flow=focus] .perm-alert-audio .perm-alert-btn {display:block;height:34px;line-height:34px;border-radius:999px;text-align:center;font-size:14px;font-weight:500;background:#cfcfd4;color:#1d1d1f;margin:0}
+html[data-flow=focus] .perm-cursor.allow {left:70%;top:86%}

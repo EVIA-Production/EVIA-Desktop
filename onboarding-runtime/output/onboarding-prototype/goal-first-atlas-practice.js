@@ -297,9 +297,10 @@ import {analytics} from './onboarding-analytics.js';
   // switch on, and the quit-and-reopen alert macOS may show afterwards.
   function permissionStageFocus() {
     const step=state.permission;
+    const tap=!!state.permissionTap;
     const rows=isMac()
       ? [['mic.fill','Allow Taylos to hear you','Microphone. Your side of the call.'],
-         ['waveform','Allow Taylos to hear the other person','System audio. macOS files this under “Screen &amp; System Audio Recording”. Taylos uses only the audio.']]
+         ['waveform','Allow Taylos to hear the other person',tap ? 'System audio. macOS will ask - click Allow.' : 'System audio. macOS files this under “Screen &amp; System Audio Recording”. Taylos uses only the audio.']]
       : [['mic.fill','Allow Taylos to hear you','Microphone. Your side of the call.'],
          ['waveform','Allow Taylos to hear the other person','System audio. Automatic on Windows.']];
     const list='<div class="perm-rows">'+rows.map(([symbol,title,body],i)=>{
@@ -310,13 +311,22 @@ import {analytics} from './onboarding-analytics.js';
         '<span class="glass-toggle '+(done?'on':'')+'" role="img" aria-label="'+(done?'Allowed':'Not yet allowed')+'" data-on="'+done+'"'+(active?' data-action="grant"':'')+'><i><span class="toggle-refraction"></span></i></span></div>';
     }).join('')+'</div>';
     const button=isMac()
-      ? '<button class="button permission-primary perm-cta" data-action="grant">'+(step===0?'Continue':step===1?'Open System Settings':'Start practice call')+'</button>'
+      ? '<button class="button permission-primary perm-cta" data-action="grant">'+(step===0?'Continue':step===1?(tap?'Continue':'Open System Settings'):'Start practice call')+'</button>'
       : '<div class="perm-cta-row"><button class="button quiet" data-action="continue-preview">'+(livePermissions?'Continue':'Continue preview')+'</button><button class="button permission-primary perm-cta" data-action="open-mic-settings">Open Windows Settings</button></div>';
     const left='<div class="perm-left"><h1>'+(isMac()?'Let Taylos hear both sides of the call.':'Let Taylos hear you.')+'</h1>'+list+
       '<p class="perm-trust">Taylos listens only while you press Listen. You can change this anytime in System Settings.</p>'+button+'</div>';
     let right='';
     if(isMac() && step===0) right='<figure class="perm-shot mic"><img src="assets/permission-mic-cut.webp" alt="macOS asks for the microphone: click Allow." draggable="false" /><img class="perm-cursor mic" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>';
-    if(isMac() && step===1) right=
+    if(isMac() && step===1 && tap) right=
+      // The System Audio Recording prompt (macOS 14.4+), drawn until a screenshot exists.
+      '<div class="perm-alert perm-alert-audio" role="img" aria-label="macOS asks to record system audio: click Allow.">'+
+        '<span class="perm-alert-icon">'+sf('waveform')+'</span>'+
+        '<b>“Taylos” would like to record system audio.</b>'+
+        '<p>Taylos uses this permission while you press Listen to capture the other participants&rsquo; meeting audio.</p>'+
+        '<span class="perm-alert-row"><span class="perm-alert-btn">Don&rsquo;t Allow</span><span class="perm-alert-btn">Allow</span></span>'+
+        '<img class="perm-cursor allow" src="assets/macos-arrow-cursor.png" alt="" draggable="false" />'+
+      '</div>';
+    if(isMac() && step===1 && !tap) right=
       '<figure class="perm-shot audio"><img src="assets/permission-audio-cut.webp" alt="macOS asks for screen and system audio recording: click Open System Settings." draggable="false" /><img class="perm-cursor audio" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>'+
       '<figure class="perm-shot settings"><img src="assets/permission-settings-screen-audio.webp" alt="System Settings: switch on Taylos under Screen &amp; System Audio Recording." draggable="false" /></figure>'+
       '<figure class="perm-shot quit"><img src="assets/permission-quit-reopen.webp" alt="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen." draggable="false" /></figure>'+
@@ -612,6 +622,7 @@ import {analytics} from './onboarding-analytics.js';
     const result = await window.taylosLocal.request('onboarding:permissions');
     if (!result?.live) return;
     livePermissions = true;
+    state.permissionTap = !!result.tap;
     const before = state.permission;
     state.permission = result.microphone === 'granted' ? (result.screen === 'granted' ? 2 : 1) : 0;
     if (state.permission !== before) analytics.track('onboarding_permission_state', { microphone: state.permission >= 1, call_audio: state.permission >= 2 });
