@@ -164,7 +164,9 @@ async function startOnboarding(options={}) {
   const startView = (process.env.TAYLOS_PREVIEW_LANGUAGE ? '&lang='+encodeURIComponent(process.env.TAYLOS_PREVIEW_LANGUAGE) : '') + (process.env.TAYLOS_PREVIEW_VIEW ? '&view='+encodeURIComponent(process.env.TAYLOS_PREVIEW_VIEW) : '')
     + (process.env.TAYLOS_PREVIEW_PLATFORM ? '&platform='+encodeURIComponent(process.env.TAYLOS_PREVIEW_PLATFORM) : '');
   const analyticsQuery = analytics ? '&analytics=1&app_version='+encodeURIComponent(app.getVersion()) : '';
-  await window.loadURL(origin+'/output/onboarding-prototype/goal-first-atlas-practice.html?native=1'+startView+analyticsQuery);
+  // TAYLOS_ONBOARDING_FLOW=focus opens the review build on the focus-flow prototype.
+  const flowQuery = process.env.TAYLOS_ONBOARDING_FLOW === 'focus' ? '&flow=focus' : '';
+  await window.loadURL(origin+'/output/onboarding-prototype/goal-first-atlas-practice.html?native=1'+startView+analyticsQuery+flowQuery);
   await presentable;
   presented=true;
   focus();

@@ -4,6 +4,8 @@ const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('node:path');
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
+// Mirrors focusRead + guideSurfacesFocus in native-source/guides.ts.
+const FOCUS_KEEP={ask:['bar'],goal:['ask'],prepare:['bar','ask'],transcript:['listen'],insights:['listen'],suggestion:['ask','bar'],review:['bar','listen']};
 module.exports = function createProductWindows({ root, origin, owner, onVisibility, readAccount = async()=>null, requestHost }) {
   const windows = new Map();
   const dimensions = { bar: [500,49], ask:[640,180], listen:[400,420], settings:[240,320], shortcuts:[380,520] };
@@ -149,7 +151,12 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
         width:dimensions[name][0],height:dimensions[name][1],radius:radii[name],scale:name==='bar'?scale:1,padding});
 
       if (active.includes(name) && ready.has(name)) {
-        win.setOpacity(slideOpacity*(name==='bar'?(.3+.7*(1-Math.pow(1-revealProgress,3))):1));
+        // Focus flow: windows that hold neither this step's control nor what the
+        // user must read for it sit at 45%, so the one live control is the
+        // brightest thing on screen (and the red Stop pill is not).
+        const keep=state?.flow==='focus' && FOCUS_KEEP[state.view];
+        const dim=keep && !keep.includes(name) ? .45 : 1;
+        win.setOpacity(slideOpacity*dim*(name==='bar'?(.3+.7*(1-Math.pow(1-revealProgress,3))):1));
         if (!win.isVisible()) {
           win.showInactive();
           // AppKit may reposition a hidden child while ordering it onto a
