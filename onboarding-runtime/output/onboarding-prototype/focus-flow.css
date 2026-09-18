@@ -100,34 +100,34 @@ html[data-flow=focus] .perm-trust {margin:0;font-size:13px;line-height:18px;colo
 html[data-flow=focus] .perm-cta {height:52px;width:100%;font-size:17px;border-radius:14px;margin-top:4px}
 html[data-flow=focus] .perm-cta-row {display:flex;gap:10px}
 html[data-flow=focus] .perm-cta-row .button {height:52px;border-radius:14px;flex:1}
-/* Right column: the dark "screen" with a faint grid, as in the shipped step. */
-html[data-flow=focus] .perm-right-col {position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:26px 30px;background:#0d0e11;
+/* Right column: the dark "screen" with a faint grid, as in the shipped step.
+   Every illustration is cut out of its plate (transparent corners, the
+   dialog's own radius), with a soft shadow that respects that shape and a gap
+   wide enough that no shadow lands on the next one. */
+html[data-flow=focus] .perm-right-col {position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px 32px;background:#0d0e11;
   background-image:linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff08 1px,transparent 1px);background-size:36px 36px;border-left:1px solid #ffffff0d}
-html[data-flow=focus] .perm-shot {position:relative;margin:0;width:min(440px,100%);line-height:0;border-radius:14px;overflow:hidden;box-shadow:0 18px 40px #000a}
+html[data-flow=focus] .perm-shot {position:relative;margin:0;line-height:0;filter:drop-shadow(0 12px 22px #0008)}
 html[data-flow=focus] .perm-shot > img:first-child {display:block;width:100%;height:auto}
+html[data-flow=focus] .perm-shot.mic {width:min(330px,100%)}
+html[data-flow=focus] .perm-shot.audio {width:min(440px,100%)}
 html[data-flow=focus] .perm-shot.settings {width:min(440px,100%)}
+html[data-flow=focus] .perm-shot.quit {width:min(300px,100%)}
 html[data-flow=focus] .perm-cursor {position:absolute;width:30px!important;height:auto;z-index:3;pointer-events:none;filter:drop-shadow(0 3px 3px #0009)}
-html[data-flow=focus] .perm-cursor.mic {left:72%;top:78%}
-html[data-flow=focus] .perm-cursor.audio {left:60%;top:70%}
-/* The quit-and-reopen alert, drawn (no screenshot of it exists yet). */
-html[data-flow=focus] .perm-alert {width:min(300px,100%);padding:18px 18px 14px;border-radius:14px;background:#ececee;color:#1d1d1f;box-shadow:0 18px 40px #000a;font-family:var(--font)}
-html[data-flow=focus] .perm-alert b {display:block;font-size:13.5px;line-height:18px;font-weight:700}
-html[data-flow=focus] .perm-alert p {margin:8px 0 12px;font-size:12.5px;line-height:17px;color:#3a3a3c}
-html[data-flow=focus] .perm-alert-btn {display:block;height:34px;line-height:34px;border-radius:9px;text-align:center;font-size:14px;font-weight:600;background:#d9d9de;color:#1d1d1f;margin-top:8px}
-html[data-flow=focus] .perm-alert-btn.primary {background:#3478f6;color:#fff;margin-top:0}
+html[data-flow=focus] .perm-cursor.mic {left:68%;top:84%}
+html[data-flow=focus] .perm-cursor.audio {left:62%;top:71%}
 html[data-flow=focus] .perm-caption {margin:0;font-size:13px;line-height:18px;color:#c7cad1;text-align:center;max-width:400px}
 html[data-flow=focus] .perm-done {display:flex;flex-direction:column;align-items:center;gap:14px;color:#f5f5f7;font:600 20px/26px var(--font)}
 html[data-flow=focus] .perm-done-check {width:56px;height:56px;background:#7ad38f}
+/* No phase strip on this step: it is not part of the call. */
+html[data-flow=focus] .onboarding-card[data-view=permissions] .phase-mount {display:none}
+html[data-flow=focus] .onboarding-card[data-view=permissions] .perm-left-col {padding-bottom:40px}
 @media (max-height:760px){
-  html[data-flow=focus] .perm-right-col {gap:10px;padding:18px 22px}
-  html[data-flow=focus] .perm-shot,html[data-flow=focus] .perm-shot.settings {width:min(380px,100%)}
-  html[data-flow=focus] .perm-alert {width:min(270px,100%);padding:14px 14px 10px}
+  html[data-flow=focus] .perm-right-col {gap:14px;padding:18px 22px}
+  html[data-flow=focus] .perm-shot.audio,html[data-flow=focus] .perm-shot.settings {width:min(380px,100%)}
+  html[data-flow=focus] .perm-shot.quit {width:min(250px,100%)}
 }
-/* Three things to show for system audio: dialog, the Settings row, the quit alert. */
-html[data-flow=focus] .perm-right-col.stack3 {gap:10px;padding:18px 26px;justify-content:center}
-html[data-flow=focus] .perm-right-col.stack3 .perm-shot,html[data-flow=focus] .perm-right-col.stack3 .perm-shot.settings {width:min(372px,100%)}
-html[data-flow=focus] .perm-right-col.stack3 .perm-alert {width:min(262px,100%);padding:12px 14px 10px}
-html[data-flow=focus] .perm-right-col.stack3 .perm-alert b {font-size:12.5px;line-height:16px}
-html[data-flow=focus] .perm-right-col.stack3 .perm-alert p {margin:6px 0 9px;font-size:11.5px;line-height:15px}
-html[data-flow=focus] .perm-right-col.stack3 .perm-alert-btn {height:30px;line-height:30px;font-size:13px;margin-top:6px}
+/* Three things to show for system audio: the dialog, the Settings row, the quit alert. */
+html[data-flow=focus] .perm-right-col.stack3 {gap:16px;padding:18px 26px;justify-content:center}
+html[data-flow=focus] .perm-right-col.stack3 .perm-shot.audio,html[data-flow=focus] .perm-right-col.stack3 .perm-shot.settings {width:min(372px,100%)}
+html[data-flow=focus] .perm-right-col.stack3 .perm-shot.quit {width:min(232px,100%)}
 html[data-flow=focus] .perm-right-col.stack3 .perm-caption {font-size:12.5px;line-height:17px}

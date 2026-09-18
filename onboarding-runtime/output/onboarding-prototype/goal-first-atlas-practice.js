@@ -315,11 +315,11 @@ import {analytics} from './onboarding-analytics.js';
     const left='<div class="perm-left"><h1>'+(isMac()?'Let Taylos hear both sides of the call.':'Let Taylos hear you.')+'</h1>'+list+
       '<p class="perm-trust">Taylos listens only while you press Listen. You can change this anytime in System Settings.</p>'+button+'</div>';
     let right='';
-    if(isMac() && step===0) right='<figure class="perm-shot"><img src="assets/permission-mic.webp" alt="macOS asks for the microphone: click Allow." draggable="false" /><img class="perm-cursor mic" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>';
+    if(isMac() && step===0) right='<figure class="perm-shot mic"><img src="assets/permission-mic-cut.webp" alt="macOS asks for the microphone: click Allow." draggable="false" /><img class="perm-cursor mic" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>';
     if(isMac() && step===1) right=
-      '<figure class="perm-shot"><img src="assets/permission-audio.webp" alt="macOS asks for screen and system audio recording: click Open System Settings." draggable="false" /><img class="perm-cursor audio" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>'+
+      '<figure class="perm-shot audio"><img src="assets/permission-audio-cut.webp" alt="macOS asks for screen and system audio recording: click Open System Settings." draggable="false" /><img class="perm-cursor audio" src="assets/macos-arrow-cursor.png" alt="" draggable="false" /></figure>'+
       '<figure class="perm-shot settings"><img src="assets/permission-settings-screen-audio.webp" alt="System Settings: switch on Taylos under Screen &amp; System Audio Recording." draggable="false" /></figure>'+
-      '<div class="perm-alert" role="img" aria-label="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen."><b>“Taylos” may not be able to record the contents of your screen until it is quit.</b><p>You can choose to quit “Taylos” now, or do it on your own later.</p><span class="perm-alert-btn primary">Quit &amp; Reopen</span><span class="perm-alert-btn">Later</span></div>'+
+      '<figure class="perm-shot quit"><img src="assets/permission-quit-reopen.webp" alt="macOS may ask to quit and reopen Taylos: click Quit &amp; Reopen." draggable="false" /></figure>'+
       '<p class="perm-caption">If macOS asks, click Quit &amp; Reopen. Setup continues where you left off.</p>';
     if(isMac() && step===2) right='<div class="perm-done">'+sf('checkmark','perm-done-check')+'<span>Both sides can be heard.</span></div>';
     if(!isMac()) right='<figure class="perm-shot settings"><img src="assets/windows-microphone-1.jpeg" alt="Windows Settings: Microphone access" draggable="false" /></figure>'+
