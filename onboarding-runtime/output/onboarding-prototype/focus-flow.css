@@ -55,4 +55,4 @@ html[data-flow=focus] .onboarding-card[data-view=personalize] .copy-block p {fon
 .flow-toggle.is-active {background:#5b8def33;border-color:#5b8def88;color:#fff}
 /* The meeting illustration behind the call is context, not a control: no red
    Leave button competing with Stop. */
-html[data-flow=focus] .meeting-art {opacity:.38;filter:saturate(.25)}
+html[data-flow=focus] .meeting-art {opacity:.3}
