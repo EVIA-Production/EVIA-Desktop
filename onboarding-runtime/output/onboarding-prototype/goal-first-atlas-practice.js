@@ -324,7 +324,7 @@ import {analytics} from './onboarding-analytics.js';
       // The System Audio Recording prompt (macOS 14.4+), drawn until a screenshot exists.
       '<div class="perm-alert perm-alert-audio" role="img" aria-label="macOS asks to record system audio: click Allow.">'+
         '<span class="perm-alert-icon">'+sf('waveform')+'</span>'+
-        '<b>“Taylos” would like to record system audio.</b>'+
+        '<b>“Taylos” would like access to record your system audio.</b>'+
         '<p>Taylos uses this permission while you press Listen to capture the other participants&rsquo; meeting audio.</p>'+
         '<span class="perm-alert-row"><span class="perm-alert-btn">Don&rsquo;t Allow</span><span class="perm-alert-btn">Allow</span></span>'+
         '<img class="perm-cursor allow" src="assets/macos-arrow-cursor.png" alt="" draggable="false" />'+

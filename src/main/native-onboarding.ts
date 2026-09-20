@@ -20,10 +20,11 @@ async function openWebCheckout() {
 }
 
 /**
- * What the checklist shows. On macOS 14.4+ "screen" reports the System Audio
- * Recording decision (the helper's Core Audio tap needs no screen permission)
- * and `tap` is true, so the setup copy can promise a plain prompt instead of
- * the System Settings detour.
+ * What the checklist shows. "screen" is the Screen & System Audio Recording
+ * decision. Only with the opt-in tap backend (TAYLOS_SYSTEM_AUDIO_BACKEND=tap)
+ * does it report the System Audio Recording decision instead, with `tap`
+ * true, so the setup copy can promise a plain prompt instead of the System
+ * Settings detour.
  */
 export async function onboardingPermissions() {
   const microphone = systemPreferences.getMediaAccessStatus('microphone');

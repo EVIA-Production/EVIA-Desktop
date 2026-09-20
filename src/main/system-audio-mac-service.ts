@@ -276,8 +276,9 @@ export class SystemAudioMacService {
    */
   private async checkAndRequestPermission(): Promise<void> {
     if (process.platform !== 'darwin') return; // macOS only
-    // macOS 14.4+: the helper captures through a Core Audio tap under System
-    // Audio Recording; the screen permission is not involved.
+    // Opt-in only (TAYLOS_SYSTEM_AUDIO_BACKEND=tap): the helper captures
+    // through a Core Audio tap under System Audio Recording and the screen
+    // permission is not involved. The shipped path below is ScreenCaptureKit.
     if (macSupportsAudioTap()) {
       const helperPath = this.getSystemAudioPath();
       if (helperPath) {

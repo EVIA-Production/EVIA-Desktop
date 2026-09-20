@@ -1,13 +1,14 @@
 /**
- * "System Audio Recording Only" (macOS 14.4+).
+ * "System Audio Recording Only" (macOS 14.4+), opt-in.
  *
- * The SystemAudioDump helper captures through a Core Audio process tap from
- * macOS 14.4, which runs under the narrower System Audio Recording permission
- * instead of Screen & System Audio Recording: a normal prompt, no System
- * Settings detour, and none of Sequoia's recurring screen-recording
- * re-approval. Below 14.4 the helper keeps ScreenCaptureKit and the screen
- * permission still applies. The helper answers two questions for us here,
- * because Electron has no API for this TCC service.
+ * The SystemAudioDump helper can capture through a Core Audio process tap
+ * from macOS 14.4, which runs under the narrower System Audio Recording
+ * permission instead of Screen & System Audio Recording. It shipped as the
+ * default in 1.0.115 and produced no usable audio on the founder's machine,
+ * so 1.0.116 returned to ScreenCaptureKit and the screen permission; the tap
+ * stays behind TAYLOS_SYSTEM_AUDIO_BACKEND=tap until it is proven on
+ * hardware. The helper answers the two permission questions here, because
+ * Electron has no API for this TCC service.
  */
 import { execFile } from 'child_process';
 import os from 'os';
@@ -15,10 +16,10 @@ import os from 'os';
 export type AudioCaptureState = 'authorized' | 'denied' | 'unknown';
 export type AudioCaptureProbe = { tap: boolean; state: AudioCaptureState };
 
-/** Darwin 23.4 is macOS 14.4. */
+/** True only when the tap is opted in and the machine can run it (Darwin 23.4 is macOS 14.4). */
 export function macSupportsAudioTap(release: string = os.release()): boolean {
   if (process.platform !== 'darwin') return false;
-  if (process.env.TAYLOS_SYSTEM_AUDIO_BACKEND === 'screencapturekit' || process.env.TAYLOS_SYSTEM_AUDIO_BACKEND === 'sck') return false;
+  if (process.env.TAYLOS_SYSTEM_AUDIO_BACKEND !== 'tap') return false;
   const [major = 0, minor = 0] = release.split('.').map(Number);
   return major > 23 || (major === 23 && minor >= 4);
 }

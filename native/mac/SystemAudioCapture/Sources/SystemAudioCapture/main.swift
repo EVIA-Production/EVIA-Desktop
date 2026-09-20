@@ -398,12 +398,13 @@ final class TapDumper {
     }
 }
 
-/// Which backend this machine gets: the tap from macOS 14.4, ScreenCaptureKit
-/// below it. TAYLOS_SYSTEM_AUDIO_BACKEND=screencapturekit|tap overrides.
+/// Which backend this machine gets: ScreenCaptureKit, the shipped path. The
+/// Core Audio tap (macOS 14.4+) is opt-in with TAYLOS_SYSTEM_AUDIO_BACKEND=tap
+/// until it is proven on hardware; as the 1.0.115 default it produced no
+/// usable audio.
 func selectedBackend() -> String {
     let forced = ProcessInfo.processInfo.environment["TAYLOS_SYSTEM_AUDIO_BACKEND"]?.lowercased()
-    if forced == "screencapturekit" || forced == "sck" { return "screencapturekit" }
-    if #available(macOS 14.4, *) { return forced == "tap" || forced == nil ? "tap" : forced! }
+    if forced == "tap", #available(macOS 14.4, *) { return "tap" }
     return "screencapturekit"
 }
 
@@ -427,7 +428,7 @@ struct Main {
             exit(0)
         }
 
-        writeStatus("{\"status\":\"helper_starting\",\"version\":\"1.2\",\"backend\":\"\(selectedBackend())\"}")
+        writeStatus("{\"status\":\"helper_starting\",\"version\":\"1.3\",\"backend\":\"\(selectedBackend())\"}")
         writeStatus(
             "{\"status\":\"os_version\",\"current\":\"\(sanitized(ProcessInfo.processInfo.operatingSystemVersionString))\"}"
         )

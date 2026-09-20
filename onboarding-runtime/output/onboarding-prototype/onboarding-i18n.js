@@ -99,7 +99,7 @@ export const de = {
 "Quit & Reopen":"Beenden & erneut öffnen", "Later":"Später",
 "If macOS asks, click Quit & Reopen. Setup continues where you left off.":"Wenn macOS fragt, klicke auf „Beenden & erneut öffnen“. Die Einrichtung macht dort weiter, wo du warst.",
 "System audio. macOS will ask - click Allow.":"Systemton. macOS fragt gleich – klicke auf „Erlauben“.",
-"“Taylos” would like to record system audio.":"„Taylos“ möchte Systemaudio aufnehmen.",
+"“Taylos” would like access to record your system audio.":"„Taylos“ möchte auf die Aufnahme deines Systemaudios zugreifen.",
 "Taylos uses this permission while you press Listen to capture the other participants’ meeting audio.":"Taylos nutzt diese Berechtigung, solange Zuhören läuft, um den Ton der anderen Teilnehmer aufzunehmen.",
 "Don’t Allow":"Nicht erlauben", "Allow":"Erlauben",
 "Let Taylos hear your call.":"Lass Taylos dein Gespräch hören.",
