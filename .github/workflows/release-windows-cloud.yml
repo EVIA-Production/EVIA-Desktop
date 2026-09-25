@@ -1,0 +1,191 @@
+name: Windows Desktop Release (Cloud Signing)
+
+# Builds and signs the Windows installer on GitHub's own Windows runners, with
+# the SSL.com eSigner cloud key (see scripts/sign-windows-esigner.js). No PC,
+# no SimplySign session, no phone.
+#
+# By hand it uploads nothing unless asked. Release tags use it instead of the
+# PC workflow (release-windows-self-hosted.yml) once the repository variable
+# WIN_SIGNING is "cloud" (release-desktop.yml).
+#
+# Secrets (repository settings > Secrets and variables > Actions):
+#   ESIGNER_USERNAME, ESIGNER_PASSWORD, ESIGNER_TOTP_SECRET, ESIGNER_CREDENTIAL_ID
+#   RELEASES_TOKEN   fine-grained token: Contents read/write on the releases repo
+# Variables:
+#   RELEASES_REPO           owner/repo of the public releases repository
+#   WIN_PUBLISHER_NAMES     comma-separated certificate names installed apps accept
+#   WIN_SIGNING             "cloud" to sign release tags here instead of on the PC
+#   WIN_EXPECTED_PUBLISHER  the exact certificate name (CN) tag releases must carry
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload Taylos.exe, its blockmap and latest.yml to the release in RELEASES_REPO"
+        required: false
+        default: false
+        type: boolean
+      expected_publisher:
+        description: "Exact certificate name (CN) the signed files must carry"
+        required: true
+        type: string
+      ws_url:
+        description: "Production websocket URL baked into the renderer"
+        required: false
+        default: "wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"
+        type: string
+  workflow_call:
+    inputs:
+      upload:
+        required: false
+        default: false
+        type: boolean
+      expected_publisher:
+        required: true
+        type: string
+      ws_url:
+        required: false
+        default: "wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-sign-verify:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    # One signing job at a time, whether started by hand or by a release tag:
+    # two runs would share TOTP time steps, and SSL.com locks a credential
+    # after repeated rejected codes. Job level, so it also holds when this
+    # workflow is called from release-desktop.yml.
+    concurrency:
+      group: windows-esigner-signing
+      cancel-in-progress: false
+    env:
+      WIN_SIGN_MODE: esigner
+      ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+      ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+      ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+      ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+      RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+      WIN_PUBLISHER_NAMES: ${{ vars.WIN_PUBLISHER_NAMES }}
+      VITE_BACKEND_WS_URL: ${{ inputs.ws_url || vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
+      EXPECTED_PUBLISHER: ${{ inputs.expected_publisher }}
+      UPLOAD: ${{ inputs.upload }}
+      JSIGN_VERSION: "7.5"
+      # From the GitHub release asset digest of ebourg/jsign 7.5.
+      JSIGN_SHA256: "602a51c3545a6dc4fb99bd2ea7152b26d1345916d0c93ddfbd5936cb735af91c"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preflight - secrets and variables
+        shell: bash
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in ESIGNER_USERNAME ESIGNER_PASSWORD ESIGNER_TOTP_SECRET ESIGNER_CREDENTIAL_ID; do
+            [[ -z "${!name:-}" ]] && missing+=("$name")
+          done
+          [[ -z "${WIN_PUBLISHER_NAMES:-}" ]] && missing+=("variable WIN_PUBLISHER_NAMES")
+          [[ -z "${EXPECTED_PUBLISHER:-}" ]] && missing+=("expected_publisher (variable WIN_EXPECTED_PUBLISHER for tag releases)")
+          if [[ "$UPLOAD" == "true" ]]; then
+            [[ -z "${RELEASES_REPO:-}" ]] && missing+=("variable RELEASES_REPO")
+            [[ -z "${RELEASES_TOKEN:-}" ]] && missing+=("RELEASES_TOKEN")
+          fi
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Missing: ${missing[*]}"
+            exit 1
+          fi
+          # The certificate this run signs with must be one installed apps accept,
+          # or every Windows install would refuse this build as an update.
+          accepted=false
+          IFS=',' read -ra names <<< "$WIN_PUBLISHER_NAMES"
+          for name in "${names[@]}"; do
+            name="$(echo "$name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            [[ "$name" == "$EXPECTED_PUBLISHER" ]] && accepted=true
+          done
+          if [[ "$accepted" != "true" ]]; then
+            echo "::error::'$EXPECTED_PUBLISHER' is not in WIN_PUBLISHER_NAMES."
+            exit 1
+          fi
+          echo "Preflight passed."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: "npm"
+
+      - name: Setup Java (for jsign)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Fetch jsign and verify its checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$RUNNER_TEMP/jsign-${JSIGN_VERSION}.jar"
+          curl --fail --silent --show-error --location \
+            "https://github.com/ebourg/jsign/releases/download/${JSIGN_VERSION}/jsign-${JSIGN_VERSION}.jar" \
+            --output "$JAR"
+          echo "${JSIGN_SHA256}  $JAR" | sha256sum --check --strict
+          echo "JSIGN_JAR=$JAR" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Point the build at the release target
+        run: node scripts/configure-release-target.js
+
+      - name: Build and sign (about 8 minutes of signing, one TOTP step per file)
+        run: npm run build:release:win
+
+      - name: Verify every signature
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expected = $env:EXPECTED_PUBLISHER
+          $files = @(Get-ChildItem dist -Filter *.exe -File) +
+                   @(Get-ChildItem dist\win-unpacked, dist\win-arm64-unpacked -Recurse -Include *.exe, *.node -File -ErrorAction SilentlyContinue)
+          if ($files.Count -eq 0) { throw "No signed files found in dist" }
+          foreach ($file in $files) {
+            $sig = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($sig.Status -ne "Valid") { throw "$($file.FullName): signature $($sig.Status) $($sig.StatusMessage)" }
+            $cn = ($sig.SignerCertificate.Subject -split ",\s*" | Where-Object { $_ -like "CN=*" } | Select-Object -First 1) -replace "^CN=", "" -replace '^"|"$', ""
+            if ($cn -ne $expected) { throw "$($file.FullName): signed by '$cn', expected '$expected'" }
+            if (-not $sig.TimeStamperCertificate) { throw "$($file.FullName): no timestamp" }
+          }
+          Write-Host "Verified $($files.Count) signed files for '$expected'."
+
+      - name: Upload to the releases repository
+        if: inputs.upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$RELEASES_REPO" --draft --title "Taylos ${VERSION}" --notes "Taylos ${VERSION}"
+          fi
+          gh release upload "$TAG" --repo "$RELEASES_REPO" --clobber \
+            dist/Taylos.exe dist/Taylos.exe.blockmap dist/latest.yml
+          node scripts/finalize-release-if-complete.js "$TAG" "$RELEASES_REPO"
+
+      - name: Keep the build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cloud-signed-dist
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/*.yml
+          if-no-files-found: warn

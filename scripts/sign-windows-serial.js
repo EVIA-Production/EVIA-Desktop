@@ -73,6 +73,11 @@ async function signOne(configuration) {
 }
 
 module.exports = configuration => {
+  // GitHub's hosted Windows runners sign through SSL.com eSigner (cloud key,
+  // TOTP); the self-hosted PC keeps signing with SimplySign through signtool.
+  if (process.env.WIN_SIGN_MODE === 'esigner') {
+    return require('./sign-windows-esigner')(configuration)
+  }
   const task = signingQueue.then(() => signOne(configuration))
   signingQueue = task.catch(() => {})
   return task

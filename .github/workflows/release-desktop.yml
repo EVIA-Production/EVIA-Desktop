@@ -25,11 +25,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Windows is signed on the PC (Certum) until the repository variable
+  # WIN_SIGNING is "cloud"; then on GitHub's Windows runner with the SSL.com
+  # cloud key (release-windows-cloud.yml). Exactly one of the two runs.
   windows-build-sign-and-publish:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && vars.WIN_SIGNING != 'cloud'
     uses: ./.github/workflows/release-windows-self-hosted.yml
     with:
       upload: true
+    # A called workflow sees no repository secrets unless they are passed;
+    # the bridge upload to RELEASES_REPO needs RELEASES_TOKEN.
+    secrets: inherit
+
+  windows-cloud-sign-and-publish:
+    if: github.event_name == 'push' && vars.WIN_SIGNING == 'cloud'
+    uses: ./.github/workflows/release-windows-cloud.yml
+    with:
+      upload: true
+      expected_publisher: ${{ vars.WIN_EXPECTED_PUBLISHER }}
+    secrets: inherit
 
   build-and-publish:
     timeout-minutes: 360
@@ -60,14 +74,16 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.split_publish != true
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ vars.RELEASES_REPO && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
         run: |
           set -euo pipefail
 
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
+          TARGET_REPO="${RELEASES_REPO:-$GITHUB_REPOSITORY}"
 
-          if RELEASE_JSON="$(gh release view "$TAG" --json isDraft,publishedAt,tagName 2>/dev/null)"; then
+          if RELEASE_JSON="$(gh release view "$TAG" --repo "$TARGET_REPO" --json isDraft,publishedAt,tagName 2>/dev/null)"; then
             IS_DRAFT="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("isDraft") else "false")')"
             PUBLISHED_AT="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("publishedAt") or "")')"
             if [[ "$IS_DRAFT" != "true" && -n "$PUBLISHED_AT" ]]; then
@@ -183,6 +199,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          node scripts/configure-release-target.js
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             npm run build:release:win
           else
@@ -193,13 +210,6 @@ jobs:
           TAG="v${VERSION}"
           TITLE="Taylos ${VERSION}"
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists - uploading with --clobber"
-          else
-            echo "Creating draft release $TAG"
-            gh release create "$TAG" --draft --title "$TITLE" --notes "Automated desktop release"
-          fi
-
           FILES=()
           while IFS= read -r -d '' file; do
             FILES+=("$file")
@@ -209,12 +219,34 @@ jobs:
             exit 1
           fi
 
-          printf 'Uploading %s file(s)\n' "${#FILES[@]}"
-          gh release upload "$TAG" "${FILES[@]}" --clobber
-          node scripts/finalize-release-if-complete.js "$TAG" "$GITHUB_REPOSITORY"
-          gh release view "$TAG"
+          # Installers and feeds go to the releases repository once RELEASES_REPO
+          # is set; until then, to this repository exactly as before.
+          publish_to() {
+            local repo="$1"
+            if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+              echo "Release $TAG exists in $repo - uploading with --clobber"
+            else
+              echo "Creating draft release $TAG in $repo"
+              gh release create "$TAG" --repo "$repo" --draft --title "$TITLE" --notes "Automated desktop release"
+            fi
+            printf 'Uploading %s file(s) to %s\n' "${#FILES[@]}" "$repo"
+            gh release upload "$TAG" --repo "$repo" "${FILES[@]}" --clobber
+            node scripts/finalize-release-if-complete.js "$TAG" "$repo"
+            gh release view "$TAG" --repo "$repo"
+          }
+          TARGET_REPO="${RELEASES_REPO:-$GITHUB_REPOSITORY}"
+          publish_to "$TARGET_REPO"
+          # The one bridge release also lands here, where every installed app
+          # still looks for updates; it carries the new feed, so they follow.
+          if [[ "${BRIDGE_RELEASE:-}" == "true" && "$TARGET_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            GH_TOKEN="$SOURCE_REPO_TOKEN" publish_to "$GITHUB_REPOSITORY"
+          fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ vars.RELEASES_REPO && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
+          SOURCE_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          WIN_PUBLISHER_NAMES: ${{ vars.WIN_PUBLISHER_NAMES }}
+          BRIDGE_RELEASE: ${{ vars.BRIDGE_RELEASE }}
           VITE_BACKEND_WS_URL: ${{ vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
           MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
           CSC_LINK: ${{ matrix.os == 'macos-latest' && env.CSC_LINK_CLEAN || secrets.WIN_CSC_LINK }}
@@ -230,6 +262,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          node scripts/configure-release-target.js
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             npm run build:release:win
           else
@@ -239,7 +272,11 @@ jobs:
           echo "Built artifacts:"
           ls -lah dist
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ vars.RELEASES_REPO && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
+          SOURCE_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          WIN_PUBLISHER_NAMES: ${{ vars.WIN_PUBLISHER_NAMES }}
+          BRIDGE_RELEASE: ${{ vars.BRIDGE_RELEASE }}
           VITE_BACKEND_WS_URL: ${{ vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
           MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
           CSC_LINK: ${{ matrix.os == 'macos-latest' && env.CSC_LINK_CLEAN || secrets.WIN_CSC_LINK }}
@@ -254,20 +291,16 @@ jobs:
         timeout-minutes: 15
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ vars.RELEASES_REPO && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
+          SOURCE_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          BRIDGE_RELEASE: ${{ vars.BRIDGE_RELEASE }}
         run: |
           set -euo pipefail
 
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
           TITLE="Taylos ${VERSION}"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists - uploading with --clobber"
-          else
-            echo "Creating draft release $TAG"
-            gh release create "$TAG" --draft --title "$TITLE" --notes "Automated desktop release"
-          fi
 
           FILES=()
           while IFS= read -r -d '' file; do
@@ -278,10 +311,28 @@ jobs:
             exit 1
           fi
 
-          printf 'Uploading %s file(s)\n' "${#FILES[@]}"
-          gh release upload "$TAG" "${FILES[@]}" --clobber
-          node scripts/finalize-release-if-complete.js "$TAG" "$GITHUB_REPOSITORY"
-          gh release view "$TAG"
+          # Installers and feeds go to the releases repository once RELEASES_REPO
+          # is set; until then, to this repository exactly as before.
+          publish_to() {
+            local repo="$1"
+            if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+              echo "Release $TAG exists in $repo - uploading with --clobber"
+            else
+              echo "Creating draft release $TAG in $repo"
+              gh release create "$TAG" --repo "$repo" --draft --title "$TITLE" --notes "Automated desktop release"
+            fi
+            printf 'Uploading %s file(s) to %s\n' "${#FILES[@]}" "$repo"
+            gh release upload "$TAG" --repo "$repo" "${FILES[@]}" --clobber
+            node scripts/finalize-release-if-complete.js "$TAG" "$repo"
+            gh release view "$TAG" --repo "$repo"
+          }
+          TARGET_REPO="${RELEASES_REPO:-$GITHUB_REPOSITORY}"
+          publish_to "$TARGET_REPO"
+          # The one bridge release also lands here, where every installed app
+          # still looks for updates; it carries the new feed, so they follow.
+          if [[ "${BRIDGE_RELEASE:-}" == "true" && "$TARGET_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            GH_TOKEN="$SOURCE_REPO_TOKEN" publish_to "$GITHUB_REPOSITORY"
+          fi
 
       - name: Upload artifacts
         if: always()

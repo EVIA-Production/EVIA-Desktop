@@ -511,6 +511,11 @@ Invoke-Checked "npm" @("run", "aec:browser-check")
 Write-Step "Clean release output"
 Reset-ReleaseOutput
 
+Write-Step "Release target"
+# The bridge release names the new releases feed and both certificates; with
+# RELEASES_REPO and WIN_PUBLISHER_NAMES unset this changes nothing.
+Invoke-Checked "node" @("scripts/configure-release-target.js")
+
 Write-Step "Build signed Windows release"
 Invoke-Checked "npm" @("run", "build:release:win")
 

@@ -47,10 +47,16 @@ jobs:
           node-version: "22.12.0"
           cache: "npm"
 
+      # The bridge release (once): this PC signs with the certificate every
+      # installed app accepts today, while the build already names the new
+      # releases feed and both certificates (release-windows-signed.ps1 runs
+      # scripts/configure-release-target.js). Unset variables change nothing.
       - name: Build and verify signed Windows release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          WIN_PUBLISHER_NAMES: ${{ vars.WIN_PUBLISHER_NAMES }}
           VITE_BACKEND_WS_URL: ${{ inputs.ws_url || vars.VITE_BACKEND_WS_URL || 'wss://backend-rt.livelydesert-1db1c46d.westeurope.azurecontainerapps.io' }}
         run: |
           $args = @()
@@ -58,3 +64,19 @@ jobs:
             $args += "-Upload"
           }
           powershell -ExecutionPolicy Bypass -File .\scripts\release-windows-signed.ps1 @args
+
+      - name: Also publish to the releases repository
+        if: inputs.upload && vars.RELEASES_REPO != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$RELEASES_REPO" --draft --title "Taylos ${VERSION}" --notes "Taylos ${VERSION}"
+          fi
+          gh release upload "$TAG" --repo "$RELEASES_REPO" --clobber dist/Taylos.exe dist/Taylos.exe.blockmap dist/latest.yml
+          node scripts/finalize-release-if-complete.js "$TAG" "$RELEASES_REPO"

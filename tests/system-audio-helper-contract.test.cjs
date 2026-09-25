@@ -29,7 +29,8 @@ test('a release publishes per platform, so one blocked signer cannot hold the ot
   const macWorkflow = read('.github/workflows/release-desktop.yml')
   const releaseGate = read('scripts/finalize-release-if-complete.js')
 
-  assert.match(macWorkflow, /gh release create "\$TAG" --draft/)
+  // Drafts, created in the release target (this repo, or RELEASES_REPO once set).
+  assert.match(macWorkflow, /gh release create "\$TAG"( --repo "\$repo")? --draft/)
   assert.match(macWorkflow, /finalize-release-if-complete\.js/)
 
   // Both updater manifests still have to be accounted for...
