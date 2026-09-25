@@ -36,6 +36,16 @@ import {
 
 type AppState = 'welcome' | 'login' | 'onboarding' | 'permissions' | 'subscription_required' | 'ready';
 
+/** The account a Taylos token belongs to (its `sub`), or null if it cannot be read. */
+function tokenAccount(token: string | null | undefined): string | null {
+  try {
+    const payload = JSON.parse(Buffer.from(String(token).split('.')[1] || '', 'base64url').toString('utf8'));
+    return typeof payload?.sub === 'string' && payload.sub ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Native onboarding launcher. Injected by the host that bundles the onboarding
  * (the local test package today); when nothing is injected the state machine
@@ -56,6 +66,8 @@ export class HeaderController {
   private stateFilePath: string;
   private permissionsCompleted: boolean = false;
   private onboardingCompleted: boolean = false;
+  // The account (token `sub`) that finished onboarding on this machine.
+  private onboardingAccount: string | null = null;
   private onboardingDismissed = false;
   private onboardingRestart = false;
   private registrationLauncher: ((options: { returning: boolean }) => Promise<void>) | null = null;
@@ -83,6 +95,7 @@ export class HeaderController {
         const state = JSON.parse(data);
         this.permissionsCompleted = state.permissionsCompleted || false;
         this.onboardingCompleted = state.onboardingCompleted || false;
+        this.onboardingAccount = typeof state.onboardingAccount === 'string' ? state.onboardingAccount : null;
         // An install written before the bundled onboarding existed has no
         // onboardingCompleted key but did finish the old permission flow. It is
         // an established account, not a first run: forcing it through setup on
@@ -104,7 +117,7 @@ export class HeaderController {
    */
   private savePersistedState() {
     try {
-      const state = { permissionsCompleted: this.permissionsCompleted, onboardingCompleted: this.onboardingCompleted };
+      const state = { permissionsCompleted: this.permissionsCompleted, onboardingCompleted: this.onboardingCompleted, onboardingAccount: this.onboardingAccount };
       fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
       console.log('[HeaderController] Saved persisted state:', state);
     } catch (err) {
@@ -385,6 +398,7 @@ export class HeaderController {
     if (this.onboardingHandle) { this.onboardingHandle.focus?.(); return; }
     try {
       const restart=this.onboardingRestart;this.onboardingRestart=false;
+      const account = tokenAccount(await keytar.getPassword('taylos', 'token'));
       this.onboardingHandle = (await this.nativeOnboardingLauncher({
         restart,
         onClose: ({ finished }) => {
@@ -393,6 +407,7 @@ export class HeaderController {
           this.onboardingDismissed = !finished;
           if (finished) {
             this.onboardingCompleted = true;
+            this.onboardingAccount = account;
             const permissions = systemPreferences.getMediaAccessStatus('microphone') === 'granted' &&
               (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted');
             this.permissionsCompleted = permissions;
@@ -433,6 +448,18 @@ export class HeaderController {
     console.log('[HeaderController] 🔑 Auth callback received, storing token');
     
     try {
+      // Setup belongs to the account that finished it. The web app hands over
+      // whichever account is signed in there, so another account arriving on
+      // this machine gets its own onboarding instead of inheriting the flag.
+      const nextAccount = tokenAccount(token);
+      const setupAccount = this.onboardingAccount ?? tokenAccount(await keytar.getPassword('taylos', 'token'));
+      if (this.onboardingCompleted && nextAccount && setupAccount && setupAccount !== nextAccount) {
+        console.log('[HeaderController] 🧭 Another account signed in - its onboarding starts fresh');
+        this.onboardingCompleted = false;
+        this.onboardingDismissed = false;
+        this.onboardingAccount = null;
+        this.savePersistedState();
+      }
       await keytar.setPassword('taylos', 'token', token);
       setCachedAuthToken(token);
       console.log('[HeaderController] ✅ Token stored in keytar');
@@ -478,6 +505,7 @@ export class HeaderController {
       this.permissionsCompleted = false;
       this.onboardingCompleted = false;
       this.onboardingDismissed = false;
+      this.onboardingAccount = null;
       this.hadSession = true;
       this.savePersistedState();
       
@@ -762,6 +790,7 @@ export class HeaderController {
       this.permissionsCompleted = false;
       this.onboardingCompleted = false;
       this.onboardingDismissed = false;
+      this.onboardingAccount = null;
       this.savePersistedState();
       
       // 💳 Clear subscription cache

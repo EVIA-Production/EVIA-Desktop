@@ -17,7 +17,7 @@ function controller({token=null,subscribed=false,completed=false,legacyState=nul
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/header-controller.js'),'utf8'),{require:id=>{if(!(id in deps))throw Error(id);return deps[id]},exports:module.exports,module,Buffer,process:{platform:'darwin',env:{}},console:{log(){},warn(){},error(){}}});
  const c=new module.exports.HeaderController();return {c,windows,persisted};
 }
-const jwt=()=>`x.${Buffer.from(JSON.stringify({sub:'test',exp:Date.now()/1000+3600})).toString('base64url')}.x`;
+const jwt=(sub='test')=>`x.${Buffer.from(JSON.stringify({sub,exp:Date.now()/1000+3600})).toString('base64url')}.x`;
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 test('fresh launch waits for real registration; successful auth opens native before checkout',async()=>{
  const h=controller();let opened=0;
@@ -118,4 +118,30 @@ test('onboarding replay masks what the tester types',()=>{
  assert.match(analytics,/maskAllInputs: true/);
  assert.match(analytics,/maskTextSelector: '\[data-ph-mask\], \.context-fields/);
  assert.match(analytics,/params\.get\('analytics'\) === '1'/,'previews and screenshot runs stay silent');
+});
+
+// 25 Sep 2026: the web app launched Desktop with a new account's token on a
+// Mac where the founder had finished setup. Desktop swapped the token, kept the
+// machine-wide "completed" flag and skipped onboarding for the new account.
+test('another account handed over by the web app gets its own onboarding',async()=>{
+ const h=controller({token:jwt('founder'),completed:true,subscribed:true});let count=0;
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();assert.equal(count,0);
+ await h.c.handleAuthCallback(jwt('payment-tester'));assert.equal(count,1);
+ assert.equal(h.c.isOnboardingCompleted(),false);
+});
+test('the same account signing in again keeps its finished setup',async()=>{
+ const h=controller({token:jwt('founder'),completed:true,subscribed:true});let count=0;
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();await h.c.handleAuthCallback(jwt('founder'));assert.equal(count,0);
+});
+test('finishing onboarding records the account, which still counts after its token expired',async()=>{
+ const h=controller({token:jwt('founder')});let finish;
+ h.c.setNativeOnboardingLauncher(async({onClose})=>{finish=onClose;return {close(){}}});
+ await h.c.initialize();finish({finished:true});await flush();
+ assert.equal(h.persisted.at(-1).onboardingAccount,'founder');
+ const later=controller({legacyState:{onboardingCompleted:true,permissionsCompleted:true,onboardingAccount:'founder'},subscribed:true});let count=0;
+ later.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await later.c.initialize();await later.c.handleAuthCallback(jwt('founder'));assert.equal(count,0);
+ await later.c.handleAuthCallback(jwt('someone-else'));assert.equal(count,1);
 });
