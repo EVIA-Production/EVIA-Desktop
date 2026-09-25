@@ -39,7 +39,7 @@ interface EviaBridge {
     }) => Promise<{ queued: boolean; reason?: string }>;
   };
   demo: {
-    isEnabled: () => Promise<{ enabled: boolean }>;
+    isEnabled: () => Promise<{ enabled: boolean; suggestions?: string[] }>;
   };
   systemAudio: SystemAudioBridge;
   prefs: PrefsBridge;

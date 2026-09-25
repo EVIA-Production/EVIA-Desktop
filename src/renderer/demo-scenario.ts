@@ -8,6 +8,32 @@ export const DEMO_POST_THINKING_MS = 400
 
 export type DemoAskResponse = { content: string; delayMs: number }
 
+/** Scripted answers for "What should I say next?" during a demo shoot. */
+export type DemoScript = { suggestions?: string[] }
+
+// The three lines the founder chose for the website frames (Sales
+// Intelligence, Technicality, Emotional Intelligence). demo/suggestions.json
+// overrides them at runtime; see demo/README.md.
+export const DEFAULT_DEMO_SUGGESTIONS = [
+  'If they’re 40% cheaper and solve the same problem, choose them. Let’s test that second part—on your hardest deal.',
+  'On a timeout, retries reuse the original idempotency key. If the payment already succeeded, the retry returns that result—never a second charge.',
+  'You don’t need a fourth promise. Show me where the last three vendors failed—I’ll start there.',
+]
+
+// One press = the next line. Wraps around so a fourth press starts over.
+let demoSuggestionCursor = 0
+
+export function resetDemoSuggestionCycle(): void {
+  demoSuggestionCursor = 0
+}
+
+export function nextDemoSuggestion(script?: DemoScript): string {
+  const lines = script?.suggestions?.length ? script.suggestions : DEFAULT_DEMO_SUGGESTIONS
+  const line = lines[demoSuggestionCursor % lines.length]
+  demoSuggestionCursor += 1
+  return line
+}
+
 const DURING_ACTIONS: InsightActionItem[] = [
   { label: '💬 What should I say next?', icon: 'chat', prompt: 'What should I say next?' },
   { label: '✨ Reframe the objection', icon: 'sparkle', prompt: 'Reframe the objection' },
@@ -46,6 +72,7 @@ const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCa
 export function getDemoAskResponse(
   prompt: string,
   sessionState: 'before' | 'during' | 'after',
+  script?: DemoScript,
 ): DemoAskResponse | null {
   const normalized = normalize(prompt)
 
@@ -57,15 +84,17 @@ export function getDemoAskResponse(
     return { content: DEMO_PREP_RESPONSE, delayMs: DEMO_PREP_THINKING_MS }
   }
 
+  // The shoot needs the line whether or not capture is running, so "before"
+  // answers too; only the post-call state keeps its own meaning.
   if (
-    sessionState === 'during' &&
+    sessionState !== 'after' &&
     (
       normalized.includes('what should i say next') ||
       normalized.includes('was soll ich als nächstes sagen') ||
       normalized.includes('was soll ich als naechstes sagen')
     )
   ) {
-    return { content: DEMO_HERO_RESPONSE, delayMs: DEMO_LIVE_THINKING_MS }
+    return { content: nextDemoSuggestion(script), delayMs: DEMO_LIVE_THINKING_MS }
   }
 
   return null

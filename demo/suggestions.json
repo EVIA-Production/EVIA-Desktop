@@ -1,0 +1,5 @@
+[
+  "If they’re 40% cheaper and solve the same problem, choose them. Let’s test that second part—on your hardest deal.",
+  "On a timeout, retries reuse the original idempotency key. If the payment already succeeded, the retry returns that result—never a second charge.",
+  "You don’t need a fourth promise. Show me where the last three vendors failed—I’ll start there."
+]

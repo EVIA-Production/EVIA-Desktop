@@ -56,6 +56,7 @@ export type PreparedMissReason =
   | 'no_prepared_suggestion'
   | 'context_moved'
   | 'empty_after_trim'
+  | 'demo_mode'
 
 /** The two labels that can ever carry a prepared answer. */
 export const CANONICAL_LIVE_ACTIONS = [

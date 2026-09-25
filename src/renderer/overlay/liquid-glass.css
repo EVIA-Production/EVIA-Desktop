@@ -880,3 +880,45 @@ html .evia-main-header .evia-listen-button:not(.listen-active):not(.listen-done)
 @media (prefers-reduced-motion: reduce) {
   .taylos-status-alert__dismiss { transition: none; }
 }
+
+/* A trial limit: the one notice with something to do. No dismiss control, so
+ * no trailing room for it; the action sits on the text line instead, as a
+ * compact macOS push button in the accent colour. */
+.taylos-status-alert--with-action {
+  padding-right: 8px;
+  align-items: center;
+}
+
+.taylos-status-alert__action {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(10, 132, 255, 0.92);   /* macOS system blue, dark */
+  color: #fff;
+  font-size: 12px;
+  font-weight: 590;
+  line-height: 22px;
+  letter-spacing: -0.08px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color 120ms ease-out;
+}
+
+.taylos-status-alert__action:hover {
+  background: rgba(64, 156, 255, 0.96);
+}
+
+.taylos-status-alert__action:active {
+  background: rgba(10, 112, 230, 0.96);
+}
+
+.taylos-status-alert__action:focus-visible {
+  outline: 2px solid rgba(10, 132, 255, 0.85);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taylos-status-alert__action { transition: none; }
+}

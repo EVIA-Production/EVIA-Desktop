@@ -1,3 +1,4 @@
+import { clearTrialLimit, currentTrialLimit, reportTrialLimit, stopsLiveWork, trialLimitFrom } from '../lib/trial-limit';
 // Insights service for fetching and normalizing insights payloads.
 import { BACKEND_URL } from '../config/config';
 
@@ -301,6 +302,13 @@ export async function fetchInsights({
       return null;
     }
 
+    // Out of trial minutes (or the trial is over): the server refuses every
+    // insight until the rep upgrades, so asking again is pure noise.
+    if (stopsLiveWork(currentTrialLimit())) {
+      console.log('[Insights] Trial limit in force; skipping insights fetch');
+      return null;
+    }
+
     const requestController = new AbortController();
     let requestTimedOut = false;
     const forwardAbort = () => requestController.abort(signal?.reason);
@@ -337,6 +345,14 @@ export async function fetchInsights({
         // three times, and every 429 triggered three more. Measured 2026-08-20:
         // the live loop starved the POST-CALL insights fetch, so the rep got no
         // summary at all.
+        if (response.status === 402) {
+          const notice = trialLimitFrom(await response.json().catch(() => null));
+          if (notice) {
+            console.warn(`[Insights] 🛑 Trial limit: ${notice.code}`);
+            reportTrialLimit(notice);
+            return null;
+          }
+        }
         if (response.status === 429) {
           const retryAfter = Number(response.headers.get('Retry-After') || '0');
           const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 30000;
@@ -353,6 +369,8 @@ export async function fetchInsights({
       }
 
       const data = await response.json();
+      // An answer means the limit is gone (the rep upgraded mid-session).
+      if (stopsLiveWork(currentTrialLimit())) clearTrialLimit();
 
       const normalized = normalizeInsightPayload(data);
 

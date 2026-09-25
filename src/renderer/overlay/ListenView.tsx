@@ -10,6 +10,15 @@ import {
 } from '../services/insightsService';
 import { i18n } from '../i18n/i18n';
 import { PresetNoticeView } from './PresetNotice';
+import { TrialLimitNoticeView } from './TrialLimitNotice';
+import {
+  clearTrialLimit,
+  currentTrialLimit,
+  onTrialLimit,
+  reportTrialLimit,
+  trialLimitFrom,
+  type TrialLimitNotice,
+} from '../lib/trial-limit';
 import { SFSymbol } from './sf-symbols';
 import {
   noticeFromContextStatus,
@@ -222,6 +231,9 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   // boundary: the previous session's notice used to survive into a new call
   // that had a preset, until the first insights response replaced it.
   const [presetInsightNotice, setPresetInsightNotice] = useState<PresetNotice | null>(null);
+  // The trial's minutes or window ran out: shown until an upgrade clears it.
+  const [trialLimit, setTrialLimit] = useState<TrialLimitNotice | null>(() => currentTrialLimit());
+  useEffect(() => onTrialLimit(setTrialLimit), []);
   // The notice the rep closed. Identity, not a flag: a different notice (other
   // kind, other preset) shows again; the same one stays closed until the next
   // session boundary resets everything.
@@ -780,7 +792,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       setDiagMessageCount(messageCountRef.current);
       setDiagLastMessageAgeMs(0);
 
+      // The call stream stopped because the trial ran out of minutes (or
+      // ended). Relayed by audio capture; the server refuses a new stream
+      // until the rep upgrades, so this stays until then.
+      if (msg.type === 'trial_limit') {
+        const notice = trialLimitFrom(msg.data);
+        if (notice) reportTrialLimit(notice);
+        return;
+      }
+
       if (msg.type === 'recording_started') {
+        // A new recording asks the server again: after an upgrade it is allowed.
+        clearTrialLimit();
         console.log('[ListenView] Recording started; canonical session is now live');
         resetSessionPresentation('recording-started');
         analyticsCallStartedAtRef.current = Date.now();
@@ -1268,14 +1291,18 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
     // byte-identical. Anything short of equal is a miss, with no partial
     // credit - the seller reads this out loud.
     const clickedAtMs = Date.now();
+    // A demo shoot answers from the script, never from a prefetched suggestion.
     const preparedOutcome =
-      insightSessionState === 'during'
+      insightSessionState === 'during' && !demoModeEnabledRef.current
         ? decidePrepared(
             insightText,
             preparedSnapshotRef.current,
             transcriptContextFromState(canonicalTranscriptStateRef.current),
           )
-        : ({ kind: 'prepared_miss', reason: 'not_canonical_action' } as const);
+        : ({
+            kind: 'prepared_miss',
+            reason: demoModeEnabledRef.current ? 'demo_mode' : 'not_canonical_action',
+          } as const);
 
     if (preparedOutcome.kind === 'prepared_hit') {
       console.log(
@@ -2327,6 +2354,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
             </div>
           </div>
         )}
+        {trialLimit && <TrialLimitNoticeView notice={trialLimit} />}
         {presetNotice && (
           <PresetNoticeView notice={presetNotice} onDismiss={dismissPresetNotice} />
         )}

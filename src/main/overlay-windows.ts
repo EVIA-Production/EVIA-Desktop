@@ -27,6 +27,7 @@ import {
   centerWindowX,
   resizeRectKeepingVisualAnchor,
 } from './window-anchor-geometry'
+import { readDemoSuggestions } from './demo-script'
 
 // Dev mode detection for Vite dev server
 const isDev = process.env.NODE_ENV === 'development'
@@ -353,7 +354,10 @@ type LiveTranscriptSnapshot = {
 
 let liveTranscriptSnapshot: LiveTranscriptSnapshot | null = null
 
-ipcMain.handle('demo:is-enabled', () => ({ enabled: isDemoMode }))
+ipcMain.handle('demo:is-enabled', () => ({
+  enabled: isDemoMode,
+  suggestions: isDemoMode ? readDemoSuggestions() : [],
+}))
 
 // Desired visibility is independent from transient BrowserWindow visibility.
 // macOS/Windows may hide child windows with their parent; that must not erase

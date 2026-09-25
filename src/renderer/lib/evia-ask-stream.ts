@@ -1,3 +1,5 @@
+import { trialLimitError, trialLimitFrom } from './trial-limit'
+
 /**
  * Where the query came from. The backend cannot recover this from the text:
  * a summary bullet the user taps and a question the user types are both just
@@ -106,6 +108,16 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
         const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal })
         
         if (!res.ok) {
+          // A trial limit is an answer, not a failure: say what ran out and
+          // offer the upgrade instead of "Request failed. Reconnect?".
+          if (res.status === 402) {
+            const body = await res.json().catch(() => null)
+            const notice = trialLimitFrom(body)
+            if (notice) {
+              try { errorHandler(trialLimitError(notice)) } catch {}
+              return
+            }
+          }
           // Only retry on 5xx errors
           if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
             console.warn(`[Ask] ⚠️ Server error ${res.status}, retrying in ${RETRY_DELAY}ms...`);
@@ -152,6 +164,14 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
                     `server_pre_stream_ms=${String(route.server_pre_stream_ms ?? 'unknown')}`
                   )
                   continue
+                }
+                if (route?.type === 'trial_budget_error') {
+                  const notice = trialLimitFrom(route)
+                  if (notice) {
+                    try { errorHandler(trialLimitError(notice)) } catch {}
+                    try { controller.abort() } catch {}
+                    return
+                  }
                 }
                 if (route?.type === 'provider_error') {
                   const reason = String(route?.reason || 'suggestion_unavailable')

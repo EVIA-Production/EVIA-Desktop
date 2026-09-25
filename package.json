@@ -41,7 +41,8 @@
     "package": "echo 'Use electron-builder via build script'",
     "make": "echo 'Use electron-builder via build script'",
     "aec:gate": "python3 tools/aec-hardware-gate.py",
-    "typecheck:renderer": "node ./scripts/typecheck-renderer.js"
+    "typecheck:renderer": "node ./scripts/typecheck-renderer.js",
+    "demo:start": "cross-env NODE_ENV=production TAYLOS_DEMO_MODE=1 API_BASE_URL=https://api.taylos.ai ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron ."
   },
   "dependencies": {
     "@ennuicastr/webrtcaec3.js": "^0.3.0",

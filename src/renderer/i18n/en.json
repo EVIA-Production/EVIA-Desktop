@@ -134,6 +134,13 @@
     "offline": {
       "title": "No Connection",
       "subtitle": "Reconnecting..."
+    },
+    "trial": {
+      "suggestionLimit": "You've reached your suggestion limit. Upgrade to continue.",
+      "meetingLimit": "You've used your {{minutes}} trial minutes. Upgrade to continue.",
+      "expired": "Your free trial has ended. Upgrade to continue.",
+      "usageLimit": "Your trial has reached its usage limit. Upgrade to continue.",
+      "upgrade": "Upgrade"
     }
   }
 }

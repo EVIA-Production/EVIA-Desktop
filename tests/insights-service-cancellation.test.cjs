@@ -8,11 +8,19 @@ const { transformSync } = require('esbuild');
 const repoRoot = path.resolve(__dirname, '..');
 const servicePath = path.join(repoRoot, 'src/renderer/services/insightsService.ts');
 
+// The service's one renderer-module import, loaded from its real source.
+globalThis.__taylosTrialLimit = require('./_load-renderer-ts.cjs').loadRendererTs('lib/trial-limit.ts');
+
 function loadInsightsService() {
-  const source = fs.readFileSync(servicePath, 'utf8').replace(
-    "import { BACKEND_URL } from '../config/config';",
-    "const BACKEND_URL = 'https://api.test.invalid';",
-  );
+  const source = fs.readFileSync(servicePath, 'utf8')
+    .replace(
+      "import { BACKEND_URL } from '../config/config';",
+      "const BACKEND_URL = 'https://api.test.invalid';",
+    )
+    .replace(
+      /^import \{([^}]*)\} from '\.\.\/lib\/trial-limit';$/m,
+      'const {$1} = globalThis.__taylosTrialLimit;',
+    );
   const compiled = transformSync(source, {
     loader: 'ts',
     format: 'cjs',

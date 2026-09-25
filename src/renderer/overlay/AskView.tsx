@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './overlay-glass.css';
 import { streamAsk, type AskQuerySource } from '../lib/evia-ask-stream';
+import {
+  openUpgrade,
+  trialLimitFromError,
+  trialLimitMessage,
+  upgradeLabel,
+  type TrialLimitNotice,
+} from '../lib/trial-limit';
 import { i18n } from '../i18n/i18n';
 
 // Stable id for an answer, so the same text copied twice is one response rather
@@ -19,7 +26,7 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { BACKEND_URL } from '../config/config';
-import { getDemoAskResponse } from '../demo-scenario';
+import { getDemoAskResponse, type DemoScript } from '../demo-scenario';
 import taylosMarkUrl from './assets/taylos_mark.png';
 import {
   trackAskFailed,
@@ -119,6 +126,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   const restartStreamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const deterministicDemoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const demoModeEnabledRef = useRef(false);
+  const demoScriptRef = useRef<DemoScript>({});
   const inputRef = useRef<HTMLInputElement>(null);  // UI IMPROVEMENT: Auto-focus input
   const lastResponseRef = useRef<string>('');  // UI IMPROVEMENT: Track when content actually changes
   const storedContentHeightRef = useRef<number | null>(null);  // CRITICAL: Store content-based height to restore after arrow key movement
@@ -242,7 +250,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
   }, []);
   
   // Taylos-specific: Error handling
-  const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean} | null>(null);
+  const [errorToast, setErrorToast] = useState<{message: string, canRetry: boolean, upgrade?: TrialLimitNotice} | null>(null);
   const [isLoadingFirstToken, setIsLoadingFirstToken] = useState(false);
   const errorToastTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastPromptRef = useRef<string>('');
@@ -266,7 +274,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     void window.evia?.demo?.isEnabled?.()
       .then((result) => {
-        if (!cancelled) demoModeEnabledRef.current = result?.enabled === true;
+        if (cancelled) return;
+        demoModeEnabledRef.current = result?.enabled === true;
+        demoScriptRef.current = { suggestions: result?.suggestions ?? [] };
       })
       .catch((error: unknown) => {
         console.warn('[AskView] Could not read demo mode state:', error);
@@ -1060,7 +1070,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     const trackFailure = (
       stage: 'authentication' | 'chat_resolution' | 'stream' | 'backend',
-      reason: 'authentication' | 'network' | 'rate_limit' | 'unavailable' | 'aborted' | 'unknown',
+      reason: 'authentication' | 'network' | 'rate_limit' | 'unavailable' | 'aborted' | 'trial_limit' | 'unknown',
+      trialLimit?: string,
     ) => {
       if (askFailureTracked) return;
       askFailureTracked = true;
@@ -1070,6 +1081,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         stage,
         reason,
         latency_ms: Math.max(0, performance.now() - requestStartedAt),
+        ...(trialLimit ? { trial_limit: trialLimit } : {}),
       });
     };
 
@@ -1086,8 +1098,19 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Demo mode substitutes only explicitly scripted outcomes at the same
     // request boundary as production. Every unmatched prompt still uses the
     // normal backend, layout, input, actions, and session lifecycle.
+    if (demoModeEnabledRef.current) {
+      // Re-read the script on every press: demo/suggestions.json can be edited
+      // between two screenshots without restarting the app.
+      try {
+        const demoBridge = (window as any).evia?.demo as { isEnabled?: () => Promise<{ enabled: boolean; suggestions?: string[] }> } | undefined;
+        const latest = await demoBridge?.isEnabled?.();
+        if (latest?.enabled) demoScriptRef.current = { suggestions: latest.suggestions ?? [] };
+      } catch {
+        // Keep the last script.
+      }
+    }
     const deterministicDemoResponse = demoModeEnabledRef.current
-      ? getDemoAskResponse(actualPrompt, currentSessionState)
+      ? getDemoAskResponse(actualPrompt, currentSessionState, demoScriptRef.current)
       : null;
 
     if (deterministicDemoResponse) {
@@ -1436,7 +1459,20 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       streamStartTime.current = null;
       
       console.error('[AskView] ❌ Stream error:', e);
-      
+
+      // A trial limit is not an error to retry: name it once, offer Upgrade,
+      // and keep it on screen until the rep closes it.
+      const trialLimit = trialLimitFromError(e);
+      if (trialLimit) {
+        trackFailure('backend', 'trial_limit', trialLimit.code);
+        if (errorToastTimeout.current) {
+          clearTimeout(errorToastTimeout.current);
+          errorToastTimeout.current = null;
+        }
+        setErrorToast({ message: trialLimitMessage(trialLimit, (key) => i18n.t(key)), canRetry: false, upgrade: trialLimit });
+        return;
+      }
+
       const errorMsg = e?.message || String(e);
       const is401 = errorMsg.includes('401') || errorMsg.includes('Unauthorized');
       const isNetwork = errorMsg.includes('fetch') || errorMsg.includes('network');
@@ -1720,6 +1756,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span>{errorToast.message}</span>
+          {errorToast.upgrade && (
+            <button onClick={() => openUpgrade(errorToast.upgrade!)} className="retry-button">
+              {upgradeLabel((key) => i18n.t(key))}
+            </button>
+          )}
           {errorToast.canRetry && (
             <button onClick={retryLastRequest} className="retry-button">
               Retry

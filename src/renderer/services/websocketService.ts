@@ -1,4 +1,5 @@
 // Create new file with full content
+import { isTrialLimitCode } from '../lib/trial-limit';
 import { BACKEND_URL, WS_BASE_URL } from '../config/config';
 import {
   type AudioChunkMetadata,
@@ -428,6 +429,17 @@ export class ChatWebSocket {
               this.emitLiveState(false);
               if (wasReady) {
                 this.connectionChangeHandlers.forEach(h => h(false));
+              }
+            }
+
+            // A trial stop is final until the rep upgrades: reconnecting would
+            // only be refused again, every few seconds, for the rest of the call.
+            if (payload?.type === 'error' && isTrialLimitCode(payload?.data?.code)) {
+              console.warn(`[WS] Trial limit (${payload.data.code}); not reconnecting`);
+              this.shouldReconnect = false;
+              if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
               }
             }
 

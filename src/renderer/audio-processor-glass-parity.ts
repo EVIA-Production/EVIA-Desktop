@@ -1,4 +1,5 @@
 // Glass parity: Audio capture using ScriptProcessorNode (reliable, no CSP issues)
+import { isTrialLimitCode } from './lib/trial-limit';
 import {
   getWebSocketInstance,
   getOrCreateChatId,
@@ -1085,6 +1086,10 @@ function ensureMicWs() {
           if (msg.type === 'error') {
             eviaIpc.send('debug-log', `[AudioCapture] ❌ MIC ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
           }
+          // The trial stopped the call: tell Listen, which shows why and how to continue.
+          if (msg.type === 'error' && isTrialLimitCode(msg.data?.code)) {
+            eviaIpc.send('transcript-message', { type: 'trial_limit', data: msg.data, _source: 'mic', _chatId: activeChatId() });
+          }
         }
 
         if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
@@ -1143,6 +1148,9 @@ function ensureSystemWs() {
         // Log full error content for debugging
         if (msg.type === 'error' && eviaIpc?.send) {
           eviaIpc.send('debug-log', `[AudioCapture] ❌ SYSTEM ERROR DATA: ${JSON.stringify(msg.data || msg)}`);
+          if (isTrialLimitCode(msg.data?.code)) {
+            eviaIpc.send('transcript-message', { type: 'trial_limit', data: msg.data, _source: 'system', _chatId: activeChatId() });
+          }
         }
 
         if (msg.type === 'transcript_segment' || msg.type === 'status' || msg.type === 'context_status') {
