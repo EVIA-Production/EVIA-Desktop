@@ -85,5 +85,11 @@ test('desktop reports its exact version to the backend independently of PostHog'
   assert.match(main, /DESKTOP_RELAY_RETRY_MS/);
   assert.match(main, /ipcMain\.handle\('telemetry:capture'/);
   assert.match(analytics, /\$insert_id:\s*eventId/);
-  assert.match(analytics, /relayDesktopEvent\(eventName, eventId, payload\)/);
+  // PostHog merges the direct and the relayed copy only when uuid, event,
+  // distinct id and timestamp match: both copies share the id and the moment.
+  assert.match(analytics, /relayDesktopEvent\(eventName, eventId, payload, timestamp\)/);
+  assert.match(analytics, /posthog\.capture\(eventName, payload, \{ timestamp \}\)/);
+  assert.match(analytics, /before_send:\s*useInsertIdAsUuid/);
+  assert.match(analytics, /event\.uuid = insertId/);
+  assert.match(main, /timestamp,\s*\n\s*attempts: 0/);
 });

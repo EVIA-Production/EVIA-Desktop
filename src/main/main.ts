@@ -212,6 +212,9 @@ type DesktopRelayedAnalyticsEvent = {
   event_name: string;
   event_id: string;
   properties: Record<string, unknown>;
+  // When the renderer captured its direct copy; the backend reuses it so
+  // PostHog can merge the two copies.
+  timestamp?: string;
   attempts: number;
 };
 
@@ -295,6 +298,9 @@ function queueDesktopAnalyticsRelay(payload: unknown): { queued: boolean; reason
   const eventName = typeof candidate.event_name === 'string' ? candidate.event_name : '';
   const eventId = typeof candidate.event_id === 'string' ? candidate.event_id : '';
   const properties = candidate.properties;
+  const timestamp = typeof candidate.timestamp === 'string' && !Number.isNaN(Date.parse(candidate.timestamp))
+    ? candidate.timestamp
+    : undefined;
   if (!/^[a-z][a-z0-9_]{1,99}$/.test(eventName)) return { queued: false, reason: 'invalid_event_name' };
   if (eventId.length < 8 || eventId.length > 100) return { queued: false, reason: 'invalid_event_id' };
   if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
@@ -316,6 +322,7 @@ function queueDesktopAnalyticsRelay(payload: unknown): { queued: boolean; reason
     event_name: eventName,
     event_id: eventId,
     properties: properties as Record<string, unknown>,
+    timestamp,
     attempts: 0,
   });
   scheduleDesktopRelayFlush(250);

@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('evia', {
       event_name: string;
       event_id: string;
       properties: Record<string, unknown>;
+      timestamp?: string;
     }) => ipcRenderer.invoke('telemetry:capture', payload),
   },
   demo: {

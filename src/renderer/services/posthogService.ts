@@ -41,6 +41,7 @@
 // no replay - and watching real sessions is the single thing this product needs
 // before launch.
 import posthog from 'posthog-js';
+import type { CaptureResult } from 'posthog-js';
 import { redactTelemetrySecrets, sanitizeCapturedNetworkRequest } from './telemetrySafety';
 // The implementation verdict lives in main/ so it can be unit-tested from
 // Node. It is the number that claims the product works, which is exactly the
@@ -80,7 +81,7 @@ type AnalyticsProperties = Record<string, unknown>;
 const ANALYTICS_SCHEMA_VERSION = 1;
 const ANALYTICS_CALL_ID_KEY = 'taylos_analytics_call_id';
 const MAX_QUEUED_EVENTS = 200;
-const queuedEvents: Array<{ eventName: string; properties: AnalyticsProperties }> = [];
+const queuedEvents: Array<{ eventName: string; properties: AnalyticsProperties; timestamp: Date }> = [];
 
 // Product analytics is deliberately full-fidelity before launch. Meeting and
 // suggestion context remains intact; only credentials are removed by the
@@ -141,6 +142,7 @@ function relayDesktopEvent(
   eventName: string,
   eventId: string,
   properties: AnalyticsProperties,
+  timestamp: Date,
 ): void {
   try {
     const relay = (window as any)?.evia?.telemetry?.capture;
@@ -149,6 +151,7 @@ function relayDesktopEvent(
       event_name: eventName,
       event_id: eventId,
       properties,
+      timestamp: timestamp.toISOString(),
     })).catch((error: unknown) => {
       console.warn('[PostHog] Backend relay rejected event:', eventName, error);
     });
@@ -174,20 +177,23 @@ function commonProperties(): AnalyticsProperties {
 
 function sendDesktopEvent(eventName: string, properties: AnalyticsProperties = {}): void {
   const eventId = createAnalyticsEventId();
+  // One moment for both copies: PostHog merges the direct and the relayed copy
+  // only when uuid, event, distinct id and timestamp all match.
+  const timestamp = new Date();
   const payload = {
     ...sanitizeAnalyticsProperties(properties),
     ...commonProperties(),
     $insert_id: eventId,
   };
-  // The same insert id travels direct and through the authenticated backend.
-  // PostHog deduplicates them; ad blockers no longer erase the user's session.
-  relayDesktopEvent(eventName, eventId, payload);
+  // The same id travels direct and through the authenticated backend: as
+  // $insert_id on both, and as the uuid of both (useInsertIdAsUuid, relay).
+  relayDesktopEvent(eventName, eventId, payload, timestamp);
   if (!initialized) {
-    if (queuedEvents.length < MAX_QUEUED_EVENTS) queuedEvents.push({ eventName, properties: payload });
+    if (queuedEvents.length < MAX_QUEUED_EVENTS) queuedEvents.push({ eventName, properties: payload, timestamp });
     return;
   }
   try {
-    posthog.capture(eventName, payload);
+    posthog.capture(eventName, payload, { timestamp });
   } catch (error) {
     console.warn('[PostHog] Event capture failed:', eventName, error);
   }
@@ -195,7 +201,7 @@ function sendDesktopEvent(eventName: string, properties: AnalyticsProperties = {
 
 function flushQueuedEvents(): void {
   const pending = queuedEvents.splice(0, queuedEvents.length);
-  for (const event of pending) posthog.capture(event.eventName, event.properties);
+  for (const event of pending) posthog.capture(event.eventName, event.properties, { timestamp: event.timestamp });
 }
 
 function replayStatus(): string {
@@ -252,6 +258,22 @@ export function getAnalyticsCallId(): string | undefined {
   return localStorage.getItem(ANALYTICS_CALL_ID_KEY) || undefined;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The direct copy of a relayed event takes its $insert_id as uuid, so it
+ * matches the copy the backend relays (Desktop events used to be stored 1.6 to
+ * 2 times: posthog-js gave each copy its own uuid). Events the SDK creates
+ * itself carry no UUID-shaped $insert_id and keep their own uuid.
+ */
+function useInsertIdAsUuid(event: CaptureResult | null): CaptureResult | null {
+  const insertId = event?.properties?.$insert_id;
+  if (event && typeof insertId === 'string' && UUID_PATTERN.test(insertId)) {
+    event.uuid = insertId;
+  }
+  return event;
+}
+
 /**
  * Initialize PostHog (call from overlay-entry.tsx or main.ts)
  */
@@ -268,6 +290,7 @@ export function initPostHog() {
     person_profiles: 'identified_only',
     capture_pageview: false, // Manual control for Electron
     capture_pageleave: false,
+    before_send: useInsertIdAsUuid,
     autocapture: false, // Electron doesn't need autocapture
     persistence: 'localStorage',
     bootstrap: {
@@ -429,8 +452,9 @@ export function trackAskFailed(properties: {
   session_state: SessionState;
   query_source: string;
   stage: 'authentication' | 'chat_resolution' | 'stream' | 'backend';
-  reason: 'authentication' | 'network' | 'rate_limit' | 'unavailable' | 'aborted' | 'unknown';
+  reason: 'authentication' | 'network' | 'rate_limit' | 'unavailable' | 'aborted' | 'trial_limit' | 'unknown';
   latency_ms: number;
+  trial_limit?: string;
 }) {
   sendDesktopEvent('ask_failed', properties);
 }
