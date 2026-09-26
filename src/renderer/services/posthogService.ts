@@ -43,6 +43,7 @@
 import posthog from 'posthog-js';
 import type { CaptureResult } from 'posthog-js';
 import { redactTelemetrySecrets, sanitizeCapturedNetworkRequest } from './telemetrySafety';
+import { BACKEND_URL } from '../config/config';
 // The implementation verdict lives in main/ so it can be unit-tested from
 // Node. It is the number that claims the product works, which is exactly the
 // number that must not rest on assertions about source text.
@@ -277,6 +278,60 @@ function useInsertIdAsUuid(event: CaptureResult | null): CaptureResult | null {
 /**
  * Initialize PostHog (call from overlay-entry.tsx or main.ts)
  */
+// § 25 TDDDG: session replay and analytics storage on this device only with the
+// account's consent ("Help improve Taylos" in Settings → Privacy of the web
+// app, recorded at /users/me/analytics-consent). Until the choice is known, and
+// without consent, PostHog keeps everything in memory and records no replay.
+const ANALYTICS_CONSENT_KEY = 'taylos_analytics_consent';
+
+function readConsentCache(): boolean {
+  try { return localStorage.getItem(ANALYTICS_CONSENT_KEY) === 'granted'; } catch { return false; }
+}
+
+let consentGranted = readConsentCache();
+
+export function analyticsConsentGranted(): boolean {
+  return consentGranted;
+}
+
+/** Switch the running instance when the account's choice differs from the cached one. */
+export function applyAnalyticsConsent(granted: boolean): void {
+  consentGranted = granted;
+  try {
+    if (granted) localStorage.setItem(ANALYTICS_CONSENT_KEY, 'granted');
+    else {
+      localStorage.removeItem(ANALYTICS_CONSENT_KEY);
+      localStorage.removeItem('posthog_distinct_id');
+      Object.keys(localStorage).filter((key) => key.startsWith('ph_')).forEach((key) => localStorage.removeItem(key));
+    }
+  } catch { /* storage unavailable: the in-memory flag still applies */ }
+  if (!initialized) return;
+  try {
+    posthog.set_config({ persistence: granted ? 'localStorage' : 'memory' } as any);
+    if (granted) verifyReplayRecording();
+    else posthog.stopSessionRecording();
+  } catch (error) {
+    console.warn('[PostHog] Could not apply analytics consent:', error);
+  }
+}
+
+/** Read the account's choice (after sign-in) and apply it. */
+export async function refreshAnalyticsConsent(): Promise<void> {
+  try {
+    const token = await (window as any).evia?.auth?.getToken?.();
+    if (!token) return;
+    const response = await fetch(`${BACKEND_URL}/users/me/analytics-consent`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    const state = await response.json();
+    const granted = state?.granted === true;
+    if (granted !== consentGranted) applyAnalyticsConsent(granted);
+  } catch (error) {
+    console.warn('[PostHog] Could not read analytics consent:', error);
+  }
+}
+
 export function initPostHog() {
   if (initialized || typeof window === 'undefined') {
     console.log('[PostHog] Already initialized or no window, skipping');
@@ -292,9 +347,9 @@ export function initPostHog() {
     capture_pageleave: false,
     before_send: useInsertIdAsUuid,
     autocapture: false, // Electron doesn't need autocapture
-    persistence: 'localStorage',
+    persistence: consentGranted ? 'localStorage' : 'memory',
     bootstrap: {
-      distinctID: localStorage.getItem('posthog_distinct_id') || undefined,
+      distinctID: consentGranted ? (localStorage.getItem('posthog_distinct_id') || undefined) : undefined,
     },
 
     // FULL-FIDELITY CAPTURE - deliberate, and a product decision, not an
@@ -307,7 +362,7 @@ export function initPostHog() {
     //
     // The transcript on screen belongs to a call whose OTHER side did not
     // agree to this. Keep the PostHog DPA and the customer terms ahead of it.
-    disable_session_recording: false,
+    disable_session_recording: !consentGranted,
     enable_recording_console_log: true,
     session_recording: {
       maskAllInputs: false,
@@ -335,7 +390,9 @@ export function initPostHog() {
     // No sampling or trigger gates: a session we did not record is a user test
     // we cannot diagnose. The health event proves whether the recorder actually
     // started instead of merely proving that init() returned.
-    verifyReplayRecording();
+    // Replay only with consent; its health check force-starts the recorder.
+    if (consentGranted) verifyReplayRecording();
+    void refreshAnalyticsConsent();
     console.log('[PostHog] ✅ Initialized for Desktop with key:', POSTHOG_KEY.substring(0, 10) + '...');
     
     flushQueuedEvents();
@@ -371,7 +428,10 @@ export function identifyUser(userId: string, properties?: {
     ...properties,
     source: 'desktop',
   }));
-  localStorage.setItem('posthog_distinct_id', userId);
+  // The id stays on the device only with consent (§ 25 TDDDG).
+  if (consentGranted) localStorage.setItem('posthog_distinct_id', userId);
+  // Signed in: the account's consent can be read now.
+  void refreshAnalyticsConsent();
   sendDesktopEvent('desktop_user_identified', {
     profile_properties_included: Boolean(properties),
   });

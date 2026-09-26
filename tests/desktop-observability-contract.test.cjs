@@ -12,15 +12,15 @@ const listenView = read('src/renderer/overlay/ListenView.tsx');
 const overlayEntry = read('src/renderer/overlay/overlay-entry.tsx');
 const overlayWindows = read('src/main/overlay-windows.ts');
 
-test('desktop replay captures the full session, text included', () => {
-  // Deliberate pre-launch decision: these accounts are free in exchange for
-  // their data, and a masked replay cannot answer whether a suggestion was
-  // any good. Guarded as a contract so nobody silently re-masks it - the
-  // reverse of what this test asserted before 2026-08-27.
+test('desktop replay captures the full session, text included, once the account consented', () => {
+  // With consent the replay is full-fidelity: a masked replay cannot answer
+  // whether a suggestion was any good. Guarded as a contract so nobody
+  // silently re-masks it - the reverse of what this test asserted before
+  // 2026-08-27. Since 2026-09-26 it runs only with consent (§ 25 TDDDG).
   assert.match(analytics, /^import posthog from 'posthog-js';$/m);
   assert.doesNotMatch(analytics, /^import posthog from 'posthog-js\/dist\/module\.full\.no-external';$/m);
   assert.match(analytics, /POSTHOG_HOST\s*=\s*'https:\/\/api\.taylos\.ai\/telemetry'/);
-  assert.match(analytics, /disable_session_recording:\s*false/);
+  assert.match(analytics, /disable_session_recording:\s*!consentGranted/);
   assert.match(analytics, /startSessionRecording\(true\)/, 'all sampling and trigger gates must be overridden');
   assert.match(analytics, /sessionRecordingStarted\(\)/, 'recorder startup must be verified');
   assert.match(analytics, /desktop_replay_health/, 'recorder health must be observable');
@@ -92,4 +92,13 @@ test('desktop reports its exact version to the backend independently of PostHog'
   assert.match(analytics, /before_send:\s*useInsertIdAsUuid/);
   assert.match(analytics, /event\.uuid = insertId/);
   assert.match(main, /timestamp,\s*\n\s*attempts: 0/);
+});
+
+
+test('without the account consent the desktop keeps analytics in memory and records no replay (§ 25 TDDDG)', () => {
+  assert.match(analytics, /persistence:\s*consentGranted \? 'localStorage' : 'memory'/);
+  assert.match(analytics, /if \(consentGranted\) verifyReplayRecording\(\)/, 'the health check force-starts the recorder, so only with consent');
+  assert.match(analytics, /\/users\/me\/analytics-consent/, 'the choice comes from the account');
+  assert.match(analytics, /if \(consentGranted\) localStorage\.setItem\('posthog_distinct_id'/, 'no device id without consent');
+  assert.match(analytics, /posthog\.stopSessionRecording\(\)/, 'withdrawing consent stops the recorder');
 });
