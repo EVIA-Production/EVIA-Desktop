@@ -22,7 +22,17 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   let inputDiagnosticTimer, pointerTimer;
   const pointerIgnored=new Map(), scaledWindows=new Set();
   const layoutBounds = new Map(), productBounds = new Map();
-  try {
+  // Windows without GPU compositing (software rendering, e.g. a machine without an
+  // active GPU driver) crashed or stalled the main process inside the native glass
+  // bridge as soon as the product windows were laid out (Windows signing PC,
+  // 2026-10-07: exit 0xFFFF7003 during the first render). Those machines get the
+  // CSS material instead. TAYLOS_ONBOARDING_NATIVE_GLASS=1|0 forces it on or off.
+  const gpuCompositing = (() => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch { return ''; } })();
+  const nativeGlassOverride = process.env.TAYLOS_ONBOARDING_NATIVE_GLASS;
+  const skipNativeGlass = nativeGlassOverride === '0'
+    || (nativeGlassOverride !== '1' && process.platform === 'win32' && !gpuCompositing.startsWith('enabled'));
+  if (skipNativeGlass) console.log('Product native glass: off (gpu_compositing=' + (gpuCompositing || 'unknown') + ')');
+  else try {
     const platformPath = process.platform === 'darwin'
       ? 'macos-liquid-glass/build/Release/taylos_liquid_glass.node'
       : `windows-liquid-glass/prebuilds/win32-${process.arch}/taylos_windows_glass.node`;
