@@ -4,7 +4,7 @@ import { webAppUrl } from './web-app-url';
 import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { getCachedAuthToken, setCachedAuthToken, clearCachedAuthToken } from './auth-token-cache'
-import { createHeaderWindow, createWelcomeMaterialComparison, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
+import { createHeaderWindow, createWelcomeMaterialComparison, ensureWindowShown, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
 import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
@@ -1809,6 +1809,16 @@ async function handleLaunchRequest(url: string) {
     } else {
       console.log('[Launch] 📱 No token, bringing app to front if running');
       focusPrimaryDesktopWindow();
+    }
+    // The web app's Settings > Keyboard shortcuts > Edit opens the shortcuts window here.
+    if (urlObj.searchParams.get('open') === 'shortcuts') {
+      setTimeout(() => {
+        try {
+          ensureWindowShown('shortcuts');
+        } catch (shortcutsError) {
+          console.warn('[Launch] Could not open the shortcuts window:', shortcutsError);
+        }
+      }, 600);
     }
     console.log('[Launch] ========== LAUNCH DONE ==========');
   } catch (err) {

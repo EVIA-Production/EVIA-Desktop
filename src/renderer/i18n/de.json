@@ -136,10 +136,10 @@
       "subtitle": "Verbindung wird wiederhergestellt..."
     },
     "trial": {
-      "suggestionLimit": "Du hast dein Vorschlagslimit erreicht. Upgrade, um weiterzumachen.",
-      "meetingLimit": "Du hast deine {{minutes}} Testminuten verbraucht. Upgrade, um weiterzumachen.",
-      "expired": "Deine kostenlose Testphase ist beendet. Upgrade, um weiterzumachen.",
-      "usageLimit": "Deine Testphase hat ihr Nutzungslimit erreicht. Upgrade, um weiterzumachen.",
+      "suggestionLimit": "Du hast dein Vorschlagslimit erreicht.",
+      "meetingLimit": "Du hast deine {{minutes}} Testminuten verbraucht.",
+      "expired": "Deine kostenlose Testphase ist beendet.",
+      "usageLimit": "Deine Testphase hat ihr Nutzungslimit erreicht.",
       "upgrade": "Upgraden"
     }
   }

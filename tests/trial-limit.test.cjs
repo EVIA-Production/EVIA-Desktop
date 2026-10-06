@@ -23,14 +23,14 @@ test('the suggestion limit says exactly the founder\'s sentence', () => {
     detail: { code: 'SUGGESTION_LIMIT_REACHED', upgrade_url: 'https://app.taylos.ai/settings/billing?upgrade=now' },
   });
   assert.equal(notice.code, 'suggestion_limit_reached');
-  assert.equal(trial.trialLimitMessage(notice, tFor(en)), "You've reached your suggestion limit. Upgrade to continue.");
-  assert.equal(trial.trialLimitMessage(notice, tFor(de)), 'Du hast dein Vorschlagslimit erreicht. Upgrade, um weiterzumachen.');
+  assert.equal(trial.trialLimitMessage(notice, tFor(en)), "You've reached your suggestion limit.");
+  assert.equal(trial.trialLimitMessage(notice, tFor(de)), 'Du hast dein Vorschlagslimit erreicht.');
   assert.equal(trial.upgradeLabel(tFor(en)), 'Upgrade');
 });
 
 test('the minutes limit names the trial\'s minutes, from the server when it says so', () => {
   const fromServer = trial.trialLimitFrom({ code: 'MEETING_LIMIT_REACHED', limits: { max_meeting_seconds: 7200 } });
-  assert.equal(trial.trialLimitMessage(fromServer, tFor(en)), "You've used your 120 trial minutes. Upgrade to continue.");
+  assert.equal(trial.trialLimitMessage(fromServer, tFor(en)), "You've used your 120 trial minutes.");
   const websocketStop = trial.trialLimitFrom({ code: 'limit_reached', message: 'x' });
   assert.equal(websocketStop.code, 'meeting_limit_reached');
   assert.match(trial.trialLimitMessage(websocketStop, tFor(de)), /^Du hast deine 120 Testminuten verbraucht\./);

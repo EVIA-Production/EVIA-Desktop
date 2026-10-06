@@ -3833,6 +3833,7 @@ export {
   createChildWindow,
   updateWindows,
   toggleWindow,
+  ensureWindowShown,
   hideAllChildWindows,
   nudgeHeader,
   openAskWindow,
