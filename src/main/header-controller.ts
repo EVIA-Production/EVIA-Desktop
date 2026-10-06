@@ -78,6 +78,7 @@ export class HeaderController {
   private checkoutLauncher: (() => Promise<void>) | null = null;
   private nativeOnboardingLauncher: NativeOnboardingLauncher | null = null;
   private onboardingHandle: { close?: () => void; focus?: () => void } | null = null;
+  private onboardingLaunch: Promise<void> | null = null;
 
   constructor() {
     this.stateFilePath = path.join(app.getPath('userData'), 'auth-state.json');
@@ -396,12 +397,22 @@ export class HeaderController {
       return this.reevaluateState();
     }
     if (this.onboardingHandle) { this.onboardingHandle.focus?.(); return; }
+    if (this.onboardingLaunch) return this.onboardingLaunch;
+    this.onboardingLaunch = this.performNativeOnboardingLaunch();
+    try { await this.onboardingLaunch; }
+    finally { this.onboardingLaunch = null; }
+  }
+
+  private async performNativeOnboardingLaunch() {
+    if (!this.nativeOnboardingLauncher) return;
+    let closedDuringLaunch = false;
     try {
       const restart=this.onboardingRestart;this.onboardingRestart=false;
       const account = tokenAccount(await keytar.getPassword('taylos', 'token'));
-      this.onboardingHandle = (await this.nativeOnboardingLauncher({
+      const handle = (await this.nativeOnboardingLauncher({
         restart,
         onClose: ({ finished }) => {
+          closedDuringLaunch = true;
           console.log('[HeaderController] 🧭 Native onboarding closed, finished =', finished);
           this.onboardingHandle = null;
           this.onboardingDismissed = !finished;
@@ -416,7 +427,9 @@ export class HeaderController {
           void this.reevaluateState();
         },
       })) as { close?: () => void; focus?: () => void } | null;
+      if (!closedDuringLaunch) this.onboardingHandle = handle;
     } catch (err) {
+      if (closedDuringLaunch) return;
       console.error('[HeaderController] ❌ Native onboarding failed to launch:', err);
       this.onboardingHandle = null;
       this.onboardingDismissed = true;
@@ -805,4 +818,3 @@ export class HeaderController {
 
 // Singleton instance
 export const headerController = new HeaderController();
-

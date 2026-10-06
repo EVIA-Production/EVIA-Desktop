@@ -1,10 +1,11 @@
 // Standalone review build. Only account display reads the existing Taylos login;
 // no token reaches the renderer, and no capture, subscription or model is started.
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, shell, dialog } = require('electron');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
+const { createPresentationGate } = require('./presentation-gate.cjs');
 const embedded = process.env.TAYLOS_EMBEDDED_ONBOARDING === '1';
 if(!embedded) {
   app.setName('Taylos');
@@ -12,7 +13,7 @@ if(!embedded) {
 }
 let window, tray, server, product;
 const action = name => window?.webContents.send('onboarding-action', name);
-const types = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.jpeg':'image/jpeg', '.webp':'image/webp', '.woff2':'font/woff2', '.json':'application/json' };
+const types = { '.html':'text/html', '.js':'application/javascript', '.mjs':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.jpeg':'image/jpeg', '.webp':'image/webp', '.woff2':'font/woff2', '.json':'application/json' };
 
 async function startOnboarding(options={}) {
   await app.whenReady();
@@ -43,7 +44,20 @@ async function startOnboarding(options={}) {
   window = new BrowserWindow({ ...area, frame:false, show:false, transparent:true,
     backgroundColor:'#00000000', hasShadow:false, roundedCorners:false, resizable:false,
     title:'Taylos', icon:path.join(root,'EVIA-Desktop/src/main/assets/icon-mac.png'),
-    webPreferences:{partition:'taylos-native-setup-review',preload:path.join(__dirname,'local-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false} });
+    webPreferences:{partition:'taylos-native-setup-review',additionalArguments:!app.isPackaged&&options.diagnostics?['--taylos-presentation-diagnostics']:[],preload:path.join(__dirname,'local-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,paintWhenInitiallyHidden:true} });
+  // Presentation trace: event names and timings only (no account
+  // data), in the console and in <userData>/logs/onboarding-presentation.log.
+  const traceStart=Date.now();
+  const traceFile=path.join(app.getPath('userData'),'logs','onboarding-presentation.log');
+  const trace=(event,detail={})=>{
+    const line=JSON.stringify({at:new Date().toISOString(),ms:Date.now()-traceStart,event,platform:process.platform,...detail});
+    console.log('[onboarding-presentation]',line);
+    try{fs.mkdirSync(path.dirname(traceFile),{recursive:true});if(fs.existsSync(traceFile)&&fs.statSync(traceFile).size>256*1024)fs.writeFileSync(traceFile,'');fs.appendFileSync(traceFile,line+'\n',{mode:0o600});}catch{}
+  };
+  trace('owner-created',{width:area.width,height:area.height});
+  for(const name of ['did-start-loading','dom-ready','did-finish-load','unresponsive','responsive'])window.webContents.on(name,()=>trace(name));
+  window.once('ready-to-show',()=>trace('ready-to-show'));
+  window.webContents.on('console-message',details=>{if(details?.level==='error'||details?.level==='warning')trace('renderer-console',{level:details.level,line:details.lineNumber});});
   window.setAlwaysOnTop(false);
   window.setVisibleOnAllWorkspaces(false);
   // Keep shadow-area clicks in onboarding: forwarding them to the desktop
@@ -67,7 +81,7 @@ async function startOnboarding(options={}) {
   // ingestion, so the onboarding leaves the same events and replay as the
   // overlay and the web app. Until 2026-09-16 this window sent nothing.
   const analyticsHosts = ['https://eu.i.posthog.com/', 'https://eu-assets.i.posthog.com/'];
-  const analytics = embedded || process.env.TAYLOS_ONBOARDING_ANALYTICS === '1';
+  const analytics = (embedded || process.env.TAYLOS_ONBOARDING_ANALYTICS === '1') && options.analytics !== false;
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     const allowed = details.url.startsWith(origin+'/') || details.url.startsWith('data:') || details.url.startsWith('blob:')
       || (analytics && analyticsHosts.some(host => details.url.startsWith(host)));
@@ -85,7 +99,7 @@ async function startOnboarding(options={}) {
     if (visible) { tray?.destroy(); tray=null;return; }
     if (tray) return;
     tray=new Tray(image);tray.setToolTip('Show Taylos');
-    tray.on('click',()=>{window.show();action('show');});
+    tray.on('click',()=>{focus();if(presented)action('show');});
   };
   setTray(false);
   if(!embedded)Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Taylos',submenu:[{label:'Quit Taylos',role:'quit'}]},{role:'editMenu'}]));
@@ -103,8 +117,16 @@ async function startOnboarding(options={}) {
       return {email:payload.email||null,username:payload.sub||payload.username||'User'};
     } catch {return null;}
   };
-  let presented=false, markPresentable;
-  const presentable=new Promise(resolve=>{markPresentable=resolve;});
+  let presented=false;
+  const gate=createPresentationGate({window,trace});
+  window.webContents.on('preload-error',()=>{trace('preload-error');gate.fail('preload-failed');});
+  window.webContents.on('did-fail-load',(_event,code,_description,_url,isMainFrame)=>{if(!isMainFrame)return;trace('did-fail-load',{code});gate.fail('load-failed');});
+  window.webContents.on('render-process-gone',(_event,details)=>{
+    trace('render-process-gone',{reason:details?.reason,exitCode:details?.exitCode});
+    // Before presentation the gate reports the failure; afterwards the blank owner
+    // is closed so the regular Taylos window comes back.
+    if(!gate.fail('renderer-gone') && presented && !closed){close();options.onPresentationError?.('renderer-gone');}
+  });
   const focus=()=>{if(!presented||window.isDestroyed())return;window.show();window.focus();if(process.platform==='darwin')app.focus({steal:true});};
   const permissionReturn=options.requestHost ? require('./permission-return.cjs')({
     check:()=>options.requestHost('onboarding:permissions'),request:options.requestHost,
@@ -113,23 +135,35 @@ async function startOnboarding(options={}) {
   const refreshPermissions=()=>void permissionReturn?.refresh();
   window.on('focus',refreshPermissions);
   app.on('activate',focus);
-  product=require('./native-windows.cjs')({root,origin,owner:window,onVisibility:setTray,readAccount:options.readAccount||readAccount,requestHost:channel=>channel==='onboarding:initial-state'?{checkpoint:options.resume||null}:permissionReturn?permissionReturn.request(channel):{live:false}});
   let finishing=false;
   let closed=false;
   let finished=false;
-  function close() {
+  function close(notify=true) {
     if(closed)return;
     closed=true;
+    gate.fail('closed');
     ipcMain.removeListener('onboarding-message',finish);
     ipcMain.removeListener('onboarding-close',requestClose);
     permissionReturn?.close();app.removeListener('activate',focus);
-    product.destroy();tray?.destroy();tray=null;server.close();
+    product?.destroy();tray?.destroy();tray=null;server.close();
     if(!window.isDestroyed())window.destroy();
-    if(embedded)options.onClose?.({finished});else app.quit();
+    if(embedded){if(notify)options.onClose?.({finished});}else app.quit();
   }
+  window.once('closed',()=>close());
+  const readinessSteps=new Set(['bridge-exposed','bridge-available','bridge-missing','initial-state-start','initial-state-end','initial-state-error','initial-state-timeout','rendered','image-start','image-end','image-error','image-timeout','fonts-start','fonts-end','fonts-error','fonts-timeout','assets-ready','frames-start','frames-end','frames-error','frames-timeout','acknowledged','failed','identity-start','identity-end','identity-error','identity-timeout','renderer-error','renderer-rejection']);
   async function finish(event,data) {
     if(event.sender!==window?.webContents)return;
-    if(data?.type==='onboarding-presentable'){markPresentable();return;}
+    if(data?.type==='onboarding-presentable'){trace('renderer-acknowledged');gate.acknowledge();return;}
+    if(data?.type==='onboarding-presentation-failed'){gate.fail('renderer-readiness-failed');return;}
+    if(data?.type==='onboarding-readiness'){
+      if(!readinessSteps.has(data.step))return;
+      trace('renderer-'+data.step,{rendererMs:Number.isFinite(data.ms)?data.ms:undefined});
+      if(data.step==='rendered')gate.markRendered();
+      // Global errors can originate in Electron's development warning code.
+      // Only the explicit readiness contract, preload/load failure, or a crash
+      // should fail presentation; unrelated errors remain diagnostic events.
+      return;
+    }
     if(data?.type==='taylos-preview-state') {if(data.checkpoint)options.onCheckpoint?.(data.checkpoint);tray?.setToolTip(data.language==='de'?'Taylos einblenden':'Show Taylos');return;}
     // The only non-http destination the shell may open: the exact Windows Settings
     // page for microphone privacy. Nothing else in the ms-settings: space.
@@ -159,6 +193,12 @@ async function startOnboarding(options={}) {
   const requestClose=event=>{if(event.sender!==window.webContents)return;if(analytics)setTimeout(close,600);else close();};
   ipcMain.on('onboarding-message',finish);
   ipcMain.on('onboarding-close',requestClose);
+  // Install cleanup handlers before constructing native product surfaces: a
+  // missing bridge must not throw again while trying to clean up its owner.
+  product=null;
+  try {
+    product=require('./native-windows.cjs')({root,origin,owner:window,onVisibility:setTray,readAccount:options.readAccount||readAccount,requestHost:channel=>channel==='onboarding:initial-state'?{checkpoint:options.resume||null}:permissionReturn?permissionReturn.request(channel):{live:false}});
+  } catch(error) {gate.fail('product-load-failed');close(false);throw error;}
   // OS login-item notices are generated by macOS, not by this renderer. Never
   // register the shared development Electron executable as a persistent login item.
   const startView = (process.env.TAYLOS_PREVIEW_LANGUAGE ? '&lang='+encodeURIComponent(process.env.TAYLOS_PREVIEW_LANGUAGE) : '') + (process.env.TAYLOS_PREVIEW_VIEW ? '&view='+encodeURIComponent(process.env.TAYLOS_PREVIEW_VIEW) : '')
@@ -166,8 +206,19 @@ async function startOnboarding(options={}) {
   const analyticsQuery = analytics ? '&analytics=1&app_version='+encodeURIComponent(app.getVersion()) : '';
   // TAYLOS_ONBOARDING_FLOW=classic opens the review build on the previous card-copy flow.
   const flowQuery = (process.env.TAYLOS_ONBOARDING_FLOW === 'classic' ? '&flow=classic' : '') + (process.env.TAYLOS_PREVIEW_TAP === '1' ? '&tap=1' : '');
-  await window.loadURL(origin+'/output/onboarding-prototype/goal-first-atlas-practice.html?native=1'+startView+analyticsQuery+flowQuery);
-  await presentable;
+  window.webContents.once('did-finish-load',()=>gate.prime());
+  // Do not await loadURL before the gate: a hung navigation must also time out.
+  void window.loadURL(origin+'/output/onboarding-prototype/goal-first-atlas-practice.html?native=1'+startView+analyticsQuery+flowQuery).catch(()=>{trace('load-url-error');gate.fail('load-failed');});
+  const outcome=await gate.outcome;
+  if(!outcome.presented){
+    // Never leave Taylos running with nothing on screen: tear the onboarding down
+    // without marking it closed by the user, and let the caller restore the
+    // regular window and tell the user how to retry.
+    close(false);
+    const error=new Error('Taylos setup could not be shown ('+outcome.reason+')');
+    error.code=outcome.reason==='closed'?'ONBOARDING_CLOSED':'ONBOARDING_NOT_PRESENTABLE';
+    throw error;
+  }
   presented=true;
   focus();
   window.webContents.send('onboarding-message',{type:'onboarding-presented'});
@@ -180,7 +231,11 @@ async function startOnboarding(options={}) {
   return {window,close,focus};
 }
 module.exports={startOnboarding};
-if(!embedded)app.whenReady().then(()=>startOnboarding());
+if(!embedded)app.whenReady().then(()=>startOnboarding()).catch(()=>{
+  const german=app.getLocale().startsWith('de');
+  dialog.showErrorBox(german?'Taylos konnte nicht geöffnet werden':'Taylos could not open',german?'Bitte starte Taylos erneut. Deine Einrichtung wurde nicht als abgeschlossen gespeichert.':'Please restart Taylos. Your setup has not been marked complete.');
+  app.quit();
+});
 if(!embedded)app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',()=>product?.destroy());
 app.on('will-quit',()=>{product?.destroy();tray?.destroy();server?.close();});

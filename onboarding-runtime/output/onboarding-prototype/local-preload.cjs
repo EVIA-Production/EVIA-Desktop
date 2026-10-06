@@ -28,3 +28,10 @@ contextBridge.exposeInMainWorld('taylosLocal', {
   close() { ipcRenderer.send('onboarding-close'); },
   native: true,
 });
+ipcRenderer.send('onboarding-message',{type:'onboarding-readiness',step:'bridge-exposed'});
+// Do not send arbitrary error text: it can include account or document content.
+for(const [event,step] of [['error','renderer-error'],['unhandledrejection','renderer-rejection']])
+  window.addEventListener(event,details=>{
+    ipcRenderer.send('onboarding-message',{type:'onboarding-readiness',step});
+    if(process.argv.includes('--taylos-presentation-diagnostics'))console.error('[isolated-preload-error]',String(details.reason?.stack||details.error?.stack||step));
+  });

@@ -1,5 +1,6 @@
 import {translate, goalsDe} from './onboarding-i18n.js';
 import {analytics} from './onboarding-analytics.js';
+import {boundedReadiness, prepareFirstPaint} from './renderer-readiness.mjs';
 (() => {
   "use strict";
   // The real renderer is an ES module bundle and needs the local HTTP origin.
@@ -968,7 +969,10 @@ import {analytics} from './onboarding-analytics.js';
   new ResizeObserver(sendNative).observe(stage);
   nativeFrame.addEventListener("load",sendNative);
   function receiveProduct(d) {
-    if(d?.type==='onboarding-presented'){requestAnimationFrame(()=>{wrap.classList.remove('awaiting-presentation');intro();});return;}
+    if(d?.type==='onboarding-presented'){
+      if(!wrap.classList.contains('awaiting-presentation'))return;
+      wrap.classList.remove('awaiting-presentation');intro();return;
+    }
     if(d?.type==='permissions-updated'){void refreshPermissions().then(()=>{if(state.view==='permissions'&&state.permission===2){advanceVia='auto';go('transcript');}});return;}
     if(d?.type==='language'){changeLanguage(d.language);return;}
     if(d?.type==='bar-introduction') {
@@ -1127,30 +1131,45 @@ return;
     wrap.classList.add('awaiting-presentation');
     document.documentElement.dataset.intro='true';
     let resumed=false;
-    if(window.taylosLocal){
-      try {
-        const initial=await window.taylosLocal.request('onboarding:initial-state');
-        const checkpoint=initial?.checkpoint;
-        if(checkpoint && views.includes(checkpoint.view)){
-          resumed=true;
-          Object.assign(state,{view:checkpoint.view,goal:checkpoint.goal||null,customGoal:checkpoint.customGoal||'',fields:checkpoint.fields||{},website:checkpoint.website||''});
-        }
-      } catch {}
-      if(analytics.enabled){
-        let account=null;
-        try{const identityResult=await window.taylosLocal.request('auth:identity');if(identityResult?.authenticated)account=identityResult.user;}catch{}
-        analytics.init({username:account?.username||null,email:account?.email||null});
-        analytics.track('onboarding_started',{resumed,view:state.view,language:state.language,goal:state.goal||null});
-        analytics.step(state.view,views.indexOf(state.view),views.length,0);
-      }
+    const started=performance.now();
+    const readiness=step=>window.taylosLocal?.send({type:'onboarding-readiness',step,ms:Math.round(performance.now()-started)});
+    try {
+      await prepareFirstPaint({
+        bridge:window.taylosLocal,
+        native:document.documentElement.dataset.native==='true',
+        trace:readiness,
+        render:initial=>{
+          const checkpoint=initial?.checkpoint;
+          if(checkpoint && views.includes(checkpoint.view)){
+            resumed=true;
+            Object.assign(state,{view:checkpoint.view,goal:checkpoint.goal||null,customGoal:checkpoint.customGoal||'',fields:checkpoint.fields||{},website:checkpoint.website||''});
+          }
+          render();detectLayout();void refreshPermissions();
+          void wrap.offsetWidth;
+        },
+        image:async()=>{
+          const icon=wrap.querySelector('.launch-base');
+          if(!icon)throw new Error('Launch mark unavailable');
+          await icon.decode();
+          if(!icon.naturalWidth)throw new Error('Launch mark unavailable');
+        },
+        fonts:()=>document.fonts.ready,
+        nextFrame:()=>new Promise(resolve=>requestAnimationFrame(resolve)),
+      });
+    } catch {
+      readiness('failed');
+      window.taylosLocal?.send({type:'onboarding-presentation-failed'});
+      return;
     }
-    render();detectLayout();void refreshPermissions();
-    const icon=wrap.querySelector('.launch-base');
-    await Promise.all([icon?.decode?.().catch(()=>{}),document.fonts.ready]);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      if(window.taylosLocal)window.taylosLocal.send({type:'onboarding-presentable'});
-      else {wrap.classList.remove('awaiting-presentation');intro();}
-    }));
+    if(!window.taylosLocal){wrap.classList.remove('awaiting-presentation');intro();}
+    // Analytics/identity must never prevent the first visible frame.
+    if(window.taylosLocal && analytics.enabled){
+      let account=null;
+      try{const result=await boundedReadiness(()=>window.taylosLocal.request('auth:identity'),'identity',{trace:readiness});if(result?.authenticated)account=result.user;}catch{}
+      analytics.init({username:account?.username||null,email:account?.email||null});
+      analytics.track('onboarding_started',{resumed,view:state.view,language:state.language,goal:state.goal||null});
+      analytics.step(state.view,views.indexOf(state.view),views.length,0);
+    }
   }
   void present();
 })();

@@ -1,7 +1,7 @@
 {
   "name": "taylos-desktop",
   "productName": "Taylos",
-  "version": "1.0.119",
+  "version": "1.0.120",
   "description": "Real-time AI sales assistant",
   "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
@@ -35,7 +35,8 @@
     "aec:analyse": "node tools/aec-analyse-session.cjs",
     "aec:embed": "node scripts/embed-aec3-wasm.js",
     "aec:browser-check": "vite build -c tools/aec3-browser-check/vite.config.ts && electron tools/aec3-browser-check/electron-runner.cjs",
-    "test:onboarding": "node --test tests/native-onboarding-flow.test.cjs tests/native-onboarding-profile.test.cjs tests/desktop-checkout-bridge.test.cjs tests/onboarding-setup-errors.test.cjs",
+    "test:onboarding": "node --test tests/native-onboarding-flow.test.cjs tests/native-onboarding-profile.test.cjs tests/desktop-checkout-bridge.test.cjs tests/onboarding-setup-errors.test.cjs tests/onboarding-presentation-gate.test.cjs tests/onboarding-renderer-readiness.test.cjs tests/onboarding-host-lifecycle.test.cjs",
+    "test:onboarding:presentation": "electron tools/onboarding-presentation-check.cjs",
     "verify:release": "npm run typecheck && npm run test:lifecycle && npm run test:transcript && npm run test:aec && npm run test:onboarding && npm run aec:bench && npm run aec:browser-check",
     "postinstall": "electron-builder install-app-deps",
     "start": "npm run dev",

@@ -505,6 +505,7 @@ Write-Step "Release gates"
 Invoke-Checked "npm" @("run", "test:lifecycle")
 Invoke-Checked "npm" @("run", "test:transcript")
 Invoke-Checked "npm" @("run", "test:aec")
+Invoke-Checked "npm" @("run", "test:onboarding")
 Invoke-Checked "npm" @("run", "aec:bench")
 Invoke-Checked "npm" @("run", "aec:browser-check")
 
@@ -521,6 +522,10 @@ Invoke-Checked "npm" @("run", "build:release:win")
 
 Write-Step "Verify release assets"
 Assert-ReleaseAssets $signTool $Thumbprint
+
+Write-Step "Verify native onboarding presentation with an isolated profile"
+$presentationEvidence = Join-Path $env:TEMP "taylos-onboarding-presentation-$version"
+Invoke-Checked "npm" @("run", "test:onboarding:presentation", "--", $presentationEvidence)
 
 $uploadCommand = "gh release upload $tag dist\Taylos.exe dist\Taylos.exe.blockmap dist\latest.yml --repo $Repo --clobber"
 Write-Step "Upload command"

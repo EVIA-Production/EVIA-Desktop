@@ -146,6 +146,17 @@ export async function saveContext(context: any, token: string) {
 
 /** The regular app owns authentication, real permissions and profile persistence. */
 export function registerNativeOnboarding() {
+  const showRecovery = () => {
+    const german = app.getLocale().startsWith('de');
+    void dialog.showMessageBox({
+      type:'error', title:german?'Taylos konnte nicht geöffnet werden':'Taylos could not open',
+      message:german?'Die Einrichtung konnte nicht angezeigt werden.':'Setup could not be shown.',
+      detail:german?'Deine Daten bleiben erhalten. Du kannst es erneut versuchen oder Taylos über das Menü öffnen.':'Your data is unchanged. Try again, or open Taylos from its menu.',
+      buttons:german?['Erneut versuchen','Schließen']:['Try again','Close'],defaultId:0,cancelId:1,
+    }).then(result=>{
+      if(result.response===0)void headerController.restartNativeOnboarding();
+    }).catch(()=>{});
+  };
   headerController.setRegistrationLauncher(async ({ returning }) => {
     // A returning user signs in and lands on the dashboard; the sign-up page's
     // OAuth would route them through /desktop/open ("Opening Taylos"), which
@@ -174,6 +185,7 @@ export function registerNativeOnboarding() {
       return await startOnboarding({
         requestHost: requestPermissions,
         resume,
+        onPresentationError: showRecovery,
         onCheckpoint: (checkpoint: unknown) => {
           const next=JSON.stringify({account:accountId,checkpoint});
           if(next===lastCheckpoint)return;
@@ -197,7 +209,8 @@ export function registerNativeOnboarding() {
         },
       });
     } catch (error) {
-      dialog.showErrorBox('Taylos setup could not open', 'Please reopen Taylos or use Help → Start Tutorial again. Your setup has not been marked complete.');
+      for(const win of visible)if(!win.isDestroyed()){win.show();win.moveTop();}
+      if((error as {code?:string})?.code!=='ONBOARDING_CLOSED')showRecovery();
       throw error;
     }
   });
