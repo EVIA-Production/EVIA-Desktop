@@ -6,7 +6,8 @@ const test = require('node:test')
 
 const ROOT = path.resolve(__dirname, '..')
 const binary = path.join(ROOT, 'src', 'main', 'assets', 'SystemAudioDump')
-const read = (relativePath) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8')
+// Windows checkouts may carry CRLF; the contracts below are about content, not line endings.
+const read = (relativePath) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8').replace(/\r\n/g, '\n')
 
 function versionAtMost(value, maximum) {
   const actual = value.split('.').map(Number)
