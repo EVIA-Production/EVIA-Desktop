@@ -33,7 +33,12 @@ jobs:
         env:
           ELECTRON_ENABLE_LOGGING: "1"
         run: |
-          & .\node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs "$env:RUNNER_TEMP\taylos-diag-gpu" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\diag-gpu.log"
+          # Electron logs to stderr; PowerShell must not turn that into a terminating error.
+          $ErrorActionPreference = 'Continue'
+          cmd /c "node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs ""$env:RUNNER_TEMP\taylos-diag-gpu"" > ""$env:RUNNER_TEMP\diag-gpu.log"" 2>&1"
+          Write-Host "electron exit code: $LASTEXITCODE"
+          Get-Content "$env:RUNNER_TEMP\diag-gpu.log"
+          exit 0
       - name: Diagnose presentation (GPU off)
         shell: powershell
         continue-on-error: true
@@ -41,7 +46,12 @@ jobs:
           ELECTRON_ENABLE_LOGGING: "1"
           TAYLOS_DIAG_DISABLE_GPU: "1"
         run: |
-          & .\node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs "$env:RUNNER_TEMP\taylos-diag-nogpu" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\diag-nogpu.log"
+          # Electron logs to stderr; PowerShell must not turn that into a terminating error.
+          $ErrorActionPreference = 'Continue'
+          cmd /c "node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs ""$env:RUNNER_TEMP\taylos-diag-nogpu"" > ""$env:RUNNER_TEMP\diag-nogpu.log"" 2>&1"
+          Write-Host "electron exit code: $LASTEXITCODE"
+          Get-Content "$env:RUNNER_TEMP\diag-nogpu.log"
+          exit 0
       - name: Upload diagnosis
         if: always()
         uses: actions/upload-artifact@v4

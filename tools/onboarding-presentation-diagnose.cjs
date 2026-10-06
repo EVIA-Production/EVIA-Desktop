@@ -81,6 +81,8 @@ function watch(win) {
 app.whenReady().then(async () => {
   log('start', { platform: process.platform, arch: process.arch, electron: process.versions.electron, os: os.release(), gpuDisabled: process.env.TAYLOS_DIAG_DISABLE_GPU === '1' });
   try { log('gpu-feature-status', app.getGPUFeatureStatus()); } catch {}
+  log('session', { sessionName: process.env.SESSIONNAME || null, userInteractive: process.env.USERDOMAIN ? true : null });
+  try { const info = await app.getGPUInfo('basic'); log('gpu-info', { devices: (info.gpuDevice || []).map(d => ({ vendor: d.vendorId, device: d.deviceId, active: d.active, driver: d.driverVersion })), auxAttributes: info.auxAttributes ? { softwareRendering: info.auxAttributes.softwareRendering, sandboxed: info.auxAttributes.sandboxed, inProcessGpu: info.auxAttributes.inProcessGpu } : null }); } catch (error) { log('gpu-info-error', { message: error.message }); }
   const { startOnboarding } = require('../onboarding-runtime/output/onboarding-prototype/local-onboarding.cjs');
   let result = 'FAIL', reason = null;
   try {
