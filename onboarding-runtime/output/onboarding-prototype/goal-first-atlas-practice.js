@@ -1132,7 +1132,8 @@ return;
     document.documentElement.dataset.intro='true';
     let resumed=false;
     const started=performance.now();
-    const readiness=step=>window.taylosLocal?.send({type:'onboarding-readiness',step,ms:Math.round(performance.now()-started)});
+    // Metadata only: step names, timings and, on failure, the error's type and message (no stack, no context).
+    const readiness=(step,extra)=>window.taylosLocal?.send({type:'onboarding-readiness',step,ms:Math.round(performance.now()-started),...extra});
     try {
       await prepareFirstPaint({
         bridge:window.taylosLocal,
@@ -1144,8 +1145,15 @@ return;
             resumed=true;
             Object.assign(state,{view:checkpoint.view,goal:checkpoint.goal||null,customGoal:checkpoint.customGoal||'',fields:checkpoint.fields||{},website:checkpoint.website||''});
           }
-          render();detectLayout();void refreshPermissions();
+          readiness('render-checkpoint-applied');
+          render();
+          readiness('render-view');
+          detectLayout();
+          readiness('render-layout-started');
+          void refreshPermissions();
+          readiness('render-permissions-started');
           void wrap.offsetWidth;
+          readiness('render-layout-read');
         },
         image:async()=>{
           const icon=wrap.querySelector('.launch-base');
@@ -1156,8 +1164,8 @@ return;
         fonts:()=>document.fonts.ready,
         nextFrame:()=>new Promise(resolve=>requestAnimationFrame(resolve)),
       });
-    } catch {
-      readiness('failed');
+    } catch (error) {
+      readiness('failed',{error:String(error?.name||'Error')+': '+String(error?.message||error).slice(0,160)});
       window.taylosLocal?.send({type:'onboarding-presentation-failed'});
       return;
     }

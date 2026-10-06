@@ -106,3 +106,14 @@ test('a destroyed owner is never presented', async () => {
   assert.deepEqual(await gate.outcome, { presented: false, reason: 'window-destroyed' });
   assert.deepEqual(events.present, []);
 });
+
+test('with autoArm off, the deadline starts only at arm(), once', async () => {
+  const window = fakeWindow(), timers = fakeTimers();
+  const gate = createPresentationGate({ window, platform: 'win32', autoArm: false, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+  assert.equal(timers.pending, 0, 'building product windows does not run the clock');
+  assert.equal(gate.arm(), true);
+  assert.equal(gate.arm(), false);
+  assert.equal(timers.pending, 1);
+  timers.fire();
+  assert.equal((await gate.outcome).presented, false);
+});

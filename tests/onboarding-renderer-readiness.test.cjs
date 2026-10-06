@@ -81,3 +81,10 @@ test('late resolution after timeout cannot produce a second outcome', async () =
   assert.equal(cleared, 1);
   assert.deepEqual(events, ['test-start', 'test-timeout']);
 });
+test('a fresh first run without a checkpoint renders and acknowledges the same way', async () => {
+  const f = await fixture({ bridge: { request: async () => ({ checkpoint: null }), send: message => f.messages.push(message) } });
+  await f.run();
+  assert.deepEqual(f.views, [{ checkpoint: null }]);
+  assert.deepEqual(f.messages, [{ type: 'onboarding-presentable' }]);
+  assert.ok(f.events.indexOf('rendered') > f.events.indexOf('initial-state-end'));
+});

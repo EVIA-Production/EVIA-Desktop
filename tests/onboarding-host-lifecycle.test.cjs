@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const { createPresentationGate } = require('../onboarding-runtime/output/onboarding-prototype/presentation-gate.cjs');
 
-function host(mode = 'acknowledge') {
+function host(mode = 'acknowledge', { armAtCreation = false } = {}) {
   const windows = [], closed = [], failures = [], traces = [];
   let productDestroyed = 0, serverClosed = 0;
   const ipcMain = new EventEmitter();ipcMain.removeHandler = () => {};
@@ -29,7 +29,7 @@ function host(mode = 'acknowledge') {
     focus() { this.calls.push(['focus']); }
     destroy() { if(this.destroyed)return;this.destroyed = true;this.emit('closed'); }
     loadURL() {
-      queueMicrotask(() => {
+      (mode === 'slow-product' ? callback => setTimeout(callback, 5) : queueMicrotask)(() => {
         const wc = this.webContents;
         if(mode === 'load-fail') { wc.emit('did-fail-load', {}, -2, 'failed', '', true);return; }
         if(mode === 'preload-fail') { wc.emit('preload-error', {}, 'preload', Error('private account data'));return; }
@@ -40,7 +40,7 @@ function host(mode = 'acknowledge') {
         wc.emit('did-finish-load');
         if(mode === 'untrusted')ipcMain.emit('onboarding-message', { sender:{} }, {type:'onboarding-presentable'});
         if(mode === 'incidental-error')ipcMain.emit('onboarding-message',{sender:wc},{type:'onboarding-readiness',step:'renderer-rejection'});
-        if(!['acknowledge','incidental-error'].includes(mode))return;
+        if(!['acknowledge','incidental-error','slow-product'].includes(mode))return;
         ipcMain.emit('onboarding-message', { sender:wc }, {type:'onboarding-readiness',step:'rendered'});
         ipcMain.emit('onboarding-message', { sender:wc }, {type:'onboarding-presentable'});
       });
@@ -53,9 +53,9 @@ function host(mode = 'acknowledge') {
   const deps = {
     electron:{app,BrowserWindow:Window,Tray,ipcMain,screen:{getCursorScreenPoint:()=>({x:0,y:0}),getDisplayNearestPoint:()=>({bounds:{x:0,y:0,width:1440,height:900}})},nativeImage:{createFromPath:()=>({resize:()=>({})})},shell:{openExternal:()=>assert.fail('visibility must not open checkout')},Menu:{}},
     'node:fs':mockFs,'node:path':path,'node:http':{createServer:()=>({listen(_port,_host,callback){callback();},address:()=>({port:1234}),close(){serverClosed++;}})},
-    './presentation-gate.cjs':{createPresentationGate:options=>createPresentationGate({...options,platform:'win32',timeoutMs:20})},
+    './presentation-gate.cjs':{createPresentationGate:options=>createPresentationGate({...options,platform:'win32',timeoutMs:20,...(armAtCreation?{autoArm:true}:{})})},
     './display-fit.cjs':()=>()=>{},
-    './native-windows.cjs':()=>{if(mode==='product-fail')throw Error('native bridge unavailable');return {destroy(){productDestroyed++;}};},
+    './native-windows.cjs':()=>{if(mode==='product-fail')throw Error('native bridge unavailable');if(mode==='slow-product'){const until=Date.now()+40;while(Date.now()<until);}return {destroy(){productDestroyed++;}};},
   };
   const module={exports:{}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../onboarding-runtime/output/onboarding-prototype/local-onboarding.cjs'),'utf8'),{
@@ -117,4 +117,16 @@ test('a post-presentation renderer crash closes the owner and calls visible reco
   assert.deepEqual(h.failures,['renderer-gone']);
   assert.deepEqual(h.closed.map(value=>value.finished),[false]);
   assert.deepEqual(h.cleanup(),{productDestroyed:1,serverClosed:1});
+});
+
+test('slow product-window setup does not use up the first-paint deadline (v1.0.120 Windows gate)', async () => {
+  const h=host('slow-product');const handle=await h.run();const win=h.windows[0];
+  assert.equal(win.calls.filter(([name])=>name==='show').length,1);
+  assert.deepEqual(h.failures,[]);
+  handle.close();
+});
+test('with the deadline armed at creation, the same slow setup fails presentation (the v1.0.120 failure)', async () => {
+  const h=host('slow-product',{armAtCreation:true});
+  await assert.rejects(h.run(),/not-presentable/);
+  assert.equal(h.windows[0].calls.filter(([name])=>name==='show').length,0);
 });

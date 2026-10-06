@@ -118,7 +118,8 @@ async function startOnboarding(options={}) {
     } catch {return null;}
   };
   let presented=false;
-  const gate=createPresentationGate({window,trace});
+  // The deadline is armed when the page starts loading, after the product windows exist.
+  const gate=createPresentationGate({window,trace,autoArm:false,timeoutMs:15000});
   window.webContents.on('preload-error',()=>{trace('preload-error');gate.fail('preload-failed');});
   window.webContents.on('did-fail-load',(_event,code,_description,_url,isMainFrame)=>{if(!isMainFrame)return;trace('did-fail-load',{code});gate.fail('load-failed');});
   window.webContents.on('render-process-gone',(_event,details)=>{
@@ -150,14 +151,15 @@ async function startOnboarding(options={}) {
     if(embedded){if(notify)options.onClose?.({finished});}else app.quit();
   }
   window.once('closed',()=>close());
-  const readinessSteps=new Set(['bridge-exposed','bridge-available','bridge-missing','initial-state-start','initial-state-end','initial-state-error','initial-state-timeout','rendered','image-start','image-end','image-error','image-timeout','fonts-start','fonts-end','fonts-error','fonts-timeout','assets-ready','frames-start','frames-end','frames-error','frames-timeout','acknowledged','failed','identity-start','identity-end','identity-error','identity-timeout','renderer-error','renderer-rejection']);
+  const readinessSteps=new Set(['bridge-exposed','bridge-available','bridge-missing','initial-state-start','initial-state-end','initial-state-error','initial-state-timeout','rendered','image-start','image-end','image-error','image-timeout','fonts-start','fonts-end','fonts-error','fonts-timeout','assets-ready','frames-start','frames-end','frames-error','frames-timeout','acknowledged','failed','identity-start','identity-end','identity-error','identity-timeout','renderer-error','renderer-rejection','render-checkpoint-applied','render-view','render-layout-started','render-permissions-started','render-layout-read']);
   async function finish(event,data) {
     if(event.sender!==window?.webContents)return;
     if(data?.type==='onboarding-presentable'){trace('renderer-acknowledged');gate.acknowledge();return;}
     if(data?.type==='onboarding-presentation-failed'){gate.fail('renderer-readiness-failed');return;}
     if(data?.type==='onboarding-readiness'){
       if(!readinessSteps.has(data.step))return;
-      trace('renderer-'+data.step,{rendererMs:Number.isFinite(data.ms)?data.ms:undefined});
+      // The renderer sends only the error's type and message on failure; cap it and drop anything else.
+      trace('renderer-'+data.step,{rendererMs:Number.isFinite(data.ms)?data.ms:undefined,error:data.step==='failed'&&typeof data.error==='string'?data.error.slice(0,200):undefined});
       if(data.step==='rendered')gate.markRendered();
       // Global errors can originate in Electron's development warning code.
       // Only the explicit readiness contract, preload/load failure, or a crash
@@ -207,6 +209,7 @@ async function startOnboarding(options={}) {
   // TAYLOS_ONBOARDING_FLOW=classic opens the review build on the previous card-copy flow.
   const flowQuery = (process.env.TAYLOS_ONBOARDING_FLOW === 'classic' ? '&flow=classic' : '') + (process.env.TAYLOS_PREVIEW_TAP === '1' ? '&tap=1' : '');
   window.webContents.once('did-finish-load',()=>gate.prime());
+  gate.arm();
   // Do not await loadURL before the gate: a hung navigation must also time out.
   void window.loadURL(origin+'/output/onboarding-prototype/goal-first-atlas-practice.html?native=1'+startView+analyticsQuery+flowQuery).catch(()=>{trace('load-url-error');gate.fail('load-failed');});
   const outcome=await gate.outcome;

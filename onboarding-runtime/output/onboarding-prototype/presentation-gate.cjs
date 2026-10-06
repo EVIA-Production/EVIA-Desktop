@@ -20,11 +20,16 @@ function createPresentationGate({
   onPresent = () => {},
   onFail = () => {},
   trace = () => {},
+  // false: the deadline starts at arm(), i.e. when the owner page starts loading.
+  // Building the product windows before that took 10.7 s on the Windows signing
+  // PC (v1.0.120) and must not count against the renderer's first paint.
+  autoArm = true,
 }) {
   let state = 'waiting';
   let rendered = false;
   let primed = false;
   let timer = null;
+  let armed = false;
   let resolveOutcome;
   const outcome = new Promise(resolve => { resolveOutcome = resolve; });
   const alive = () => !window.isDestroyed();
@@ -55,12 +60,20 @@ function createPresentationGate({
     return true;
   }
 
-  timer = setTimer(() => {
-    fail('not-presentable');
-  }, timeoutMs);
+  function arm() {
+    if (armed || state !== 'waiting') return false;
+    armed = true;
+    timer = setTimer(() => {
+      fail('not-presentable');
+    }, timeoutMs);
+    trace('deadline-armed', { timeoutMs });
+    return true;
+  }
+  if (autoArm) arm();
 
   return {
     outcome,
+    arm,
     /** Called once the page has loaded. Only Windows needs the invisible show. */
     prime() {
       if (platform !== 'win32' || primed || state !== 'waiting' || !alive()) return false;
