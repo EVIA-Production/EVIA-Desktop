@@ -22,7 +22,12 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   let inputDiagnosticTimer, pointerTimer;
   const pointerIgnored=new Map(), scaledWindows=new Set();
   const layoutBounds = new Map(), productBounds = new Map();
-  try {
+  // Native glass needs GPU compositing on Windows (see native-glass-policy.cjs);
+  // without it the product windows use the CSS material.
+  const gpuCompositing = (() => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch { return ''; } })();
+  const { nativeGlassAllowed } = require('./native-glass-policy.cjs');
+  if (!nativeGlassAllowed(process.platform, gpuCompositing, process.env.TAYLOS_NATIVE_GLASS)) console.log('Product native glass: off (gpu_compositing=' + (gpuCompositing || 'unknown') + ')');
+  else try {
     const platformPath = process.platform === 'darwin'
       ? 'macos-liquid-glass/build/Release/taylos_liquid_glass.node'
       : `windows-liquid-glass/prebuilds/win32-${process.arch}/taylos_windows_glass.node`;

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
+import { nativeGlassAllowed } from './native-glass-policy'
 import fs from 'fs'
 import path from 'path'
 
@@ -157,6 +158,7 @@ const POLICIES: Record<MaterialSurface, MaterialPolicy> = {
 const configuredWindows = new WeakMap<BrowserWindow, { surface: MaterialSurface; mode: MaterialMode }>()
 const materialActiveStateUpdaters = new WeakMap<BrowserWindow, (active: boolean) => void>()
 let nativeBridge: NativeGlassBridge | null | undefined
+let nativeGlassSkipLogged = false
 
 export function setWindowMaterialActive(win: BrowserWindow, active: boolean): void {
   materialActiveStateUpdaters.get(win)?.(active)
@@ -194,7 +196,18 @@ function bridgeCandidates(): string[] {
   ]
 }
 
+function gpuCompositingStatus(): string {
+  try { return String(app.getGPUFeatureStatus().gpu_compositing || '') } catch { return '' }
+}
+
 function loadNativeBridge(): NativeGlassBridge | null {
+  if (!nativeGlassAllowed(process.platform, gpuCompositingStatus(), process.env.TAYLOS_NATIVE_GLASS)) {
+    if (!nativeGlassSkipLogged) {
+      nativeGlassSkipLogged = true
+      console.log('[window-material] Native glass off without GPU compositing:', gpuCompositingStatus() || 'unknown')
+    }
+    return null
+  }
   if (nativeBridge !== undefined) return nativeBridge
   nativeBridge = null
 
