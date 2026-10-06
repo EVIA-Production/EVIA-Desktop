@@ -239,8 +239,7 @@ kbd {height:19px;min-width:19px;display:inline-flex;align-items:center;justify-c
 @keyframes window-reveal {0%,73% {opacity:0;clip-path:inset(calc(50% - 56px) calc(50% - 56px) round 29px);transform:translateY(3px)}74% {opacity:1}100% {opacity:1;clip-path:inset(-100px -100px -140px round 25px);transform:none}}
 @keyframes logo-reveal {0% {opacity:0;transform:translate(-50%,-40%) rotateY(-12deg)}12%,73% {opacity:1;transform:translate(-50%,-50%) rotateY(0)}90%,100% {opacity:0;transform:translate(-50%,-50%) rotateY(50deg) scale(.65)}}
 @keyframes content-reveal {0%,77% {opacity:0}100% {opacity:1}}
-.toast {position:fixed;bottom:22px;left:50%;max-width:calc(100% - 40px);transform:translate(-50%,8px);padding:12px 18px;border-radius:9px;background:#171e28ee;border:1px solid #ffffff25;box-shadow:0 10px 20px #0006;color:#dce8f7;font-size:14px;opacity:0;pointer-events:none;transition:opacity 150ms,transform 150ms;z-index:50}
-.toast.visible {opacity:1;transform:translate(-50%,0)}
+.inline-notice {flex-basis:100%;width:100%;margin:8px 0 0;padding:0;color:#ffd9d3;font-size:12px;line-height:17px;text-align:center}
 @media(max-width:1050px) {.prototype-phase {display:none}.live-panels {width:100%}.overlay-stack {width:calc(100% - 48px)}.personalization-stage {width:calc(100% - 74px)}}
 @media(max-width:760px) {
   .prototype-toolbar {justify-content:center;padding:0 8px;gap:0}

@@ -59,7 +59,7 @@ import {analytics} from './onboarding-analytics.js';
   }
   const pressed = new Set();
   let transitionTimer = 0;
-  let toastTimer = 0;
+  // (inline notices replaced the toast timer)
   let introTimer = 0;
   let lightTimer = 0;
   let manualLayout = false;
@@ -468,8 +468,9 @@ import {analytics} from './onboarding-analytics.js';
       : '<div class="permission-actions"><button class="button quiet" data-action="continue-preview">' + (livePermissions ? 'Continue' : 'Continue preview') + '</button><button class="button permission-primary" data-action="open-mic-settings">Open Windows Settings</button></div>';
     if(state.view==="review" && !focus) right='<button class="button white t-learn" data-action="done">Personalize Suggestions ' + navigationChevron() + '</button>';
     if(state.view==="personalize") right='<button class="button permission-primary" data-action="finish" type="button">Finish Setup</button>';
-    if(state.view==="personalize") return right+'<div class="personalization-footer-row">'+left+'<a class="legal-link" href="https://taylos.ai/legal" target="_blank" rel="noopener noreferrer">Legal</a></div>';
-    return left + '<div class="footer-position ' + (right ? "middle" : "right") + '">' + progress() + '</div>' + right;
+    const notice=state.toast ? '<p class="inline-notice" role="alert">'+escapeNotice(t(state.toast))+'</p>' : '';
+    if(state.view==="personalize") return right+notice+'<div class="personalization-footer-row">'+left+'<a class="legal-link" href="https://taylos.ai/legal" target="_blank" rel="noopener noreferrer">Legal</a></div>';
+    return notice + left + '<div class="footer-position ' + (right ? "middle" : "right") + '">' + progress() + '</div>' + right;
   }
 
   root.innerHTML='<div class="desktop"><div class="light-field" aria-hidden="true">' +
@@ -479,7 +480,7 @@ import {analytics} from './onboarding-analytics.js';
     '<div class="onboarding-drag-region" aria-hidden="true"></div>' +
     '<div class="showcase"><div class="stage-art"></div><iframe class="native-overlay-frame" title="Taylos desktop overlay" src="' + (window.taylosLocal?'about:blank':'native-build/') + '"></iframe></div>' +
     '<div class="instruction-zone"><div class="phase-mount"></div><div class="instruction-main"><div class="copy-block"><div class="copy-media"></div><h1></h1><p></p></div><div class="interaction-zone"></div></div><footer class="card-footer"></footer></div></section>' +
-    '<div class="launch-icon"><img class="launch-base" src="' + appIcon + '" alt="" /><img class="launch-symbol" src="' + mark + '" alt="Taylos" /></div></div><div class="toast" role="status"></div></div>';
+    '<div class="launch-icon"><img class="launch-base" src="' + appIcon + '" alt="" /><img class="launch-symbol" src="' + mark + '" alt="Taylos" /></div></div></div>';
   const card=root.querySelector(".onboarding-card");
   const stage=root.querySelector(".showcase");
   const stageArt=root.querySelector(".stage-art");
@@ -739,10 +740,16 @@ import {analytics} from './onboarding-analytics.js';
       state.history=1;state.visible=true;render(true);
     } else if(state.view==='goal') nativeFrame.contentWindow?.focus();
   }
+  // Messages are shown inline, above the button that produced them, and stay
+  // until the user acts again. Never a toast: a toast outside the card is not
+  // visible in the native window (2026-09-21: 18 setup failures nobody could read).
+  function escapeNotice(text) {
+    return String(text).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
   function toast(message) {
-    const element=root.querySelector(".toast");
-    element.textContent=t(message);element.classList.add("visible");
-    clearTimeout(toastTimer);toastTimer=setTimeout(()=>element.classList.remove("visible"),2400);
+    state.toast=String(message||'');
+    const footerNow=root.querySelector(".card-footer");
+    if(footerNow)footerNow.innerHTML=L(footer());
   }
   function restart() {
     clearTimeout(transitionTimer);clearTimeout(introTimer);
@@ -828,6 +835,7 @@ import {analytics} from './onboarding-analytics.js';
       analytics.terminal('onboarding_finish_clicked',{skipped:state.view==='welcome',goal:state.goal||null,has_custom_goal:!!state.customGoal.trim(),has_website:!!state.website.trim(),document_count:documentFiles.size,fields_filled:Object.values(state.fields).filter(v=>String(v||'').trim()).length,language:state.language});
       if(window.taylosLocal){
         event.preventDefault();if(b.getAttribute('aria-disabled')==='true')return;
+        state.toast='';root.querySelector('.inline-notice')?.remove();
         b.setAttribute('aria-disabled','true');b.textContent='Saving your setup…';
         try {
           const documentData=await Promise.all([...documentFiles.values()].map(async file=>({name:file.name,type:file.type,bytes:new Uint8Array(await file.arrayBuffer())})));

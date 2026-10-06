@@ -3,20 +3,20 @@ import path from 'path';
 import fs from 'fs';
 import * as keytar from 'keytar';
 import { headerController } from './header-controller';
+import { setupErrorMessage } from './setup-error-message';
 import { getHeaderWindow, suspendOverlayShortcuts } from './overlay-windows';
 import { desktopBridge } from './desktop-bridge';
 import { webAppUrl } from './web-app-url';
 import { systemAudioMacService } from './system-audio-mac-service';
 import { macSupportsAudioTap, probeAudioCapturePermission, requestAudioCapturePermission } from './system-audio-permission-mac';
 
-async function openWebCheckout() {
+export async function openWebCheckout() {
   const token = await keytar.getPassword('taylos', 'token');
-  const checkout = webAppUrl('https://app.taylos.ai/checkout?source=desktop');
+  const url = new URL('https://app.taylos.ai/checkout?source=desktop');
+  if (token) url.searchParams.set('desktop_token', token);
+  const checkout = webAppUrl(url.toString());
   if (await desktopBridge.navigateTo(checkout)) return;
-  const fallback = token
-    ? webAppUrl(`https://app.taylos.ai/checkout?source=desktop&desktop_token=${encodeURIComponent(token)}`)
-    : checkout;
-  await shell.openExternal(fallback);
+  await shell.openExternal(checkout);
 }
 
 /**
@@ -60,6 +60,7 @@ async function requestPermissions(channel: string) {
 }
 
 export async function saveContext(context: any, token: string) {
+  const language = String(context?.language || 'en').toLowerCase().startsWith('de') ? 'de' : 'en';
   const fields = context?.fields || {};
   const mapping: Record<string, string> = { result:'goal',callType:'call_type',sellerName:'seller_name',sellerRole:'seller_role',company:'company',offer:'offer',proof:'proof',pricing:'pricing',buyer:'target_customer',needs:'customer_context',industry:'industry',objections:'objections',style:'sales_style',frameworks:'frameworks',coaching:'coaching_focus' };
   const answers: Record<string, string> = Object.fromEntries(Object.entries(mapping).map(([from,to])=>[to, String(fields[from] || '').slice(0,20000)]));
@@ -70,7 +71,7 @@ export async function saveContext(context: any, token: string) {
   const body = new FormData();
   body.set('answers_json', JSON.stringify(answers));
   body.set('website', String(context?.website || ''));
-  body.set('language', 'en');
+  body.set('language', language);
   body.set('use_ai', 'false');
   const documents = context?.documentData || [];
   if (!Array.isArray(documents) || documents.length > 5) throw new Error('Choose up to five documents.');
@@ -82,13 +83,30 @@ export async function saveContext(context: any, token: string) {
   const api = 'https://api.taylos.ai';
   async function request(route: string, init: RequestInit = {}) {
     const response = await fetch(api + route, { ...init, headers:{ Authorization:`Bearer ${token}`, ...init.headers }, signal:AbortSignal.timeout(90000) });
-    if (!response.ok) throw Object.assign(new Error(`Could not save your context (${response.status}). Please try again.`), {status:response.status});
+    if (!response.ok) {
+      // Log only the failing operation, never the token or personal context.
+      console.error('[Onboarding] Request failed', init.method || 'GET', route, response.status);
+      throw Object.assign(new Error(await setupErrorMessage(response)), {status:response.status});
+    }
     return response.json();
   }
   let draft;
+  let skippedSources = '';
   try { draft = await request('/onboarding/profile/draft', { method:'POST',body }); }
   catch (error: any) {
-    if (error.status !== 404) throw error;
+    // A website or document the server cannot read must not block setup: the
+    // typed answers are the profile. Save them, and say what was left out.
+    if (error.status === 400 && (documents.length || context?.website)) {
+      const typedOnly = new FormData();
+      typedOnly.set('answers_json', JSON.stringify(answers));
+      typedOnly.set('website', '');
+      typedOnly.set('language', language);
+      typedOnly.set('use_ai', 'false');
+      draft = await request('/onboarding/profile/draft', { method:'POST', body:typedOnly });
+      skippedSources = error.message;
+    }
+    else if (error.status !== 404) throw error;
+    else {
     // The older production backend supports profiles but not source import yet.
     // Preserve actual inputs locally and ask before continuing without importing.
     if (documents.length || context?.website) {
@@ -105,12 +123,26 @@ export async function saveContext(context: any, token: string) {
     draft={compiled_content:['# My Sales Profile','Use these facts as context for suggestions. Do not invent missing information.',
       ...Object.entries(answers).filter(([,value])=>value.trim()).map(([key,value])=>`## ${key.replace(/_/g,' ')}\n${value}`)].join('\n\n')};
   }
-  if (!draft.compiled_content) throw new Error('Your profile could not be prepared. Please try again.');
+  }
+  if (!draft?.compiled_content) throw new Error('Your profile could not be prepared. Please try again.');
   const prompts = await request('/prompts');
   const existing = prompts.find((item: any)=>['My Sales Profile','Mein Sales-Profil'].includes(item.name));
-  const saved = await request(existing ? `/prompts/${existing.id}` : '/prompts', { method:existing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'My Sales Profile',description:'Company, customer and coaching context.',content:draft.compiled_content,language:'en',...(!existing ? {is_active:false}:{})}) });
-  await request(`/prompts/${saved.id}/activate`, {method:'POST'});
+  const saved = await request(existing ? `/prompts/${existing.id}` : '/prompts', { method:existing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:language === 'de' ? 'Mein Sales-Profil' : 'My Sales Profile',description:'Company, customer and coaching context.',content:draft.compiled_content,language,generate_metadata:false,...(!existing ? {is_active:false}:{})}) });
+  if (!Number.isInteger(saved?.id) || saved.id <= 0) throw new Error('Your profile could not be saved. Please try again.');
+  const activation = await request(`/prompts/${saved.id}/activate`, {method:'POST'});
+  if (activation?.context?.cache_synced === false) {
+    throw new Error(language === 'de'
+      ? 'Dein Profil ist gespeichert. Die Live-Verbindung ist noch nicht bereit. Bitte versuche es erneut.'
+      : 'Your profile is saved. The live connection is not ready yet. Please try again.');
+  }
+  if (skippedSources) {
+    await dialog.showMessageBox({type:'info', title:'Setup finished without one source',
+      message:'Your typed profile is saved and active.',
+      detail:`${skippedSources}\n\nYou can add a readable document later in Settings → Presets.`,
+      buttons:['OK'], defaultId:0});
+  }
 }
+
 
 /** The regular app owns authentication, real permissions and profile persistence. */
 export function registerNativeOnboarding() {

@@ -165,7 +165,8 @@ test('an app that opens also closes, exactly once, from one window', () => {
   assert.match(entrySource, /trackDesktopAppClosed\(\{/);
   // The header window only. Four overlay windows run this module; firing from
   // all of them would report four closes per app.
-  assert.match(entrySource, /get\('view'\) === null/);
+  assert.match(entrySource, /const startupView = new URLSearchParams\(window.location.search\).get\('view'\)/);
+  assert.match(entrySource, /if \(startupView === null \|\| startupView === 'header'\)/);
   // pagehide, not beforeunload - beforeunload is unreliable on Electron
   // teardown and would bias durations toward tidy exits.
   assert.match(entrySource, /addEventListener\('pagehide'/);

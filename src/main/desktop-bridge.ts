@@ -115,6 +115,7 @@ class DesktopBridge {
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private activeClients: Set<WebSocket> = new Set();
+  private clientOrigins = new WeakMap<WebSocket, string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -177,9 +178,10 @@ class DesktopBridge {
         console.error('[Bridge] WebSocket server error:', err.code || err.message);
       });
 
-      this.wss.on('connection', (ws: WebSocket) => {
+      this.wss.on('connection', (ws: WebSocket, request: http.IncomingMessage) => {
         console.log('[Bridge] 🔗 Frontend tab connected');
         this.activeClients.add(ws);
+        if (request.headers.origin) this.clientOrigins.set(ws, request.headers.origin);
 
         // WINDOWS FIX (2025-12-05): Send desktop_open status immediately on connection
         // This allows the frontend to update "Taylos Desktop öffnen" button to reflect connection
@@ -250,7 +252,8 @@ class DesktopBridge {
    * Returns true if tab was reused, false if new tab was opened
    */
   public async navigateTo(url: string): Promise<boolean> {
-    console.log(`[Bridge] 🧭 Requesting navigation to: ${url}`);
+    const target = new URL(url);
+    console.log(`[Bridge] Requesting navigation to: ${target.origin}${target.pathname}`);
     console.log(`[Bridge] 📊 Active clients: ${this.activeClients.size}`);
 
     // WINDOWS FIX (2025-12-05): Better logging and connection checking
@@ -259,6 +262,8 @@ class DesktopBridge {
       let openClient: WebSocket | null = null;
       
       for (const client of this.activeClients) {
+        // An authenticated handoff belongs only to the matching website origin.
+        if (target.searchParams.has('desktop_token') && this.clientOrigins.get(client) !== target.origin) continue;
         console.log(`[Bridge] 📊 Client state: ${client.readyState} (OPEN=${WebSocket.OPEN})`);
         if (client.readyState === WebSocket.OPEN) {
           openClient = client;

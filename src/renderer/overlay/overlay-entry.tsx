@@ -44,7 +44,8 @@ installGlobalErrorReporting()
 // Electron tears a window down, and a close event that misses half the closes
 // is worse than none - it would bias every duration toward the sessions that
 // happened to exit tidily.
-if (new URLSearchParams(window.location.search).get('view') === null) {
+const startupView = new URLSearchParams(window.location.search).get('view');
+if (startupView === null || startupView === 'header') {
   const appOpenedAt = Date.now()
   let closeReported = false
   window.addEventListener('pagehide', () => {
