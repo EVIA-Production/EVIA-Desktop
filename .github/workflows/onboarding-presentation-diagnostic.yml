@@ -1,0 +1,53 @@
+name: Onboarding presentation diagnostic (Windows)
+
+# Diagnostic only: runs the isolated onboarding presentation on the Windows
+# signing PC with extra tracing. No signing, no installer, no release, no upload
+# beyond the workflow's own log artifact.
+on:
+  push:
+    branches:
+      - "diag/windows-onboarding-*"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows-signing]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: "npm"
+      - name: Install dependencies
+        shell: powershell
+        run: npm ci
+      - name: Build the Windows glass bridge
+        shell: powershell
+        run: npm run build:native:glass
+      - name: Diagnose presentation (GPU on)
+        shell: powershell
+        continue-on-error: true
+        env:
+          ELECTRON_ENABLE_LOGGING: "1"
+        run: |
+          & .\node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs "$env:RUNNER_TEMP\taylos-diag-gpu" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\diag-gpu.log"
+      - name: Diagnose presentation (GPU off)
+        shell: powershell
+        continue-on-error: true
+        env:
+          ELECTRON_ENABLE_LOGGING: "1"
+          TAYLOS_DIAG_DISABLE_GPU: "1"
+        run: |
+          & .\node_modules\.bin\electron.cmd tools\onboarding-presentation-diagnose.cjs "$env:RUNNER_TEMP\taylos-diag-nogpu" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\diag-nogpu.log"
+      - name: Upload diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-presentation-diagnosis
+          path: |
+            ${{ runner.temp }}/diag-*.log
+            ${{ runner.temp }}/taylos-diag-*
+          if-no-files-found: warn
