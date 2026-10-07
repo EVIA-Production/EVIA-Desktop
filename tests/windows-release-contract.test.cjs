@@ -135,6 +135,13 @@ test('the release verifier checks the packaged Windows glass bridge', () => {
   assert.match(release, /Assert-SignedFile \$SignTool \$glassBridge \$ExpectedThumbprint/)
 })
 
+test('the packaged Windows smoke check handles one visible window under StrictMode', () => {
+  const smoke = read('scripts', 'windows-packaged-smoke.ps1')
+
+  assert.match(smoke, /\$windows = @\(Get-VisibleWindows \$minSize\)/)
+  assert.match(smoke, /\$windowsAfter = @\(if \(\$needsWindow\) \{ Get-VisibleWindows \$minSize \} else \{ @\(\) \}\)/)
+})
+
 test('Mac dispatch checks runner presence without storing an Actions PAT', () => {
   const trigger = read('scripts', 'trigger-windows-release.sh')
   assert.match(trigger, /gh auth status/)

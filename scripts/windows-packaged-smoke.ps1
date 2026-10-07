@@ -167,12 +167,16 @@ try {
     $needsWindow = $surface -ne "registration requested (no stored Taylos token)"
     if ($needsWindow) {
       $visibleDeadline = (Get-Date).AddSeconds(15)
-      do { $windows = Get-VisibleWindows $minSize; if ($windows.Count) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $visibleDeadline)
+      # PowerShell unwraps a one-item array returned by a function. Keep the
+      # Win32 result as an array so StrictMode can safely inspect Count.
+      do { $windows = @(Get-VisibleWindows $minSize); if ($windows.Count -gt 0) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $visibleDeadline)
       Write-Host "[packaged-smoke] visible windows after '$surface': $($windows -join ' ')"
     }
     # 1.0.124 died about a second after its first frame; stay alive a while.
     Start-Sleep -Seconds $SurviveSeconds
-    $windowsAfter = if ($needsWindow) { Get-VisibleWindows $minSize } else { @() }
+    # An if expression also unwraps a one-item result; wrap the whole
+    # expression, not only its true branch.
+    $windowsAfter = @(if ($needsWindow) { Get-VisibleWindows $minSize } else { @() })
     if ($process.HasExited) {
       $reason = "The app exited after '$surface': exit code {0} (0x{0:X8})." -f $process.ExitCode
     } else {
