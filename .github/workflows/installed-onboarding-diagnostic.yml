@@ -1,9 +1,8 @@
 name: Installed onboarding diagnostic (Windows)
 
-# Builds an instrumented copy of the Windows glass module, swaps it into a COPY
-# of the installed app (the installation itself is untouched) and runs that
-# copy with native glass forced on, an isolated profile, a fake backend and
-# external network blocked. The module's crash tracer names the faulting stack.
+# Reads the 1.0.126 candidate test logs Codex saved on this PC and prints the
+# lines that decide material, auth state and Ask geometry. No checkout, so the
+# runner workspace (and its dist folder) is left untouched. Tokens are redacted.
 on:
   push:
     branches: [diag/windows-installed-onboarding]
@@ -11,51 +10,20 @@ on:
 jobs:
   diagnose:
     runs-on: [self-hosted, windows-signing]
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: false
-      - name: Build the instrumented glass module and run the crash
+      - name: Print the decisive log lines
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
-          $root = 'D:\taylos-diag'
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $node = (Get-Command node -ErrorAction SilentlyContinue).Source
-          if (!$node) { $node = Get-ChildItem 'D:\actions-runner\taylos-desktop\_work\_tool\node' -Recurse -Filter node.exe | Select-Object -First 1 -ExpandProperty FullName }
-          Write-Host "node: $node"
-          if (!(Test-Path node_modules\node-gyp)) { & npm ci --ignore-scripts 2>&1 | Select-Object -Last 5 }
-          & $node node_modules\node-gyp\bin\node-gyp.js rebuild --directory native\windows-liquid-glass --arch=x64 2>&1 | Select-Object -Last 8
-          $built = 'native\windows-liquid-glass\build\Release\taylos_windows_glass.node'
-          if (!(Test-Path $built)) { Write-Host 'BUILD FAILED'; exit 1 }
-
-          $installed = 'C:\Program Files\Taylos'
-          $copy = Join-Path $root 'app-copy'
-          if (!(Test-Path (Join-Path $copy 'Taylos.exe'))) { & robocopy $installed $copy /E /NFL /NDL /NJH /NJS /NP | Out-Null }
-          $targets = Get-ChildItem -Path (Join-Path $copy 'resources') -Recurse -Filter 'taylos_windows_glass.node' | Where-Object { $_.FullName -match 'win32-x64' }
-          foreach ($t in $targets) { Copy-Item $built $t.FullName -Force; Write-Host "replaced: $($t.FullName)" }
-          $exe = Join-Path $copy 'Taylos.exe'
-
-          $mock = Start-Job -ScriptBlock {
-            $l = New-Object System.Net.HttpListener; $l.Prefixes.Add('http://127.0.0.1:18080/'); $l.Start()
-            while ($l.IsListening) { $c = $l.GetContext(); $p = $c.Request.Url.AbsolutePath; $code = 404; $body = '{"detail":"Not Found"}'
-              if ($p -like '/stripe/subscription-status*') { $code = 200; $body = '{"status":"active","is_active":true,"trial_ends_at":null,"current_period_end":"2099-01-01T00:00:00Z","cancel_at_period_end":false,"plan_type":"monthly"}' }
-              elseif ($p -like '/users/me*') { $code = 200; $body = '{"username":"diag","email":"diag@example.invalid","full_name":"Diag","disabled":false,"is_active":true}' }
-              $b = [Text.Encoding]::UTF8.GetBytes($body); $c.Response.StatusCode = $code; $c.Response.ContentType = 'application/json'; $c.Response.OutputStream.Write($b, 0, $b.Length); $c.Response.Close() } }
-          Start-Sleep -Seconds 2
-          $env:TAYLOS_BACKEND_URL = 'http://127.0.0.1:18080'
-          $env:TAYLOS_NATIVE_GLASS = '1'
-          $env:TAYLOS_GLASS_TRACE = '1'
-          $trace = Join-Path $env:TEMP 'taylos-windows-glass-native.log'
-          Remove-Item $trace -ErrorAction SilentlyContinue
-          $profile = Join-Path $root ('profile-veh-' + (Get-Date -Format 'HHmmss'))
-          $p = Start-Process -FilePath $exe -ArgumentList @("--user-data-dir=$profile",'--proxy-server=http://127.0.0.1:9','--enable-logging=stderr') -RedirectStandardError (Join-Path $root 'veh-err.txt') -RedirectStandardOutput (Join-Path $root 'veh-out.txt') -PassThru
-          $null = $p.Handle
-          if (-not $p.WaitForExit(40000)) { Write-Host 'still running after 40 s'; & taskkill /PID $p.Id /T /F | Out-Null } else { Write-Host ("exit: {0} 0x{0:X8}" -f $p.ExitCode) }
-          Write-Host "--- native glass trace ---"
-          if (Test-Path $trace) { Get-Content $trace | Where-Object { $_ -notmatch '^apply: (lock|dispatcher|compositor|desktop|root|refractive|tint|geometry|dwm|target|retain)' } | Select-Object -Last 200 }
-          Write-Host "--- stderr tail ---"
-          Get-Content (Join-Path $root 'veh-err.txt') -Tail 25 -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch 'eyJ|Bearer|token=' }
-          Stop-Job $mock -ErrorAction SilentlyContinue; Remove-Job $mock -Force -ErrorAction SilentlyContinue
+          $redact = 'eyJ[A-Za-z0-9_\-\.]+|Bearer\s+\S+|token=[^&\s]+|"token":"[^"]+"'
+          Write-Host "TAYLOS_NATIVE_GLASS (user scope): '$([Environment]::GetEnvironmentVariable('TAYLOS_NATIVE_GLASS','User'))' (machine): '$([Environment]::GetEnvironmentVariable('TAYLOS_NATIVE_GLASS','Machine'))'"
+          foreach ($name in 'taylos-126-A-out.log','taylos-126-A-err.log','taylos-126-B-out.log','taylos-126-B-err.log') {
+            $file = Join-Path $env:TEMP $name
+            Write-Host ""
+            Write-Host "===== $name ($(if (Test-Path $file) { (Get-Item $file).Length } else { 'missing' }) bytes) ====="
+            if (!(Test-Path $file)) { continue }
+            Select-String -Path $file -Pattern 'native glass|Native glass|native material|window-material|product-material|Loaded native|glass bridge|material fallback|NATIVE_GLASS|State transition|Initial state data|hasToken|Subscription check|Onboarding not|AskView|adjust-window-height|PREPARED|Final suggestion|Stream completed|Starting stream|stream error|ASK-|/ask|402|401|429|500|Error|error|insight' |
+              Select-Object -First 220 | ForEach-Object { ($_.Line -replace $redact, '<redacted>').Substring(0, [Math]::Min(260, $_.Line.Length)) }
+          }
           exit 0
