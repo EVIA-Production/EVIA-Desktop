@@ -20,7 +20,7 @@ jobs:
           $redact = 'eyJ[A-Za-z0-9_\-\.]+|Bearer\s+\S+|token=[^&\s]+|"token":"[^"]+"'
           foreach ($name in 'taylos-126-B-err.log','taylos-126-A-err.log') {
             $file = Join-Path $env:TEMP $name
-            Write-Host "===== $name: every renderer line from 'Starting stream' to 'Auto-focusing input after response' ====="
+            Write-Host "===== ${name} - every renderer line from 'Starting stream' to 'Auto-focusing input after response' ====="
             $lines = Get-Content $file
             $on = $false
             foreach ($line in $lines) {
