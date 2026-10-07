@@ -532,6 +532,8 @@ Invoke-Checked "npm" @("run", "test:onboarding:presentation", "--", $presentatio
 # unless the packaged app itself starts, shows a first-run surface and survives.
 Write-Step "Launch the packaged app (isolated profile, fake backend)"
 Invoke-Checked "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\scripts\windows-packaged-smoke.ps1", "-AppExe", "dist\win-unpacked\Taylos.exe")
+Write-Step "Launch the packaged app with native glass forced on"
+Invoke-Checked "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\scripts\windows-packaged-smoke.ps1", "-AppExe", "dist\win-unpacked\Taylos.exe", "-NativeGlass", "on")
 
 $uploadCommand = "gh release upload $tag dist\Taylos.exe dist\Taylos.exe.blockmap dist\latest.yml --repo $Repo --clobber"
 Write-Step "Upload command"

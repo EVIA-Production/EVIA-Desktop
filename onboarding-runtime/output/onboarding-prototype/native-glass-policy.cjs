@@ -1,14 +1,12 @@
 // Same rule as src/main/native-glass-policy.ts, for the bundled onboarding
-// runtime (plain CommonJS, not compiled with the app).
-//
-// Windows: off unless TAYLOS_NATIVE_GLASS=1. The glass bridge crashed the
-// Electron main process with software compositing (exit 0xFFFF7003, Windows
-// signing PC, 2026-10-07), and the installed 1.0.124 exited with the same code
-// during the first onboarding render on a normal desktop session. It has never
-// been verified on a Windows machine with GPU compositing; the CSS material has.
+// runtime (plain CommonJS, not compiled with the app). Native window glass is
+// on unless Windows reports software compositing (unverified there).
+// TAYLOS_NATIVE_GLASS=1|0 forces it; the app sets 0 for the retry after a
+// setup that ended the app. The 1.0.124 crash was the bridge being re-entered
+// from its own resize, fixed in the module and in native-windows.cjs.
 function nativeGlassAllowed(platform, gpuCompositing, override) {
   if (override === '0') return false;
   if (override === '1') return true;
-  return platform !== 'win32';
+  return !(platform === 'win32' && /^disabled/.test(String(gpuCompositing || '')));
 }
 module.exports = { nativeGlassAllowed };

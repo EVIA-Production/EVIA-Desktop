@@ -1,5 +1,6 @@
 # Launches the packaged Windows app the way a user starts it and fails unless a
-# first-run surface appears and the app is still alive afterwards.
+# first-run surface appears and the app is still alive afterwards. Run it with
+# -NativeGlass on as well: the release gate does both.
 #
 # Why: 1.0.124 passed the isolated presentation check (dev Electron, stubbed
 # host, no product windows' native glass on this PC) and still exited with
@@ -17,7 +18,11 @@
 param(
   [string]$AppExe = "dist\win-unpacked\Taylos.exe",
   [int]$TimeoutSeconds = 45,
-  [int]$SurviveSeconds = 10
+  [int]$SurviveSeconds = 10,
+  # "on" forces native window glass (TAYLOS_NATIVE_GLASS=1). This PC composites
+  # in software, where the app leaves glass off by default; forcing it runs the
+  # exact path that ended 1.0.124 for users with a GPU.
+  [ValidateSet("default", "on")][string]$NativeGlass = "default"
 )
 
 $ErrorActionPreference = "Stop"
@@ -89,6 +94,7 @@ $reason = ""
 try {
   Start-Sleep -Seconds 2
   $env:TAYLOS_BACKEND_URL = "http://127.0.0.1:$port"
+  if ($NativeGlass -eq "on") { $env:TAYLOS_NATIVE_GLASS = "1" } else { Remove-Item Env:TAYLOS_NATIVE_GLASS -ErrorAction SilentlyContinue }
   # Loopback (the fake backend and the setup page's own local server) bypasses
   # the proxy implicitly; everything else (analytics, updates) is unreachable.
   $arguments = @("--user-data-dir=$userData", "--proxy-server=http://127.0.0.1:9", "--enable-logging=stderr")
@@ -117,11 +123,11 @@ try {
       $reason = "The app exited after '$surface': exit code {0} (0x{0:X8})." -f $process.ExitCode
     } else {
       $output = Read-Output
-      if ($output -match "native material \{") {
-        $reason = "Native window glass was applied on Windows; it must stay off unless TAYLOS_NATIVE_GLASS=1."
+      if ($NativeGlass -eq "on" -and $surface -eq "native setup presented" -and $output -notmatch 'native material \{"supported":true,"applied":true\}') {
+        $reason = "Native glass was forced on but no product window applied it."
       } else {
         $result = "PASS"
-        $reason = $surface
+        $reason = "$surface (native glass: $NativeGlass)"
       }
     }
   }
@@ -131,6 +137,7 @@ finally {
   Stop-Job $backend -ErrorAction SilentlyContinue
   Remove-Job $backend -Force -ErrorAction SilentlyContinue
   Remove-Item Env:TAYLOS_BACKEND_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:TAYLOS_NATIVE_GLASS -ErrorAction SilentlyContinue
 }
 
 Write-Host "[packaged-smoke] $result - $reason"

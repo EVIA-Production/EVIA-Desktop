@@ -201,6 +201,12 @@ export function registerNativeOnboarding() {
         launchMarker.clear();
         throw Object.assign(new Error('Setup postponed after an unexpected exit'), { code: 'ONBOARDING_POSTPONED' });
       }
+      // The retry runs without native window glass, the one native renderer in
+      // this path; the CSS material keeps the same layout. Next launch restores it.
+      if (process.platform === 'win32' && process.env.TAYLOS_NATIVE_GLASS === undefined) {
+        process.env.TAYLOS_NATIVE_GLASS = '0';
+        presentationLog('native-glass-off-for-retry', {});
+      }
     }
     process.env.TAYLOS_EMBEDDED_ONBOARDING = '1';
     const entry = app.isPackaged

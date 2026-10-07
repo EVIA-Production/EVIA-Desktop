@@ -16,6 +16,8 @@
 #include "../third_party/microsoft/microsoft.ui.composition.effects_impl.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -73,6 +75,68 @@ void Trace(const char* message) {
   WriteFile(file, "\r\n", 2, &written, nullptr);
   FlushFileBuffers(file);
   CloseHandle(file);
+}
+
+// Diagnostics only (TAYLOS_GLASS_TRACE): name the module, offset and unwound
+// stack of any exception that would end the process.
+std::string DescribeAddress(DWORD64 address) {
+  HMODULE module = nullptr;
+  char buffer[400];
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         reinterpret_cast<LPCSTR>(address), &module) && module) {
+    char path[MAX_PATH]{};
+    GetModuleFileNameA(module, path, MAX_PATH);
+    const char* name = std::strrchr(path, '\\');
+    std::snprintf(buffer, sizeof(buffer), "%s+0x%llx", name ? name + 1 : path,
+                  static_cast<unsigned long long>(address - reinterpret_cast<DWORD64>(module)));
+  } else {
+    std::snprintf(buffer, sizeof(buffer), "0x%llx", static_cast<unsigned long long>(address));
+  }
+  return buffer;
+}
+
+thread_local bool g_in_exception_trace = false;
+
+LONG CALLBACK FatalExceptionTrace(EXCEPTION_POINTERS* info) {
+  const DWORD code = info->ExceptionRecord->ExceptionCode;
+  const bool interesting = code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION ||
+    code == EXCEPTION_BREAKPOINT || code == EXCEPTION_STACK_OVERFLOW || code == EXCEPTION_INT_DIVIDE_BY_ZERO ||
+    code == EXCEPTION_PRIV_INSTRUCTION || code == 0xC0000409 || code == 0xC0000374 || code == 0xE06D7363 ||
+    code == 0xC000041D || code == 0x80000003;
+  if (!interesting || g_in_exception_trace) return EXCEPTION_CONTINUE_SEARCH;
+  static std::atomic<int> count{0};
+  if (count.fetch_add(1) > 40) return EXCEPTION_CONTINUE_SEARCH;
+  g_in_exception_trace = true;
+  char line[600];
+  std::snprintf(line, sizeof(line), "EXCEPTION code=0x%08lx thread=%lu at %s", code, GetCurrentThreadId(),
+                DescribeAddress(reinterpret_cast<DWORD64>(info->ExceptionRecord->ExceptionAddress)).c_str());
+  Trace(line);
+  if (code == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2) {
+    std::snprintf(line, sizeof(line), "  %s 0x%llx",
+                  info->ExceptionRecord->ExceptionInformation[0] == 0 ? "read" : info->ExceptionRecord->ExceptionInformation[0] == 1 ? "write" : "execute",
+                  static_cast<unsigned long long>(info->ExceptionRecord->ExceptionInformation[1]));
+    Trace(line);
+  }
+#if defined(_M_X64)
+  CONTEXT context = *info->ContextRecord;
+  for (int frame = 0; frame < 40 && context.Rip; ++frame) {
+    std::snprintf(line, sizeof(line), "  #%d %s", frame, DescribeAddress(context.Rip).c_str());
+    Trace(line);
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
+    if (!function) {
+      if (IsBadReadPtr(reinterpret_cast<const void*>(context.Rsp), 8)) break;
+      context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
+      context.Rsp += 8;
+    } else {
+      PVOID handler_data = nullptr;
+      DWORD64 establisher = 0;
+      RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context.Rip, function, &context, &handler_data, &establisher, nullptr);
+    }
+  }
+#endif
+  g_in_exception_trace = false;
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 Napi::Object Result(Napi::Env env, bool supported, bool applied, const std::string& reason = {}) {
@@ -250,6 +314,24 @@ void SynchronizeVisibility(GlassState& state, bool visible) {
   state.root.Opacity(visible ? 1.0f : 0.0f);
 }
 
+// SetWindowRgn (and other window calls below) synchronously dispatch window
+// messages. Electron turns some of them into JavaScript events whose handlers
+// call back into this module on the same thread, while the outer call still
+// holds g_states_mutex. MSVC's std::mutex then throws "resource deadlock would
+// occur"; that C++ exception escaped into V8 and ended the whole app
+// (installed 1.0.124, exit 0xFFFF7003, the onboarding product windows' resize
+// handler). A nested call is skipped instead: the outer call finishes with the
+// current geometry, and a later update applies anything newer.
+thread_local int g_bridge_depth = 0;
+
+struct BridgeCall {
+  BridgeCall() { ++g_bridge_depth; }
+  ~BridgeCall() { --g_bridge_depth; }
+  BridgeCall(const BridgeCall&) = delete;
+  BridgeCall& operator=(const BridgeCall&) = delete;
+  static bool Nested() { return g_bridge_depth > 0; }
+};
+
 Napi::Value IsSupported(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(info.Env(), RuntimeSupportsGlass());
 }
@@ -346,6 +428,8 @@ Napi::Value Apply(const Napi::CallbackInfo& info) {
     ? options.Get("visible").As<Napi::Boolean>().Value()
     : true;
 
+  if (BridgeCall::Nested()) return Result(env, true, false, "nested call skipped");
+  BridgeCall call;
   try {
     Trace("apply: lock");
     std::scoped_lock lock(g_states_mutex);
@@ -465,6 +549,8 @@ Napi::Value Update(const Napi::CallbackInfo& info) {
     ? options.Get("active").As<Napi::Boolean>().Value()
     : true;
 
+  if (BridgeCall::Nested()) return Result(env, true, false, "nested call skipped");
+  BridgeCall call;
   try {
     std::scoped_lock lock(g_states_mutex);
     const auto state = g_states.find(hwnd);
@@ -474,6 +560,10 @@ Napi::Value Update(const Napi::CallbackInfo& info) {
     return Result(env, true, true);
   } catch (const winrt::hresult_error& error) {
     return Result(env, true, false, winrt::to_string(error.message()));
+  } catch (const std::exception& error) {
+    return Result(env, true, false, error.what());
+  } catch (...) {
+    return Result(env, true, false, "unknown native composition error");
   }
 }
 
@@ -484,6 +574,8 @@ Napi::Value SetVisible(const Napi::CallbackInfo& info) {
     return Result(env, true, false, "invalid arguments");
   }
 
+  if (BridgeCall::Nested()) return Result(env, true, false, "nested call skipped");
+  BridgeCall call;
   try {
     std::scoped_lock lock(g_states_mutex);
     const auto state = g_states.find(hwnd);
@@ -492,6 +584,10 @@ Napi::Value SetVisible(const Napi::CallbackInfo& info) {
     return Result(env, true, true);
   } catch (const winrt::hresult_error& error) {
     return Result(env, true, false, winrt::to_string(error.message()));
+  } catch (const std::exception& error) {
+    return Result(env, true, false, error.what());
+  } catch (...) {
+    return Result(env, true, false, "unknown native composition error");
   }
 }
 
@@ -500,18 +596,28 @@ Napi::Value Detach(const Napi::CallbackInfo& info) {
   const HWND hwnd = info.Length() > 0 ? WindowFromHandle(info[0]) : nullptr;
   if (!hwnd) return Result(env, true, false, "invalid window handle");
 
-  std::scoped_lock lock(g_states_mutex);
-  const auto state = g_states.find(hwnd);
-  if (state == g_states.end()) return Result(env, true, true);
+  if (BridgeCall::Nested()) return Result(env, true, false, "nested call skipped");
+  BridgeCall call;
   try {
-    state->second->target.Root(nullptr);
+    std::scoped_lock lock(g_states_mutex);
+    const auto state = g_states.find(hwnd);
+    if (state == g_states.end()) return Result(env, true, true);
+    try {
+      state->second->target.Root(nullptr);
+    } catch (...) {
+    }
+    g_states.erase(state);
+    return Result(env, true, true);
   } catch (...) {
+    return Result(env, true, false, "detach failed");
   }
-  g_states.erase(state);
-  return Result(env, true, true);
 }
 
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
+  if (GetEnvironmentVariableW(L"TAYLOS_GLASS_TRACE", nullptr, 0)) {
+    AddVectoredExceptionHandler(1, FatalExceptionTrace);
+    Trace("trace: vectored exception handler installed");
+  }
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("isKeyPressed", Napi::Function::New(env, IsKeyPressed));
   exports.Set("isMouseButtonPressed", Napi::Function::New(env, IsMouseButtonPressed));

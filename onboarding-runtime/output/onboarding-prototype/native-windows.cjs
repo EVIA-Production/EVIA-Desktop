@@ -422,9 +422,26 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     if(process.platform==='darwin')win.setWindowButtonVisibility(false);
     if(bridge && name!=='coach') {
       const config={surface:surfaces[name],radius:radii[name],active:true,interactive:false};
-      const result=bridge.apply(win.getNativeWindowHandle(),config);
+      let result;
+      try{result=bridge.apply(win.getNativeWindowHandle(),config);}catch(error){result={applied:false,reason:error.message};}
       console.log(name,'native material',JSON.stringify(result));
-      win.on('resize',()=>{if(!win.isDestroyed()&&!scaledWindows.has(name))bridge.update(win.getNativeWindowHandle(),{...config,radius:radii[name]*(name==='bar'?(win.webContents.getZoomFactor?.()||1):1)});});
+      // Never update the glass from inside the resize itself: the update shapes
+      // the window (SetWindowRgn), Windows answers synchronously, and the nested
+      // update re-entered the bridge and ended the app (1.0.124, 0xFFFF7003).
+      // The regular app's windows have always deferred this the same way.
+      let resizeQueued=false;
+      win.on('resize',()=>{
+        if(resizeQueued)return;resizeQueued=true;
+        setImmediate(()=>{
+          resizeQueued=false;
+          if(destroyed||win.isDestroyed()||scaledWindows.has(name))return;
+          try{bridge.update(win.getNativeWindowHandle(),{...config,radius:radii[name]*(name==='bar'?(win.webContents.getZoomFactor?.()||1):1)});}
+          catch(error){console.warn(name,'native material update failed:',error.message);}
+        });
+      });
+      // Retain the handle: Electron may invalidate the HWND before 'closed'.
+      const handle=Buffer.from(win.getNativeWindowHandle());
+      win.once('closed',()=>{try{bridge.detach?.(handle);}catch{}});
     } else if(name!=='coach'&&process.platform==='darwin')win.setVibrancy('under-window');
     win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith(origin+'/'))e.preventDefault();});
