@@ -62,6 +62,50 @@ $backend = Start-Job -ArgumentList $port, $requests -ScriptBlock {
   }
 }
 
+# "presented" in the log is the app's own claim. 1.0.124 with native glass off
+# logged it and still showed nothing, so the user-visible state is read from
+# Win32: a visible, non-minimized, non-transparent top-level window of this
+# process, at least $MinSize px on each side.
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class TaylosSmokeWindows {
+  delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr lParam);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int index);
+  [DllImport("user32.dll")] static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint key, out byte alpha, out uint flags);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+  public static string[] Visible(uint processId, int minSize) {
+    var found = new List<string>();
+    EnumWindows((handle, unused) => {
+      uint owner;
+      GetWindowThreadProcessId(handle, out owner);
+      if (owner != processId || !IsWindowVisible(handle) || IsIconic(handle)) return true;
+      RECT rect;
+      if (!GetWindowRect(handle, out rect)) return true;
+      int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+      if (width < minSize || height < minSize) return true;
+      uint key, flags; byte alpha;
+      bool layered = (GetWindowLong(handle, -20) & 0x80000) != 0;
+      if (layered && GetLayeredWindowAttributes(handle, out key, out alpha, out flags) && (flags & 2) != 0 && alpha == 0) return true;
+      found.Add(width + "x" + height + "@" + rect.Left + "," + rect.Top);
+      return true;
+    }, IntPtr.Zero);
+    return found.ToArray();
+  }
+}
+'@
+
+function Get-VisibleWindows([int]$minSize) {
+  if (!$process -or $process.HasExited) { return @() }
+  return @([TaylosSmokeWindows]::Visible([uint32]$process.Id, $minSize))
+}
+
 function Read-Output {
   # The app still holds both files open for writing.
   $text = ""
@@ -117,13 +161,27 @@ try {
   }
   if (!$surface -and !$reason) { $reason = "No first-run surface within $TimeoutSeconds s." }
   if ($surface) {
+    # The registration path hands off to the browser; every other surface is a
+    # Taylos window the user must be able to see.
+    $minSize = if ($surface -eq "native setup presented") { 200 } else { 40 }
+    $needsWindow = $surface -ne "registration requested (no stored Taylos token)"
+    if ($needsWindow) {
+      $visibleDeadline = (Get-Date).AddSeconds(15)
+      do { $windows = Get-VisibleWindows $minSize; if ($windows.Count) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $visibleDeadline)
+      Write-Host "[packaged-smoke] visible windows after '$surface': $($windows -join ' ')"
+    }
     # 1.0.124 died about a second after its first frame; stay alive a while.
     Start-Sleep -Seconds $SurviveSeconds
+    $windowsAfter = if ($needsWindow) { Get-VisibleWindows $minSize } else { @() }
     if ($process.HasExited) {
       $reason = "The app exited after '$surface': exit code {0} (0x{0:X8})." -f $process.ExitCode
     } else {
       $output = Read-Output
-      if ($NativeGlass -eq "on" -and $surface -eq "native setup presented" -and $output -notmatch 'native material \{"supported":true,"applied":true\}') {
+      if ($needsWindow -and !$windows.Count) {
+        $reason = "'$surface' was logged, but no visible Taylos window of at least $minSize px appeared within 15 s."
+      } elseif ($needsWindow -and !$windowsAfter.Count) {
+        $reason = "A Taylos window was visible after '$surface' but hid itself within $SurviveSeconds s."
+      } elseif ($NativeGlass -eq "on" -and $surface -eq "native setup presented" -and $output -notmatch 'native material \{"supported":true,"applied":true\}') {
         $reason = "Native glass was forced on but no product window applied it."
       } else {
         $result = "PASS"
