@@ -27,17 +27,21 @@ for (const [name, policy] of [['onboarding runtime', runtime], ['app', app]]) {
 // 1.0.124: the onboarding updated the glass synchronously from its own resize
 // and re-entered the bridge. The update must run after the resize returns.
 test('onboarding product windows never update native glass inside the resize event', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'onboarding-runtime', 'output', 'onboarding-prototype', 'native-windows.cjs'), 'utf8');
-  const handler = source.slice(source.indexOf("win.on('resize',()=>{\n        if(resizeQueued)"));
-  assert.ok(handler.length > 0, 'deferred resize handler present');
+  // Windows checkouts may materialize CRLF.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'onboarding-runtime', 'output', 'onboarding-prototype', 'native-windows.cjs'), 'utf8').replace(/\r\n/g, '\n');
+  const start = source.indexOf("win.on('resize',()=>{\n        if(resizeQueued)");
+  assert.ok(start >= 0, 'deferred resize handler present');
+  const handler = source.slice(start);
   assert.match(handler.slice(0, 400), /setImmediate\(\(\)=>\{[\s\S]*bridge\.update/);
   assert.doesNotMatch(source, /win\.on\('resize',\(\)=>\{if\(!win\.isDestroyed\(\)&&!scaledWindows\.has\(name\)\)bridge\.update/);
 });
 
 test('the Windows bridge skips nested calls and catches every exception', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'native', 'windows-liquid-glass', 'src', 'taylos_windows_glass.cpp'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'native', 'windows-liquid-glass', 'src', 'taylos_windows_glass.cpp'), 'utf8').replace(/\r\n/g, '\n');
   for (const entry of ['Napi::Value Apply(', 'Napi::Value Update(', 'Napi::Value SetVisible(', 'Napi::Value Detach(']) {
-    const body = source.slice(source.indexOf(entry), source.indexOf('\n}\n', source.indexOf(entry)));
+    const start = source.indexOf(entry);
+    assert.ok(start >= 0, entry + ' exists');
+    const body = source.slice(start, source.indexOf('\n}\n', start));
     assert.match(body, /BridgeCall::Nested\(\)/, entry + ' guards re-entry');
     assert.match(body, /catch \(\.\.\.\)/, entry + ' catches everything');
   }
