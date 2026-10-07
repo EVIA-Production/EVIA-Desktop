@@ -13,9 +13,10 @@ function bridge() {
     console:{log:text=>logs.push(text)},
   });
   const instance = module.exports.desktopBridge;
-  const add = origin => {
-    const client = {readyState:1,send:message=>messages.push({origin,message:JSON.parse(message)})};
+  const add = (origin,pathname) => {
+    const client = {readyState:1,send:message=>messages.push({origin,pathname,message:JSON.parse(message)})};
     instance.activeClients.add(client);instance.clientOrigins.set(client,origin);
+    if(pathname)instance.clientPaths.set(client,pathname);
   };
   return {instance,add,messages,logs};
 }
@@ -25,6 +26,13 @@ test('checkout token is sent only to a tab on the checkout origin and never logg
   assert.equal(await h.instance.navigateTo('https://app.taylos.ai/checkout?desktop_token=fixture-secret'),true);
   assert.equal(h.messages.length,1);assert.equal(h.messages[0].origin,'https://app.taylos.ai');
   assert.equal(h.logs.some(log=>log.includes('fixture-secret')),false);
+});
+
+test('checkout replaces the onboarding handoff tab before an older dashboard tab',async()=>{
+  const h=bridge();h.add('https://app.taylos.ai','/activity');h.add('https://app.taylos.ai','/desktop/open');
+  assert.equal(await h.instance.navigateTo('https://app.taylos.ai/checkout?desktop_token=fixture-secret'),true);
+  assert.equal(h.messages.length,1);
+  assert.equal(h.messages[0].pathname,'/desktop/open');
 });
 
 test('an unrelated local tab cannot consume an authenticated checkout handoff',async()=>{

@@ -116,6 +116,7 @@ class DesktopBridge {
   private wss: WebSocketServer | null = null;
   private activeClients: Set<WebSocket> = new Set();
   private clientOrigins = new WeakMap<WebSocket, string>();
+  private clientPaths = new WeakMap<WebSocket, string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -182,6 +183,15 @@ class DesktopBridge {
         console.log('[Bridge] 🔗 Frontend tab connected');
         this.activeClients.add(ws);
         if (request.headers.origin) this.clientOrigins.set(ws, request.headers.origin);
+        ws.on('message', raw => {
+          try {
+            const message = JSON.parse(raw.toString());
+            if (message.type === 'bridge-page' && typeof message.path === 'string' &&
+                message.path.startsWith('/') && message.path.length <= 200) {
+              this.clientPaths.set(ws, message.path);
+            }
+          } catch { /* Ignore malformed browser metadata. */ }
+        });
 
         // WINDOWS FIX (2025-12-05): Send desktop_open status immediately on connection
         // This allows the frontend to update "Taylos Desktop öffnen" button to reflect connection
@@ -261,7 +271,9 @@ class DesktopBridge {
       // Check for any open connection
       let openClient: WebSocket | null = null;
       
-      for (const client of this.activeClients) {
+      const clients = [...this.activeClients].sort((a, b) =>
+        Number(this.clientPaths.get(b) === '/desktop/open') - Number(this.clientPaths.get(a) === '/desktop/open'));
+      for (const client of clients) {
         // An authenticated handoff belongs only to the matching website origin.
         if (target.searchParams.has('desktop_token') && this.clientOrigins.get(client) !== target.origin) continue;
         console.log(`[Bridge] 📊 Client state: ${client.readyState} (OPEN=${WebSocket.OPEN})`);
