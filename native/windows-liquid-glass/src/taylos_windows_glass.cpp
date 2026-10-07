@@ -16,6 +16,8 @@
 #include "../third_party/microsoft/microsoft.ui.composition.effects_impl.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -73,6 +75,68 @@ void Trace(const char* message) {
   WriteFile(file, "\r\n", 2, &written, nullptr);
   FlushFileBuffers(file);
   CloseHandle(file);
+}
+
+// Diagnostics only (TAYLOS_GLASS_TRACE): name the module, offset and unwound
+// stack of any exception that would end the process.
+std::string DescribeAddress(DWORD64 address) {
+  HMODULE module = nullptr;
+  char buffer[400];
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         reinterpret_cast<LPCSTR>(address), &module) && module) {
+    char path[MAX_PATH]{};
+    GetModuleFileNameA(module, path, MAX_PATH);
+    const char* name = std::strrchr(path, '\\');
+    std::snprintf(buffer, sizeof(buffer), "%s+0x%llx", name ? name + 1 : path,
+                  static_cast<unsigned long long>(address - reinterpret_cast<DWORD64>(module)));
+  } else {
+    std::snprintf(buffer, sizeof(buffer), "0x%llx", static_cast<unsigned long long>(address));
+  }
+  return buffer;
+}
+
+thread_local bool g_in_exception_trace = false;
+
+LONG CALLBACK FatalExceptionTrace(EXCEPTION_POINTERS* info) {
+  const DWORD code = info->ExceptionRecord->ExceptionCode;
+  const bool interesting = code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION ||
+    code == EXCEPTION_BREAKPOINT || code == EXCEPTION_STACK_OVERFLOW || code == EXCEPTION_INT_DIVIDE_BY_ZERO ||
+    code == EXCEPTION_PRIV_INSTRUCTION || code == 0xC0000409 || code == 0xC0000374 || code == 0xE06D7363 ||
+    code == 0xC000041D || code == 0x80000003;
+  if (!interesting || g_in_exception_trace) return EXCEPTION_CONTINUE_SEARCH;
+  static std::atomic<int> count{0};
+  if (count.fetch_add(1) > 40) return EXCEPTION_CONTINUE_SEARCH;
+  g_in_exception_trace = true;
+  char line[600];
+  std::snprintf(line, sizeof(line), "EXCEPTION code=0x%08lx thread=%lu at %s", code, GetCurrentThreadId(),
+                DescribeAddress(reinterpret_cast<DWORD64>(info->ExceptionRecord->ExceptionAddress)).c_str());
+  Trace(line);
+  if (code == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2) {
+    std::snprintf(line, sizeof(line), "  %s 0x%llx",
+                  info->ExceptionRecord->ExceptionInformation[0] == 0 ? "read" : info->ExceptionRecord->ExceptionInformation[0] == 1 ? "write" : "execute",
+                  static_cast<unsigned long long>(info->ExceptionRecord->ExceptionInformation[1]));
+    Trace(line);
+  }
+#if defined(_M_X64)
+  CONTEXT context = *info->ContextRecord;
+  for (int frame = 0; frame < 40 && context.Rip; ++frame) {
+    std::snprintf(line, sizeof(line), "  #%d %s", frame, DescribeAddress(context.Rip).c_str());
+    Trace(line);
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
+    if (!function) {
+      if (IsBadReadPtr(reinterpret_cast<const void*>(context.Rsp), 8)) break;
+      context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
+      context.Rsp += 8;
+    } else {
+      PVOID handler_data = nullptr;
+      DWORD64 establisher = 0;
+      RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context.Rip, function, &context, &handler_data, &establisher, nullptr);
+    }
+  }
+#endif
+  g_in_exception_trace = false;
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 Napi::Object Result(Napi::Env env, bool supported, bool applied, const std::string& reason = {}) {
@@ -512,6 +576,10 @@ Napi::Value Detach(const Napi::CallbackInfo& info) {
 }
 
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
+  if (GetEnvironmentVariableW(L"TAYLOS_GLASS_TRACE", nullptr, 0)) {
+    AddVectoredExceptionHandler(1, FatalExceptionTrace);
+    Trace("trace: vectored exception handler installed");
+  }
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("isKeyPressed", Napi::Function::New(env, IsKeyPressed));
   exports.Set("isMouseButtonPressed", Napi::Function::New(env, IsMouseButtonPressed));

@@ -1,8 +1,9 @@
 name: Installed onboarding diagnostic (Windows)
 
-# Runs the installed Taylos under cdb with native glass forced on, an isolated
-# profile, a fake backend and external network blocked, and prints the faulting
-# stack. No production account; nothing is installed or changed.
+# Builds an instrumented copy of the Windows glass module, swaps it into a COPY
+# of the installed app (the installation itself is untouched) and runs that
+# copy with native glass forced on, an isolated profile, a fake backend and
+# external network blocked. The module's crash tracer names the faulting stack.
 on:
   push:
     branches: [diag/windows-installed-onboarding]
@@ -10,21 +11,31 @@ on:
 jobs:
   diagnose:
     runs-on: [self-hosted, windows-signing]
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Debug the glass crash
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+      - name: Build the instrumented glass module and run the crash
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           $root = 'D:\taylos-diag'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $exe = @('C:\Program Files\Taylos\Taylos.exe', (Join-Path $env:LOCALAPPDATA 'Programs\Taylos\Taylos.exe'), (Join-Path $env:GITHUB_WORKSPACE 'dist\win-unpacked\Taylos.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1
-          Write-Host "app: $exe version=$((Get-Item $exe).VersionInfo.ProductVersion)"
-          $cdb = @('C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe', 'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (!$cdb) { $cdb = (Get-Command cdb.exe -ErrorAction SilentlyContinue).Source }
-          Write-Host "cdb: $cdb"
-          $winget = Get-ChildItem -Path 'C:\Program Files\WindowsApps' -Filter 'Microsoft.WinDbg*' -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($winget) { Write-Host "windbg app: $($winget.FullName)" }
+          $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+          if (!$node) { $node = Get-ChildItem 'D:\actions-runner\taylos-desktop\_work\_tool\node' -Recurse -Filter node.exe | Select-Object -First 1 -ExpandProperty FullName }
+          Write-Host "node: $node"
+          if (!(Test-Path node_modules\node-gyp)) { & npm ci --ignore-scripts 2>&1 | Select-Object -Last 5 }
+          & $node node_modules\node-gyp\bin\node-gyp.js rebuild --directory native\windows-liquid-glass --arch=x64 2>&1 | Select-Object -Last 8
+          $built = 'native\windows-liquid-glass\build\Release\taylos_windows_glass.node'
+          if (!(Test-Path $built)) { Write-Host 'BUILD FAILED'; exit 1 }
+
+          $installed = 'C:\Program Files\Taylos'
+          $copy = Join-Path $root 'app-copy'
+          if (!(Test-Path (Join-Path $copy 'Taylos.exe'))) { & robocopy $installed $copy /E /NFL /NDL /NJH /NJS /NP | Out-Null }
+          $targets = Get-ChildItem -Path (Join-Path $copy 'resources') -Recurse -Filter 'taylos_windows_glass.node' | Where-Object { $_.FullName -match 'win32-x64' }
+          foreach ($t in $targets) { Copy-Item $built $t.FullName -Force; Write-Host "replaced: $($t.FullName)" }
+          $exe = Join-Path $copy 'Taylos.exe'
 
           $mock = Start-Job -ScriptBlock {
             $l = New-Object System.Net.HttpListener; $l.Prefixes.Add('http://127.0.0.1:18080/'); $l.Start()
@@ -38,25 +49,13 @@ jobs:
           $env:TAYLOS_GLASS_TRACE = '1'
           $trace = Join-Path $env:TEMP 'taylos-windows-glass-native.log'
           Remove-Item $trace -ErrorAction SilentlyContinue
-          $profile = Join-Path $root ('profile-cdb-' + (Get-Date -Format 'HHmmss'))
-          $out = Join-Path $root 'cdb.txt'
-          if ($cdb) {
-            $cmd = '.sympath srv*D:\symcache*https://msdl.microsoft.com/download/symbols;.reload /f Windows.UI.Composition.dll dcomp.dll combase.dll ntdll.dll KERNELBASE.dll user32.dll win32u.dll;.lines -d;.echo ===EXCEPTION===;.exr -1;.ecxr;r;.echo ===STACK===;kv 60;.echo ===ALLTHREADS===;~*kc 25;.echo ===MODULES===;lm o;q'
-            $p = Start-Process -FilePath $cdb -ArgumentList @('-g','-G','-xd','av','-xd','ch','-xd','sov','-xd','eh','-xd','clr','-c',"`"$cmd`"",'-logo',$out,"`"$exe`"","--user-data-dir=$profile",'--proxy-server=http://127.0.0.1:9') -PassThru -WindowStyle Hidden
-            if (-not $p.WaitForExit(150000)) { Write-Host 'cdb still running after 150 s; killing'; & taskkill /PID $p.Id /T /F | Out-Null }
-            Write-Host "--- cdb log ---"
-            if (Test-Path $out) { Get-Content $out | Where-Object { $_ -notmatch 'eyJ|Bearer|token=' } | Select-Object -Last 260 }
-          } else {
-            Write-Host 'No cdb on this PC. Running without a debugger.'
-            $p = Start-Process -FilePath $exe -ArgumentList @("--user-data-dir=$profile",'--proxy-server=http://127.0.0.1:9','--enable-logging=stderr') -RedirectStandardError (Join-Path $root 'err.txt') -RedirectStandardOutput (Join-Path $root 'out.txt') -PassThru
-            $null = $p.Handle; $null = $p.WaitForExit(40000)
-            Write-Host ("exit: {0} 0x{0:X8}" -f $p.ExitCode)
-          }
-          Get-Process -Name Taylos -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe -and $_.StartTime -gt (Get-Date).AddMinutes(-4) } | ForEach-Object { & taskkill /PID $_.Id /T /F | Out-Null }
+          $profile = Join-Path $root ('profile-veh-' + (Get-Date -Format 'HHmmss'))
+          $p = Start-Process -FilePath $exe -ArgumentList @("--user-data-dir=$profile",'--proxy-server=http://127.0.0.1:9','--enable-logging=stderr') -RedirectStandardError (Join-Path $root 'veh-err.txt') -RedirectStandardOutput (Join-Path $root 'veh-out.txt') -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(40000)) { Write-Host 'still running after 40 s'; & taskkill /PID $p.Id /T /F | Out-Null } else { Write-Host ("exit: {0} 0x{0:X8}" -f $p.ExitCode) }
           Write-Host "--- native glass trace ---"
-          if (Test-Path $trace) { Get-Content $trace | Select-Object -Last 80 }
-          Write-Host "--- presentation log ---"
-          $log = Join-Path $profile 'logs\onboarding-presentation.log'
-          if (Test-Path $log) { Get-Content $log | ForEach-Object { $_.Substring(0, [Math]::Min(220, $_.Length)) } }
+          if (Test-Path $trace) { Get-Content $trace | Where-Object { $_ -notmatch '^apply: (lock|dispatcher|compositor|desktop|root|refractive|tint|geometry|dwm|target|retain)' } | Select-Object -Last 200 }
+          Write-Host "--- stderr tail ---"
+          Get-Content (Join-Path $root 'veh-err.txt') -Tail 25 -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch 'eyJ|Bearer|token=' }
           Stop-Job $mock -ErrorAction SilentlyContinue; Remove-Job $mock -Force -ErrorAction SilentlyContinue
           exit 0
