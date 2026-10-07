@@ -2274,9 +2274,12 @@ function registerShortcuts() {
   }
 
   // Re-registration is safe only after this process has acquired ownership.
+  // It replaces shortcuts only: the menu-bar/tray icon and its restore action
+  // stay. Disposing the tray here dropped the restore callback for the rest of
+  // the session (initTray runs once), so every later "Show Taylos" click on the
+  // icon did nothing; this runs on each transition to ready.
   if (ownsRegisteredShortcuts) {
     globalShortcut.unregisterAll()
-    disposeTray()
     ownsRegisteredShortcuts = false
   }
   stopWindowsLayoutShortcutPoll()
