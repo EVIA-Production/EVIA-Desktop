@@ -25,7 +25,7 @@ jobs:
             $on = $false
             foreach ($line in $lines) {
               if ($line -match 'Starting stream') { $on = $true }
-              if ($on) { Write-Host (($line -replace $redact, '<redacted>') -replace '^\[[^\]]+\] ', '').Substring(0, [Math]::Min(300, $line.Length)) }
+              if ($on) { $clean = ($line -replace $redact, '<redacted>') -replace '^\[[^\]]+\] ', ''; if ($clean.Length -gt 300) { $clean = $clean.Substring(0, 300) }; Write-Host $clean }
               if ($on -and $line -match 'Auto-focusing input after response') { break }
             }
           }
