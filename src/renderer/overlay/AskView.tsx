@@ -1421,6 +1421,16 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         });
       } else {
         trackFailure('backend', 'unavailable');
+        // A finished stream without a single usable line used to collapse the
+        // window silently: the rep asked, saw the thinking state, and the Ask
+        // surface shrank back to the bare input (Windows 1.0.126 candidate,
+        // "test" before a call). Say so, and offer the retry.
+        showError(
+          language === 'de'
+            ? 'Gerade ist kein verlässlicher Vorschlag verfügbar. Bitte erneut versuchen.'
+            : 'No reliable suggestion is available right now. Please try again.',
+          true,
+        );
       }
       
       // Final measurement from the actual visible DOM. The loading animation must not inflate the window.
