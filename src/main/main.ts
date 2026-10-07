@@ -1,7 +1,7 @@
 import './demo-bootstrap'
 import { registerNativeOnboarding } from './native-onboarding';
 import { webAppUrl } from './web-app-url';
-import { app, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
+import { app, crashReporter, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { getCachedAuthToken, setCachedAuthToken, clearCachedAuthToken } from './auth-token-cache'
 import { createHeaderWindow, createWelcomeMaterialComparison, ensureWindowShown, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
@@ -19,6 +19,12 @@ import {
   CaptureSessionSnapshot,
   CaptureTransitionReason,
 } from './capture-session-controller';
+
+// A native crash in the main process ends the app before any JavaScript
+// handler runs; without a crash handler Windows reports only 0xFFFF7003 ("not
+// connected", installed 1.0.124 during setup). Crashpad writes a minidump to
+// <userData>/Crashpad instead. Local only: nothing is uploaded.
+try { crashReporter.start({ uploadToServer: false }); } catch (error) { console.warn('[Main] Crash reporter unavailable:', (error as Error).message); }
 
 let pendingDeepLink: string | null = null;
 let deepLinkHandlingReady = false;

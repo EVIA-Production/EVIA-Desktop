@@ -9,6 +9,7 @@ import { desktopBridge } from './desktop-bridge';
 import { webAppUrl } from './web-app-url';
 import { systemAudioMacService } from './system-audio-mac-service';
 import { macSupportsAudioTap, probeAudioCapturePermission, requestAudioCapturePermission } from './system-audio-permission-mac';
+import { createOnboardingLaunchMarker, crashDumpsSince } from './onboarding-launch-marker';
 
 export async function openWebCheckout() {
   const token = await keytar.getPassword('taylos', 'token');
@@ -164,7 +165,43 @@ export function registerNativeOnboarding() {
     await shell.openExternal(webAppUrl(returning ? 'https://app.taylos.ai/login?source=desktop' : 'https://app.taylos.ai/register?source=desktop'));
   });
   headerController.setCheckoutLauncher(openWebCheckout);
+  const launchMarker = createOnboardingLaunchMarker(app.getPath('userData'));
+  // Quitting during setup is not a crash.
+  app.on('will-quit', () => launchMarker.clear());
+  const presentationLog = (event: string, detail: Record<string, unknown>) => {
+    try {
+      const file = path.join(app.getPath('userData'), 'logs', 'onboarding-presentation.log');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), event, platform: process.platform, ...detail }) + '\n', { mode: 0o600 });
+    } catch { /* diagnostics never block setup */ }
+  };
+  // The previous run died during setup: say so and let the user choose,
+  // instead of starting the same crash again with nothing on screen.
+  const continueAfterUnfinishedSetup = async (attempts: number) => {
+    const german = app.getLocale().toLowerCase().startsWith('de');
+    const result = await dialog.showMessageBox({
+      type: 'warning', title: 'Taylos',
+      message: german ? 'Die Einrichtung wurde beim letzten Mal unerwartet beendet.' : 'Setup closed unexpectedly last time.',
+      detail: german
+        ? 'Dein Konto und deine Daten sind unverändert. Versuch es erneut oder öffne Taylos ohne Einrichtung. Du kannst sie später neu starten.'
+        : 'Your account and data are unchanged. Try again, or open Taylos without setup. You can start setup again later.',
+      buttons: german ? ['Erneut versuchen', 'Ohne Einrichtung öffnen'] : ['Try again', 'Open without setup'],
+      defaultId: attempts >= 2 ? 1 : 0, cancelId: 1, noLink: true,
+    });
+    return result.response === 0;
+  };
   headerController.setNativeOnboardingLauncher(async ({ onClose, restart }) => {
+    const unfinished = launchMarker.previousUnfinished();
+    if (unfinished) {
+      presentationLog('previous-setup-unfinished', {
+        version: unfinished.version, attempts: unfinished.attempts,
+        dumps: crashDumpsSince(app.getPath('crashDumps'), unfinished.startedAt),
+      });
+      if (!restart && !(await continueAfterUnfinishedSetup(unfinished.attempts))) {
+        launchMarker.clear();
+        throw Object.assign(new Error('Setup postponed after an unexpected exit'), { code: 'ONBOARDING_POSTPONED' });
+      }
+    }
     process.env.TAYLOS_EMBEDDED_ONBOARDING = '1';
     const entry = app.isPackaged
       ? path.join(process.resourcesPath,'onboarding-preview/output/onboarding-prototype/local-onboarding.cjs')
@@ -175,14 +212,15 @@ export function registerNativeOnboarding() {
     const accountId=account?.sub || account?.username;
     let resume=null,lastCheckpoint='';
     if(!restart)try{const saved=JSON.parse(fs.readFileSync(progressPath,'utf8'));if(saved.account===accountId)resume=saved.checkpoint;}catch{}
+    // The regular windows stay on screen until setup has actually presented:
+    // if setup cannot appear, the user still has Taylos in front of them.
     const header = getHeaderWindow();
-    if (header && !header.isDestroyed()) header.close();
     const visible = BrowserWindow.getAllWindows().filter(win=>win.isVisible());
     suspendOverlayShortcuts();
-    visible.forEach(win=>win.hide());
     try {
+      launchMarker.begin(app.getVersion(), (unfinished?.attempts || 0) + 1);
       const { startOnboarding } = require(entry);
-      return await startOnboarding({
+      const handle = await startOnboarding({
         requestHost: requestPermissions,
         resume,
         onPresentationError: showRecovery,
@@ -204,11 +242,16 @@ export function registerNativeOnboarding() {
           await saveContext(context, token);
         },
         onClose: (result: { finished: boolean }) => {
+          launchMarker.clear();
           if(result.finished && fs.existsSync(progressPath))fs.unlinkSync(progressPath);
           onClose(result);
         },
       });
+      if (header && !header.isDestroyed()) header.close();
+      for (const win of visible) if (!win.isDestroyed() && win !== header) win.hide();
+      return handle;
     } catch (error) {
+      launchMarker.clear();
       for(const win of visible)if(!win.isDestroyed()){win.show();win.moveTop();}
       if((error as {code?:string})?.code!=='ONBOARDING_CLOSED')showRecovery();
       throw error;

@@ -61,7 +61,7 @@ export function isPhysicalKeyPressed(keyCode: number): boolean | null {
     (process.platform !== 'darwin' && process.platform !== 'win32') ||
     !Number.isInteger(keyCode)
   ) return null
-  const bridge = loadNativeBridge()
+  const bridge = loadNativeModule()
   if (!bridge?.isKeyPressed) return null
   try {
     return bridge.isKeyPressed(keyCode)
@@ -78,7 +78,7 @@ export function isPhysicalMouseButtonPressed(button: number): boolean | null {
     button < 0 ||
     button > 2
   ) return null
-  const bridge = loadNativeBridge()
+  const bridge = loadNativeModule()
   if (!bridge?.isMouseButtonPressed) return null
   try {
     return bridge.isMouseButtonPressed(button)
@@ -90,7 +90,7 @@ export function isPhysicalMouseButtonPressed(button: number): boolean | null {
 
 export function isWindowsCharacterChordPressed(character: string): boolean | null {
   if (process.platform !== 'win32' || character.length !== 1) return null
-  const bridge = loadNativeBridge()
+  const bridge = loadNativeModule()
   if (!bridge?.isCharacterChordPressed) return null
   try {
     return bridge.isCharacterChordPressed(character, true)
@@ -200,14 +200,27 @@ function gpuCompositingStatus(): string {
   try { return String(app.getGPUFeatureStatus().gpu_compositing || '') } catch { return '' }
 }
 
+/**
+ * Native glass on windows. Off on Windows unless TAYLOS_NATIVE_GLASS=1: its
+ * composition crashed the main process (native-glass-policy.ts).
+ */
 function loadNativeBridge(): NativeGlassBridge | null {
   if (!nativeGlassAllowed(process.platform, gpuCompositingStatus(), process.env.TAYLOS_NATIVE_GLASS)) {
     if (!nativeGlassSkipLogged) {
       nativeGlassSkipLogged = true
-      console.log('[window-material] Native glass off without GPU compositing:', gpuCompositingStatus() || 'unknown')
+      console.log('[window-material] Native glass off (platform=' + process.platform + ', gpu_compositing=' + (gpuCompositingStatus() || 'unknown') + '); TAYLOS_NATIVE_GLASS=1 enables it')
     }
     return null
   }
+  return loadNativeModule()
+}
+
+/**
+ * The native module itself. Loading it touches no window; on Windows it also
+ * reads physical key and mouse state (the AltGr shortcut poll), which must keep
+ * working while native glass is off.
+ */
+function loadNativeModule(): NativeGlassBridge | null {
   if (nativeBridge !== undefined) return nativeBridge
   nativeBridge = null
 
@@ -216,7 +229,7 @@ function loadNativeBridge(): NativeGlassBridge | null {
     try {
       // N-API keeps this binary ABI-stable between Node and Electron.
       nativeBridge = require(candidate) as NativeGlassBridge
-      console.log('[window-material] Loaded native glass bridge:', candidate)
+      console.log('[window-material] Loaded native module:', candidate)
       return nativeBridge
     } catch (error) {
       console.warn('[window-material] Native bridge failed to load:', candidate, error)

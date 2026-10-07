@@ -527,6 +527,12 @@ Write-Step "Verify native onboarding presentation with an isolated profile"
 $presentationEvidence = Join-Path $env:TEMP "taylos-onboarding-presentation-$version"
 Invoke-Checked "npm" @("run", "test:onboarding:presentation", "--", $presentationEvidence)
 
+# 1.0.124 passed the check above and still exited (0xFFFF7003) for installed
+# users: that check never runs the real main process. Nothing is uploaded
+# unless the packaged app itself starts, shows a first-run surface and survives.
+Write-Step "Launch the packaged app (isolated profile, fake backend)"
+Invoke-Checked "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\scripts\windows-packaged-smoke.ps1", "-AppExe", "dist\win-unpacked\Taylos.exe")
+
 $uploadCommand = "gh release upload $tag dist\Taylos.exe dist\Taylos.exe.blockmap dist\latest.yml --repo $Repo --clobber"
 Write-Step "Upload command"
 Write-Host $uploadCommand

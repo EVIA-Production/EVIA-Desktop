@@ -6,7 +6,7 @@ const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 // Mirrors focusRead + guideSurfacesFocus in native-source/guides.ts.
 const FOCUS_KEEP={ask:['bar'],goal:['ask'],prepare:['bar','ask'],transcript:['listen'],insights:['listen'],suggestion:['ask','bar'],review:['bar','listen']};
-module.exports = function createProductWindows({ root, origin, owner, onVisibility, readAccount = async()=>null, requestHost }) {
+module.exports = function createProductWindows({ root, origin, owner, onVisibility, readAccount = async()=>null, requestHost, trace = () => {} }) {
   const windows = new Map();
   const dimensions = { bar: [500,49], ask:[640,180], listen:[400,420], settings:[240,320], shortcuts:[380,520] };
   const surfaces = {bar:'overlay',ask:'content',listen:'content',settings:'popover',shortcuts:'utility'};
@@ -22,11 +22,11 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   let inputDiagnosticTimer, pointerTimer;
   const pointerIgnored=new Map(), scaledWindows=new Set();
   const layoutBounds = new Map(), productBounds = new Map();
-  // Native glass needs GPU compositing on Windows (see native-glass-policy.cjs);
-  // without it the product windows use the CSS material.
+  // Native glass is off on Windows unless TAYLOS_NATIVE_GLASS=1 (see
+  // native-glass-policy.cjs); the product windows then use the CSS material.
   const gpuCompositing = (() => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch { return ''; } })();
   const { nativeGlassAllowed } = require('./native-glass-policy.cjs');
-  if (!nativeGlassAllowed(process.platform, gpuCompositing, process.env.TAYLOS_NATIVE_GLASS)) console.log('Product native glass: off (gpu_compositing=' + (gpuCompositing || 'unknown') + ')');
+  if (!nativeGlassAllowed(process.platform, gpuCompositing, process.env.TAYLOS_NATIVE_GLASS)) console.log('Product native glass: off (platform=' + process.platform + ', gpu_compositing=' + (gpuCompositing || 'unknown') + ')');
   else try {
     const platformPath = process.platform === 'darwin'
       ? 'macos-liquid-glass/build/Release/taylos_liquid_glass.node'
@@ -42,6 +42,8 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     if (!bridge.isSupported()) bridge = null;
   } catch (error) { console.warn('Product material fallback:',error.message); }
   console.log('Product native glass:', Boolean(bridge));
+  // The persistent presentation log says which material a crashed run used.
+  trace('product-material', { native: Boolean(bridge), gpuCompositing: gpuCompositing || 'unknown' });
   if(process.platform==='darwin')try {
     nativeControls=require(path.join(__dirname,'native-controls.node'));
     console.log('Native SF draw-on available:',nativeControls.drawOnAvailable);
@@ -403,6 +405,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     const win = new BrowserWindow({parent:owner,width,height,show:false,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:name!=='coach',resizable:false,skipTaskbar:true,focusable:name!=='coach',acceptFirstMouse:true,visualEffectState:'active',
       title:'Taylos · '+name,webPreferences:{additionalArguments:process.env.TAYLOS_INPUT_DIAGNOSTICS==='1'?['--taylos-input-diagnostics']:[],session:name==='bar'?undefined:owner.webContents.session,partition:name==='bar'?'taylos-review-bar':undefined,preload:path.join(__dirname,'local-preload.cjs'),contextIsolation:true,sandbox:true,backgroundThrottling:false}});
     windows.set(name,win);
+    win.webContents.on('render-process-gone',(_event,details)=>trace('product-render-process-gone',{surface:name,reason:details?.reason,exitCode:details?.exitCode}));
     if(name!=='coach')win.on('move',()=>{
       const expected=layoutBounds.get(name);
       if(destroyed||!expected||!win.isVisible()||!activeNames().includes(name))return;
