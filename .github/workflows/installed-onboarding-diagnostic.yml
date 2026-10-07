@@ -1,0 +1,81 @@
+name: Installed onboarding diagnostic (Windows)
+
+# Launches the packaged Taylos app exactly as installed, with an isolated
+# profile, a local fake backend and external network blocked, and records how
+# the main process ends. No production account, no checkout of new code.
+on:
+  push:
+    branches: [diag/windows-installed-onboarding]
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows-signing]
+    timeout-minutes: 20
+    steps:
+      - name: Launch the packaged app
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = 'D:\taylos-diag'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $candidates = @('C:\Program Files\Taylos\Taylos.exe', (Join-Path $env:LOCALAPPDATA 'Programs\Taylos\Taylos.exe'), (Join-Path $env:GITHUB_WORKSPACE 'dist\win-unpacked\Taylos.exe'))
+          foreach ($c in $candidates) { if (Test-Path $c) { $v = (Get-Item $c).VersionInfo.ProductVersion; $sig = (Get-AuthenticodeSignature $c).Status; Write-Host "candidate: $c version=$v signature=$sig" } }
+
+          # Fake backend: active subscription, never logs headers.
+          $mock = Start-Job -ScriptBlock {
+            $l = New-Object System.Net.HttpListener
+            $l.Prefixes.Add('http://127.0.0.1:18080/')
+            $l.Start()
+            while ($l.IsListening) {
+              $ctx = $l.GetContext()
+              $p = $ctx.Request.Url.AbsolutePath
+              $body = '{"detail":"Not Found"}'; $code = 404
+              if ($p -like '/stripe/subscription-status*') { $code = 200; $body = '{"status":"active","is_active":true,"trial_ends_at":null,"current_period_end":"2026-11-07T00:00:00Z","cancel_at_period_end":false,"plan_type":"monthly"}' }
+              elseif ($p -like '/users/me*') { $code = 200; $body = '{"username":"diag-user","email":"diag@example.invalid","full_name":"Diag","disabled":false,"is_active":true}' }
+              $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+              $ctx.Response.StatusCode = $code
+              $ctx.Response.ContentType = 'application/json'
+              $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+              $ctx.Response.Close()
+              Add-Content -Path 'D:\taylos-diag\mock-requests.txt' -Value ("{0} {1} -> {2}" -f (Get-Date -Format o), $p, $code)
+            }
+          }
+          Start-Sleep -Seconds 2
+
+          function Invoke-Scenario([string]$name, [string]$exe, [hashtable]$extraEnv) {
+            $profile = Join-Path $root ("profile-" + $name + "-" + (Get-Date -Format 'HHmmss'))
+            $out = Join-Path $root ($name + '-stdout.txt'); $err = Join-Path $root ($name + '-stderr.txt')
+            Remove-Item $out, $err -ErrorAction SilentlyContinue
+            $env:TAYLOS_BACKEND_URL = 'http://127.0.0.1:18080'
+            $env:ELECTRON_ENABLE_LOGGING = '1'
+            Remove-Item Env:TAYLOS_NATIVE_GLASS -ErrorAction SilentlyContinue
+            foreach ($k in $extraEnv.Keys) { Set-Item -Path ("Env:" + $k) -Value $extraEnv[$k] }
+            $args = @("--user-data-dir=$profile", '--proxy-server=http://127.0.0.1:9', '--proxy-bypass-list=<-loopback>')
+            $p = Start-Process -FilePath $exe -ArgumentList $args -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+            $exited = $p.WaitForExit(45000)
+            $code = if ($exited) { $p.ExitCode } else { 'still-running' }
+            if (-not $exited) { & taskkill /PID $p.Id /T /F | Out-Null }
+            Get-Process -Name Taylos -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe -and $_.StartTime -gt (Get-Date).AddMinutes(-2) } | ForEach-Object { & taskkill /PID $_.Id /T /F | Out-Null }
+            Write-Host ""
+            Write-Host "===== scenario $name : exited=$exited exitCode=$code ====="
+            $hex = if ($code -is [int]) { '0x{0:X8}' -f $code } else { '' }
+            Write-Host "exit hex: $hex"
+            $redact = 'eyJ[A-Za-z0-9_\-\.]+|Bearer\s+\S+|token=\S+'
+            Write-Host "--- stdout (last 70, redacted) ---"
+            if (Test-Path $out) { Get-Content $out -Tail 70 | ForEach-Object { $_ -replace $redact, '<redacted>' } }
+            Write-Host "--- stderr (last 40, redacted) ---"
+            if (Test-Path $err) { Get-Content $err -Tail 40 | ForEach-Object { $_ -replace $redact, '<redacted>' } }
+            $log = Join-Path $profile 'logs\onboarding-presentation.log'
+            Write-Host "--- presentation log ---"
+            if (Test-Path $log) { Get-Content $log | ForEach-Object { $_.Substring(0, [Math]::Min(260, $_.Length)) } } else { Write-Host "(none at $log)" }
+          }
+
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          Write-Host "using: $exe"
+          Invoke-Scenario 'default' $exe @{}
+          Invoke-Scenario 'glass-off' $exe @{ TAYLOS_NATIVE_GLASS = '0' }
+          Invoke-Scenario 'glass-on' $exe @{ TAYLOS_NATIVE_GLASS = '1' }
+          Write-Host "--- mock requests ---"
+          if (Test-Path "$root\mock-requests.txt") { Get-Content "$root\mock-requests.txt" -Tail 20 }
+          Stop-Job $mock -ErrorAction SilentlyContinue; Remove-Job $mock -Force -ErrorAction SilentlyContinue
+          exit 0
