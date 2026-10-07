@@ -17,13 +17,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $redact = 'eyJ[A-Za-z0-9_\-\.]+|Bearer\s+\S+|token=[^&\s]+|"token":"[^"]+"'
-          Write-Host "TAYLOS_NATIVE_GLASS (user scope): '$([Environment]::GetEnvironmentVariable('TAYLOS_NATIVE_GLASS','User'))' (machine): '$([Environment]::GetEnvironmentVariable('TAYLOS_NATIVE_GLASS','Machine'))'"
-          foreach ($name in 'taylos-126-A-out.log','taylos-126-A-err.log','taylos-126-B-out.log','taylos-126-B-err.log') {
+          $redact = 'eyJ[A-Za-z0-9_\-\.]+|Bearer\s+\S+|token=[^&\s]+|"token":"[^"]+"'
+          foreach ($name in 'taylos-126-B-err.log','taylos-126-A-err.log') {
             $file = Join-Path $env:TEMP $name
-            Write-Host ""
-            Write-Host "===== $name ($(if (Test-Path $file) { (Get-Item $file).Length } else { 'missing' }) bytes) ====="
-            if (!(Test-Path $file)) { continue }
-            Select-String -Path $file -Pattern 'native glass|Native glass|native material|window-material|product-material|Loaded native|glass bridge|material fallback|NATIVE_GLASS|State transition|Initial state data|hasToken|Subscription check|Onboarding not|AskView|adjust-window-height|PREPARED|Final suggestion|Stream completed|Starting stream|stream error|ASK-|/ask|402|401|429|500|Error|error|insight' |
-              Select-Object -First 220 | ForEach-Object { ($_.Line -replace $redact, '<redacted>').Substring(0, [Math]::Min(260, $_.Line.Length)) }
+            Write-Host "===== $name: every renderer line from 'Starting stream' to 'Auto-focusing input after response' ====="
+            $lines = Get-Content $file
+            $on = $false
+            foreach ($line in $lines) {
+              if ($line -match 'Starting stream') { $on = $true }
+              if ($on) { Write-Host (($line -replace $redact, '<redacted>') -replace '^\[[^\]]+\] ', '').Substring(0, [Math]::Min(300, $line.Length)) }
+              if ($on -and $line -match 'Auto-focusing input after response') { break }
+            }
           }
           exit 0
