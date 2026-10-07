@@ -165,14 +165,15 @@ try {
     # Taylos window the user must be able to see.
     $minSize = if ($surface -eq "native setup presented") { 200 } else { 40 }
     $needsWindow = $surface -ne "registration requested (no stored Taylos token)"
+    $windows = @()
     if ($needsWindow) {
       $visibleDeadline = (Get-Date).AddSeconds(15)
-      do { $windows = Get-VisibleWindows $minSize; if ($windows.Count) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $visibleDeadline)
+      do { $windows = @(Get-VisibleWindows $minSize); if ($windows.Count) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $visibleDeadline)
       Write-Host "[packaged-smoke] visible windows after '$surface': $($windows -join ' ')"
     }
     # 1.0.124 died about a second after its first frame; stay alive a while.
     Start-Sleep -Seconds $SurviveSeconds
-    $windowsAfter = if ($needsWindow) { Get-VisibleWindows $minSize } else { @() }
+    $windowsAfter = @(if ($needsWindow) { Get-VisibleWindows $minSize })
     if ($process.HasExited) {
       $reason = "The app exited after '$surface': exit code {0} (0x{0:X8})." -f $process.ExitCode
     } else {
