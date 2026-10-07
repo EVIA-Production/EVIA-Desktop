@@ -38,6 +38,17 @@ jobs:
     runs-on: [self-hosted, windows-signing]
     timeout-minutes: 120
     steps:
+      # A candidate under manual test runs from this workspace's dist folder and
+      # locks its files; checkout's clean then fails after minutes of retries
+      # (7 Oct 2026). Only processes started from this workspace are stopped.
+      - name: Stop test instances running from this workspace
+        shell: powershell
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Write-Host "Stopping $($_.Name) ($($_.Id)) from the workspace"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 2
+          exit 0
+
       - name: Checkout
         uses: actions/checkout@v4
 
