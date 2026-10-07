@@ -2477,7 +2477,26 @@ async function startCaptureInternal(includeSystemAudio = false) {
       if ((window as any)?.platformInfo?.isMac) {
         console.warn('[AudioCapture] Please ensure Screen Recording permission is granted in System Settings');
       }
-      throw error;
+      // Windows: losing call audio must not end a working microphone capture.
+      // On the launch-day test PC, Electron's loopback failed in DXGI
+      // ("Cannot initialize any DxgiOutputDuplicator instance", NotReadableError)
+      // after the mic, socket and Deepgram were already live, and the whole
+      // session rolled back to idle with the timer at 00:00. Release what the
+      // loopback opened and continue microphone-only; the overlay already shows
+      // the mic-only warning and tracks capture_start_mic_continues.
+      if ((window as any)?.platformInfo?.isWindows) {
+        try { systemStream?.getTracks().forEach((track: MediaStreamTrack) => track.stop()); } catch { /* already stopped */ }
+        systemStream = null;
+        try { systemAudioProcessor?.disconnect(); } catch { /* not connected */ }
+        systemAudioProcessor = null;
+        try { await systemAudioContext?.close(); } catch { /* already closed */ }
+        systemAudioContext = null;
+        (window as any)._systemAudioUsingLoopback = false;
+        console.warn('[AudioCapture] 🪟 System audio unavailable; microphone capture continues');
+        sendDebugLog(`[AudioCapture] Windows system audio failed (${error?.name || 'Error'}: ${String(error?.message || error).slice(0, 160)}); continuing microphone-only`);
+      } else {
+        throw error;
+      }
     }
   }
 
