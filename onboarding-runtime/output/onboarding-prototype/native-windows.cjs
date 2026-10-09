@@ -22,6 +22,12 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   let inputDiagnosticTimer, pointerTimer;
   const pointerIgnored=new Map(), scaledWindows=new Set();
   const layoutBounds = new Map(), productBounds = new Map();
+  function materialGeometry(name) {
+    const bounds=productBounds.get(name);
+    const [width,height]=dimensions[name];
+    return {radius:radii[name]*(name==='bar'?(windows.get(name)?.webContents.getZoomFactor?.()||1):1),
+      materialWidth:bounds?.width||width,materialHeight:bounds?.height||height};
+  }
   // Native glass is off on Windows unless TAYLOS_NATIVE_GLASS=1 (see
   // native-glass-policy.cjs); the product windows then use the CSS material.
   const gpuCompositing = (() => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch { return ''; } })();
@@ -402,7 +408,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
   });
   for(const name of [...Object.keys(dimensions),'coach']) {
     const [width,height]=dimensions[name] || [270,100];
-    const win = new BrowserWindow({parent:owner,width,height,show:false,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:name!=='coach',resizable:false,skipTaskbar:true,focusable:name!=='coach',acceptFirstMouse:true,visualEffectState:'active',
+    const win = new BrowserWindow({parent:owner,width,height,show:false,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:name!=='coach',...(process.platform==='win32'?{roundedCorners:false,thickFrame:false}:{}),resizable:false,skipTaskbar:true,focusable:name!=='coach',acceptFirstMouse:true,visualEffectState:'active',
       title:'Taylos · '+name,webPreferences:{additionalArguments:process.env.TAYLOS_INPUT_DIAGNOSTICS==='1'?['--taylos-input-diagnostics']:[],session:name==='bar'?undefined:owner.webContents.session,partition:name==='bar'?'taylos-review-bar':undefined,preload:path.join(__dirname,'local-preload.cjs'),contextIsolation:true,sandbox:true,backgroundThrottling:false}});
     windows.set(name,win);
     win.webContents.on('render-process-gone',(_event,details)=>trace('product-render-process-gone',{surface:name,reason:details?.reason,exitCode:details?.exitCode}));
@@ -421,7 +427,9 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
     if(name!=='coach'){win.setHasShadow(true);for(const event of ['focus','blur','resize'])win.on(event,()=>{if(!win.isDestroyed())nativeControls?.refreshProductAppearance?.(win.getNativeWindowHandle());});}
     if(process.platform==='darwin')win.setWindowButtonVisibility(false);
     if(bridge && name!=='coach') {
-      const config={surface:surfaces[name],radius:radii[name],active:true,interactive:false};
+      // Windows can enlarge a 49px host to a 64px client area. The glass must
+      // use the product footprint, not paint that surplus over the next panel.
+      const config={surface:surfaces[name],...materialGeometry(name),active:true,interactive:false};
       let result;
       try{result=bridge.apply(win.getNativeWindowHandle(),config);}catch(error){result={applied:false,reason:error.message};}
       console.log(name,'native material',JSON.stringify(result));
@@ -435,7 +443,7 @@ module.exports = function createProductWindows({ root, origin, owner, onVisibili
         setImmediate(()=>{
           resizeQueued=false;
           if(destroyed||win.isDestroyed()||scaledWindows.has(name))return;
-          try{bridge.update(win.getNativeWindowHandle(),{...config,radius:radii[name]*(name==='bar'?(win.webContents.getZoomFactor?.()||1):1)});}
+          try{bridge.update(win.getNativeWindowHandle(),{...config,...materialGeometry(name)});}
           catch(error){console.warn(name,'native material update failed:',error.message);}
         });
       });

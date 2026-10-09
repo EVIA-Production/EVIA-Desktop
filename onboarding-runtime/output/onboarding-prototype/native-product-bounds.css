@@ -1,0 +1,7 @@
+/* The HWND may be taller than the product. Keep content and its focus scrim
+   inside the same logical footprint that the native material clips to. */
+html[data-native-surface=bar] .product-surface {
+  height: 49px;
+  overflow: hidden;
+  border-radius: 999px;
+}
