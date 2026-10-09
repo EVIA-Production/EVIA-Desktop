@@ -59,8 +59,16 @@ public static class TaylosScreenCheck {
   [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
   [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("gdi32.dll", SetLastError = true)] static extern bool BitBlt(IntPtr dst, int x, int y, int width, int height, IntPtr src, int sx, int sy, uint operation);
   public static void Capture(long handle, string file) {
+    // GetWindowRect and BitBlt must agree on physical pixels at every DPI.
+    var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    if (previous == IntPtr.Zero) throw new InvalidOperationException("Physical DPI context unavailable");
+    try { CapturePixels(handle, file); }
+    finally { SetThreadDpiAwarenessContext(previous); }
+  }
+  static void CapturePixels(long handle, string file) {
     var h = new IntPtr(handle); Rect box;
     if (!GetWindowRect(h, out box)) throw new InvalidOperationException("Window bounds unavailable");
     int height = (int)Math.Round(49 * GetDpiForWindow(h) / 96.0);

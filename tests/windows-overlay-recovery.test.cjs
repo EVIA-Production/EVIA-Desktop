@@ -231,4 +231,6 @@ test('additional native capture cannot delay or replace the original physical re
   assert.match(source, /BitBlt\(destination,[\s\S]*0x00CC0020u \| 0x40000000u/);
   assert.match(source, /PixelFormat\.Format24bppRgb/);
   assert.doesNotMatch(source, /CopyPixelOperation/);
+  assert.match(source, /SetThreadDpiAwarenessContext\(new IntPtr\(-4\)\)/);
+  assert.match(source, /finally \{ SetThreadDpiAwarenessContext\(previous\); \}/);
 });
