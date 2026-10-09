@@ -76,6 +76,16 @@ test('the self-hosted workflow never queries the privileged runner-list endpoint
   assert.match(desktopWorkflow, /windows-build-sign-and-publish:[\s\S]*upload: true/)
 })
 
+test('Windows QA cleanup cannot target a runner, unrelated application or unbounded path', () => {
+  for (const name of ['check-windows-overlay.yml', 'release-windows-self-hosted.yml']) {
+    const source = read('.github', 'workflows', name)
+    assert.match(source, /IsNullOrWhiteSpace\(\$workspace\)/)
+    assert.match(source, /Join-Path \$workspace "package\.json"/)
+    assert.ok(source.includes(".TrimEnd('\\') + '\\'"))
+    assert.ok(source.includes("$_.Name -match '^(electron|Taylos)$' -and $_.Path"))
+  }
+})
+
 test('failed Windows presentation gates retain isolated screenshots without permitting upload', () => {
   const workflow = read('.github', 'workflows', 'release-windows-self-hosted.yml')
   assert.match(workflow, /Collect isolated presentation evidence\n\s+if: always\(\)/)

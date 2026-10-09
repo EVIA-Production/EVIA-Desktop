@@ -25,7 +25,10 @@ jobs:
         shell: powershell
         run: |
           $workspace = $env:GITHUB_WORKSPACE
-          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+          if ([string]::IsNullOrWhiteSpace($workspace)) { throw "Missing workspace; no processes were stopped." }
+          if (!(Test-Path -LiteralPath (Join-Path $workspace "package.json"))) { exit 0 }
+          $workspace = [IO.Path]::GetFullPath($workspace).TrimEnd('\') + '\'
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(electron|Taylos)$' -and $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
           Start-Sleep -Seconds 2
           exit 0
       - uses: actions/checkout@v4
