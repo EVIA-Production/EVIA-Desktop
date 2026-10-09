@@ -99,6 +99,8 @@ win:
 
 nsis:
   buildUniversalInstaller: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
   include: build/installer.nsh
   oneClick: false
   perMachine: false

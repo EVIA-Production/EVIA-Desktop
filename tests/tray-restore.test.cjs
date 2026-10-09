@@ -40,3 +40,11 @@ test('shortcut re-registration keeps the tray and its restore action', () => {
   assert.ok(start > 0 && end > start, 'registerShortcuts re-registration block found');
   assert.equal(source.slice(start, end).includes('disposeTray('), false, 'only shutdown may dispose the tray');
 });
+
+test('suspending shortcuts for setup/logout does not clear the tray restore callback', () => {
+ const source=fs.readFileSync(path.join(__dirname,'..','src/main/overlay-windows.ts'),'utf8');
+ const start=source.indexOf('function unregisterShortcuts()');
+ const end=source.indexOf('function synchronizeWindowGroupFocus',start);
+ assert.equal(source.slice(start,end).includes('disposeTray('),false);
+ assert.match(source,/app\.on\('will-quit', \(\) => \{\s*unregisterShortcuts\(\)\s*disposeTray\(\)/);
+});

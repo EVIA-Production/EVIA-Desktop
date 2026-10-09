@@ -28,6 +28,13 @@ try { crashReporter.start({ uploadToServer: false }); } catch (error) { console.
 
 let pendingDeepLink: string | null = null;
 let deepLinkHandlingReady = false;
+let authOperation: Promise<unknown> = Promise.resolve();
+
+function enqueueAuthOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const next = authOperation.then(operation, operation);
+  authOperation = next.catch(() => undefined);
+  return next;
+}
 const PRIMARY_DEEP_LINK_SCHEME = process.env.TAYLOS_LOCAL_REVIEW === '1' ? 'taylos-test' : 'taylos';
 const LEGACY_DEEP_LINK_SCHEME = 'evia';
 const isDemoMode = !app.isPackaged && process.env.TAYLOS_DEMO_MODE === '1';
@@ -167,7 +174,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else if (!IS_ISOLATED_HARNESS) {
   app.on('second-instance', (_event, argv) => {
-    console.log('[Protocol] second-instance argv:', argv);
+    console.log('[Protocol] second-instance received');
     const raw = extractDeepLinkFromArgList(argv);
     if (raw) {
       const url = normalizeDeepLink(raw);
@@ -176,16 +183,7 @@ if (!gotSingleInstanceLock) {
       return; // The auth handler presents the onboarding only after its icon is ready.
     }
 
-    if(headerController.getCurrentState()==='onboarding'){headerController.focusOnboarding();return;}
-    if(headerController.getCurrentState()==='subscription_required'){void headerController.openCheckout();return;}
-    const mainWindow = BrowserWindow.getAllWindows()[0];
-    if (mainWindow) {
-      try {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      } catch {}
-    }
+    void headerController.reopen().catch(error => console.error('[Launch] Reopen failed:', error));
   });
 }
 
@@ -803,63 +801,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on("activate", () => {
-  // On macOS 'activate' may be emitted at launch; only create header here
-  // if the user is already authenticated and (on macOS) has the required permissions.
-  // We intentionally avoid calling validateAuthentication() here to use the
-  // existing, already-implemented checks (keytar + systemPreferences).
-  (async () => {
-    try {
-      const exists = !!getHeaderWindow();
-      const state = headerController.getCurrentState();
-      if (state !== 'ready') {
-        const leaked = getHeaderWindow();
-        if (leaked && !leaked.isDestroyed()) leaked.close();
-        if (state === 'onboarding') headerController.focusOnboarding();
-        else if (state === 'subscription_required') await headerController.openCheckout();
-        return;
-      }
-      if (exists) return;
-
-      // Check token presence via keytar
-      let hasToken = false;
-      try {
-        const token = await keytar.getPassword("taylos", "token");
-        hasToken = !!token;
-      } catch (e) {
-        console.warn("[Main] activate: keytar read failed:", e);
-      }
-
-      if (!hasToken) {
-        console.log("[Main] activate: no token present — not creating header");
-        return;
-      }
-
-      // On macOS also ensure microphone and screen permissions are granted
-      if (process.platform === "darwin") {
-        try {
-          const mic = systemPreferences.getMediaAccessStatus("microphone");
-          const screen = systemPreferences.getMediaAccessStatus("screen");
-          const micOk = mic === "granted";
-          const screenOk = screen === "granted";
-          if (!micOk || !screenOk) {
-            console.log(
-              "[Main] activate: token present but permissions missing — not creating header",
-              { mic, screen }
-            );
-            return;
-          }
-        } catch (e) {
-          console.warn("[Main] activate: permission check failed:", e);
-          return;
-        }
-      }
-
-      // If we reached here, token + (macOS) permissions are satisfied — create header
-      createHeaderWindow();
-    } catch (err) {
-      console.error("[Main] activate handler failed:", err);
-    }
-  })();
+  // Ignore the startup activation: initialize() owns the first presentation.
+  // Later Dock clicks must also recover a hidden bar or closed browser login.
+  if (!deepLinkHandlingReady) return;
+  void headerController.reopen().catch(error => console.error('[Main] Activate failed:', error));
 });
 
 app.on('quit', async () => {
@@ -1260,13 +1205,13 @@ async function stopAllPhysicalCapture(reason: string): Promise<void> {
 }
 
 // Logout handler (Phase 4: HeaderController integration)
-ipcMain.handle('auth:logout', async () => {
+async function logoutDesktop(openBrowser = true) {
   try {
     // Before the state reset, not after: reset() flips the snapshot to 'idle',
     // and a renderer that sees 'idle' first may decide it has nothing to stop.
     await stopAllPhysicalCapture('logout');
     captureSessionController.reset('logout');
-    await headerController.handleLogout();
+    await headerController.handleLogout({ openBrowser });
     broadcastAuthTokenChanged(null);
     console.log('[Auth] ✅ Logged out via HeaderController');
     return { success: true };
@@ -1274,7 +1219,8 @@ ipcMain.handle('auth:logout', async () => {
     console.error('[Auth] ❌ Logout failed:', err);
     return { success: false, error: (err as Error).message };
   }
-});
+}
+ipcMain.handle('auth:logout', () => enqueueAuthOperation(() => logoutDesktop()));
 
 app.on('will-quit', () => {
   stopDesktopClientTelemetry();
@@ -1713,16 +1659,39 @@ async function handleAuthCallback(url: string) {
     
     if (token) {
       console.log('[Auth] ✅ Received token, delegating to HeaderController');
-      await headerController.handleAuthCallback(token);
-      broadcastAuthTokenChanged(token);
+      await enqueueAuthOperation(async () => {
+        await headerController.handleAuthCallback(token, { newAccount: urlObj.searchParams.get('setup') === '1' });
+        broadcastAuthTokenChanged(token);
+      });
     }
   } catch (err) {
     console.error('[Auth] ❌ Callback parsing failed:', err);
-    dialog.showErrorBox('Auth Error', 'Failed to process login callback');
+    dialog.showErrorBox('Sign-in unavailable', err instanceof Error ? err.message : 'Sign in on app.taylos.ai, then open Taylos again.');
   }
 }
 
 import { desktopBridge } from './desktop-bridge';
+
+// A web logout must carry the session it is ending. A different browser
+// account must not stop someone else's desktop call.
+desktopBridge.setLogoutHandler(token => enqueueAuthOperation(async () => {
+  const existing = await keytar.getPassword('taylos', 'token');
+  if (!existing) return 204;
+  if (existing !== token) {
+    const response = await fetch(`${getBackendHttpBase()}/users/me/`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return response.status === 401 ? 401 : 503;
+    const identity = await response.json() as { username?: string };
+    try {
+      const account = JSON.parse(Buffer.from(existing.split('.')[1], 'base64url').toString()).sub;
+      if (!identity.username || identity.username !== account) return 409;
+    } catch { return 409; }
+    if (await keytar.getPassword('taylos', 'token') !== existing) return 409;
+  }
+  const result = await logoutDesktop(false);
+  return result.success ? 204 : 503;
+}));
 
 // Force focus helper - Glass-style: simple restore and focus
 // The window's alwaysOnTop and visibleOnAllWorkspaces are set at creation
@@ -1805,16 +1774,18 @@ async function handleLaunchRequest(url: string) {
           : '[Launch] 🔑 Not authenticated yet, triggering full auth flow',
       );
 
-      await headerController.handleAuthCallback(token);
-      broadcastAuthTokenChanged(token);
+      await enqueueAuthOperation(async () => {
+        await headerController.handleAuthCallback(token);
+        broadcastAuthTokenChanged(token);
+      });
 
       // Ensure newly created or restored windows are focused
       setTimeout(() => {
         focusPrimaryDesktopWindow();
       }, 500);
     } else {
-      console.log('[Launch] 📱 No token, bringing app to front if running');
-      focusPrimaryDesktopWindow();
+    console.log('[Launch] No token, reopening the current app state');
+      await headerController.reopen();
     }
     // The web app's Settings > Keyboard shortcuts > Edit opens the shortcuts window here.
     if (urlObj.searchParams.get('open') === 'shortcuts') {

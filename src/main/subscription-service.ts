@@ -10,7 +10,7 @@
 import * as keytar from 'keytar';
 
 // Get backend URL from environment or use production default
-function getBackendUrl(): string {
+export function getBackendUrl(): string {
   const env =
     process.env.TAYLOS_BACKEND_URL ||
     process.env.Taylos_BACKEND_URL ||

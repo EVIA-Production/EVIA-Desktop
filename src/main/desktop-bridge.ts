@@ -118,6 +118,11 @@ class DesktopBridge {
   private clientOrigins = new WeakMap<WebSocket, string>();
   private clientPaths = new WeakMap<WebSocket, string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private logoutHandler: ((token: string) => Promise<number>) | null = null;
+
+  public setLogoutHandler(handler: (token: string) => Promise<number>): void {
+    this.logoutHandler = handler;
+  }
 
   constructor() {
     // Lazy start
@@ -143,8 +148,8 @@ class DesktopBridge {
           res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
           res.setHeader('Vary', 'Origin');
         }
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         if (req.headers['access-control-request-private-network'] === 'true') {
           res.setHeader('Access-Control-Allow-Private-Network', 'true');
         }
@@ -155,6 +160,18 @@ class DesktopBridge {
           return;
         }
 
+        if (req.url === '/logout' && req.method === 'POST') {
+          const authorization = req.headers.authorization || '';
+          const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+          if (!allowedOrigin || !token || token.length > 8192) {
+            res.writeHead(403); res.end(); return;
+          }
+          if (!this.logoutHandler) { res.writeHead(503); res.end(); return; }
+          void this.logoutHandler(token).then(status => {
+            res.writeHead(status); res.end();
+          }).catch(() => { res.writeHead(503); res.end(); });
+          return;
+        }
         if (req.url === '/status' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ 

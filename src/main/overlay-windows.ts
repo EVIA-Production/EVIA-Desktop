@@ -374,7 +374,8 @@ const overlayVisibility = new OverlayVisibilityController()
 // hotkey only helps someone who already knows it exists. Restoring goes through
 // handleHeaderToggle so the icon and Cmd+\ cannot drift apart.
 initTray(() => {
-  if (overlayVisibility.isUiHidden()) handleHeaderToggle()
+  if (headerController.getCurrentState() === 'ready') restoreOverlayUi()
+  else void headerController.reopen().catch(error => console.error('[tray] Restore failed:', error))
 })
 overlayVisibility.observeUiHidden(syncTray)
 
@@ -404,6 +405,13 @@ function ensureHeaderWindowVisible(): BrowserWindow {
   }
   headerWindow.moveTop()
   return headerWindow
+}
+
+export function restoreOverlayUi(): void {
+  if (headerController.getCurrentState() !== 'ready') return
+  overlayVisibility.showUi()
+  ensureHeaderWindowVisible()
+  restoreLastVisibleChildWindows()
 }
 
 function getVisibleChildWindowNames(): FeatureName[] {
@@ -1156,6 +1164,7 @@ function buildDesiredVisibilityFor(name: FeatureName): WindowVisibility {
 }
 
 function ensureWindowShown(name: FeatureName) {
+  overlayVisibility.showUi()
   let win = childWindows.get(name)
   if (!win || win.isDestroyed()) {
     win = createChildWindow(name)
@@ -1168,9 +1177,9 @@ function ensureWindowShown(name: FeatureName) {
   const header = getOrCreateHeaderWindow()
   if (header && !header.isDestroyed()) {
     header.setAlwaysOnTop(true, 'screen-saver')
-    if (!header.isVisible()) {
-      showComposedWindow(header)
-    }
+    // Native Windows composition can be hidden while Electron reports visible.
+    // Restore the composed surface, not just its Chromium owner.
+    ensureHeaderWindowVisible()
   }
 
   if (name === 'ask') {
@@ -1660,6 +1669,10 @@ function toggleWindow(name: FeatureName) {
   // For other windows (listen, settings, shortcuts), use spread to preserve ask state
   const current = Boolean(vis[name])
   const newVis = { ...vis, [name]: !current }
+  if (!current && name === 'shortcuts') {
+    ensureWindowShown(name)
+    return true
+  }
   updateWindows(newVis)
   return newVis[name]
 }
@@ -2455,7 +2468,6 @@ function unregisterShortcuts() {
 
   try {
     globalShortcut.unregisterAll()
-    disposeTray()
   } catch (error) {
     // Cleanup must never turn an otherwise clean exit into an uncaught crash.
     console.warn('[Shortcuts] Failed to unregister during shutdown:', error)
@@ -2643,6 +2655,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   unregisterShortcuts()
+  disposeTray()
   stopAlwaysOnTopRefresh() // WINDOWS FIX: Stop the always-on-top refresh
   stopWindowGroupClickPoll()
 })

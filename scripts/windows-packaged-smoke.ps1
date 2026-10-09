@@ -12,7 +12,7 @@
 # changed), a fake backend on 127.0.0.1 answering only the subscription and
 # identity calls, and every other network request blocked by an unreachable
 # proxy. The keychain is not touched: with a stored Taylos token the app takes
-# the returning-user path (native setup must present); without one it takes
+# the explicit unfinished-signup path (native setup must present); without one it takes
 # the new-user path (the registration page must be requested). The token is
 # sent only to the fake backend, which records paths, never headers.
 param(
@@ -35,6 +35,9 @@ $stdout = Join-Path $work "stdout.txt"
 $stderr = Join-Path $work "stderr.txt"
 $requests = Join-Path $work "backend-requests.txt"
 New-Item -ItemType Directory -Force -Path $userData | Out-Null
+# Model a newly registered account whose setup has not finished. Ordinary
+# existing-account login now correctly bypasses the initial signup tutorial.
+[IO.File]::WriteAllText((Join-Path $userData "auth-state.json"), '{"onboardingRequired":true,"onboardingCompleted":false}', (New-Object Text.UTF8Encoding($false)))
 $port = 18080 + (Get-Random -Minimum 0 -Maximum 900)
 
 $backend = Start-Job -ArgumentList $port, $requests -ScriptBlock {

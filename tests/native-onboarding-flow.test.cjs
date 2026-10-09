@@ -3,18 +3,19 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-function controller({token=null,subscribed=false,completed=false,legacyState=null,platform='darwin'}={}){
+function controller({token=null,subscribed=false,completed=false,legacyState=null,platform='darwin',authStatus=200}={}){
  const windows=[],persisted=[];
  const deps={
   electron:{app:{getPath:()=>'/test'},systemPreferences:{getMediaAccessStatus:()=> 'granted'}},
   keytar:{getPassword:async()=>token,setPassword:async(_s,_k,value)=>{token=value},deletePassword:async()=>{token=null}},
-  fs:{existsSync:()=>completed||!!legacyState,readFileSync:()=>JSON.stringify(legacyState||{onboardingCompleted:true}),writeFileSync:(_p,s)=>persisted.push(JSON.parse(s))},path,
+  fs:{existsSync:()=>completed||!!legacyState||!!token,readFileSync:()=>JSON.stringify(legacyState||{onboardingCompleted:completed,onboardingRequired:!!token&&!completed,permissionsCompleted:completed}),writeFileSync:(_p,s)=>persisted.push(JSON.parse(s))},path,
   './auth-token-cache':{clearCachedAuthToken(){},setCachedAuthToken(){}},
-  './subscription-service':{hasActiveSubscription:async()=>subscribed,clearSubscriptionCache(){},getCachedSubscriptionStatus:()=>null},
-  './overlay-windows':{createWelcomeWindow:()=>windows.push('welcome'),closeWelcomeWindow(){},createPermissionWindow:()=>windows.push('permissions'),closePermissionWindow(){},createSubscriptionWindow:()=>windows.push('checkout'),closeSubscriptionWindow(){},createHeaderWindow:()=>windows.push('ready'),getHeaderWindow:()=>null,resumeOverlayShortcuts(){}},
+  './subscription-service':{hasActiveSubscription:async()=>subscribed,clearSubscriptionCache(){},getCachedSubscriptionStatus:()=>null,getBackendUrl:()=> 'https://api.taylos.ai'},
+  './overlay-windows':{createWelcomeWindow:()=>windows.push('welcome'),closeWelcomeWindow(){},createPermissionWindow:()=>windows.push('permissions'),closePermissionWindow(){},createSubscriptionWindow:()=>windows.push('checkout'),closeSubscriptionWindow(){},createHeaderWindow:()=>windows.push('ready'),getHeaderWindow:()=>null,resumeOverlayShortcuts(){},restoreOverlayUi(){},hideAllChildWindows(){},suspendOverlayShortcuts(){}},
  };
  const module={exports:{}};
- vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/header-controller.js'),'utf8'),{require:id=>{if(!(id in deps))throw Error(id);return deps[id]},exports:module.exports,module,Buffer,process:{platform,env:{}},console:{log(){},warn(){},error(){}}});
+ const fetch=async(_url,init)=>({ok:authStatus===200,status:authStatus,json:async()=>({username:JSON.parse(Buffer.from(init.headers.Authorization.slice(7).split('.')[1],'base64url')).sub,is_active:true})});
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/header-controller.js'),'utf8'),{require:id=>{if(!(id in deps))throw Error(id);return deps[id]},exports:module.exports,module,Buffer,AbortSignal,fetch,process:{platform,env:{}},console:{log(){},warn(){},error(){}}});
  const c=new module.exports.HeaderController();return {c,windows,persisted};
 }
 const jwt=(sub='test')=>`x.${Buffer.from(JSON.stringify({sub,exp:Date.now()/1000+3600})).toString('base64url')}.x`;
@@ -23,7 +24,7 @@ test('fresh launch waits for real registration; successful auth opens native bef
  const h=controller();let opened=0;
  h.c.setNativeOnboardingLauncher(async()=>{opened++;return {close(){}}});
  await h.c.initialize();assert.deepEqual(h.windows,['welcome']);assert.equal(opened,0);
- await h.c.handleAuthCallback(jwt());assert.equal(opened,1);assert.ok(!h.windows.includes('checkout'));
+ await h.c.handleAuthCallback(jwt(),{newAccount:true});assert.equal(opened,1);assert.ok(!h.windows.includes('checkout'));
 });
 test('only a finished onboarding is persisted complete and then reaches checkout',async()=>{
  const h=controller({token:jwt()});let finish;let checkouts=0;
@@ -107,10 +108,10 @@ test('an install that predates the bundled onboarding is not forced through it o
  await h.c.initialize();assert.equal(count,0);assert.equal(h.c.isOnboardingCompleted(),true);assert.deepEqual(h.windows,['ready']);
  await h.c.restartNativeOnboarding();assert.equal(count,1);
 });
-test('a pre-1.0.109 install that never finished permissions still gets first-run setup',async()=>{
+test('an old authenticated install is not forced into signup setup',async()=>{
  const h=controller({token:jwt(),legacyState:{permissionsCompleted:false}});let count=0;
  h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
- await h.c.initialize();assert.equal(count,1);
+ await h.c.initialize();assert.equal(count,0);
 });
 // 2026-09-16: a tester's whole first run left no event and no replay - the
 // onboarding window served its own page, blocked every other host and loaded
@@ -151,7 +152,7 @@ test('another account handed over by the web app gets its own onboarding',async(
  const h=controller({token:jwt('founder'),completed:true,subscribed:true});let count=0;
  h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
  await h.c.initialize();assert.equal(count,0);
- await h.c.handleAuthCallback(jwt('payment-tester'));assert.equal(count,1);
+ await h.c.handleAuthCallback(jwt('payment-tester'),{newAccount:true});assert.equal(count,1);
  assert.equal(h.c.isOnboardingCompleted(),false);
 });
 test('the same account signing in again keeps its finished setup',async()=>{
@@ -167,5 +168,44 @@ test('finishing onboarding records the account, which still counts after its tok
  const later=controller({legacyState:{onboardingCompleted:true,permissionsCompleted:true,onboardingAccount:'founder'},subscribed:true});let count=0;
  later.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
  await later.c.initialize();await later.c.handleAuthCallback(jwt('founder'));assert.equal(count,0);
- await later.c.handleAuthCallback(jwt('someone-else'));assert.equal(count,1);
+ await later.c.handleAuthCallback(jwt('someone-else'),{newAccount:true});assert.equal(count,1);
+});
+
+test('logout preserves completed setup across re-login and process restart',async()=>{
+ const h=controller({token:jwt('founder'),completed:true,subscribed:true});let count=0;
+ h.c.setNativeOnboardingLauncher(async()=>{count++;return {}});
+ await h.c.initialize();await h.c.handleLogout();
+ assert.equal(h.c.isOnboardingCompleted(),true);
+ const saved=h.persisted.at(-1);
+ assert.equal(saved.onboardingAccount,'founder');assert.equal(saved.hadSession,true);
+ await h.c.handleAuthCallback(jwt('founder'));assert.equal(count,0);assert.equal(h.windows.at(-1),'ready');
+ const later=controller({legacyState:saved,subscribed:true});
+ later.c.setNativeOnboardingLauncher(async()=>{assert.fail('returning login must not onboard')});
+ await later.c.handleAuthCallback(jwt('founder'));assert.equal(later.windows.at(-1),'ready');
+});
+
+test('a returning login with already granted OS permissions opens the bar, not signup setup',async()=>{
+ const h=controller({subscribed:true});
+ h.c.setNativeOnboardingLauncher(async()=>{assert.fail('existing account must not onboard')});
+ await h.c.handleAuthCallback(jwt('existing'));assert.equal(h.windows.at(-1),'ready');
+});
+
+test('reopening while the browser was closed opens registration again',async()=>{
+ const h=controller();let opened=0;
+ h.c.setRegistrationLauncher(async()=>{opened++});
+ await h.c.initialize();await h.c.reopen();assert.equal(opened,2);
+});
+
+test('logout suppresses a late onboarding completion and does not reopen a browser from web logout',async()=>{
+ const h=controller({token:jwt(),subscribed:true});let finish;let opened=0;
+ h.c.setRegistrationLauncher(async()=>{opened++});
+ h.c.setNativeOnboardingLauncher(async({onClose})=>{finish=onClose;return {close(){onClose({finished:true})}}});
+ await h.c.initialize();await h.c.handleLogout({openBrowser:false});finish({finished:true});await flush();
+ assert.equal(h.c.isOnboardingCompleted(),false);assert.equal(h.c.getCurrentState(),'welcome');assert.equal(opened,0);
+});
+
+test('an invalid browser handoff cannot replace a completed session',async()=>{
+ const h=controller({token:jwt('founder'),completed:true,authStatus:401});
+ await assert.rejects(h.c.handleAuthCallback(jwt('attacker')),/session has expired/);
+ assert.equal(h.c.isOnboardingCompleted(),true);assert.equal(h.persisted.length,0);
 });

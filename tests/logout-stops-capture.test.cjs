@@ -22,9 +22,9 @@ const main = read('main', 'main.ts');
 const overlay = read('renderer', 'overlay', 'overlay-entry.tsx');
 
 test('logout stops the native audio helpers', () => {
-  const start = main.indexOf("ipcMain.handle('auth:logout'");
-  assert.notEqual(start, -1, 'missing auth:logout handler');
-  const body = main.slice(start, main.indexOf('});', start));
+  const start = main.indexOf('async function logoutDesktop(');
+  assert.notEqual(start, -1, 'missing shared desktop logout handler');
+  const body = main.slice(start, main.indexOf('\n}', start));
 
   assert.match(
     body,
@@ -38,6 +38,12 @@ test('logout stops the native audio helpers', () => {
     body.indexOf('stopAllPhysicalCapture') < body.indexOf("captureSessionController.reset('logout')"),
     'capture must be stopped BEFORE the state snapshot is reset',
   );
+});
+
+test('web and native logout use the same serialized capture shutdown', () => {
+  assert.match(main,/ipcMain\.handle\('auth:logout', \(\) => enqueueAuthOperation\(\(\) => logoutDesktop\(\)\)\)/);
+  assert.match(main,/desktopBridge\.setLogoutHandler\(token => enqueueAuthOperation\(async \(\) =>/);
+  assert.match(main,/await logoutDesktop\(false\)/);
 });
 
 test('the stop covers both platforms and survives a dead window', () => {

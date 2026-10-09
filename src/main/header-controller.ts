@@ -25,13 +25,17 @@ import {
   createHeaderWindow,
   getHeaderWindow,
   resumeOverlayShortcuts,
+  restoreOverlayUi,
+  hideAllChildWindows,
+  suspendOverlayShortcuts,
 } from './overlay-windows';
 import path from 'path';
 import fs from 'fs';
 import { 
   hasActiveSubscription, 
   clearSubscriptionCache,
-  getCachedSubscriptionStatus 
+  getCachedSubscriptionStatus,
+  getBackendUrl
 } from './subscription-service';
 
 type AppState = 'welcome' | 'login' | 'onboarding' | 'permissions' | 'subscription_required' | 'ready';
@@ -68,6 +72,9 @@ export class HeaderController {
   private onboardingCompleted: boolean = false;
   // The account (token `sub`) that finished onboarding on this machine.
   private onboardingAccount: string | null = null;
+  private completedAccounts = new Set<string>();
+  private onboardingRequired = false;
+  private authGeneration = 0;
   private onboardingDismissed = false;
   private onboardingRestart = false;
   private registrationLauncher: ((options: { returning: boolean }) => Promise<void>) | null = null;
@@ -97,6 +104,10 @@ export class HeaderController {
         this.permissionsCompleted = state.permissionsCompleted || false;
         this.onboardingCompleted = state.onboardingCompleted || false;
         this.onboardingAccount = typeof state.onboardingAccount === 'string' ? state.onboardingAccount : null;
+        this.completedAccounts = new Set(Array.isArray(state.completedAccounts) ? state.completedAccounts.filter((id: unknown) => typeof id === 'string') : []);
+        if (this.onboardingCompleted && this.onboardingAccount) this.completedAccounts.add(this.onboardingAccount);
+        this.onboardingRequired = state.onboardingRequired === true;
+        this.hadSession = state.hadSession === true || this.onboardingCompleted;
         // An install written before the bundled onboarding existed has no
         // onboardingCompleted key but did finish the old permission flow. It is
         // an established account, not a first run: forcing it through setup on
@@ -118,7 +129,7 @@ export class HeaderController {
    */
   private savePersistedState() {
     try {
-      const state = { permissionsCompleted: this.permissionsCompleted, onboardingCompleted: this.onboardingCompleted, onboardingAccount: this.onboardingAccount };
+      const state = { permissionsCompleted: this.permissionsCompleted, onboardingCompleted: this.onboardingCompleted, onboardingAccount: this.onboardingAccount, completedAccounts: [...this.completedAccounts], onboardingRequired: this.onboardingRequired, hadSession: this.hadSession };
       fs.writeFileSync(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
       console.log('[HeaderController] Saved persisted state:', state);
     } catch (err) {
@@ -232,7 +243,7 @@ export class HeaderController {
     
     // 🧭 NATIVE ONBOARDING: after auth, before subscription. Finish Setup saves
     // the profile, then this machine opens checkout in the existing browser tab.
-    if (this.nativeOnboardingLauncher && !this.onboardingCompleted && !this.onboardingDismissed) {
+    if (this.nativeOnboardingLauncher && this.onboardingRequired && !this.onboardingCompleted && !this.onboardingDismissed) {
       console.log('[HeaderController] 🧭 Onboarding not completed - launching native onboarding');
       return 'onboarding';
     }
@@ -265,7 +276,7 @@ export class HeaderController {
     }
     
     // If permissions not completed or not granted, show permissions window (macOS only)
-    if (!data.permissionsCompleted || !micGranted || !screenGranted) {
+    if (!micGranted || !screenGranted) {
       return 'permissions';
     }
     
@@ -349,6 +360,7 @@ export class HeaderController {
           existingHeader.focus();
         }
         resumeOverlayShortcuts();
+        restoreOverlayUi();
         break;
         
       case 'login':
@@ -377,6 +389,13 @@ export class HeaderController {
 
   public focusOnboarding() { this.onboardingHandle?.focus?.(); }
 
+  /** Explicit app/tray launch must reopen the browser even without a native window. */
+  public async reopen() {
+    await this.reevaluateState();
+    if (this.currentState === 'onboarding') { this.focusOnboarding(); return; }
+    await this.transitionTo(this.currentState);
+  }
+
   public isOnboardingCompleted(): boolean { return this.onboardingCompleted; }
   public hasNativeOnboarding(): boolean { return this.nativeOnboardingLauncher !== null; }
 
@@ -387,6 +406,7 @@ export class HeaderController {
     if (!token) { await this.transitionTo('welcome'); return; }
     this.onboardingDismissed = false;
     this.onboardingRestart = true;
+    this.onboardingRequired = true;
     await this.transitionTo('onboarding');
   }
 
@@ -409,16 +429,20 @@ export class HeaderController {
     try {
       const restart=this.onboardingRestart;this.onboardingRestart=false;
       const account = tokenAccount(await keytar.getPassword('taylos', 'token'));
+      const generation = this.authGeneration;
       const handle = (await this.nativeOnboardingLauncher({
         restart,
         onClose: ({ finished }) => {
           closedDuringLaunch = true;
+          if (generation !== this.authGeneration) return;
           console.log('[HeaderController] 🧭 Native onboarding closed, finished =', finished);
           this.onboardingHandle = null;
           this.onboardingDismissed = !finished;
           if (finished) {
             this.onboardingCompleted = true;
             this.onboardingAccount = account;
+            if (account) this.completedAccounts.add(account);
+            this.onboardingRequired = false;
             const permissions = systemPreferences.getMediaAccessStatus('microphone') === 'granted' &&
               (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted');
             this.permissionsCompleted = permissions;
@@ -427,7 +451,8 @@ export class HeaderController {
           void this.reevaluateState();
         },
       })) as { close?: () => void; focus?: () => void } | null;
-      if (!closedDuringLaunch) this.onboardingHandle = handle;
+      if (generation !== this.authGeneration) handle?.close?.();
+      else if (!closedDuringLaunch) this.onboardingHandle = handle;
     } catch (err) {
       if (closedDuringLaunch) return;
       console.error('[HeaderController] ❌ Native onboarding failed to launch:', err);
@@ -457,15 +482,30 @@ export class HeaderController {
    * Called from main.ts when deep link received
    * Now also handles subscription state after authentication
    */
-  public async handleAuthCallback(token: string) {
+  public async handleAuthCallback(token: string, options: { newAccount?: boolean } = {}) {
     console.log('[HeaderController] 🔑 Auth callback received, storing token');
     
     try {
+      const generation = this.authGeneration;
+      const response = await fetch(`${getBackendUrl()}/users/me/`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(response.status === 401 || response.status === 403
+        ? 'Your browser session has expired. Sign in on app.taylos.ai, then open Taylos again.'
+        : 'Could not verify your browser session. Please try opening Taylos again.');
+      const identity = await response.json() as { username?: unknown; is_active?: unknown; disabled?: unknown };
+      if (typeof identity.username !== 'string' || !identity.username || identity.is_active === false || identity.disabled === true || tokenAccount(token) !== identity.username) {
+        throw new Error('Could not verify your browser account. Please sign in on app.taylos.ai.');
+      }
+      if (generation !== this.authGeneration) throw new Error('Sign-in was cancelled. Please sign in again.');
       // Setup belongs to the account that finished it. The web app hands over
       // whichever account is signed in there, so another account arriving on
       // this machine gets its own onboarding instead of inheriting the flag.
       const nextAccount = tokenAccount(token);
-      const setupAccount = this.onboardingAccount ?? tokenAccount(await keytar.getPassword('taylos', 'token'));
+      const previousAccount = tokenAccount(await keytar.getPassword('taylos', 'token'));
+      const setupAccount = this.onboardingAccount ?? previousAccount;
+      if (this.onboardingCompleted && setupAccount) this.completedAccounts.add(setupAccount);
       if (this.onboardingCompleted && nextAccount && setupAccount && setupAccount !== nextAccount) {
         console.log('[HeaderController] 🧭 Another account signed in - its onboarding starts fresh');
         this.onboardingCompleted = false;
@@ -473,8 +513,23 @@ export class HeaderController {
         this.onboardingAccount = null;
         this.savePersistedState();
       }
+      const continuingSetup = this.currentState === 'onboarding' && previousAccount === nextAccount && !!this.onboardingHandle;
+      if (!continuingSetup) {
+        this.authGeneration += 1;
+        const previousHandle = this.onboardingHandle;
+        this.onboardingHandle = null;
+        previousHandle?.close?.();
+      }
+      this.onboardingCompleted = !!nextAccount && this.completedAccounts.has(nextAccount);
+      this.onboardingAccount = this.onboardingCompleted ? nextAccount : null;
+      // Registration explicitly requests setup. Ordinary login/launch never
+      // replays a tutorial, including on a second computer or after logout.
+      this.onboardingRequired = (continuingSetup || options.newAccount === true) && !this.onboardingCompleted;
+      this.onboardingDismissed = false;
+      this.hadSession = true;
       await keytar.setPassword('taylos', 'token', token);
       setCachedAuthToken(token);
+      this.savePersistedState();
       console.log('[HeaderController] ✅ Token stored in keytar');
       
       // 💳 Clear subscription cache to force fresh check with new token
@@ -510,15 +565,22 @@ export class HeaderController {
   /**
    * Handle logout - delete token and return to welcome
    */
-  public async handleLogout() {
+  public async handleLogout(options: { openBrowser?: boolean } = {}) {
     console.log('[HeaderController] 🚪 Logging out...');
     
     try {
+      this.authGeneration += 1;
+      const handle = this.onboardingHandle;
+      this.onboardingHandle = null;
+      handle?.close?.();
+      const account = this.onboardingAccount ?? tokenAccount(await keytar.getPassword('taylos', 'token'));
+      if (this.onboardingCompleted && account) {
+        this.onboardingAccount = account;
+        this.completedAccounts.add(account);
+      }
       await keytar.deletePassword('taylos', 'token').then(() => clearCachedAuthToken());
-      this.permissionsCompleted = false;
-      this.onboardingCompleted = false;
       this.onboardingDismissed = false;
-      this.onboardingAccount = null;
+      this.onboardingRequired = false;
       this.hadSession = true;
       this.savePersistedState();
       
@@ -529,7 +591,12 @@ export class HeaderController {
       console.log('[HeaderController] ✅ Logged out, returning to welcome');
       
       // Close all windows and show welcome
-      await this.transitionTo('welcome');
+      hideAllChildWindows();
+      suspendOverlayShortcuts();
+      if (options.openBrowser === false) {
+        getHeaderWindow()?.close();
+        this.currentState = 'welcome';
+      } else await this.transitionTo('welcome');
     } catch (err) {
       console.error('[HeaderController] ❌ Logout failed:', err);
       throw err;

@@ -20,6 +20,31 @@ test('the Windows release builds one x64 and ARM64 NSIS installer', () => {
   assert.match(builder, /artifactName: "Taylos\.\$\{ext\}"/)
 })
 
+test('the app, downloaded installer and uninstaller use the multi-resolution Taylos icon', () => {
+  const builder = read('electron-builder.yml')
+  assert.match(builder, /win:[\s\S]*\n  icon: build\/icon\.ico/)
+  assert.match(builder, /installerIcon: build\/icon\.ico/)
+  assert.match(builder, /uninstallerIcon: build\/icon\.ico/)
+  const icon = fs.readFileSync(path.join(root, 'build', 'icon.ico'))
+  assert.equal(icon.readUInt16LE(0), 0)
+  assert.equal(icon.readUInt16LE(2), 1)
+  const count = icon.readUInt16LE(4)
+  assert.ok(count >= 3)
+  const sizes = Array.from({length: count}, (_, i) => icon[6 + i * 16] || 256)
+  assert.ok(sizes.includes(16))
+  assert.ok(sizes.includes(32))
+  assert.ok(sizes.includes(256))
+})
+
+test('a signed Mac candidate retains release gates without publishing a release', () => {
+  const workflow = read('.github', 'workflows', 'release-desktop.yml')
+  assert.match(workflow, /publish:\n\s+description:.*candidate artifact only/)
+  assert.match(workflow, /Validate release gates\n\s+run: npm run verify:release/)
+  assert.match(workflow, /Build and publish release artifacts\n\s+if:.*inputs\.publish != false/)
+  assert.match(workflow, /Build release artifacts \(split mode\)\n\s+if:.*inputs\.publish == false/)
+  assert.match(workflow, /Publish release artifacts \(split mode\)\n\s+if:.*inputs\.publish != false/)
+})
+
 test('Windows excludes the unused macOS onboarding bridge while macOS retains it', () => {
   const builder = read('electron-builder.yml')
 

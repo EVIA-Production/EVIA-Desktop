@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish:
+        description: "Publish verified installers (false builds a signed candidate artifact only)"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -71,7 +76,7 @@ jobs:
         run: npm run verify:release
 
       - name: Validate release version is publishable
-        if: github.event_name == 'workflow_dispatch' && inputs.split_publish != true
+        if: github.event_name == 'workflow_dispatch' && inputs.split_publish != true && inputs.publish != false
         shell: bash
         env:
           GH_TOKEN: ${{ vars.RELEASES_REPO && secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
@@ -194,7 +199,7 @@ jobs:
           echo "Windows signing preflight passed."
 
       - name: Build and publish release artifacts
-        if: github.event_name != 'workflow_dispatch' || inputs.split_publish != true
+        if: github.event_name != 'workflow_dispatch' || (inputs.split_publish != true && inputs.publish != false)
         shell: bash
         run: |
           set -euo pipefail
@@ -257,7 +262,7 @@ jobs:
           NOTARIZE_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.notarize }}
 
       - name: Build release artifacts (split mode)
-        if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true
+        if: github.event_name == 'workflow_dispatch' && (inputs.split_publish == true || inputs.publish == false)
         shell: bash
         run: |
           set -euo pipefail
@@ -287,7 +292,7 @@ jobs:
           NOTARIZE_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.notarize }}
 
       - name: Publish release artifacts (split mode)
-        if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true
+        if: github.event_name == 'workflow_dispatch' && inputs.split_publish == true && inputs.publish != false
         timeout-minutes: 15
         shell: bash
         env:
