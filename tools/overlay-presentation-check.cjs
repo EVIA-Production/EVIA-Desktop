@@ -56,6 +56,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('capture-session:get', () => ({ state: 'idle', generation: 0, changedAt: 0, reason: 'fixture', errorCode: null }));
   ipcMain.handle('audio-debug:check-flag', () => false);
   ipcMain.handle('subscription:getStatus', () => ({ is_active: true, status: 'active' }));
+  ipcMain.handle('presets:list', () => []);
   const overlay = require('../dist/main/overlay-windows.js');
   const availability = require('../dist/main/window-material.js').nativeGlassAvailability();
   assert(availability.bridgeLoaded && availability.supported, 'Native bridge is not active: ' + JSON.stringify(availability));
@@ -101,14 +102,17 @@ app.whenReady().then(async () => {
       const bounds = bar.getBounds();
       const crop = source.thumbnail.crop({ x: Math.round((bounds.x - display.bounds.x) * ratio), y: Math.round((bounds.y - display.bounds.y) * ratio), width: Math.round(bounds.width * ratio), height: Math.round(49 * ratio) });
       const physical = crop.toBitmap(), cropSize = crop.getSize();
+      fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
       // A stale restored surface showed only one corner. Every interior band
       // must contain the dark bar, not the fixture's white backing.
-      for (const fraction of [0.15, 0.4, 0.6, 0.85]) {
+      const bands = [0.15, 0.4, 0.6, 0.85].map(fraction => {
         const x = Math.floor(cropSize.width * fraction), y = Math.floor(cropSize.height * 0.7);
         const offset = (y * cropSize.width + x) * 4;
-        assert(Math.min(physical[offset], physical[offset + 1], physical[offset + 2]) < 200, 'Missing physical bar band at ' + fraction + ': ' + name);
-      }
-      fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
+        return { fraction, rgb: [physical[offset], physical[offset + 1], physical[offset + 2]] };
+      });
+      console.log(JSON.stringify({ checkpoint: name, physicalBands: bands }));
+      for (const band of bands)
+        assert(Math.min(...band.rgb) < 200, 'Missing physical bar band at ' + band.fraction + ': ' + name);
     }
   };
   await delay(500);
