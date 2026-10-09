@@ -1,7 +1,7 @@
 // Real bar/renderer/visibility paths, but no account, capture, external network,
 // analytics, checkout or production profile. Windows screenshots contain only
 // the fixture window and its own white backing.
-const { app, BrowserWindow, ipcMain, session, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, session, screen, desktopCapturer, nativeImage } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -39,6 +39,49 @@ public static class TaylosRegionCheck {
       return "{\\"kind\\":"+kind+",\\"width\\":"+(box.Right-box.Left)+",\\"height\\":"+(box.Bottom-box.Top)+",\\"dpi\\":"+GetDpiForWindow(h)+"}";
     } finally { DeleteObject(r); }
   }
+}
+
+function windowsScreenCrop(win, file) {
+  const code = `
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+public static class TaylosScreenCheck {
+  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out Rect box);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  public static void Capture(long handle, string file) {
+    var h = new IntPtr(handle); Rect box;
+    if (!GetWindowRect(h, out box)) throw new InvalidOperationException("Window bounds unavailable");
+    int height = (int)Math.Round(49 * GetDpiForWindow(h) / 96.0);
+    using (var image = new Bitmap(box.Right - box.Left, height)) {
+      using (var graphics = Graphics.FromImage(image)) {
+        graphics.CopyFromScreen(box.Left, box.Top, 0, 0, image.Size,
+          CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
+      }
+      image.Save(file, ImageFormat.Png);
+    }
+  }
+}
+'@
+[TaylosScreenCheck]::Capture([long]$env:TAYLOS_QA_HWND, $env:TAYLOS_QA_SNAPSHOT)`;
+  execFileSync('powershell.exe', ['-NoProfile', '-Command', code], {
+    timeout: 15000,
+    env: { ...process.env, TAYLOS_QA_HWND: win.getNativeWindowHandle().readBigUInt64LE().toString(), TAYLOS_QA_SNAPSHOT: file },
+  });
+  return nativeImage.createFromPath(file);
+}
+
+function screenBands(image) {
+  const pixels = image.toBitmap(), size = image.getSize();
+  return [0.15, 0.4, 0.6, 0.85].map(fraction => {
+    const x = Math.floor(size.width * fraction), y = Math.floor(size.height * 0.7);
+    const offset = (y * size.width + x) * 4;
+    return { fraction, rgb: [pixels[offset], pixels[offset + 1], pixels[offset + 2]] };
+  });
 }
 '@
 [TaylosRegionCheck]::Inspect(${handle})`;
@@ -95,21 +138,19 @@ app.whenReady().then(async () => {
       assert(pixels[(y * size.width + x) * 4 + 3] === 0, 'Renderer paints below capsule: ' + name);
     fs.writeFileSync(path.join(output, name + '-renderer.png'), image.toPNG());
     if (process.platform === 'win32') {
+      const nativeCapture = windowsScreenCrop(bar, path.join(output, name + '-native-desktop.png'));
+      assert(!nativeCapture.isEmpty(), 'No native screen evidence');
+      console.log(JSON.stringify({ checkpoint: name, nativeBands: screenBands(nativeCapture) }));
       const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) } });
       const source = sources.find(item => item.display_id === String(display.id));
       assert(source && !source.thumbnail.isEmpty(), 'No physical screen evidence');
       const dimensions = source.thumbnail.getSize(), ratio = dimensions.width / display.bounds.width;
       const bounds = bar.getBounds();
       const crop = source.thumbnail.crop({ x: Math.round((bounds.x - display.bounds.x) * ratio), y: Math.round((bounds.y - display.bounds.y) * ratio), width: Math.round(bounds.width * ratio), height: Math.round(49 * ratio) });
-      const physical = crop.toBitmap(), cropSize = crop.getSize();
       fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
       // A stale restored surface showed only one corner. Every interior band
       // must contain the dark bar, not the fixture's white backing.
-      const bands = [0.15, 0.4, 0.6, 0.85].map(fraction => {
-        const x = Math.floor(cropSize.width * fraction), y = Math.floor(cropSize.height * 0.7);
-        const offset = (y * cropSize.width + x) * 4;
-        return { fraction, rgb: [physical[offset], physical[offset + 1], physical[offset + 2]] };
-      });
+      const bands = screenBands(crop);
       console.log(JSON.stringify({ checkpoint: name, physicalBands: bands }));
       for (const band of bands)
         assert(Math.min(...band.rgb) < 200, 'Missing physical bar band at ' + band.fraction + ': ' + name);
