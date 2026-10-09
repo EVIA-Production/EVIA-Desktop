@@ -57,14 +57,27 @@ public static class TaylosScreenCheck {
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out Rect box);
   [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll", SetLastError = true)] static extern bool BitBlt(IntPtr dst, int x, int y, int width, int height, IntPtr src, int sx, int sy, uint operation);
   public static void Capture(long handle, string file) {
     var h = new IntPtr(handle); Rect box;
     if (!GetWindowRect(h, out box)) throw new InvalidOperationException("Window bounds unavailable");
     int height = (int)Math.Round(49 * GetDpiForWindow(h) / 96.0);
-    using (var image = new Bitmap(box.Right - box.Left, height)) {
+    using (var image = new Bitmap(box.Right - box.Left, height, PixelFormat.Format24bppRgb)) {
       using (var graphics = Graphics.FromImage(image)) {
-        graphics.CopyFromScreen(box.Left, box.Top, 0, 0, image.Size,
-          CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
+        var desktop = GetDC(IntPtr.Zero);
+        if (desktop == IntPtr.Zero) throw new InvalidOperationException("Desktop DC unavailable");
+        try {
+          var destination = graphics.GetHdc();
+          try {
+            // SRCCOPY | CAPTUREBLT includes the layered Electron window.
+            if (!BitBlt(destination, 0, 0, image.Width, image.Height, desktop,
+                box.Left, box.Top, 0x00CC0020u | 0x40000000u)) {
+              throw new InvalidOperationException("Screen copy failed: " + Marshal.GetLastWin32Error());
+            }
+          } finally { graphics.ReleaseHdc(destination); }
+        } finally { ReleaseDC(IntPtr.Zero, desktop); }
       }
       image.Save(file, ImageFormat.Png);
     }

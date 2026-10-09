@@ -76,6 +76,29 @@ jobs:
           }
           powershell -ExecutionPolicy Bypass -File .\scripts\release-windows-signed.ps1 @args
 
+      - name: Collect isolated presentation evidence
+        if: always()
+        shell: powershell
+        run: |
+          if (!(Test-Path -LiteralPath "package.json")) { exit 0 }
+          $version = (Get-Content -Raw -LiteralPath "package.json" | ConvertFrom-Json).version
+          $destination = Join-Path $env:RUNNER_TEMP "taylos-visual-evidence"
+          foreach ($name in @("taylos-overlay-presentation-$version", "taylos-onboarding-presentation-$version")) {
+            $source = Join-Path $env:TEMP $name
+            if (Test-Path -LiteralPath $source) {
+              New-Item -ItemType Directory -Force -Path $destination | Out-Null
+              Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+            }
+          }
+
+      - name: Retain visual evidence even if publication is blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-presentation-evidence
+          path: ${{ runner.temp }}/taylos-visual-evidence
+          if-no-files-found: warn
+
       - name: Also publish to the releases repository
         if: inputs.upload && vars.RELEASES_REPO != ''
         shell: bash

@@ -228,4 +228,7 @@ test('additional native capture cannot delay or replace the original physical re
   assert.ok(electronSample > 0 && nativeSample > electronSample);
   assert.match(source, /for \(const band of bands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
   assert.match(source, /for \(const band of nativeBands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
+  assert.match(source, /BitBlt\(destination,[\s\S]*0x00CC0020u \| 0x40000000u/);
+  assert.match(source, /PixelFormat\.Format24bppRgb/);
+  assert.doesNotMatch(source, /CopyPixelOperation/);
 });

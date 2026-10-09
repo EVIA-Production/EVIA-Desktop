@@ -76,6 +76,17 @@ test('the self-hosted workflow never queries the privileged runner-list endpoint
   assert.match(desktopWorkflow, /windows-build-sign-and-publish:[\s\S]*upload: true/)
 })
 
+test('failed Windows presentation gates retain isolated screenshots without permitting upload', () => {
+  const workflow = read('.github', 'workflows', 'release-windows-self-hosted.yml')
+  assert.match(workflow, /Collect isolated presentation evidence\n\s+if: always\(\)/)
+  assert.match(workflow, /taylos-overlay-presentation-\$version/)
+  assert.match(workflow, /taylos-onboarding-presentation-\$version/)
+  assert.match(workflow, /Retain visual evidence even if publication is blocked\n\s+if: always\(\)/)
+  assert.match(workflow, /name: windows-release-presentation-evidence/)
+  assert.match(workflow, /Also publish to the releases repository\n\s+if: inputs\.upload &&/)
+  assert.doesNotMatch(workflow, /continue-on-error:/)
+})
+
 test('SimplySign release execution fails closed outside an elevated session', () => {
   const release = read('scripts', 'release-windows-signed.ps1')
   const serialSigner = read('scripts', 'sign-windows-serial.js')
