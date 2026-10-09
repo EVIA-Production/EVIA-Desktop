@@ -40,6 +40,10 @@ public static class TaylosRegionCheck {
     } finally { DeleteObject(r); }
   }
 }
+'@
+[TaylosRegionCheck]::Inspect(${handle})`;
+  return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 }).trim());
+}
 
 function windowsScreenCrop(win, file) {
   const code = `
@@ -82,10 +86,6 @@ function screenBands(image) {
     const offset = (y * size.width + x) * 4;
     return { fraction, rgb: [pixels[offset], pixels[offset + 1], pixels[offset + 2]] };
   });
-}
-'@
-[TaylosRegionCheck]::Inspect(${handle})`;
-  return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 }).trim());
 }
 
 app.whenReady().then(async () => {
