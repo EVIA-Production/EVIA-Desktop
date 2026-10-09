@@ -138,9 +138,6 @@ app.whenReady().then(async () => {
       assert(pixels[(y * size.width + x) * 4 + 3] === 0, 'Renderer paints below capsule: ' + name);
     fs.writeFileSync(path.join(output, name + '-renderer.png'), image.toPNG());
     if (process.platform === 'win32') {
-      const nativeCapture = windowsScreenCrop(bar, path.join(output, name + '-native-desktop.png'));
-      assert(!nativeCapture.isEmpty(), 'No native screen evidence');
-      console.log(JSON.stringify({ checkpoint: name, nativeBands: screenBands(nativeCapture) }));
       const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) } });
       const source = sources.find(item => item.display_id === String(display.id));
       assert(source && !source.thumbnail.isEmpty(), 'No physical screen evidence');
@@ -152,8 +149,16 @@ app.whenReady().then(async () => {
       // must contain the dark bar, not the fixture's white backing.
       const bands = screenBands(crop);
       console.log(JSON.stringify({ checkpoint: name, physicalBands: bands }));
+      // Collect the extra diagnostic only AFTER the original screen sample so
+      // its PowerShell startup cannot give a broken restore more time to settle.
+      const nativeCapture = windowsScreenCrop(bar, path.join(output, name + '-native-desktop.png'));
+      assert(!nativeCapture.isEmpty(), 'No native screen evidence');
+      const nativeBands = screenBands(nativeCapture);
+      console.log(JSON.stringify({ checkpoint: name, nativeBands }));
       for (const band of bands)
         assert(Math.min(...band.rgb) < 200, 'Missing physical bar band at ' + band.fraction + ': ' + name);
+      for (const band of nativeBands)
+        assert(Math.min(...band.rgb) < 200, 'Missing native screen bar band at ' + band.fraction + ': ' + name);
     }
   };
   await delay(500);

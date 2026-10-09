@@ -220,3 +220,12 @@ test('native restore invalidates the entire HWND and Chromium child surfaces, wi
   assert.match(source, /SynchronizeVisibility\(hwnd, \*state->second, info\[1\]/);
   assert.match(source, /if \(BridgeCall::Nested\(\)\) return Result/);
 });
+
+test('additional native capture cannot delay or replace the original physical restore assertion', () => {
+  const source = fs.readFileSync(path.join(root, 'tools/overlay-presentation-check.cjs'), 'utf8');
+  const electronSample = source.indexOf('const sources = await desktopCapturer.getSources');
+  const nativeSample = source.indexOf('const nativeCapture = windowsScreenCrop');
+  assert.ok(electronSample > 0 && nativeSample > electronSample);
+  assert.match(source, /for \(const band of bands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
+  assert.match(source, /for \(const band of nativeBands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
+});
