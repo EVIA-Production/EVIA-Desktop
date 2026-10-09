@@ -207,3 +207,16 @@ test('header initial, persisted and renderer-requested bounds stay product-owned
   assert.match(native, /GetWindowRgn\(hwnd, current_region\)/);
   assert.match(native, /EqualRgn\(current_region, region\)/);
 });
+
+test('native restore invalidates the entire HWND and Chromium child surfaces, without focus redraw loops', () => {
+  const source = fs.readFileSync(path.join(root, 'native/windows-liquid-glass/src/taylos_windows_glass.cpp'), 'utf8');
+  const start = source.indexOf('void SynchronizeVisibility(');
+  const end = source.indexOf('// SetWindowRgn', start);
+  const reveal = source.slice(start, end);
+  assert.match(reveal, /const bool revealing = visible && !state\.visible/);
+  assert.match(reveal, /state\.visible = visible/);
+  assert.match(reveal, /if \(revealing && IsWindowVisible\(hwnd\)\)/);
+  assert.match(reveal, /RedrawWindow\(\s*hwnd, nullptr, nullptr,\s*RDW_INVALIDATE \| RDW_FRAME \| RDW_ALLCHILDREN \| RDW_UPDATENOW\)/);
+  assert.match(source, /SynchronizeVisibility\(hwnd, \*state->second, info\[1\]/);
+  assert.match(source, /if \(BridgeCall::Nested\(\)\) return Result/);
+});

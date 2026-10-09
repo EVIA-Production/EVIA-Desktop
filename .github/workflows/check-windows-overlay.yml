@@ -2,17 +2,23 @@ name: Windows Overlay Visual Check
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Interactive signing PC, or independent hosted Windows diagnostic"
+        type: choice
+        options: [self-hosted, windows-latest]
+        default: self-hosted
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-overlay-check
+  group: windows-overlay-check-${{ inputs.runner || 'self-hosted' }}
   cancel-in-progress: false
 
 jobs:
   check-overlay:
-    runs-on: [self-hosted, windows-signing]
+    runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows-signing"]') }}
     timeout-minutes: 25
     steps:
       - name: Stop previous QA instances from this workspace only
