@@ -21,7 +21,7 @@ function evaluate(file, stubs, globals = {}) {
   return exports;
 }
 
-test('Windows tray has black internal strokes, a white halo and DPI representations', () => {
+test('Windows tray has a white glyph, black outer/internal outlines and DPI representations', () => {
   const bitmaps = [];
   class Image {
     constructor(width = 5, pixels) {
@@ -42,7 +42,16 @@ test('Windows tray has black internal strokes, a white halo and DPI representati
   const electron = {
     app: { isPackaged: false, getLocale: () => 'en' },
     nativeImage: {
-      createFromPath: () => new Image(),
+      createFromPath: () => {
+        const pixels = Buffer.alloc(9 * 9 * 4);
+        for (let y = 3; y <= 5; y++) {
+          for (let x = 3; x <= 5; x++) {
+            if (x !== 4 || y !== 4) pixels[(y * 9 + x) * 4 + 3] = 255;
+          }
+        }
+        pixels[(3 * 9 + 2) * 4 + 3] = 128;
+        return new Image(9, pixels);
+      },
       createFromBitmap: (pixels, { width }) => { const result = new Image(width, pixels); bitmaps.push(result); return result; },
     },
     Tray: class extends EventEmitter {
@@ -54,8 +63,11 @@ test('Windows tray has black internal strokes, a white halo and DPI representati
   tray.initTray(() => {});
   tray.syncTray(true);
   const pixels = trayImage.toBitmap();
-  assert.deepEqual([...pixels.subarray((2 * 5 + 2) * 4, (2 * 5 + 2) * 4 + 4)], [0, 0, 0, 255]);
-  assert.deepEqual([...pixels.subarray((2 * 5 + 1) * 4, (2 * 5 + 1) * 4 + 4)], [255, 255, 255, 255]);
+  const pixelAt = (x, y) => [...pixels.subarray((y * 9 + x) * 4, (y * 9 + x) * 4 + 4)];
+  assert.deepEqual(pixelAt(3, 3), [255, 255, 255, 255], 'glyph stays white');
+  assert.deepEqual(pixelAt(2, 2), [0, 0, 0, 255], 'outer outline is black');
+  assert.deepEqual(pixelAt(4, 4), [0, 0, 0, 255], 'internal gap has a black outline');
+  assert.deepEqual(pixelAt(2, 3), [128, 128, 128, 255], 'antialiased white edge retains the black backing');
   assert.equal(pixels[3], 0, 'outside the mark stays transparent');
   assert.deepEqual(trayImage.representations.map(rep => rep.scaleFactor), [2, 3]);
   assert.deepEqual(bitmaps.slice(1).map(image => image.width), [32, 48]);
