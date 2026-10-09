@@ -503,6 +503,7 @@ Invoke-Checked "npm" @("run", "typecheck")
 
 Write-Step "Release gates"
 Invoke-Checked "npm" @("run", "test:lifecycle")
+Invoke-Checked "npm" @("run", "test:overlay")
 Invoke-Checked "npm" @("run", "test:transcript")
 Invoke-Checked "npm" @("run", "test:aec")
 Invoke-Checked "npm" @("run", "test:onboarding")
@@ -526,6 +527,9 @@ Assert-ReleaseAssets $signTool $Thumbprint
 Write-Step "Verify native onboarding presentation with an isolated profile"
 $presentationEvidence = Join-Path $env:TEMP "taylos-onboarding-presentation-$version"
 Invoke-Checked "npm" @("run", "test:onboarding:presentation", "--", $presentationEvidence)
+
+Write-Step "Verify regular bar focus, physical region and repeated tray-style restore"
+Invoke-Checked "npm" @("run", "test:overlay:presentation", "--", (Join-Path $env:TEMP "taylos-overlay-presentation-$version"))
 
 # 1.0.124 passed the check above and still exited (0xFFFF7003) for installed
 # users: that check never runs the real main process. Nothing is uploaded

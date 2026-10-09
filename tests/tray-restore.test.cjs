@@ -15,7 +15,7 @@ class FakeTray extends EventEmitter {
   destroy() { this.destroyed = true; }
   isDestroyed() { return this.destroyed; }
 }
-const image = { isEmpty: () => false, setTemplateImage() {}, getSize: () => ({ width: 0, height: 0 }), toBitmap: () => Buffer.alloc(0) };
+const image = { isEmpty: () => false, setTemplateImage() {}, getSize: () => ({ width: 0, height: 0 }), toBitmap: () => Buffer.alloc(0), resize() { return this; }, toPNG: () => Buffer.alloc(0), toDataURL: () => 'data:image/png;base64,', addRepresentation() {} };
 require.cache[require.resolve('electron')] = { exports: { app: { getLocale: () => 'en', isPackaged: false }, nativeImage: { createFromPath: () => image }, Tray: FakeTray } };
 const tray = require(path.join(__dirname, '..', 'dist', 'main', 'tray.js'));
 const supported = process.platform === 'darwin' || process.platform === 'win32';

@@ -16,6 +16,7 @@ import {
   materialQuery,
   materialWindowOptions,
   setWindowMaterialActive,
+  setWindowMaterialBounds,
   setWindowMaterialVisible,
   type MaterialMode,
   type MaterialSurface,
@@ -119,6 +120,7 @@ function showComposedWindow(
   const show = (targetMode: 'active' | 'inactive') => {
     if (targetMode === 'inactive') win.showInactive()
     else win.show()
+    if (process.platform === 'win32') win.webContents.invalidate()
   }
 
   if (process.platform !== 'win32') {
@@ -185,6 +187,7 @@ function showComposedWindow(
       composedRevealPending.delete(win)
       composedPendingRevealMode.delete(win)
       setWindowMaterialVisible(win, true)
+      win.webContents.invalidate()
     }, 34)
   })
   return true
@@ -537,6 +540,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   armComposedFirstPaint(headerWindow, 'header')
   configureContentZoomShortcuts(headerWindow)
 
+  setWindowMaterialBounds(headerWindow, HEADER_SIZE)
   applyGroupedWindowMaterial(headerWindow, 'overlay')
 
   // headerWindow.webContents.openDevTools({ mode: 'detach' }); // Disabled for production testing
@@ -548,7 +552,9 @@ function getOrCreateHeaderWindow(): BrowserWindow {
 
   const restoreBounds = persistedState.headerBounds
   if (restoreBounds) {
-    headerWindow.setBounds(restoreBounds)
+    const productBounds = { ...restoreBounds, height: HEADER_SIZE.height }
+    setWindowMaterialBounds(headerWindow, productBounds)
+    headerWindow.setBounds(productBounds)
     headerVisualCenterOffset = restoreBounds.width / 2
   } else {
     const { workArea } = screen.getPrimaryDisplay()
@@ -731,10 +737,11 @@ function getOrCreateHeaderWindow(): BrowserWindow {
         x: Math.round(currentVisualCenter - newWidth / 2),
         y: bounds.y,
         width: newWidth,
-        height: bounds.height,
+        height: HEADER_SIZE.height,
       }
       const nextBounds = clampBounds(unclampedBounds)
 
+      setWindowMaterialBounds(headerWindow, nextBounds)
       headerWindow.setBounds(nextBounds)
 
       // Update persisted bounds
@@ -1708,7 +1715,7 @@ function handleHeaderToggle() {
     if (hasVisibleUi) {
       overlayVisibility.hideUi()
 
-      console.log('[overlay-windows] 🪟 Windows toggle: hiding child windows but keeping header visible')
+      console.log('[overlay-windows] Windows toggle: hiding the composed window group')
       visibleChildWindows.forEach((name) => {
         const win = childWindows.get(name)
         if (win && !win.isDestroyed()) {
@@ -1717,8 +1724,11 @@ function handleHeaderToggle() {
       })
 
       if (headerWindow && !headerWindow.isDestroyed()) {
-        restoreChildWindowsOnHeaderRestore = overlayVisibility.getDesiredNames().length > 0
-        headerWindow.minimize()
+        // Minimizing a transparent HWND loses Chromium's composed surface on
+        // restore on some Windows GPUs. Use the same fresh-frame reveal path
+        // as the child panels instead of relying on a stale minimized buffer.
+        restoreChildWindowsOnHeaderRestore = false
+        hideComposedWindow(headerWindow)
       }
       return
     }
@@ -2781,6 +2791,7 @@ ipcMain.handle('win:resizeHeader', (event, widthOrPayload: number | {
       : { ...bounds, width: requestedWidth, height: requestedHeight }
     const newBounds = clampBounds(requested)
 
+    if (isHeader) setWindowMaterialBounds(targetWin, newBounds)
     targetWin.setBounds(newBounds)
     const actualBounds = targetWin.getBounds()
 

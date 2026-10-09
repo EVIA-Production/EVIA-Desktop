@@ -1,0 +1,52 @@
+name: Windows Overlay Visual Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-overlay-check
+  cancel-in-progress: false
+
+jobs:
+  check-overlay:
+    runs-on: [self-hosted, windows-signing]
+    timeout-minutes: 25
+    steps:
+      - name: Stop previous QA instances from this workspace only
+        shell: powershell
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 2
+          exit 0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: npm
+      - name: Install and build real native bridge and renderer
+        shell: powershell
+        run: |
+          npm ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run build:main
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run build:renderer
+          exit $LASTEXITCODE
+      - name: Verify tray contrast, product bounds and restore behavior
+        shell: powershell
+        run: |
+          npm run test:overlay
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:overlay:presentation -- overlay-evidence
+          exit $LASTEXITCODE
+      - name: Save cropped fixture-only visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-overlay-evidence
+          path: overlay-evidence
+          if-no-files-found: warn

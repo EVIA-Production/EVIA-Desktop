@@ -78,10 +78,8 @@ function createWindowsContrastIcon(source: Electron.NativeImage): Electron.Nativ
     return input[(y * width + x) * 4 + 3]
   }
 
-  // Windows does not honor macOS template-image inversion. First dilate the
-  // source alpha by one physical pixel to form a black contour, then draw the
-  // original silhouette in white. The result remains visible on both light and
-  // dark taskbars without changing the established Taylos glyph.
+  // Windows does not invert template images. Keep the glyph itself black,
+  // including its internal arms, and add a white halo for dark taskbars.
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const offset = (y * width + x) * 4
@@ -91,17 +89,21 @@ function createWindowsContrastIcon(source: Electron.NativeImage): Electron.Nativ
           outlineAlpha = Math.max(outlineAlpha, alphaAt(x + ox, y + oy))
         }
       }
-      output[offset] = 0
-      output[offset + 1] = 0
-      output[offset + 2] = 0
+      output[offset] = 255
+      output[offset + 1] = 255
+      output[offset + 2] = 255
       output[offset + 3] = outlineAlpha
 
       const sourceAlpha = input[offset + 3]
-      if (sourceAlpha > 0) {
-        output[offset] = 255
-        output[offset + 1] = 255
-        output[offset + 2] = 255
-        output[offset + 3] = sourceAlpha
+      if (outlineAlpha > 0) {
+        // Source-over black onto white, including antialiased edge pixels.
+        // Replacing the halo's alpha with sourceAlpha would erase its contrast.
+        const alpha = sourceAlpha + outlineAlpha * (1 - sourceAlpha / 255)
+        const white = Math.round(outlineAlpha * (1 - sourceAlpha / 255) * 255 / alpha)
+        output[offset] = white
+        output[offset + 1] = white
+        output[offset + 2] = white
+        output[offset + 3] = Math.round(alpha)
       }
     }
   }
@@ -134,7 +136,14 @@ function createTray(): void {
   if (process.platform === 'darwin') {
     image.setTemplateImage(true)
   } else if (process.platform === 'win32') {
+    // Retain 16/32/48px representations instead of flattening a Retina source
+    // into one incorrectly scaled Windows notification-area bitmap.
+    const source = image
     image = createWindowsContrastIcon(image)
+    for (const scaleFactor of [2, 3]) {
+      const sized = source.resize({ width: 16 * scaleFactor, height: 16 * scaleFactor })
+      image.addRepresentation({ scaleFactor, dataURL: createWindowsContrastIcon(sized).toDataURL() })
+    }
   }
   tray = new Tray(image)
   tray.setToolTip(TOOLTIP[currentLanguage()])

@@ -157,6 +157,8 @@ const POLICIES: Record<MaterialSurface, MaterialPolicy> = {
 
 const configuredWindows = new WeakMap<BrowserWindow, { surface: MaterialSurface; mode: MaterialMode }>()
 const materialActiveStateUpdaters = new WeakMap<BrowserWindow, (active: boolean) => void>()
+const materialProductBounds = new WeakMap<BrowserWindow, { width: number; height: number }>()
+const materialGeometryUpdaters = new WeakMap<BrowserWindow, () => void>()
 let nativeBridge: NativeGlassBridge | null | undefined
 let nativeGlassSkipLogged = false
 
@@ -164,8 +166,25 @@ export function setWindowMaterialActive(win: BrowserWindow, active: boolean): vo
   materialActiveStateUpdaters.get(win)?.(active)
 }
 
+export function setWindowMaterialBounds(win: BrowserWindow, bounds: { width: number; height: number }): void {
+  if (![bounds.width, bounds.height].every(value => Number.isFinite(value) && value > 0)) return
+  materialProductBounds.set(win, { width: bounds.width, height: bounds.height })
+  // SetWindowRgn can dispatch resize synchronously. Never update recursively
+  // from an Electron window-message callback.
+  setImmediate(() => {
+    if (!win.isDestroyed()) materialGeometryUpdaters.get(win)?.()
+  })
+}
+
+function getMaterialBounds(win: BrowserWindow): { width: number; height: number } {
+  return materialProductBounds.get(win) ?? win.getBounds()
+}
+
 export function setWindowMaterialVisible(win: BrowserWindow, visible: boolean): void {
   if (process.platform !== 'win32' || win.isDestroyed()) return
+  // Showing or changing shadow/opacity can reset the HWND's region. Reapply
+  // the product footprint before revealing the independently composed backdrop.
+  if (visible) materialGeometryUpdaters.get(win)?.()
   const bridge = loadNativeBridge()
   if (!bridge?.setVisible) return
   try {
@@ -334,7 +353,7 @@ function applyNativeBridge(
   }
 
   try {
-    const materialBounds = win.getBounds()
+    const materialBounds = getMaterialBounds(win)
     return bridge.apply(win.getNativeWindowHandle(), {
       surface,
       radius: policy.radius,
@@ -421,7 +440,7 @@ export function applyWindowMaterial(
     if (!bridge?.isSupported()) return
     const policy = POLICIES[configured.surface]
     try {
-      const materialBounds = win.getBounds()
+      const materialBounds = getMaterialBounds(win)
       bridge.update(win.getNativeWindowHandle(), {
         surface: configured.surface,
         radius: policy.radius,
@@ -442,6 +461,7 @@ export function applyWindowMaterial(
   }
 
   materialActiveStateUpdaters.set(win, updateActiveState)
+  materialGeometryUpdaters.set(win, () => updateActiveState(currentApplicationActive))
 
   win.on('resize', () => {
     // Electron can resize a BrowserWindow after the native NSGlassEffectView is

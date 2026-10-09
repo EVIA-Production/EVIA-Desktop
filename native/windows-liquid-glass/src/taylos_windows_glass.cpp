@@ -293,6 +293,18 @@ void SynchronizeGeometry(
     region_diameter,
     region_diameter);
   if (!region) winrt::throw_last_error();
+  // Focus updates must not repeatedly dispatch WM_SIZE/WM_WINDOWPOSCHANGED
+  // for an unchanged shape. Still repair a region reset by Electron on reveal.
+  const HRGN current_region = CreateRectRgn(0, 0, 0, 0);
+  if (current_region) {
+    const int kind = GetWindowRgn(hwnd, current_region);
+    const bool unchanged = kind != ERROR && EqualRgn(current_region, region);
+    DeleteObject(current_region);
+    if (unchanged) {
+      DeleteObject(region);
+      return;
+    }
+  }
   if (!SetWindowRgn(hwnd, region, TRUE)) {
     DeleteObject(region);
     winrt::throw_last_error();

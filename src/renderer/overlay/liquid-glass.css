@@ -297,6 +297,12 @@ html[data-material='native'][data-surface='overlay'] .evia-main-header {
   background: var(--taylos-glass-live-plane-native) !important;
 }
 
+/* The Windows host can be taller than the bar. Its focus/optical layers must
+   remain inside the same capsule used by the native material and hit region. */
+html[data-platform='win32'][data-surface='overlay'] .evia-main-header {
+  overflow: hidden;
+}
+
 /*
  * The Taylos bar and the Ask window read lighter than the Listen window over a
  * white background. Reported three times, and my first two explanations were
