@@ -11,6 +11,9 @@ process.env.TAYLOS_NATIVE_GLASS = '1';
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'taylos-overlay-check-'));
 app.setName('Taylos Overlay Check');
 app.setPath('userData', profile);
+// Electron treats a standalone tool as the app directory. Resolve resources
+// from the real package root, as the installed entry point does.
+app.getAppPath = () => path.resolve(__dirname, '..');
 const output = path.resolve(process.argv[2] || path.join(profile, 'evidence'));
 fs.mkdirSync(output, { recursive: true });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -54,6 +57,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('audio-debug:check-flag', () => false);
   ipcMain.handle('subscription:getStatus', () => ({ is_active: true, status: 'active' }));
   const overlay = require('../dist/main/overlay-windows.js');
+  const availability = require('../dist/main/window-material.js').nativeGlassAvailability();
+  assert(availability.bridgeLoaded && availability.supported, 'Native bridge is not active: ' + JSON.stringify(availability));
   const display = screen.getPrimaryDisplay();
   const backing = new BrowserWindow({ x: display.workArea.x + 40, y: display.workArea.y + 20, width: 1000, height: 180, frame: false, backgroundColor: '#ffffff', show: true });
   await backing.loadURL('data:text/html,<html><body style="margin:0;background:white">Overlay QA fixture</body></html>');
