@@ -38,6 +38,7 @@ jobs:
     uses: ./.github/workflows/release-windows-self-hosted.yml
     with:
       upload: true
+      ws_url: ${{ vars.VITE_BACKEND_WS_URL || 'wss://api.taylos.ai' }}
     # A called workflow sees no repository secrets unless they are passed;
     # the bridge upload to RELEASES_REPO needs RELEASES_TOKEN.
     secrets: inherit

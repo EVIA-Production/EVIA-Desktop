@@ -3,6 +3,7 @@ const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
+const vm = require('node:vm')
 
 const ROOT = path.resolve(__dirname, '..')
 const binary = path.join(ROOT, 'src', 'main', 'assets', 'SystemAudioDump')
@@ -26,7 +27,7 @@ test('macOS release build regenerates the system-audio helper', () => {
   assert.match(packageJson.scripts['build:native:audio'], /build-system-audio-helper\.js/)
 })
 
-test('a release publishes per platform, so one blocked signer cannot hold the other', () => {
+test('a latest release stays draft until both platform feeds and installers exist', () => {
   const macWorkflow = read('.github/workflows/release-desktop.yml')
   const releaseGate = read('scripts/finalize-release-if-complete.js')
 
@@ -34,7 +35,7 @@ test('a release publishes per platform, so one blocked signer cannot hold the ot
   assert.match(macWorkflow, /gh release create "\$TAG"( --repo "\$repo")? --draft/)
   assert.match(macWorkflow, /finalize-release-if-complete\.js/)
 
-  // Both updater manifests still have to be accounted for...
+  // Every latest-download route must exist before the release becomes public.
   for (const asset of [
     'taylos.dmg',
     'taylos.zip',
@@ -46,16 +47,77 @@ test('a release publishes per platform, so one blocked signer cannot hold the ot
     assert.match(releaseGate, new RegExp(asset.replaceAll('.', '\\.')))
   }
 
-  // ...but grouped per platform, and publishing on the FIRST complete group.
-  // The all-or-nothing version left v1.0.98 as a draft for hours with a
-  // finished mac build inside it, because Windows signing needs a human at an
-  // HSM. electron-updater reads latest-mac.yml and latest.yml separately, so a
-  // mac-only release is complete for mac and invisible to Windows.
   assert.match(releaseGate, /PLATFORM_ASSETS/)
   assert.match(releaseGate, /mac:\s*\[/)
   assert.match(releaseGate, /windows:\s*\[/)
-  assert.doesNotMatch(releaseGate, /const requiredAssets/, 'the all-or-nothing list is gone by design')
-  assert.match(releaseGate, /ready\.length === 0/, 'draft only while NO platform is complete')
+  assert.match(releaseGate, /pending\.length > 0/)
+  assert.match(macWorkflow, /ws_url: \$\{\{ vars\.VITE_BACKEND_WS_URL \|\| 'wss:\/\/api\.taylos\.ai' \}\}/)
+})
+
+const releaseAssets = ['taylos.dmg', 'taylos.zip', 'latest-mac.yml', 'Taylos.exe', 'Taylos.exe.blockmap', 'latest.yml']
+
+function finalizeRelease(names, isDraft = true, overrides = {}) {
+  const calls = []
+  const exit = {}
+  let exitCode = 0
+  const release = {
+    isDraft,
+    assets: names.map((name) => ({name, state: 'uploaded', size: 100, ...overrides[name]})),
+  }
+  try {
+    vm.runInNewContext(read('scripts/finalize-release-if-complete.js'), {
+      require(name) {
+        assert.equal(name, 'child_process')
+        return {spawnSync(command, args) {
+          assert.equal(command, 'gh')
+          calls.push(Array.from(args))
+          return {status: 0, stdout: JSON.stringify(release)}
+        }}
+      },
+      process: {
+        argv: ['node', 'finalize', 'v1.0.129', 'owner/repo'],
+        env: {},
+        exit(code) { exitCode = code; throw exit },
+      },
+      console: {log() {}, error() {}},
+    })
+  } catch (error) {
+    if (error !== exit) throw error
+  }
+  return {exitCode, edits: calls.filter((args) => args[1] === 'edit')}
+}
+
+test('empty, Mac-only and Windows-only releases remain unpublished drafts', () => {
+  for (const names of [[], releaseAssets.slice(0, 3), releaseAssets.slice(3)]) {
+    const result = finalizeRelease(names)
+    assert.equal(result.exitCode, 0)
+    assert.equal(result.edits.length, 0)
+  }
+})
+
+test('every required asset independently blocks incomplete publication', () => {
+  for (const missing of releaseAssets) {
+    const names = releaseAssets.filter((name) => name !== missing)
+    assert.equal(finalizeRelease(names).edits.length, 0, missing)
+    const published = finalizeRelease(names, false)
+    assert.equal(published.exitCode, 1, missing)
+    assert.equal(published.edits.length, 0, missing)
+  }
+})
+
+test('zero-sized or unfinished uploads cannot satisfy the release gate', () => {
+  for (const name of releaseAssets) {
+    for (const override of [{size: 0}, {state: 'starter'}]) {
+      assert.equal(finalizeRelease(releaseAssets, true, {[name]: override}).edits.length, 0)
+    }
+  }
+})
+
+test('only a complete draft is published and explicitly promoted to Latest', () => {
+  const result = finalizeRelease(releaseAssets)
+  assert.equal(result.exitCode, 0)
+  assert.deepEqual(result.edits, [['release', 'edit', 'v1.0.129', '--repo', 'owner/repo', '--draft=false', '--latest']])
+  assert.equal(finalizeRelease(releaseAssets, false).edits.length, 0)
 })
 
 test('system-audio helper source and Electron share a typed protocol', () => {
