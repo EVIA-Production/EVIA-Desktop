@@ -7,6 +7,19 @@ const root = path.join(__dirname, '..')
 const read = (...parts) =>
   fs.readFileSync(path.join(root, ...parts), 'utf8').replace(/\r\n/g, '\n')
 
+test('packaged smoke follows the compact replacement header throughout the survival interval', () => {
+  const smoke = read('scripts', 'windows-packaged-smoke.ps1')
+  assert.match(smoke, /State transition: onboarding/)
+  assert.match(smoke, /Get-VisibleWindows 40 \$true/)
+  assert.match(smoke, /headerOnly && title\.ToString\(\) != "Taylos"/)
+  assert.match(smoke, /handle\.ToInt64\(\)/)
+  assert.match(smoke, /\$surviveDeadline = \(Get-Date\)\.AddSeconds\(\$SurviveSeconds\)/)
+  assert.match(smoke, /\$visibilityFailure = \$true; break/)
+  assert.match(smoke, /Start-Sleep -Milliseconds 250/)
+  assert.doesNotMatch(smoke, /Start-Sleep -Seconds \$SurviveSeconds/)
+  assert.match(smoke, /Native glass was forced on but no product window applied it/)
+})
+
 test('the Windows release builds one x64 and ARM64 NSIS installer', () => {
   const pkg = JSON.parse(read('package.json'))
   const command = pkg.scripts['build:release:win']
