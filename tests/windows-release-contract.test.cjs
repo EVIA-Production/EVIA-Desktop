@@ -80,7 +80,17 @@ test('Windows QA cleanup cannot target a runner, unrelated application or unboun
   for (const name of ['check-windows-overlay.yml', 'release-windows-self-hosted.yml']) {
     const source = read('.github', 'workflows', name)
     assert.match(source, /IsNullOrWhiteSpace\(\$workspace\)/)
-    assert.match(source, /Join-Path \$workspace "package\.json"/)
+    if (name === 'check-windows-overlay.yml') {
+      assert.match(source, /IsNullOrWhiteSpace\(\$runnerWorkspace\)/)
+      assert.match(source, /Join-Path \$runnerWorkspace \$repositoryName/)
+      assert.match(source, /\$workspace\.Equals\(\$expectedWorkspace, \[StringComparison\]::OrdinalIgnoreCase\)/)
+      assert.doesNotMatch(source, /Join-Path \$workspace "package\.json"/)
+      assert.match(source, /cleanup_only:[\s\S]*default: false/)
+      assert.match(source, /Install and build real native bridge and renderer\n\s+if: inputs\.cleanup_only != true/)
+      assert.doesNotMatch(source, /release upload|release create|finalize-release/)
+    } else {
+      assert.match(source, /Join-Path \$workspace "package\.json"/)
+    }
     assert.ok(source.includes(".TrimEnd('\\') + '\\'"))
     assert.ok(source.includes("$_.Name -match '^(electron|Taylos)$' -and $_.Path"))
   }
