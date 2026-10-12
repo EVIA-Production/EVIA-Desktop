@@ -52,6 +52,13 @@ $backend = Start-Job -ArgumentList $port, $requests -ScriptBlock {
     if ($path -like "/stripe/subscription-status*") {
       $code = 200
       $body = '{"status":"active","is_active":true,"trial_ends_at":null,"current_period_end":"2099-01-01T00:00:00Z","cancel_at_period_end":false,"plan_type":"monthly"}'
+    } elseif ($path -eq "/onboarding/profile/draft") {
+      $code = 200; $body = '{"compiled_content":"QA-only profile","language":"en"}'
+    } elseif ($path -eq "/prompts") {
+      $code = 200
+      $body = if ($context.Request.HttpMethod -eq "GET") { '[]' } else { '{"id":900001,"name":"QA profile","content":"QA-only profile","language":"en","is_active":false}' }
+    } elseif ($path -eq "/prompts/900001/activate") {
+      $code = 200; $body = '{"context":{"active_preset_id":900001,"cache_synced":true}}'
     } elseif ($path -like "/users/me*") {
       $code = 200
       $body = '{"username":"packaged-smoke","email":"smoke@example.invalid","full_name":"Smoke","disabled":false,"is_active":true}'

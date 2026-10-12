@@ -34,6 +34,11 @@ test('an unreadable website or document does not block setup', () => {
   assert.doesNotMatch(native, /Could not save your context/);
 });
 
+test('onboarding uses the configured backend so isolated smoke tests cannot write production presets', () => {
+  assert.match(read('src/main/native-onboarding.ts'), /const api = getBackendUrl\(\)/);
+  assert.match(read('scripts/windows-packaged-smoke.ps1'), /QA-only profile/);
+});
+
 test('the onboarding card has no toast; messages are inline next to the action', () => {
   const js = read('onboarding-runtime/output/onboarding-prototype/goal-first-atlas-practice.js');
   const css = read('onboarding-runtime/output/onboarding-prototype/goal-first-atlas-practice.css');

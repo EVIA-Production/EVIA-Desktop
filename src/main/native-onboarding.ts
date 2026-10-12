@@ -4,6 +4,7 @@ import fs from 'fs';
 import * as keytar from 'keytar';
 import { headerController } from './header-controller';
 import { setupErrorMessage } from './setup-error-message';
+import { getBackendUrl } from './subscription-service';
 import { getHeaderWindow, suspendOverlayShortcuts } from './overlay-windows';
 import { desktopBridge } from './desktop-bridge';
 import { webAppUrl } from './web-app-url';
@@ -81,7 +82,7 @@ export async function saveContext(context: any, token: string) {
     if (bytes.length > 10 * 1024 * 1024) throw new Error('Each document must be under 10 MB.');
     body.append('documents', new Blob([new Uint8Array(bytes)], { type: document.type || 'application/octet-stream' }), path.basename(document.name));
   }
-  const api = 'https://api.taylos.ai';
+  const api = getBackendUrl();
   async function request(route: string, init: RequestInit = {}) {
     let response: Response;
     try {
