@@ -12,11 +12,9 @@ const listenView = read('src/renderer/overlay/ListenView.tsx');
 const overlayEntry = read('src/renderer/overlay/overlay-entry.tsx');
 const overlayWindows = read('src/main/overlay-windows.ts');
 
-test('desktop replay captures the full session, text included, once the account consented', () => {
-  // With consent the replay is full-fidelity: a masked replay cannot answer
-  // whether a suggestion was any good. Guarded as a contract so nobody
-  // silently re-masks it - the reverse of what this test asserted before
-  // 2026-08-27. Since 2026-09-26 it runs only with consent (§ 25 TDDDG).
+test('consented desktop replay preserves interaction without customer text or bodies', () => {
+  // Outcome and performance events stay intact; replay does not upload call
+  // content. Consent, recorder loading and health checks remain mandatory.
   assert.match(analytics, /^import posthog from 'posthog-js';$/m);
   assert.doesNotMatch(analytics, /^import posthog from 'posthog-js\/dist\/module\.full\.no-external';$/m);
   assert.match(analytics, /POSTHOG_HOST\s*=\s*'https:\/\/api\.taylos\.ai\/telemetry'/);
@@ -26,13 +24,13 @@ test('desktop replay captures the full session, text included, once the account 
   assert.match(analytics, /desktop_replay_health/, 'recorder health must be observable');
   assert.doesNotMatch(overlayEntry, /requestIdleCallback\(startAnalytics/, 'short sessions must not disappear before replay starts');
   assert.match(overlayEntry, /root\.render\(<App \/>\)[\s\S]*startAnalytics\(\)/);
-  assert.match(analytics, /maskAllInputs:\s*false/);
-  assert.match(analytics, /maskTextSelector:\s*undefined/);
-  assert.match(analytics, /blockSelector:\s*'\[data-telemetry-secret\]'/);
+  assert.match(analytics, /maskAllInputs:\s*true/);
+  assert.match(analytics, /maskTextSelector:\s*'\*'/);
+  assert.match(analytics, /blockSelector:\s*'\[data-telemetry-secret\], img/);
   assert.match(analytics, /maskInputOptions:\s*\{ password:\s*true \}/);
-  assert.match(analytics, /enable_recording_console_log:\s*true/);
-  assert.match(analytics, /recordHeaders:\s*true/);
-  assert.match(analytics, /recordBody:\s*true/);
+  assert.match(analytics, /enable_recording_console_log:\s*false/);
+  assert.match(analytics, /recordHeaders:\s*false/);
+  assert.match(analytics, /recordBody:\s*false/);
   assert.match(analytics, /maskCapturedNetworkRequestFn:\s*sanitizeCapturedNetworkRequest/);
 });
 
