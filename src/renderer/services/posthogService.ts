@@ -352,27 +352,19 @@ export function initPostHog() {
       distinctID: consentGranted ? (localStorage.getItem('posthog_distinct_id') || undefined) : undefined,
     },
 
-    // FULL-FIDELITY CAPTURE - deliberate, and a product decision, not an
-    // oversight.
-    //
-    // Pre-launch these accounts are free in exchange for their data, and the
-    // suggestion quality work needs the actual words: what the prospect said,
-    // what Taylos proposed, and whether the rep used it. A masked replay shows
-    // that a rep read something and moved on, which answers nothing.
-    //
-    // The transcript on screen belongs to a call whose OTHER side did not
-    // agree to this. Keep the PostHog DPA and the customer terms ahead of it.
+    // Preserve the interaction/latency/outcome timeline without uploading
+    // customer content. Structured diagnostics remain independent of replay.
     disable_session_recording: !consentGranted,
-    enable_recording_console_log: true,
+    enable_recording_console_log: false,
     session_recording: {
-      maskAllInputs: false,
-      maskTextSelector: undefined,
+      maskAllInputs: true,
+      maskTextSelector: '*',
       collectFonts: true,
       recordCrossOriginIframes: false,
-      recordHeaders: true,
-      recordBody: true,
+      recordHeaders: false,
+      recordBody: false,
       maskInputOptions: { password: true },
-      blockSelector: '[data-telemetry-secret]',
+      blockSelector: '[data-telemetry-secret], img, video, canvas, iframe, a[href]',
       captureCanvas: { recordCanvas: false },
       maskCapturedNetworkRequestFn: sanitizeCapturedNetworkRequest,
     },

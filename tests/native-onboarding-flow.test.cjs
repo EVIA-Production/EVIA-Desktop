@@ -141,7 +141,8 @@ test('the shell lets PostHog EU through its request allowlist only when analytic
 test('onboarding replay masks what the tester types',()=>{
  const analytics=read('onboarding-analytics.js');
  assert.match(analytics,/maskAllInputs: true/);
- assert.match(analytics,/maskTextSelector: '\[data-ph-mask\], \.context-fields/);
+ assert.match(analytics,/maskTextSelector: '\*'/);
+ assert.match(analytics,/disable_session_recording: true/,'setup never assumes replay consent');
  assert.match(analytics,/params\.get\('analytics'\) === '1'/,'previews and screenshot runs stay silent');
 });
 
