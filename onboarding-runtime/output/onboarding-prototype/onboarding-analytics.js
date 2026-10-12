@@ -9,10 +9,9 @@
 // account username), so a run reads as one timeline: login on the web, this
 // window, then the first real call in the overlay.
 //
-// Replay masks every input. What the tester types here is their company, their
-// website and their offer, and the standing rule for this flow is that raw
-// profile content never enters analytics. The flow itself - which step, how
-// long, what was clicked, where it stalled - is what the recording is for.
+// This shell has no replay-consent control, so it records no session replay.
+// Step names, duration, actions and terminal outcomes remain observable;
+// typed profile and imported-document content never enter those events.
 const POSTHOG_KEY = 'phc_I09s0hYqFHpZv2okGU4hwd2Lth0ktSM5eSp3bRJOJXc';
 const POSTHOG_HOST = 'https://eu.i.posthog.com';
 const POSTHOG_UI_HOST = 'https://eu.posthog.com';

@@ -4,6 +4,7 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 function host(responses,choice=0){
  const calls=[],writes=[],navigations=[],external=[],marker={previous:null,begun:[],cleared:0};
  const deps={'./onboarding-launch-marker':{createOnboardingLaunchMarker:()=>({previousUnfinished:()=>marker.previous,begin:(version,attempts)=>marker.begun.push(attempts),clear:()=>{marker.cleared++;}}),crashDumpsSince:()=>[]},electron:{app:{getPath:()=>'/test',getVersion:()=> '1.0.0',on(){}},shell:{openExternal:async url=>external.push(url)},dialog:{showMessageBox:async()=>({response:choice})}},path,fs:{mkdirSync(){},writeFileSync:(p)=>writes.push(p)},keytar:{getPassword:async()=> 'fixture-desktop-token'},'./header-controller':{},'./overlay-windows':{},'./desktop-bridge':{desktopBridge:{navigateTo:async url=>{navigations.push(url);return false;}}},'./web-app-url':{webAppUrl:s=>s},'./setup-error-message':require('../dist/main/setup-error-message.js')};
+ deps['./subscription-service']={getBackendUrl:()=> 'http://127.0.0.1:9011'};
  const module={exports:{}};
  const fetch=async(url,init)=>{calls.push({url,init});const response=responses.shift();if(!response)throw Error('Unexpected request');return {ok:response.status<400,status:response.status,json:async()=>response.body};};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/native-onboarding.js'),'utf8'),{require:id=>deps[id],module,exports:module.exports,__dirname:path.join(__dirname,'../dist/main'),Buffer,Blob,FormData,Uint8Array,AbortSignal,fetch,URL,console:{error(){}},process:{platform:'darwin',env:{}}});
@@ -12,6 +13,7 @@ function host(responses,choice=0){
 test('typed profile is saved and activated through existing API when draft endpoint is undeployed',async()=>{
  const h=host([{status:404},{status:200,body:[]},{status:200,body:{id:17}},{status:200,body:{}}]);
  await h.save({fields:{offer:'Scheduling software',proof:'A public case study'},customGoal:'Book a demo'},'test');
+ assert.ok(h.calls.every(call=>new URL(call.url).origin==='http://127.0.0.1:9011'));
  const body=JSON.parse(h.calls[2].init.body);assert.match(body.content,/Scheduling software/);assert.match(body.content,/Book a demo/);assert.equal(body.is_active,false);assert.ok(h.calls[3].url.endsWith('/prompts/17/activate'));
 });
 test('setup preserves German and never starts paid metadata inference',async()=>{
