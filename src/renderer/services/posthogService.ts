@@ -307,7 +307,7 @@ export function applyAnalyticsConsent(granted: boolean): void {
   } catch { /* storage unavailable: the in-memory flag still applies */ }
   if (!initialized) return;
   try {
-    posthog.set_config({ persistence: granted ? 'localStorage' : 'memory' } as any);
+    posthog.set_config({ persistence: granted ? 'localStorage' : 'memory', disable_session_recording: !granted } as any);
     if (granted) verifyReplayRecording();
     else posthog.stopSessionRecording();
   } catch (error) {
@@ -1028,6 +1028,37 @@ function safeStringify(value: unknown): string {
 export function installGlobalErrorReporting(): void {
   if (globalErrorReportingInstalled || typeof window === 'undefined') return;
   globalErrorReportingInstalled = true;
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    let url: URL;
+    try { url = new URL(input instanceof Request ? input.url : String(input), window.location.href); }
+    catch { return originalFetch(input, init); }
+    const measured = url.origin === new URL(BACKEND_URL).origin
+      && !url.pathname.startsWith('/telemetry/') && !url.pathname.startsWith('/client/telemetry');
+    if (!measured) return originalFetch(input, init);
+    const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const started = performance.now();
+    const report = (status: number, error?: unknown) => {
+      try {
+        sendDesktopEvent('error_occurred', {
+          error_type: 'api_error', process: 'renderer', endpoint: url.pathname, method,
+          status_code: status, latency_ms: Math.round(performance.now() - started),
+          error_message: error instanceof Error ? error.message : `HTTP ${status} ${method} ${url.pathname}`,
+          error_stack: error instanceof Error ? error.stack : undefined,
+          handled: true,
+        });
+      } catch { /* Reporting must preserve the actual request outcome. */ }
+    };
+    try {
+      const response = await originalFetch(input, init);
+      if (!response.ok) report(response.status);
+      return response;
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')) report(0, error);
+      throw error;
+    }
+  };
 
   window.addEventListener('error', (event: ErrorEvent) => {
     reportUncaughtFailure('uncaught_exception', event.error ?? event.message, {

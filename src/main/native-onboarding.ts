@@ -83,7 +83,14 @@ export async function saveContext(context: any, token: string) {
   }
   const api = 'https://api.taylos.ai';
   async function request(route: string, init: RequestInit = {}) {
-    const response = await fetch(api + route, { ...init, headers:{ Authorization:`Bearer ${token}`, ...init.headers }, signal:AbortSignal.timeout(90000) });
+    let response: Response;
+    try {
+      response = await fetch(api + route, { ...init, headers:{ Authorization:`Bearer ${token}`, ...init.headers }, signal:AbortSignal.timeout(90000) });
+    } catch {
+      throw new Error(language === 'de'
+        ? 'Taylos konnte den Server nicht erreichen. Pruefe deine Internetverbindung und klicke erneut auf Einrichtung abschliessen. Deine Eingaben bleiben erhalten.'
+        : 'Taylos could not reach the server. Check your internet connection, then click Finish setup again. Your answers are still here.');
+    }
     if (!response.ok) {
       // Log only the failing operation, never the token or personal context.
       console.error('[Onboarding] Request failed', init.method || 'GET', route, response.status);

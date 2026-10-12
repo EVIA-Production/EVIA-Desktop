@@ -1,12 +1,14 @@
 import './demo-bootstrap'
+import { createApiFetch } from './api-fetch';
 import { registerNativeOnboarding } from './native-onboarding';
 import { webAppUrl } from './web-app-url';
-import { app, crashReporter, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
+import { app, net, crashReporter, ipcMain, dialog, session, desktopCapturer, shell, systemPreferences, BrowserWindow, Menu } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { getCachedAuthToken, setCachedAuthToken, clearCachedAuthToken } from './auth-token-cache'
 import { createHeaderWindow, createWelcomeMaterialComparison, ensureWindowShown, getHeaderWindow, onlyHeaderBarIsVisible } from './overlay-windows'
 import os from 'os'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
 import * as keytar from 'keytar'
 import * as fs from 'fs'
@@ -600,6 +602,18 @@ async function boot() {
   }
   
   await app.whenReady();
+  globalThis.fetch = createApiFetch((input, init) => net.fetch(input instanceof URL ? input.toString() : input, init), globalThis.fetch.bind(globalThis), getBackendHttpBase(), failure => {
+    const timestamp = new Date().toISOString();
+    const properties = { ...failure, app_version: app.getVersion(), platform: process.platform, arch: process.arch };
+    try {
+      const directory = path.join(app.getPath('userData'), 'logs');
+      fs.mkdirSync(directory, { recursive: true });
+      const file = path.join(directory, 'api-errors.jsonl');
+      if (fs.existsSync(file) && fs.statSync(file).size > 1024 * 1024) fs.renameSync(file, `${file}.previous`);
+      fs.appendFileSync(file, JSON.stringify({ timestamp, ...properties }) + '\n', { mode: 0o600 });
+    } catch { /* Disk errors cannot block authentication or setup. */ }
+    queueDesktopAnalyticsRelay({ event_name: 'error_occurred', event_id: randomUUID(), timestamp, properties });
+  });
   installApplicationMenu();
   scheduleWindowsInstallerBootstrapCleanup();
 
