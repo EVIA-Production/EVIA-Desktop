@@ -7,6 +7,19 @@ const root = path.join(__dirname, '..')
 const read = (...parts) =>
   fs.readFileSync(path.join(root, ...parts), 'utf8').replace(/\r\n/g, '\n')
 
+test('packaged smoke follows the compact replacement header throughout the survival interval', () => {
+  const smoke = read('scripts', 'windows-packaged-smoke.ps1')
+  assert.match(smoke, /State transition: onboarding/)
+  assert.match(smoke, /Get-VisibleWindows 40 \$true/)
+  assert.match(smoke, /headerOnly && title\.ToString\(\) != "Taylos"/)
+  assert.match(smoke, /handle\.ToInt64\(\)/)
+  assert.match(smoke, /\$surviveDeadline = \(Get-Date\)\.AddSeconds\(\$SurviveSeconds\)/)
+  assert.match(smoke, /\$visibilityFailure = \$true; break/)
+  assert.match(smoke, /Start-Sleep -Milliseconds 250/)
+  assert.doesNotMatch(smoke, /Start-Sleep -Seconds \$SurviveSeconds/)
+  assert.match(smoke, /Native glass was forced on but no product window applied it/)
+})
+
 test('the Windows release builds one x64 and ARM64 NSIS installer', () => {
   const pkg = JSON.parse(read('package.json'))
   const command = pkg.scripts['build:release:win']
@@ -74,6 +87,37 @@ test('the self-hosted workflow never queries the privileged runner-list endpoint
   assert.match(workflow, /default: false\n\s+type: boolean/)
   assert.match(desktopWorkflow, /uses: \.\/\.github\/workflows\/release-windows-self-hosted\.yml/)
   assert.match(desktopWorkflow, /windows-build-sign-and-publish:[\s\S]*upload: true/)
+})
+
+test('Windows QA cleanup cannot target a runner, unrelated application or unbounded path', () => {
+  for (const name of ['check-windows-overlay.yml', 'release-windows-self-hosted.yml']) {
+    const source = read('.github', 'workflows', name)
+    assert.match(source, /IsNullOrWhiteSpace\(\$workspace\)/)
+    if (name === 'check-windows-overlay.yml') {
+      assert.match(source, /IsNullOrWhiteSpace\(\$runnerWorkspace\)/)
+      assert.match(source, /Join-Path \$runnerWorkspace \$repositoryName/)
+      assert.match(source, /\$workspace\.Equals\(\$expectedWorkspace, \[StringComparison\]::OrdinalIgnoreCase\)/)
+      assert.doesNotMatch(source, /Join-Path \$workspace "package\.json"/)
+      assert.match(source, /cleanup_only:[\s\S]*default: false/)
+      assert.match(source, /Install and build real native bridge and renderer\n\s+if: inputs\.cleanup_only != true/)
+      assert.doesNotMatch(source, /release upload|release create|finalize-release/)
+    } else {
+      assert.match(source, /Join-Path \$workspace "package\.json"/)
+    }
+    assert.ok(source.includes(".TrimEnd('\\') + '\\'"))
+    assert.ok(source.includes("$_.Name -match '^(electron|Taylos)$' -and $_.Path"))
+  }
+})
+
+test('failed Windows presentation gates retain isolated screenshots without permitting upload', () => {
+  const workflow = read('.github', 'workflows', 'release-windows-self-hosted.yml')
+  assert.match(workflow, /Collect isolated presentation evidence\n\s+if: always\(\)/)
+  assert.match(workflow, /taylos-overlay-presentation-\$version/)
+  assert.match(workflow, /taylos-onboarding-presentation-\$version/)
+  assert.match(workflow, /Retain visual evidence even if publication is blocked\n\s+if: always\(\)/)
+  assert.match(workflow, /name: windows-release-presentation-evidence/)
+  assert.match(workflow, /Also publish to the releases repository\n\s+if: inputs\.upload &&/)
+  assert.doesNotMatch(workflow, /continue-on-error:/)
 })
 
 test('SimplySign release execution fails closed outside an elevated session', () => {

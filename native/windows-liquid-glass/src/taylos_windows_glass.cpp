@@ -49,6 +49,7 @@ struct GlassState {
   winrt::Windows::UI::Composition::SpriteVisual tint{nullptr};
   winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry geometry{nullptr};
   winrt::Windows::UI::Composition::CompositionGeometricClip clip{nullptr};
+  bool visible = false;
 };
 
 std::mutex g_states_mutex;
@@ -320,10 +321,21 @@ void SynchronizeActiveState(GlassState& state, bool active) {
   state.tint.Opacity(material_opacity);
 }
 
-void SynchronizeVisibility(GlassState& state, bool visible) {
+void SynchronizeVisibility(HWND hwnd, GlassState& state, bool visible) {
   // The DesktopWindowTarget is composed independently from Chromium's surface,
   // so BrowserWindow opacity alone cannot make a first reveal atomic.
+  const bool revealing = visible && !state.visible;
   state.root.Opacity(visible ? 1.0f : 0.0f);
+  state.visible = visible;
+  // Chromium's invalidate() does not invalidate the HWND's retained update
+  // region. Request the complete client/child surfaces after the product clip
+  // is repaired, not just the last damaged corner of a restored layered window.
+  if (revealing && IsWindowVisible(hwnd)) {
+    Trace("visible: full HWND redraw");
+    winrt::check_bool(RedrawWindow(
+      hwnd, nullptr, nullptr,
+      RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW));
+  }
 }
 
 // SetWindowRgn (and other window calls below) synchronously dispatch window
@@ -449,7 +461,7 @@ Napi::Value Apply(const Napi::CallbackInfo& info) {
     if (existing != g_states.end()) {
       SynchronizeGeometry(hwnd, *existing->second, radius, material_width, material_height);
       SynchronizeActiveState(*existing->second, active);
-      SynchronizeVisibility(*existing->second, visible);
+      SynchronizeVisibility(hwnd, *existing->second, visible);
       return Result(env, true, true);
     }
 
@@ -505,7 +517,7 @@ Napi::Value Apply(const Napi::CallbackInfo& info) {
     state->root.Children().InsertAtTop(state->tint);
     SynchronizeGeometry(hwnd, *state, radius, material_width, material_height);
     SynchronizeActiveState(*state, active);
-    SynchronizeVisibility(*state, visible);
+    SynchronizeVisibility(hwnd, *state, visible);
 
     Trace("apply: dwm attributes");
     const BOOL disable_transitions = TRUE;
@@ -592,7 +604,7 @@ Napi::Value SetVisible(const Napi::CallbackInfo& info) {
     std::scoped_lock lock(g_states_mutex);
     const auto state = g_states.find(hwnd);
     if (state == g_states.end()) return Result(env, true, false, "glass is not attached");
-    SynchronizeVisibility(*state->second, info[1].As<Napi::Boolean>().Value());
+    SynchronizeVisibility(hwnd, *state->second, info[1].As<Napi::Boolean>().Value());
     return Result(env, true, true);
   } catch (const winrt::hresult_error& error) {
     return Result(env, true, false, winrt::to_string(error.message()));

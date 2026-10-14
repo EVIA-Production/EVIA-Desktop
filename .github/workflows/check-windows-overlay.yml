@@ -2,32 +2,51 @@ name: Windows Overlay Visual Check
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Interactive signing PC, or independent hosted Windows diagnostic"
+        type: choice
+        options: [self-hosted, windows-latest]
+        default: self-hosted
+      cleanup_only:
+        description: "Recover an interrupted checkout without building or publishing"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-overlay-check
+  group: windows-overlay-check-${{ inputs.runner || 'self-hosted' }}
   cancel-in-progress: false
 
 jobs:
   check-overlay:
-    runs-on: [self-hosted, windows-signing]
+    runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows-signing"]') }}
     timeout-minutes: 25
     steps:
       - name: Stop previous QA instances from this workspace only
         shell: powershell
         run: |
           $workspace = $env:GITHUB_WORKSPACE
-          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+          if ([string]::IsNullOrWhiteSpace($workspace)) { throw "Missing workspace; no processes were stopped." }
+          $runnerWorkspace = $env:RUNNER_WORKSPACE
+          if ([string]::IsNullOrWhiteSpace($runnerWorkspace)) { throw "Missing runner workspace; no processes were stopped." }
+          $repositoryName = $env:GITHUB_REPOSITORY.Split('/')[-1]
+          $expectedWorkspace = [IO.Path]::GetFullPath((Join-Path $runnerWorkspace $repositoryName)).TrimEnd('\') + '\'
+          $workspace = [IO.Path]::GetFullPath($workspace).TrimEnd('\') + '\'
+          if (!$workspace.Equals($expectedWorkspace, [StringComparison]::OrdinalIgnoreCase)) { throw "Unexpected checkout path; no processes were stopped." }
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(electron|Taylos)$' -and $_.Path -and $_.Path.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Write-Host "Stopping workspace QA process $($_.Name), PID $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction Stop }
           Start-Sleep -Seconds 2
           exit 0
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        if: inputs.cleanup_only != true
         with:
           node-version: "22.12.0"
           cache: npm
       - name: Install and build real native bridge and renderer
+        if: inputs.cleanup_only != true
         shell: powershell
         run: |
           npm ci
@@ -37,6 +56,7 @@ jobs:
           npm run build:renderer
           exit $LASTEXITCODE
       - name: Verify tray contrast, product bounds and restore behavior
+        if: inputs.cleanup_only != true
         shell: powershell
         run: |
           npm run test:overlay
@@ -44,7 +64,7 @@ jobs:
           npm run test:overlay:presentation -- overlay-evidence
           exit $LASTEXITCODE
       - name: Save cropped fixture-only visual evidence
-        if: always()
+        if: always() && inputs.cleanup_only != true
         uses: actions/upload-artifact@v4
         with:
           name: windows-overlay-evidence

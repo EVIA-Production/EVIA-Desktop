@@ -1,7 +1,7 @@
 // Real bar/renderer/visibility paths, but no account, capture, external network,
 // analytics, checkout or production profile. Windows screenshots contain only
 // the fixture window and its own white backing.
-const { app, BrowserWindow, ipcMain, session, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, session, screen, desktopCapturer, nativeImage } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -45,6 +45,70 @@ public static class TaylosRegionCheck {
   return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 }).trim());
 }
 
+function windowsScreenCrop(win, file) {
+  const code = `
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+public static class TaylosScreenCheck {
+  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out Rect box);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  [DllImport("gdi32.dll", SetLastError = true)] static extern bool BitBlt(IntPtr dst, int x, int y, int width, int height, IntPtr src, int sx, int sy, uint operation);
+  public static void Capture(long handle, string file) {
+    // GetWindowRect and BitBlt must agree on physical pixels at every DPI.
+    var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    if (previous == IntPtr.Zero) throw new InvalidOperationException("Physical DPI context unavailable");
+    try { CapturePixels(handle, file); }
+    finally { SetThreadDpiAwarenessContext(previous); }
+  }
+  static void CapturePixels(long handle, string file) {
+    var h = new IntPtr(handle); Rect box;
+    if (!GetWindowRect(h, out box)) throw new InvalidOperationException("Window bounds unavailable");
+    int height = (int)Math.Round(49 * GetDpiForWindow(h) / 96.0);
+    using (var image = new Bitmap(box.Right - box.Left, height, PixelFormat.Format24bppRgb)) {
+      using (var graphics = Graphics.FromImage(image)) {
+        var desktop = GetDC(IntPtr.Zero);
+        if (desktop == IntPtr.Zero) throw new InvalidOperationException("Desktop DC unavailable");
+        try {
+          var destination = graphics.GetHdc();
+          try {
+            // SRCCOPY | CAPTUREBLT includes the layered Electron window.
+            if (!BitBlt(destination, 0, 0, image.Width, image.Height, desktop,
+                box.Left, box.Top, 0x00CC0020u | 0x40000000u)) {
+              throw new InvalidOperationException("Screen copy failed: " + Marshal.GetLastWin32Error());
+            }
+          } finally { graphics.ReleaseHdc(destination); }
+        } finally { ReleaseDC(IntPtr.Zero, desktop); }
+      }
+      image.Save(file, ImageFormat.Png);
+    }
+  }
+}
+'@
+[TaylosScreenCheck]::Capture([long]$env:TAYLOS_QA_HWND, $env:TAYLOS_QA_SNAPSHOT)`;
+  execFileSync('powershell.exe', ['-NoProfile', '-Command', code], {
+    timeout: 15000,
+    env: { ...process.env, TAYLOS_QA_HWND: win.getNativeWindowHandle().readBigUInt64LE().toString(), TAYLOS_QA_SNAPSHOT: file },
+  });
+  return nativeImage.createFromPath(file);
+}
+
+function screenBands(image) {
+  const pixels = image.toBitmap(), size = image.getSize();
+  return [0.15, 0.4, 0.6, 0.85].map(fraction => {
+    const x = Math.floor(size.width * fraction), y = Math.floor(size.height * 0.7);
+    const offset = (y * size.width + x) * 4;
+    return { fraction, rgb: [pixels[offset], pixels[offset + 1], pixels[offset + 2]] };
+  });
+}
+
 app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (_details, reply) => reply({ cancel: true }));
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, reply) => reply(false));
@@ -56,6 +120,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('capture-session:get', () => ({ state: 'idle', generation: 0, changedAt: 0, reason: 'fixture', errorCode: null }));
   ipcMain.handle('audio-debug:check-flag', () => false);
   ipcMain.handle('subscription:getStatus', () => ({ is_active: true, status: 'active' }));
+  ipcMain.handle('presets:list', () => []);
   const overlay = require('../dist/main/overlay-windows.js');
   const availability = require('../dist/main/window-material.js').nativeGlassAvailability();
   assert(availability.bridgeLoaded && availability.supported, 'Native bridge is not active: ' + JSON.stringify(availability));
@@ -100,15 +165,21 @@ app.whenReady().then(async () => {
       const dimensions = source.thumbnail.getSize(), ratio = dimensions.width / display.bounds.width;
       const bounds = bar.getBounds();
       const crop = source.thumbnail.crop({ x: Math.round((bounds.x - display.bounds.x) * ratio), y: Math.round((bounds.y - display.bounds.y) * ratio), width: Math.round(bounds.width * ratio), height: Math.round(49 * ratio) });
-      const physical = crop.toBitmap(), cropSize = crop.getSize();
+      fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
       // A stale restored surface showed only one corner. Every interior band
       // must contain the dark bar, not the fixture's white backing.
-      for (const fraction of [0.15, 0.4, 0.6, 0.85]) {
-        const x = Math.floor(cropSize.width * fraction), y = Math.floor(cropSize.height * 0.7);
-        const offset = (y * cropSize.width + x) * 4;
-        assert(Math.min(physical[offset], physical[offset + 1], physical[offset + 2]) < 200, 'Missing physical bar band at ' + fraction + ': ' + name);
-      }
-      fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
+      const bands = screenBands(crop);
+      console.log(JSON.stringify({ checkpoint: name, physicalBands: bands }));
+      // Collect the extra diagnostic only AFTER the original screen sample so
+      // its PowerShell startup cannot give a broken restore more time to settle.
+      const nativeCapture = windowsScreenCrop(bar, path.join(output, name + '-native-desktop.png'));
+      assert(!nativeCapture.isEmpty(), 'No native screen evidence');
+      const nativeBands = screenBands(nativeCapture);
+      console.log(JSON.stringify({ checkpoint: name, nativeBands }));
+      for (const band of bands)
+        assert(Math.min(...band.rgb) < 200, 'Missing physical bar band at ' + band.fraction + ': ' + name);
+      for (const band of nativeBands)
+        assert(Math.min(...band.rgb) < 200, 'Missing native screen bar band at ' + band.fraction + ': ' + name);
     }
   };
   await delay(500);

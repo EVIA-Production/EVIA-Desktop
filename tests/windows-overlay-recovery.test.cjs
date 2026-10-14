@@ -207,3 +207,30 @@ test('header initial, persisted and renderer-requested bounds stay product-owned
   assert.match(native, /GetWindowRgn\(hwnd, current_region\)/);
   assert.match(native, /EqualRgn\(current_region, region\)/);
 });
+
+test('native restore invalidates the entire HWND and Chromium child surfaces, without focus redraw loops', () => {
+  const source = fs.readFileSync(path.join(root, 'native/windows-liquid-glass/src/taylos_windows_glass.cpp'), 'utf8');
+  const start = source.indexOf('void SynchronizeVisibility(');
+  const end = source.indexOf('// SetWindowRgn', start);
+  const reveal = source.slice(start, end);
+  assert.match(reveal, /const bool revealing = visible && !state\.visible/);
+  assert.match(reveal, /state\.visible = visible/);
+  assert.match(reveal, /if \(revealing && IsWindowVisible\(hwnd\)\)/);
+  assert.match(reveal, /RedrawWindow\(\s*hwnd, nullptr, nullptr,\s*RDW_INVALIDATE \| RDW_FRAME \| RDW_ALLCHILDREN \| RDW_UPDATENOW\)/);
+  assert.match(source, /SynchronizeVisibility\(hwnd, \*state->second, info\[1\]/);
+  assert.match(source, /if \(BridgeCall::Nested\(\)\) return Result/);
+});
+
+test('additional native capture cannot delay or replace the original physical restore assertion', () => {
+  const source = fs.readFileSync(path.join(root, 'tools/overlay-presentation-check.cjs'), 'utf8');
+  const electronSample = source.indexOf('const sources = await desktopCapturer.getSources');
+  const nativeSample = source.indexOf('const nativeCapture = windowsScreenCrop');
+  assert.ok(electronSample > 0 && nativeSample > electronSample);
+  assert.match(source, /for \(const band of bands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
+  assert.match(source, /for \(const band of nativeBands\)\s*assert\(Math\.min\(\.\.\.band\.rgb\) < 200/);
+  assert.match(source, /BitBlt\(destination,[\s\S]*0x00CC0020u \| 0x40000000u/);
+  assert.match(source, /PixelFormat\.Format24bppRgb/);
+  assert.doesNotMatch(source, /CopyPixelOperation/);
+  assert.match(source, /SetThreadDpiAwarenessContext\(new IntPtr\(-4\)\)/);
+  assert.match(source, /finally \{ SetThreadDpiAwarenessContext\(previous\); \}/);
+});
