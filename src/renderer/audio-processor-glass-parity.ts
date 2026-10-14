@@ -1280,6 +1280,12 @@ async function connectCaptureWebSockets(
   console.log(
     `[AudioCapture] Microphone WebSocket connected; system=${connectionStatus.systemAudioStatus}`
   );
+  const captureApi = (window as any).evia?.captureSession;
+  const snapshot = await captureApi?.get?.();
+  if (snapshot && captureApi?.bindChat) {
+    const bound = await captureApi.bindChat(snapshot.generation, activeChatId());
+    if (!bound.accepted) throw new Error('Capture chat binding changed during startup');
+  }
   return connectionStatus;
 }
 

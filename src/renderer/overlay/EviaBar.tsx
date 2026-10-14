@@ -25,6 +25,7 @@ type CaptureSessionSnapshot = {
   changedAt: number;
   reason: string;
   errorCode: string | null;
+  chatId?: string | null;
 };
 type CaptureTransitionResult = {
   accepted: boolean;
@@ -424,9 +425,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
   // FIX: Reset listen button state when language is changed or session is cleared
   useEffect(() => {
     const handleLanguageChanged = () => {
-      console.log('[EviaBar] 🌐 Language changed - reconciling capture lifecycle');
-      (window as any).evia?.captureSession?.reconcileNoCapture?.('language_changed');
-      setIsListenActive(false);
+      console.log('[EviaBar] Language changed; preserving the capture lifecycle and chat');
     };
 
     const handleSessionClosed = () => {
@@ -443,7 +442,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();
-          const chatId = localStorage.getItem('current_chat_id');
+          const chatId = captureSessionRef.current.chatId || localStorage.getItem('current_chat_id');
           const { BACKEND_URL: baseUrl } = await import('../config/config');
           
           if (token && chatId) {
@@ -667,7 +666,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();
-          const chatId = localStorage.getItem('current_chat_id');
+          const chatId = (await captureApi.get())?.chatId || localStorage.getItem('current_chat_id');
           const { BACKEND_URL: baseUrl } = await import('../config/config');
           if (token && chatId) {
             console.log('[EviaBar] 🎯 Calling /session/start for chat_id:', chatId);
@@ -730,7 +729,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         try {
           const eviaAuth = (window as any).evia?.auth;
           const token = await eviaAuth?.getToken?.();
-          const chatId = localStorage.getItem('current_chat_id');
+          const chatId = (await captureApi.get())?.chatId || localStorage.getItem('current_chat_id');
           const { BACKEND_URL: baseUrl } = await import('../config/config');
 
           if (token && chatId) {
@@ -777,7 +776,7 @@ const EviaBar: React.FC<EviaBarProps> = ({
         // Archive asynchronously. The user-visible Done transition must not be
         // blocked by transcript draining, summary generation, or provider I/O.
         // Capture token/chat now because local session state is cleared below.
-        const chatIdToArchive = localStorage.getItem('current_chat_id');
+        const chatIdToArchive = current.chatId || localStorage.getItem('current_chat_id');
         const archiveSession = async (chatId: string | null) => {
           try {
             const eviaAuth = (window as any).evia?.auth;

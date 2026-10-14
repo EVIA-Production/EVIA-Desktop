@@ -15,6 +15,37 @@ test('fresh process is always idle regardless of stale external state', () => {
   assert.equal(session.getSnapshot().state, 'idle')
 })
 
+test('capture chat cannot change until the meeting ends', () => {
+  const session = controller()
+  const start = session.beginStart()
+  assert.equal(session.bindChat(start.snapshot.generation, '1991').accepted, true)
+  assert.equal(session.bindChat(start.snapshot.generation, '1992').accepted, false)
+  assert.equal(session.getSnapshot().chatId, '1991')
+  session.confirmStarted(start.snapshot.generation)
+  session.beginStop()
+  session.confirmStopped(start.snapshot.generation)
+  assert.equal(session.getSnapshot().chatId, '1991')
+  session.complete(start.snapshot.generation)
+  assert.equal(session.getSnapshot().chatId, null)
+})
+
+test('old capture generations cannot bind a new call', () => {
+  const session = controller()
+  const first = session.beginStart()
+  session.failStart(first.snapshot.generation)
+  const second = session.beginStart()
+  assert.equal(session.bindChat(first.snapshot.generation, '1991').accepted, false)
+  assert.equal(session.bindChat(second.snapshot.generation, '1994').accepted, true)
+})
+
+test('invalid chat identities cannot bind capture', () => {
+  const session = controller()
+  const start = session.beginStart()
+  for (const id of ['0', '-1', 'NaN', '1.5', '2147483648']) {
+    assert.equal(session.bindChat(start.snapshot.generation, id).accepted, false)
+  }
+})
+
 test('successful capture follows the only valid lifecycle', () => {
   const session = controller()
   const start = session.beginStart()

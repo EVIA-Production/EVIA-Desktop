@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld('evia', {
   },
   captureSession: {
     get: () => ipcRenderer.invoke('capture-session:get'),
+    bindChat: (generation: number, chatId: string) => ipcRenderer.invoke('capture-session:bind-chat', generation, chatId),
     beginStart: () => ipcRenderer.invoke('capture-session:begin-start'),
     confirmStarted: (generation: number) => ipcRenderer.invoke('capture-session:confirm-started', generation),
     failStart: (generation: number, errorCode?: string) =>

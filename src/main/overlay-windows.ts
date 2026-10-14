@@ -242,6 +242,17 @@ const CONTENT_ZOOM_STEP = 0.1
 
 function configureContentZoomShortcuts(win: BrowserWindow): void {
   win.webContents.on('before-input-event', (event, input) => {
+    const devToolsChord = input.type === 'keyDown' && (
+      input.key === 'F12' ||
+      (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') ||
+      (process.platform !== 'darwin' && input.control && input.shift && input.key.toLowerCase() === 'i')
+    )
+    if (devToolsChord) {
+      event.preventDefault()
+      if (win.webContents.isDevToolsOpened()) win.webContents.closeDevTools()
+      else win.webContents.openDevTools({ mode: 'detach' })
+      return
+    }
     if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return
 
     const key = input.key.toLowerCase()
@@ -532,7 +543,7 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       enableWebSQL: false,
-      devTools: process.env.NODE_ENV === 'development',
+      devTools: true,
       backgroundThrottling: false, // Glass parity: Keep rendering smooth
     },
   })
@@ -911,24 +922,6 @@ function createChildWindow(name: FeatureName): BrowserWindow {
         return
       }
 
-      // Cmd+Option+I on macOS
-      if (process.platform === 'darwin' && input.meta && input.alt && input.key.toLowerCase() === 'i') {
-        event.preventDefault()
-        if (win.webContents.isDevToolsOpened()) {
-          win.webContents.closeDevTools()
-        } else {
-          win.webContents.openDevTools({ mode: 'detach' })
-        }
-      }
-      // F12 on all platforms
-      if (input.key === 'F12') {
-        event.preventDefault()
-        if (win.webContents.isDevToolsOpened()) {
-          win.webContents.closeDevTools()
-        } else {
-          win.webContents.openDevTools({ mode: 'detach' })
-        }
-      }
     }
   })
 

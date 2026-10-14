@@ -189,6 +189,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   );
   const [localFollowLive, setLocalFollowLive] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const insightsContentRef = useRef<HTMLDivElement>(null);
   // Insights is ALWAYS the default view: the user must get suggestions immediately on Listen.
   // Transcript stays one click away via the header toggle.
   // Is audio actually reaching the server? Null until the socket first reports.
@@ -693,6 +694,25 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
       }
     };
   }, []);
+
+  useEffect(() => {
+    const content = insightsContentRef.current;
+    if (viewMode !== 'insights' || !content) return;
+    let frame = 0;
+    const resize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const topBarHeight = document.querySelector('.top-bar')?.getBoundingClientRect().height || 36;
+        const availableHeight = Math.max(240, window.screen.availHeight - 100);
+        const height = Math.min(availableHeight, Math.max(220, content.scrollHeight + topBarHeight + 40));
+        window.api?.listenView?.adjustWindowHeight('listen', height);
+      });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(content);
+    resize();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [viewMode, insights, insightsIndex]);
 
   // FIX: Cleanup timer on unmount
   useEffect(() => {
@@ -2415,10 +2435,10 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               </div>
             )
           ) : displayedInsights ? (
-              <div style={{ padding: '0px 12px 4px 12px' }}>
+              <div ref={insightsContentRef} style={{ padding: '0px 12px 4px 12px', flexShrink: 0, overflowWrap: 'anywhere' }}>
 	              <div style={{ marginBottom: '4px' }}>
 	                <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-	                  {i18n.getLanguage() === 'en' ? 'Prospect' : 'Prospect'}
+	                  {i18n.getLanguage() === 'en' ? 'Customer' : 'Kunde'}
 	                </h3>
                 {getProspectInfo(displayedInsights).map((point, idx) => (
                   <p
@@ -2459,7 +2479,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.getLanguage() === 'en' ? 'Sales Analysis' : 'Sales Analyse'}
+                  {i18n.getLanguage() === 'en' ? 'What matters now' : 'Jetzt wichtig'}
                 </h3>
                 {getSalesAnalysis(displayedInsights).map((bullet, idx) => (
                   <p
@@ -2542,7 +2562,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               {/* Prospect - no grounded input yet */}
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  Prospect
+                  {i18n.getLanguage() === 'en' ? 'Customer' : 'Kunde'}
                 </h3>
                 <p style={{ fontSize: '12px', lineHeight: '1.3', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.65)', position: 'relative', padding: '4px 12px', fontStyle: 'italic' }}>
                   <span style={{ position: 'absolute', left: '12px' }}>•</span>
@@ -2553,7 +2573,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               {/* Sales Analysis - proactive advice while there is no context yet */}
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.getLanguage() === 'en' ? 'Sales Analysis' : 'Sales Analyse'}
+                  {i18n.getLanguage() === 'en' ? 'What matters now' : 'Jetzt wichtig'}
                 </h3>
                 <p style={{ fontSize: '12px', lineHeight: '1.3', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.85)', position: 'relative', padding: '4px 12px' }}>
                   <span style={{ position: 'absolute', left: '12px' }}>•</span>

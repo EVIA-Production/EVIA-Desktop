@@ -9,6 +9,7 @@ export type CaptureSessionState =
 export type CaptureTransitionReason =
   | 'user_start'
   | 'capture_started'
+  | 'capture_chat_bound'
   | 'capture_start_failed'
   | 'user_stop'
   | 'capture_stopped'
@@ -26,6 +27,7 @@ export type CaptureSessionSnapshot = {
   changedAt: number
   reason: CaptureTransitionReason | 'initialized'
   errorCode: string | null
+  chatId: string | null
 }
 
 export type CaptureTransitionResult = {
@@ -57,6 +59,7 @@ export class CaptureSessionController {
       changedAt: this.now(),
       reason: 'initialized',
       errorCode: null,
+      chatId: null,
     }
   }
 
@@ -80,7 +83,23 @@ export class CaptureSessionController {
     return this.transition('starting', 'user_start', {
       generation: this.snapshot.generation + 1,
       errorCode: null,
+      chatId: null,
     })
+  }
+
+  bindChat(generation: number, chatId: string): CaptureTransitionResult {
+    const id = Number(chatId)
+    if (generation !== this.snapshot.generation ||
+        !['starting', 'recording'].includes(this.snapshot.state) ||
+        !Number.isInteger(id) || id <= 0 || id > 2147483647) {
+      return this.noop(false, 'invalid_capture_chat_binding')
+    }
+    const normalized = String(id)
+    if (this.snapshot.chatId && this.snapshot.chatId !== normalized) {
+      return this.noop(false, 'capture_chat_already_bound')
+    }
+    if (this.snapshot.chatId === normalized) return this.noop(true, 'capture_chat_already_bound')
+    return this.transition(this.snapshot.state, 'capture_chat_bound', { chatId: normalized })
   }
 
   confirmStarted(generation: number): CaptureTransitionResult {
@@ -153,13 +172,14 @@ export class CaptureSessionController {
   private transition(
     state: CaptureSessionState,
     reason: CaptureTransitionReason,
-    patch: Partial<Pick<CaptureSessionSnapshot, 'generation' | 'errorCode'>> = {},
+    patch: Partial<Pick<CaptureSessionSnapshot, 'generation' | 'errorCode' | 'chatId'>> = {},
   ): CaptureTransitionResult {
     const previous = this.getSnapshot()
     this.snapshot = {
       ...this.snapshot,
       ...patch,
       state,
+      chatId: state === 'idle' ? null : (patch.chatId ?? this.snapshot.chatId),
       reason,
       changedAt: this.now(),
     }

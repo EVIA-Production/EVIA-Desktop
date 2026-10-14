@@ -44,6 +44,12 @@ function getBackendHttpBase(): string {
 }
 
 export async function getOrCreateChatId(backendUrl: string, token: string, forceCreate: boolean = false): Promise<string> {
+  const capture = await (window as any).evia?.captureSession?.get?.();
+  if (capture?.chatId && ['starting', 'recording', 'stopping', 'review'].includes(capture.state)) {
+    if (forceCreate) throw new Error('End the active call before creating a new chat');
+    localStorage.setItem('current_chat_id', capture.chatId);
+    return capture.chatId;
+  }
   let chatId = localStorage.getItem('current_chat_id');
 
   const int32Max = 2147483647;
