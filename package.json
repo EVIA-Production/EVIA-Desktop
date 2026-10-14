@@ -1,7 +1,7 @@
 {
   "name": "taylos-desktop",
   "productName": "Taylos",
-  "version": "1.0.131",
+  "version": "1.0.132",
   "description": "Real-time AI sales assistant",
   "author": "Benedict Kroetz <bene.kroetz@gmail.com>",
   "private": true,
@@ -40,7 +40,7 @@
     "test:onboarding:presentation": "electron tools/onboarding-presentation-check.cjs",
     "test:overlay": "node --test tests/windows-overlay-recovery.test.cjs tests/window-material-contract.test.cjs",
     "test:overlay:presentation": "electron tools/overlay-presentation-check.cjs",
-    "verify:release": "npm run typecheck && npm run test:ask-stream && npm run test:lifecycle && npm run test:overlay && npm run test:transcript && npm run test:aec && npm run test:onboarding && npm run aec:bench && npm run aec:browser-check && node --test tests/meeting-regressions.test.cjs",
+    "verify:release": "npm run typecheck && npm run test:ask-stream && npm run test:lifecycle && npm run test:overlay && npm run test:transcript && npm run test:aec && npm run test:onboarding && npm run aec:bench && npm run aec:browser-check && node --test tests/meeting-regressions.test.cjs tests/desktop-replay-privacy.test.cjs tests/preset-recency.test.cjs",
     "postinstall": "electron-builder install-app-deps",
     "start": "npm run dev",
     "package": "echo 'Use electron-builder via build script'",

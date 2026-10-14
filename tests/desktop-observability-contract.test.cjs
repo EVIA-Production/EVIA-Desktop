@@ -7,16 +7,13 @@ const root = path.resolve(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 const analytics = read('src/renderer/services/posthogService.ts');
+const privacy = read('src/renderer/services/telemetryPrivacy.ts');
 const askView = read('src/renderer/overlay/AskView.tsx');
 const listenView = read('src/renderer/overlay/ListenView.tsx');
 const overlayEntry = read('src/renderer/overlay/overlay-entry.tsx');
 const overlayWindows = read('src/main/overlay-windows.ts');
 
-test('desktop replay captures the full session, text included, once the account consented', () => {
-  // With consent the replay is full-fidelity: a masked replay cannot answer
-  // whether a suggestion was any good. Guarded as a contract so nobody
-  // silently re-masks it - the reverse of what this test asserted before
-  // 2026-08-27. Since 2026-09-26 it runs only with consent (§ 25 TDDDG).
+test('desktop replay captures interactions without customer content once the account consented', () => {
   assert.match(analytics, /^import posthog from 'posthog-js';$/m);
   assert.doesNotMatch(analytics, /^import posthog from 'posthog-js\/dist\/module\.full\.no-external';$/m);
   assert.match(analytics, /POSTHOG_HOST\s*=\s*'https:\/\/api\.taylos\.ai\/telemetry'/);
@@ -26,27 +23,27 @@ test('desktop replay captures the full session, text included, once the account 
   assert.match(analytics, /desktop_replay_health/, 'recorder health must be observable');
   assert.doesNotMatch(overlayEntry, /requestIdleCallback\(startAnalytics/, 'short sessions must not disappear before replay starts');
   assert.match(overlayEntry, /root\.render\(<App \/>\)[\s\S]*startAnalytics\(\)/);
-  assert.match(analytics, /maskAllInputs:\s*false/);
-  assert.match(analytics, /maskTextSelector:\s*undefined/);
-  assert.match(analytics, /blockSelector:\s*'\[data-telemetry-secret\]'/);
-  assert.match(analytics, /maskInputOptions:\s*\{ password:\s*true \}/);
-  assert.match(analytics, /enable_recording_console_log:\s*true/);
-  assert.match(analytics, /recordHeaders:\s*true/);
-  assert.match(analytics, /recordBody:\s*true/);
+  assert.match(analytics, /\.\.\.DESKTOP_REPLAY_OPTIONS/);
+  assert.match(privacy, /maskAllInputs:\s*true/);
+  assert.match(privacy, /maskTextSelector:\s*'\*'/);
+  assert.match(privacy, /blockSelector:\s*'\[data-telemetry-secret\], img, video, canvas, iframe, a\[href\]'/);
+  assert.match(privacy, /maskInputOptions:\s*\{ password:\s*true \}/);
+  assert.match(analytics, /enable_recording_console_log:\s*false/);
+  assert.match(privacy, /recordHeaders:\s*false/);
+  assert.match(privacy, /recordBody:\s*false/);
   assert.match(analytics, /maskCapturedNetworkRequestFn:\s*sanitizeCapturedNetworkRequest/);
 });
 
-test('every product event carries its full context', () => {
+test('product events retain diagnostic identifiers while their content is sanitized', () => {
   const directCaptures = analytics.match(/posthog\.capture\(/g) || [];
   assert.equal(directCaptures.length, 2, 'only sendDesktopEvent and queue flushing may call posthog.capture');
 
-  // The sanitizer used to DROP these keys and cut every string at 80 chars,
-  // so an event proved a click happened and nothing about what was clicked.
+  assert.match(analytics, /stripAnalyticsContent\(redactTelemetrySecrets\(properties\)\)/);
   assert.doesNotMatch(analytics, /SENSITIVE_PROPERTY_KEYS/, 'the drop-list is gone by design');
   assert.doesNotMatch(analytics, /slice\(0,\s*80\)/, '80 chars truncated away the content');
   assert.match(analytics, /MAX_PROPERTY_CHARS\s*=\s*20000/, 'the only cap left is PostHog ingestion');
 
-  // The suggestion and what produced it must both travel.
+  // Call sites may supply context; the transport must remove its contents.
   assert.match(analytics, /export function trackSuggestionContext/);
   for (const field of ['suggestion', 'transcript', 'preset_name', 'question', 'chat_id']) {
     assert.match(analytics, new RegExp(`${field}\\??:`), `suggestion context must carry ${field}`);
