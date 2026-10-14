@@ -43,7 +43,7 @@ test('a language toggle mid-call keeps the transcript', () => {
   const guardAt = body.indexOf('isSessionActiveRef.current');
   const resetAt = body.indexOf('resetSessionPresentation');
   assert.ok(guardAt !== -1, 'language changes must consult session state too');
-  assert.ok(resetAt > guardAt && /return/.test(body.slice(guardAt, resetAt)),
+  assert.ok(resetAt === -1 || (resetAt > guardAt && /return/.test(body.slice(guardAt, resetAt))),
     'a language change must not reset a running session');
 });
 

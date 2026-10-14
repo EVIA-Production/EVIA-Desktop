@@ -43,4 +43,5 @@ test('insights measure content height and retain all returned rows', () => {
   assert.match(source, /ref=\{insightsContentRef\}/)
   assert.doesNotMatch(source, /\.slice\(0, 3\)/)
   assert.match(source, /Jetzt wichtig/)
+  assert.doesNotMatch(source, /className="assistant-container" style=\{\{ width: '400px'/)
 })

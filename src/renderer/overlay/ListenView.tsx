@@ -2295,7 +2295,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
   };
 
   return (
-    <div className="assistant-container" style={{ width: '400px', transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
+    <div className="assistant-container" style={{ width: '100%', minWidth: 0, transform: 'translate3d(0, 0, 0)', backfaceVisibility: 'hidden', transition: 'transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out', willChange: 'transform, opacity' }}>
       {/* Glass parity: NO close button in ListenView (ListenView.js:636-686) */}
       <div className="top-bar">
           <div className="bar-left-text">
