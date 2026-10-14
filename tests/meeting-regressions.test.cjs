@@ -45,3 +45,14 @@ test('insights measure content height and retain all returned rows', () => {
   assert.match(source, /Jetzt wichtig/)
   assert.doesNotMatch(source, /className="assistant-container" style=\{\{ width: '400px'/)
 })
+
+test('Ask measures streamed markdown before the final response settles', () => {
+  const source = read('src/renderer/overlay/AskView.tsx')
+  const liveSizing = source.slice(source.indexOf('// Measure rendered text'), source.indexOf('// Glass parity: Auto-scroll'))
+  assert.match(liveSizing, /new ResizeObserver\(resizeStreamingContent\)/)
+  assert.match(liveSizing, /observe\(markdown\)/)
+  assert.match(liveSizing, /if \(!isStreaming \|\| !responseBufferRef.current.trim\(\)\) return/)
+  assert.match(liveSizing, /requestWindowResize\(targetHeight\)/)
+  assert.match(liveSizing, /resizeStreamingContent\(\);/)
+  assert.match(liveSizing, /cancelAnimationFrame\(frame\)/)
+})

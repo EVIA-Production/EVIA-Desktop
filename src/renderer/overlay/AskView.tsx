@@ -385,48 +385,33 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Note: marked v9+ uses marked.use() for extensions, but we'll highlight after render
   }, []);
 
-  // GLASS PARITY: RAF-throttled ResizeObserver (not time-based debounce)
-  // Glass uses requestAnimationFrame to throttle measurements (at most once per frame)
-  // CRITICAL: Final measurement happens in onDone(), this is just for live updates
+  // Measure rendered text as it streams, even when the outer panel is capped.
   useEffect(() => {
     const container = document.querySelector('.ask-container');
     if (!container) return;
-
-    let rafThrottled = false;
-
-    resizeObserverRef.current = new ResizeObserver(entries => {
-      // GLASS PATTERN: RAF throttling prevents measurement spam
-      if (rafThrottled) return;
-      
-      rafThrottled = true;
-      requestAnimationFrame(() => {
-        for (const entry of entries) {
-          const current = window.innerHeight;
-          const contentChanged = isStreaming || response !== lastResponseRef.current;
-          
-          const hasLiveText = Boolean(responseBufferRef.current.trim());
-          if (contentChanged && isStreaming && hasLiveText) {
-            const targetHeight = measureTargetWindowHeight();
-            const delta = Math.abs(targetHeight - current);
-            
-            if (delta > 12) {
-              storedContentHeightRef.current = targetHeight;
-              requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 Live (streaming): target=%dpx', targetHeight);
-            }
-          }
+    let frame = 0;
+    const resizeStreamingContent = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!isStreaming || !responseBufferRef.current.trim()) return;
+        const targetHeight = measureTargetWindowHeight();
+        if (Math.abs(targetHeight - window.innerHeight) > 2) {
+          storedContentHeightRef.current = targetHeight;
+          requestWindowResize(targetHeight);
         }
-        
-        rafThrottled = false;
       });
-    });
-
+    };
+    resizeObserverRef.current = new ResizeObserver(resizeStreamingContent);
     resizeObserverRef.current.observe(container);
+    const markdown = container.querySelector('.markdown-content');
+    if (markdown) resizeObserverRef.current.observe(markdown);
+    resizeStreamingContent();
 
     return () => {
       resizeObserverRef.current?.disconnect();
+      cancelAnimationFrame(frame);
     };
-  }, [isStreaming, response, sessionState, measureTargetWindowHeight]);
+  }, [isStreaming, response, sessionState, measureTargetWindowHeight, requestWindowResize]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
