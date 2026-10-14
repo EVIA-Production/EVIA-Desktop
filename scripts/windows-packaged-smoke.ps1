@@ -73,22 +73,27 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class TaylosSmokeWindows {
   delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr lParam);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int index);
   [DllImport("user32.dll")] static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint key, out byte alpha, out uint flags);
   [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
-  public static string[] Visible(uint processId, int minSize) {
+  public static string[] Visible(uint processId, int minSize, bool headerOnly) {
     var found = new List<string>();
     EnumWindows((handle, unused) => {
       uint owner;
       GetWindowThreadProcessId(handle, out owner);
       if (owner != processId || !IsWindowVisible(handle) || IsIconic(handle)) return true;
+      var title = new StringBuilder(256);
+      GetWindowText(handle, title, title.Capacity);
+      if (headerOnly && title.ToString() != "Taylos") return true;
       RECT rect;
       if (!GetWindowRect(handle, out rect)) return true;
       int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
@@ -96,7 +101,7 @@ public static class TaylosSmokeWindows {
       uint key, flags; byte alpha;
       bool layered = (GetWindowLong(handle, -20) & 0x80000) != 0;
       if (layered && GetLayeredWindowAttributes(handle, out key, out alpha, out flags) && (flags & 2) != 0 && alpha == 0) return true;
-      found.Add(width + "x" + height + "@" + rect.Left + "," + rect.Top);
+      found.Add("hwnd=" + handle.ToInt64() + " " + width + "x" + height + "@" + rect.Left + "," + rect.Top);
       return true;
     }, IntPtr.Zero);
     return found.ToArray();
@@ -104,9 +109,9 @@ public static class TaylosSmokeWindows {
 }
 '@
 
-function Get-VisibleWindows([int]$minSize) {
+function Get-VisibleWindows([int]$minSize, [bool]$headerOnly = $false) {
   if (!$process -or $process.HasExited) { return @() }
-  return @([TaylosSmokeWindows]::Visible([uint32]$process.Id, $minSize))
+  return @([TaylosSmokeWindows]::Visible([uint32]$process.Id, $minSize, $headerOnly))
 }
 
 function Read-Output {
@@ -175,15 +180,39 @@ try {
       Write-Host "[packaged-smoke] visible windows after '$surface': $($windows -join ' ')"
     }
     # 1.0.124 died about a second after its first frame; stay alive a while.
-    Start-Sleep -Seconds $SurviveSeconds
-    $windowsAfter = @(if ($needsWindow) { Get-VisibleWindows $minSize })
+    $surviveDeadline = (Get-Date).AddSeconds($SurviveSeconds)
+    $headerObserved = $false
+    $visibilityFailure = $false
+    $windowsAfter = $windows
+    do {
+      if ($process.HasExited) { break }
+      $output = Read-Output
+      # Setup and the compact header are different HWNDs and have different
+      # bounds. Require the replacement header, not a 200px-tall setup window.
+      $headerPhase = $surface -eq "native setup presented" -and $output -match 'State transition: onboarding \S+ ready'
+      if ($headerPhase -and !$headerObserved) {
+        $headerDeadline = (Get-Date).AddSeconds(15)
+        do {
+          $windowsAfter = @(Get-VisibleWindows 40 $true)
+          if ($windowsAfter.Count -or $process.HasExited) { break }
+          Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $headerDeadline)
+        $headerObserved = $true
+        $surviveDeadline = (Get-Date).AddSeconds($SurviveSeconds)
+        Write-Host "[packaged-smoke] replacement header: $($windowsAfter -join ' ')"
+      } elseif ($needsWindow) {
+        $windowsAfter = @(Get-VisibleWindows $(if ($headerObserved) { 40 } else { $minSize }) $headerObserved)
+      }
+      if ($needsWindow -and !$windowsAfter.Count) { $visibilityFailure = $true; break }
+      Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $surviveDeadline)
     if ($process.HasExited) {
       $reason = "The app exited after '$surface': exit code {0} (0x{0:X8})." -f $process.ExitCode
     } else {
       $output = Read-Output
       if ($needsWindow -and !$windows.Count) {
         $reason = "'$surface' was logged, but no visible Taylos window of at least $minSize px appeared within 15 s."
-      } elseif ($needsWindow -and !$windowsAfter.Count) {
+      } elseif ($needsWindow -and ($visibilityFailure -or !$windowsAfter.Count)) {
         $reason = "A Taylos window was visible after '$surface' but hid itself within $SurviveSeconds s."
       } elseif ($NativeGlass -eq "on" -and $surface -eq "native setup presented" -and $output -notmatch 'native material \{"supported":true,"applied":true\}') {
         $reason = "Native glass was forced on but no product window applied it."

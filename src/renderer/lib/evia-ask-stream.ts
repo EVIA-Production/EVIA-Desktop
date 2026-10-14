@@ -51,6 +51,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     prompt: transcript || prompt,  // Use transcript if available, otherwise just prompt
     language, 
     stream: true,
+    stream_live_advice: true,
     request_id: requestId,
     client_started_at_ms: clientStartedAtMs,
     query_source: querySource,
@@ -90,10 +91,61 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
 
   const controller = new AbortController()
   const outerSignal = signal
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let finished = false
+  let receivedText = false
+  const abort = () => {
+    finished = true
+    controller.abort()
+    void reader?.cancel().catch(() => {})
+  }
 
   if (outerSignal) {
-    if (outerSignal.aborted) controller.abort()
-    outerSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    if (outerSignal.aborted) abort()
+    else outerSignal.addEventListener('abort', abort, { once: true })
+  }
+
+  const consumeLine = (raw: string) => {
+    if (finished || !raw.trim()) return
+    let obj: any
+    try { obj = JSON.parse(raw) }
+    catch { throw new Error('Malformed JSONL line') }
+    const route = obj?.meta || (obj?.type === 'provider_route' ? obj : null)
+    if (route) {
+      if (route?.type === 'trial_budget_error') {
+        const notice = trialLimitFrom(route)
+        if (notice) throw trialLimitError(notice)
+      }
+      if (route.type === 'provider_error') {
+        throw new Error(`SUGGESTION_UNAVAILABLE:${String(route.reason || 'suggestion_unavailable')}`)
+      }
+      if (route?.type === 'request_trace') {
+        console.log(`[Ask][Trace] request=${String(route.request_id || 'unknown')} server_pre_stream_ms=${String(route.server_pre_stream_ms ?? 'unknown')}`)
+      } else {
+        const tokens = route.estimated_input_tokens
+        const threshold = route.context_switch_threshold
+        console.log(
+          `[Ask][ProviderRoute] provider=${String(route.provider || 'unknown')} model=${String(route.model || 'unknown')} reason=${String(route.reason || 'unknown')}` +
+          (Number.isFinite(tokens) ? ` tokens=${tokens}` : '') +
+          (Number.isFinite(threshold) ? ` threshold=${threshold}` : '')
+        )
+      }
+    }
+    // An empty replacement is meaningful: the final guard can retract a preview.
+    if (obj?.replace === true && typeof obj.text === 'string') {
+      receivedText = true
+      try { replaceHandler(obj.text) } catch {}
+    }
+    if (finished) return
+    if (typeof obj?.delta === 'string' && obj.delta) {
+      receivedText = true
+      try { deltaHandler(obj.delta) } catch {}
+    }
+    if (finished) return
+    if (obj?.done === true) {
+      finished = true
+      try { doneHandler() } catch {}
+    }
   }
 
   ;(async () => {
@@ -103,6 +155,7 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
     
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (finished) return
       try {
         console.log(`[Ask] Sending request (attempt ${attempt + 1}/${MAX_RETRIES})`);
         const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal })
@@ -114,12 +167,12 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
             const body = await res.json().catch(() => null)
             const notice = trialLimitFrom(body)
             if (notice) {
-              try { errorHandler(trialLimitError(notice)) } catch {}
-              return
+              throw trialLimitError(notice)
             }
           }
           // Only retry on 5xx errors
           if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
+            await res.body?.cancel()
             console.warn(`[Ask] ⚠️ Server error ${res.status}, retrying in ${RETRY_DELAY}ms...`);
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
             continue;
@@ -127,98 +180,39 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
           throw new Error(`HTTP ${res.status}`)
         }
         
-        const reader = res.body?.getReader()
+        if (finished) {
+          await res.body?.cancel()
+          return
+        }
+        reader = res.body?.getReader()
         if (!reader) throw new Error('No response body')
 
         const decoder = new TextDecoder()
         let buffer = ''
 
-        while (true) {
+        while (!finished) {
           const { done, value } = await reader.read()
+          if (finished) return
           if (done) {
-            try { doneHandler() } catch {}
-            break
+            buffer += decoder.decode()
+            consumeLine(buffer)
+            if (!finished) throw new Error('Incomplete Ask stream')
+            return
           }
           buffer += decoder.decode(value, { stream: true })
-          let lines = buffer.split('\n')
+          const lines = buffer.split('\n')
           buffer = lines.pop() || ''
 
           for (const raw of lines) {
-            const line = raw.trim()
-            if (!line) continue
-            let obj: any
-            try {
-              obj = JSON.parse(line)
-            } catch (e) {
-              try { errorHandler(new Error('Malformed JSONL line')) } catch {}
-              continue
-            }
-            const isProviderRouteEvent = obj?.type === 'provider_route'
-            const meta = obj?.meta
-            if (isProviderRouteEvent || (meta && typeof meta === 'object')) {
-              try {
-                const route = isProviderRouteEvent ? obj : meta
-                if (route?.type === 'request_trace') {
-                  console.log(
-                    `[Ask][Trace] request=${String(route.request_id || 'unknown')} ` +
-                    `server_pre_stream_ms=${String(route.server_pre_stream_ms ?? 'unknown')}`
-                  )
-                  continue
-                }
-                if (route?.type === 'trial_budget_error') {
-                  const notice = trialLimitFrom(route)
-                  if (notice) {
-                    try { errorHandler(trialLimitError(notice)) } catch {}
-                    try { controller.abort() } catch {}
-                    return
-                  }
-                }
-                if (route?.type === 'provider_error') {
-                  const reason = String(route?.reason || 'suggestion_unavailable')
-                  console.error(`[Ask][ProviderError] reason=${reason}`)
-                  try { errorHandler(new Error(`SUGGESTION_UNAVAILABLE:${reason}`)) } catch {}
-                  try { controller.abort() } catch {}
-                  return
-                }
-                const provider = String(route?.provider || 'unknown')
-                const model = String(route?.model || 'unknown')
-                const reason = String(route?.reason || 'unknown')
-                const tokens = route?.estimated_input_tokens
-                const threshold = route?.context_switch_threshold
-                console.log(
-                  `[Ask][ProviderRoute] provider=${provider} model=${model} reason=${reason}` +
-                  (Number.isFinite(tokens) ? ` tokens=${tokens}` : '') +
-                  (Number.isFinite(threshold) ? ` threshold=${threshold}` : '')
-                )
-              } catch (err) {
-                console.warn('[Ask] Failed to log provider route metadata:', err)
-              }
-              continue
-            }
-            const delta = typeof obj?.delta === 'string' ? obj.delta : ''
-            const replacement = obj?.replace === true && typeof obj?.text === 'string'
-              ? obj.text
-              : ''
-            const doneFlag = obj?.done === true
-
-            if (replacement) {
-              try { replaceHandler(replacement) } catch {}
-            }
-            if (delta) {
-              try { deltaHandler(delta) } catch {}
-            }
-            if (doneFlag) {
-              try { doneHandler() } catch {}
-              try { controller.abort() } catch {}
-              return
-            }
+            consumeLine(raw)
+            if (finished) return
           }
         }
         
         // Success - break out of retry loop
         return;
       } catch (err: any) {
-        if (err?.name === 'AbortError') return;
+        if (finished || err?.name === 'AbortError') return;
         
         lastError = err instanceof Error ? err : new Error(String(err));
         
@@ -226,24 +220,31 @@ export function streamAsk({ baseUrl, chatId, prompt, transcript, language, sessi
         const isNetworkError = err instanceof TypeError || 
                                (err instanceof Error && err.message.includes('Failed to fetch'));
         
-        if (isNetworkError && attempt < MAX_RETRIES - 1) {
+        if (!receivedText && isNetworkError && attempt < MAX_RETRIES - 1) {
           console.warn(`[Ask] ⚠️ Network error, retrying in ${RETRY_DELAY}ms...`, err);
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
           continue;
         }
         
         // Final error - emit to handler
+        finished = true
         try { errorHandler(lastError) } catch {}
         return;
+      } finally {
+        if (reader) {
+          try { await reader.cancel() } catch {}
+          reader.releaseLock()
+          reader = undefined
+        }
       }
     }
-  })()
+  })().finally(() => outerSignal?.removeEventListener('abort', abort))
 
   return {
     onDelta(cb) { deltaHandler = cb; return undefined as any },
     onReplace(cb) { replaceHandler = cb; return undefined as any },
     onDone(cb) { doneHandler = cb; return undefined as any },
     onError(cb) { errorHandler = cb; return undefined as any },
-    abort() { try { controller.abort() } catch {} }
+    abort,
   }
 }

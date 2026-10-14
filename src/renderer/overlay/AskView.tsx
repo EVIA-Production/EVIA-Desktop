@@ -385,48 +385,33 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     // Note: marked v9+ uses marked.use() for extensions, but we'll highlight after render
   }, []);
 
-  // GLASS PARITY: RAF-throttled ResizeObserver (not time-based debounce)
-  // Glass uses requestAnimationFrame to throttle measurements (at most once per frame)
-  // CRITICAL: Final measurement happens in onDone(), this is just for live updates
+  // Measure rendered text as it streams, even when the outer panel is capped.
   useEffect(() => {
     const container = document.querySelector('.ask-container');
     if (!container) return;
-
-    let rafThrottled = false;
-
-    resizeObserverRef.current = new ResizeObserver(entries => {
-      // GLASS PATTERN: RAF throttling prevents measurement spam
-      if (rafThrottled) return;
-      
-      rafThrottled = true;
-      requestAnimationFrame(() => {
-        for (const entry of entries) {
-          const current = window.innerHeight;
-          const contentChanged = isStreaming || response !== lastResponseRef.current;
-          
-          const hasLiveText = Boolean(responseBufferRef.current.trim());
-          if (contentChanged && isStreaming && hasLiveText) {
-            const targetHeight = measureTargetWindowHeight();
-            const delta = Math.abs(targetHeight - current);
-            
-            if (delta > 12) {
-              storedContentHeightRef.current = targetHeight;
-              requestWindowResize(targetHeight);
-              console.log('[AskView] 📏 Live (streaming): target=%dpx', targetHeight);
-            }
-          }
+    let frame = 0;
+    const resizeStreamingContent = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!isStreaming || !responseBufferRef.current.trim()) return;
+        const targetHeight = measureTargetWindowHeight();
+        if (Math.abs(targetHeight - window.innerHeight) > 2) {
+          storedContentHeightRef.current = targetHeight;
+          requestWindowResize(targetHeight);
         }
-        
-        rafThrottled = false;
       });
-    });
-
+    };
+    resizeObserverRef.current = new ResizeObserver(resizeStreamingContent);
     resizeObserverRef.current.observe(container);
+    const markdown = container.querySelector('.markdown-content');
+    if (markdown) resizeObserverRef.current.observe(markdown);
+    resizeStreamingContent();
 
     return () => {
       resizeObserverRef.current?.disconnect();
+      cancelAnimationFrame(frame);
     };
-  }, [isStreaming, response, sessionState, measureTargetWindowHeight]);
+  }, [isStreaming, response, sessionState, measureTargetWindowHeight, requestWindowResize]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -677,34 +662,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     // FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
-      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
-      
-      // NOTE: i18n.changeLanguage() call removed due to Vite bundler minification issue
-      // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
-      // UI language will update automatically when window reopens or on next backend request
-      
+      console.log('[AskView] Language changed to', newLang, '- preserving call and answer history');
       cancelActiveStreamRef.current?.('language changed');
-      // Clear all state (same as clear-session)
-      setResponse('');
-      setResponseHistory([]);
-      setResponseIndex(-1);
-      setCurrentQuestion('');
-      setPrompt('');
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
-      lastResponseRef.current = '';
-      storedContentHeightRef.current = 58;
-      liveTranscriptOverrideRef.current = null;
-      chatIdOverrideRef.current = null;
-
-      // Force a fresh chat after language switch so follow-up suggestions
-      // cannot inherit stale language/session context from the previous chat.
-      try {
-        localStorage.removeItem('current_chat_id');
-        // And the shared store, or getOrCreateChatId re-adopts the old chat.
-        (window as any).evia?.prefs?.set?.({ current_chat_id: null });
-      } catch {}
-      console.log('[AskView] ✅ State cleared due to language change');
     };
 
     const handleShortcutNextStep = () => {
@@ -1330,6 +1291,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Backend yields "Error generating suggestion: <error>" on failures
       if (d.includes('Error generating suggestion:')) {
         console.error('[AskView] ❌ Backend error detected in stream:', d);
+        responseBufferRef.current = '';
+        lastResponseRef.current = '';
+        setResponse('');
         
         // Check if it's a rate limit error
         if (d.includes('rate_limit') || d.includes('429') || d.includes('Rate limit')) {
@@ -1362,26 +1326,36 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         return;
       }
       
-      if (isLoadingFirstToken) {
-        setIsLoadingFirstToken(false);
-        setHeaderText(i18n.t('overlay.ask.aiResponse'));
-      }
-      
-      if (!ttftLoggedRef.current && streamStartTime.current) {
+      responseBufferRef.current += d;
+      const visible = sanitizeAskOutput(responseBufferRef.current, currentSessionState);
+      if (!visible) return;
+      setIsLoadingFirstToken(false);
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+      if (!ttftLoggedRef.current && streamStartTime.current !== null) {
         const ttft = performance.now() - streamStartTime.current;
         firstVisibleTokenMs = ttft;
         setTtftMs(ttft);
         ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ Click-to-first-visible-token:', ttft.toFixed(0), 'ms');
       }
-      responseBufferRef.current += d;
-      setResponse(sanitizeAskOutput(responseBufferRef.current, currentSessionState));
+      setResponse(visible);
     });
 
     handle.onReplace((text) => {
       if (streamRef.current !== handle) return;
       responseBufferRef.current = text;
-      setResponse(sanitizeAskOutput(text, currentSessionState));
+      const visible = sanitizeAskOutput(text, currentSessionState);
+      setResponse(visible);
+      if (visible) {
+        setIsLoadingFirstToken(false);
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        if (!ttftLoggedRef.current && streamStartTime.current !== null) {
+          const ttft = performance.now() - streamStartTime.current;
+          firstVisibleTokenMs = ttft;
+          setTtftMs(ttft);
+          ttftLoggedRef.current = true;
+        }
+      }
     });
     
     handle.onDone(() => {
@@ -1461,6 +1435,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     
     handle.onError((e: any) => {
       if (streamRef.current !== handle) return;
+      // A failed provisional stream must never look like a completed answer.
+      responseBufferRef.current = '';
+      lastResponseRef.current = '';
+      setResponse('');
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       streamRef.current = null;

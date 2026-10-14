@@ -244,6 +244,14 @@ const handleToggleLanguage = async (captureHandleRef: any, setIsCapturing: (val:
     // Clearing only the renderer handle here previously left the public state at
     // `recording`, which made the next launch display Stop without live capture.
     const captureApi = (window as any).evia?.captureSession
+    const currentCapture = await captureApi?.get?.()
+    if (currentCapture && ['starting', 'recording', 'stopping', 'review'].includes(currentCapture.state)) {
+      // Changing UI/output language does not create a different meeting.
+      i18n.setLanguage(newLang)
+      ;(window as any).evia?.ipc?.send?.('language-changed', newLang)
+      window.dispatchEvent(new CustomEvent('evia-language-changed', { detail: { language: newLang } }))
+      return
+    }
     const activeHandle = captureHandleRef.current
     if (activeHandle) {
       console.log('[OverlayEntry] 🛑 Stopping audio capture before language toggle...')

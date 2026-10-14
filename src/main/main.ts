@@ -1383,6 +1383,8 @@ ipcMain.handle('capture-session:get', () => {
   return { ...snapshot, legacyState: toLegacySessionState(snapshot) };
 });
 ipcMain.handle('capture-session:begin-start', () => captureSessionController.beginStart());
+ipcMain.handle('capture-session:bind-chat', (_event, generation: number, chatId: string) =>
+  captureSessionController.bindChat(generation, chatId));
 ipcMain.handle('capture-session:confirm-started', (_event, generation: number) =>
   captureSessionController.confirmStarted(generation));
 ipcMain.handle('capture-session:fail-start', (_event, generation: number, errorCode?: string) =>

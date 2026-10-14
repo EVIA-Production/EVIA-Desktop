@@ -329,7 +329,7 @@ test('all Taylos surfaces share one application-level focus state', () => {
 test('Done never waits for backend archival before closing the local session', () => {
   const reviewBlock = barSource.split("current.state === 'review'", 2)[1];
   assert.ok(reviewBlock, 'review transition should exist');
-  assert.match(reviewBlock, /const chatIdToArchive = localStorage\.getItem\('current_chat_id'\)/);
+  assert.match(reviewBlock, /const chatIdToArchive = current\.chatId \|\| localStorage\.getItem\('current_chat_id'\)/);
   assert.match(reviewBlock, /void archiveSession\(chatIdToArchive\);/);
   assert.ok(
     reviewBlock.indexOf('void archiveSession(chatIdToArchive);') <
