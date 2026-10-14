@@ -2478,7 +2478,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
 
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.getLanguage() === 'en' ? 'What matters now' : 'Jetzt wichtig'}
+                  Sales Analysis
                 </h3>
                 {getSalesAnalysis(displayedInsights).map((bullet, idx) => (
                   <p
@@ -2572,7 +2572,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
               {/* Sales Analysis - proactive advice while there is no context yet */}
               <div style={{ marginBottom: '4px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.9)' }}>
-                  {i18n.getLanguage() === 'en' ? 'What matters now' : 'Jetzt wichtig'}
+                  Sales Analysis
                 </h3>
                 <p style={{ fontSize: '12px', lineHeight: '1.3', marginTop: '0px', marginBottom: '0px', color: 'rgba(255, 255, 255, 0.85)', position: 'relative', padding: '4px 12px' }}>
                   <span style={{ position: 'absolute', left: '12px' }}>•</span>
