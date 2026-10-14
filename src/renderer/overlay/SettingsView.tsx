@@ -4,6 +4,8 @@ import { i18n } from '../i18n/i18n';
 import { armPresetSessionReset } from '../lib/pending-preset-reset';
 import { isAccidentalDeactivate, recordActivation, type RecentActivation } from '../lib/preset-toggle-guard';
 import { openPersonalizePage } from '../lib/open-personalize';
+import { orderPresets, readPresetRecency, rememberPresetUse } from '../lib/preset-recency';
+import { usePresetReorder } from '../lib/use-preset-reorder';
 import {
   trackAutoUpdateToggled,
   trackInvisibilityToggled,
@@ -27,6 +29,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<any[]>([]);
+  const orderedPresets = orderPresets(presets.filter(p => !p.is_default), readPresetRecency(accountInfo));
+  const presetListRef = usePresetReorder(JSON.stringify(orderedPresets.map(p => p.id)), showPresets);
   const [selectedPreset, setSelectedPreset] = useState<any>(null);
   const [activatingPresetId, setActivatingPresetId] = useState<number | string | null>(null);
   // The last successful activation, for the double-click guard below.
@@ -369,6 +373,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
         if (result?.ok) {
           console.log('[SettingsView] Preset deactivated:', preset.name);
           trackPresetDeactivated({ preset_id: Number(preset.id) });
+          rememberPresetUse(accountInfo, preset.id);
           setPresets(presets.map(p => ({ ...p, is_active: false })));
           setSelectedPreset(null);
           localStorage.removeItem('active_preset_context');
@@ -402,6 +407,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
       if (result?.ok && result.activation) {
         const activation = result.activation;
         const updatedPreset = activation.prompt;
+        const previousActive = presets.find(p => p.is_active);
+        if (previousActive) rememberPresetUse(accountInfo, previousActive.id);
+        rememberPresetUse(accountInfo, preset.id);
         console.log('[SettingsView] Preset activated:', updatedPreset.name);
         // `preset_activated` already arrives in PostHog - from the web app,
         // with no `source` property. Desktop activation was invisible, so the
@@ -573,8 +581,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
             )}
           </span>
         </div>
-        <div className={`preset-list ${showPresets ? '' : 'hidden'}`}>
-          {presets.filter(p => !p.is_default).length === 0 ? (
+        <div ref={presetListRef} className={`preset-list ${showPresets ? '' : 'hidden'}`}>
+          {orderedPresets.length === 0 ? (
             <div className="no-presets-message">
               {t('noPresetsMessage')}<br />
               <span className="web-link" onClick={handleCreatePreset}>
@@ -582,9 +590,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ language, onToggleLanguage,
               </span>
             </div>
           ) : (
-            presets.filter(p => !p.is_default).map(preset => (
+            orderedPresets.map(preset => (
               <div
                 key={preset.id}
+                data-preset-id={String(preset.id)}
                 className={`preset-item ${preset.is_active ? 'active' : ''} ${selectedPreset?.id === preset.id ? 'selected' : ''} ${isSessionActive || activatingPresetId !== null ? 'disabled' : ''}`}
                 onClick={() => handlePresetSelect(preset)}
                 title={isSessionActive ? t('presetLockedDuringSession') : ''}

@@ -43,6 +43,7 @@
 import posthog from 'posthog-js';
 import type { CaptureResult } from 'posthog-js';
 import { redactTelemetrySecrets, sanitizeCapturedNetworkRequest } from './telemetrySafety';
+import { DESKTOP_REPLAY_OPTIONS, stripAnalyticsContent } from './telemetryPrivacy';
 import { BACKEND_URL } from '../config/config';
 // The implementation verdict lives in main/ so it can be unit-tested from
 // Node. It is the number that claims the product works, which is exactly the
@@ -84,17 +85,8 @@ const ANALYTICS_CALL_ID_KEY = 'taylos_analytics_call_id';
 const MAX_QUEUED_EVENTS = 200;
 const queuedEvents: Array<{ eventName: string; properties: AnalyticsProperties; timestamp: Date }> = [];
 
-// Product analytics is deliberately full-fidelity before launch. Meeting and
-// suggestion context remains intact; only credentials are removed by the
-// transport boundary below. Pre-launch these accounts trade their data for free access, and the
-// suggestion-quality work needs the real values: which chat, which preset, the
-// suggestion text itself, who the rep is. The previous version dropped exactly
-// those keys and cut every string at 80 characters, so an event proved a click
-// happened and told us nothing about what was clicked.
-//
-// The cap that remains is PostHog's ingestion limit, not a privacy rule - an
-// oversized property gets the whole event rejected, and a rejected event is
-// worth less than a truncated one.
+// Retain event identifiers, timings and outcomes, but remove customer content
+// before both the direct transport and the authenticated backend relay.
 const MAX_PROPERTY_CHARS = 20000;
 
 function currentView(): string {
@@ -109,7 +101,7 @@ function currentAppVersion(): string {
 
 function sanitizeAnalyticsProperties(properties: AnalyticsProperties): AnalyticsProperties {
   const sanitized: AnalyticsProperties = {};
-  const credentialSafe = redactTelemetrySecrets(properties) as AnalyticsProperties;
+  const credentialSafe = stripAnalyticsContent(redactTelemetrySecrets(properties)) as AnalyticsProperties;
   for (const [key, value] of Object.entries(credentialSafe)) {
     if (value === undefined || value === null) continue;
     if (typeof value === 'string') {
@@ -120,7 +112,6 @@ function sanitizeAnalyticsProperties(properties: AnalyticsProperties): Analytics
       sanitized[key] = value;
       continue;
     }
-    // Objects and arrays travel whole - a suggestion's context is the point.
     try {
       const encoded = JSON.stringify(value);
       sanitized[key] = encoded.length > MAX_PROPERTY_CHARS
@@ -210,7 +201,11 @@ function replayStatus(): string {
   return typeof status === 'string' ? status : 'unknown';
 }
 
-function verifyReplayRecording(attempt = 0): void {
+let replayHealthTimer: ReturnType<typeof setTimeout> | undefined;
+let replayHealthGeneration = 0;
+
+function verifyReplayRecording(attempt = 0, generation = replayHealthGeneration): void {
+  if (!consentGranted || generation !== replayHealthGeneration) return;
   try {
     // `true` overrides sampling, linked-flag and trigger controls. Recording is
     // still governed by the project-level enable switch returned by PostHog.
@@ -220,7 +215,10 @@ function verifyReplayRecording(attempt = 0): void {
   }
 
   const delay = REPLAY_HEALTH_DELAYS_MS[Math.min(attempt, REPLAY_HEALTH_DELAYS_MS.length - 1)];
-  setTimeout(() => {
+  if (replayHealthTimer !== undefined) clearTimeout(replayHealthTimer);
+  replayHealthTimer = setTimeout(() => {
+    replayHealthTimer = undefined;
+    if (!consentGranted || generation !== replayHealthGeneration) return;
     const recordingStarted = posthog.sessionRecordingStarted();
     const status = replayStatus();
     const isLastAttempt = attempt + 1 >= REPLAY_HEALTH_DELAYS_MS.length;
@@ -242,7 +240,7 @@ function verifyReplayRecording(attempt = 0): void {
     });
 
     if (!recordingStarted && status !== 'disabled' && !isLastAttempt) {
-      verifyReplayRecording(attempt + 1);
+      verifyReplayRecording(attempt + 1, generation);
     }
   }, delay);
 }
@@ -297,6 +295,9 @@ export function analyticsConsentGranted(): boolean {
 /** Switch the running instance when the account's choice differs from the cached one. */
 export function applyAnalyticsConsent(granted: boolean): void {
   consentGranted = granted;
+  replayHealthGeneration += 1;
+  if (replayHealthTimer !== undefined) clearTimeout(replayHealthTimer);
+  replayHealthTimer = undefined;
   try {
     if (granted) localStorage.setItem(ANALYTICS_CONSENT_KEY, 'granted');
     else {
@@ -307,7 +308,11 @@ export function applyAnalyticsConsent(granted: boolean): void {
   } catch { /* storage unavailable: the in-memory flag still applies */ }
   if (!initialized) return;
   try {
-    posthog.set_config({ persistence: granted ? 'localStorage' : 'memory' } as any);
+    posthog.set_config({
+      persistence: granted ? 'localStorage' : 'memory',
+      disable_session_recording: !granted,
+    } as any);
+    sendDesktopEvent('desktop_replay_consent_state', { consent: granted ? 'granted' : 'denied' });
     if (granted) verifyReplayRecording();
     else posthog.stopSessionRecording();
   } catch (error) {
@@ -326,6 +331,10 @@ export async function refreshAnalyticsConsent(): Promise<void> {
     if (!response.ok) return;
     const state = await response.json();
     const granted = state?.granted === true;
+    sendDesktopEvent('desktop_replay_consent_state', {
+      consent: granted ? 'granted' : state?.granted === false ? 'denied' : 'not_decided',
+      consent_checked: true,
+    });
     if (granted !== consentGranted) applyAnalyticsConsent(granted);
   } catch (error) {
     console.warn('[PostHog] Could not read analytics consent:', error);
@@ -352,28 +361,10 @@ export function initPostHog() {
       distinctID: consentGranted ? (localStorage.getItem('posthog_distinct_id') || undefined) : undefined,
     },
 
-    // FULL-FIDELITY CAPTURE - deliberate, and a product decision, not an
-    // oversight.
-    //
-    // Pre-launch these accounts are free in exchange for their data, and the
-    // suggestion quality work needs the actual words: what the prospect said,
-    // what Taylos proposed, and whether the rep used it. A masked replay shows
-    // that a rep read something and moved on, which answers nothing.
-    //
-    // The transcript on screen belongs to a call whose OTHER side did not
-    // agree to this. Keep the PostHog DPA and the customer terms ahead of it.
     disable_session_recording: !consentGranted,
-    enable_recording_console_log: true,
+    enable_recording_console_log: false,
     session_recording: {
-      maskAllInputs: false,
-      maskTextSelector: undefined,
-      collectFonts: true,
-      recordCrossOriginIframes: false,
-      recordHeaders: true,
-      recordBody: true,
-      maskInputOptions: { password: true },
-      blockSelector: '[data-telemetry-secret]',
-      captureCanvas: { recordCanvas: false },
+      ...DESKTOP_REPLAY_OPTIONS,
       maskCapturedNetworkRequestFn: sanitizeCapturedNetworkRequest,
     },
     disable_surveys: true,
@@ -387,6 +378,10 @@ export function initPostHog() {
   } as any);
   
   initialized = true;
+  sendDesktopEvent('desktop_replay_consent_state', {
+    consent: consentGranted ? 'granted' : 'not_decided',
+    consent_checked: false,
+  });
     // No sampling or trigger gates: a session we did not record is a user test
     // we cannot diagnose. The health event proves whether the recorder actually
     // started instead of merely proving that init() returned.
@@ -439,6 +434,7 @@ export function identifyUser(userId: string, properties?: {
 }
 
 export function resetUser() {
+  applyAnalyticsConsent(false);
   posthog.reset();
   localStorage.removeItem('posthog_distinct_id');
 }

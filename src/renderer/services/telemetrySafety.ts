@@ -1,4 +1,4 @@
-/** Full product capture with a hard boundary around authentication material. */
+/** Credential redaction and content-free replay network metadata. */
 
 const REDACTED = '[REDACTED_CREDENTIAL]';
 const SECRET_KEYS = new Set([
@@ -49,33 +49,16 @@ function sanitizeUrl(rawUrl: string): string {
   }
 }
 
-function sanitizeBody(body: unknown): unknown {
-  if (typeof body !== 'string') return redactTelemetrySecrets(body);
-  if (!body.trim()) return body;
-  try {
-    return JSON.stringify(redactTelemetrySecrets(JSON.parse(body)));
-  } catch {
-    if (body.includes('=')) {
-      try {
-        const params = new URLSearchParams(body);
-        for (const key of Array.from(params.keys())) {
-          if (isSecretKey(key)) params.set(key, REDACTED);
-        }
-        return params.toString();
-      } catch { /* preserve ordinary plain-text bodies below */ }
-    }
-    return redactPatterns(body);
-  }
-}
-
 export function sanitizeCapturedNetworkRequest<T extends Record<string, unknown>>(request: T): T {
   const output: Record<string, unknown> = { ...request };
-  if (typeof output.url === 'string') output.url = sanitizeUrl(output.url);
-  for (const field of ['requestHeaders', 'responseHeaders', 'headers']) {
-    if (field in output) output[field] = redactTelemetrySecrets(output[field]);
+  if (typeof output.url === 'string') {
+    try {
+      const safeUrl = new URL(sanitizeUrl(output.url));
+      safeUrl.search = '';
+      safeUrl.hash = '';
+      output.url = safeUrl.toString();
+    } catch { output.url = '[REDACTED_URL]'; }
   }
-  for (const field of ['requestBody', 'responseBody', 'body']) {
-    if (field in output) output[field] = sanitizeBody(output[field]);
-  }
+  for (const field of ['requestHeaders', 'responseHeaders', 'headers', 'requestBody', 'responseBody', 'body']) delete output[field];
   return output as T;
 }
