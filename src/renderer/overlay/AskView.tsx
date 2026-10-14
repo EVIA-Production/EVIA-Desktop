@@ -1330,6 +1330,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       // Backend yields "Error generating suggestion: <error>" on failures
       if (d.includes('Error generating suggestion:')) {
         console.error('[AskView] ❌ Backend error detected in stream:', d);
+        responseBufferRef.current = '';
+        lastResponseRef.current = '';
+        setResponse('');
         
         // Check if it's a rate limit error
         if (d.includes('rate_limit') || d.includes('429') || d.includes('Rate limit')) {
@@ -1362,26 +1365,36 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
         return;
       }
       
-      if (isLoadingFirstToken) {
-        setIsLoadingFirstToken(false);
-        setHeaderText(i18n.t('overlay.ask.aiResponse'));
-      }
-      
-      if (!ttftLoggedRef.current && streamStartTime.current) {
+      responseBufferRef.current += d;
+      const visible = sanitizeAskOutput(responseBufferRef.current, currentSessionState);
+      if (!visible) return;
+      setIsLoadingFirstToken(false);
+      setHeaderText(i18n.t('overlay.ask.aiResponse'));
+      if (!ttftLoggedRef.current && streamStartTime.current !== null) {
         const ttft = performance.now() - streamStartTime.current;
         firstVisibleTokenMs = ttft;
         setTtftMs(ttft);
         ttftLoggedRef.current = true;
         console.log('[AskView] ⚡ Click-to-first-visible-token:', ttft.toFixed(0), 'ms');
       }
-      responseBufferRef.current += d;
-      setResponse(sanitizeAskOutput(responseBufferRef.current, currentSessionState));
+      setResponse(visible);
     });
 
     handle.onReplace((text) => {
       if (streamRef.current !== handle) return;
       responseBufferRef.current = text;
-      setResponse(sanitizeAskOutput(text, currentSessionState));
+      const visible = sanitizeAskOutput(text, currentSessionState);
+      setResponse(visible);
+      if (visible) {
+        setIsLoadingFirstToken(false);
+        setHeaderText(i18n.t('overlay.ask.aiResponse'));
+        if (!ttftLoggedRef.current && streamStartTime.current !== null) {
+          const ttft = performance.now() - streamStartTime.current;
+          firstVisibleTokenMs = ttft;
+          setTtftMs(ttft);
+          ttftLoggedRef.current = true;
+        }
+      }
     });
     
     handle.onDone(() => {
@@ -1461,6 +1474,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     
     handle.onError((e: any) => {
       if (streamRef.current !== handle) return;
+      // A failed provisional stream must never look like a completed answer.
+      responseBufferRef.current = '';
+      lastResponseRef.current = '';
+      setResponse('');
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
       streamRef.current = null;
