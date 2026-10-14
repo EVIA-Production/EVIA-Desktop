@@ -677,34 +677,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
 
     // FIX: Clear state on language change (fixes Test 3 failure)
     const handleLanguageChanged = (newLang: string) => {
-      console.log('[AskView] 🌐 Language changed to', newLang, '- clearing all state');
-      
-      // NOTE: i18n.changeLanguage() call removed due to Vite bundler minification issue
-      // The bundler minifies 'i18n' to 'ie' which becomes undefined at runtime
-      // UI language will update automatically when window reopens or on next backend request
-      
+      console.log('[AskView] Language changed to', newLang, '- preserving call and answer history');
       cancelActiveStreamRef.current?.('language changed');
-      // Clear all state (same as clear-session)
-      setResponse('');
-      setResponseHistory([]);
-      setResponseIndex(-1);
-      setCurrentQuestion('');
-      setPrompt('');
       setIsStreaming(false);
       setIsLoadingFirstToken(false);
-      lastResponseRef.current = '';
-      storedContentHeightRef.current = 58;
-      liveTranscriptOverrideRef.current = null;
-      chatIdOverrideRef.current = null;
-
-      // Force a fresh chat after language switch so follow-up suggestions
-      // cannot inherit stale language/session context from the previous chat.
-      try {
-        localStorage.removeItem('current_chat_id');
-        // And the shared store, or getOrCreateChatId re-adopts the old chat.
-        (window as any).evia?.prefs?.set?.({ current_chat_id: null });
-      } catch {}
-      console.log('[AskView] ✅ State cleared due to language change');
     };
 
     const handleShortcutNextStep = () => {

@@ -1164,8 +1164,7 @@ const ListenView: React.FC<ListenViewProps> = ({ lines, followLive, onToggleFoll
         console.warn('[ListenView] Language changed mid-call - keeping the transcript');
         return;
       }
-      console.log('[ListenView] Language changed; clearing session-derived state');
-      resetSessionPresentation('language-changed');
+      console.log('[ListenView] Language changed; keeping the recorded call and insights');
     };
 
     const onSessionStateChanged = (newState: 'before' | 'during' | 'after') => {

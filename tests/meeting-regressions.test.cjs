@@ -20,6 +20,9 @@ test('language changes preserve the live meeting before any reset path', () => {
   assert.match(branch, /i18n.setLanguage\(newLang\)/)
   assert.match(branch, /return/)
   assert.doesNotMatch(branch, /clear-session|reconcileNoCapture|stopCapture/)
+  const ask = read('src/renderer/overlay/AskView.tsx')
+  const handler = ask.slice(ask.indexOf('const handleLanguageChanged'), ask.indexOf('const handleShortcutNextStep'))
+  assert.doesNotMatch(handler, /current_chat_id|setResponseHistory\(\[\]\)|setResponse\(''\)/)
 })
 
 test('header and child windows share the local DevTools shortcut handler', () => {
