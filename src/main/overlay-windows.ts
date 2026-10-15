@@ -384,11 +384,9 @@ const programmaticResize = new Set<FeatureName>()
 
 const overlayVisibility = new OverlayVisibilityController()
 
-// The menu-bar icon is the discoverable way back from a hidden overlay; the
-// hotkey only helps someone who already knows it exists. Restoring goes through
-// handleHeaderToggle so the icon and Cmd+\ cannot drift apart.
+// Share the shortcut toggle so repeated macOS menu-bar clicks hide/show too.
 initTray(() => {
-  if (headerController.getCurrentState() === 'ready') restoreOverlayUi()
+  if (headerController.getCurrentState() === 'ready') handleHeaderToggle()
   else void headerController.reopen().catch(error => console.error('[tray] Restore failed:', error))
 })
 overlayVisibility.observeUiHidden(syncTray)
@@ -424,6 +422,7 @@ function ensureHeaderWindowVisible(): BrowserWindow {
 export function restoreOverlayUi(): void {
   if (headerController.getCurrentState() !== 'ready') return
   overlayVisibility.showUi()
+  syncTray(false)
   ensureHeaderWindowVisible()
   restoreLastVisibleChildWindows()
 }
@@ -655,6 +654,33 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.on('resize', requestLiveLayout)
 
   const createdHeaderWindow = headerWindow
+  const onNativeHeaderHidden = () => {
+    if (
+      process.platform !== 'win32' || isAppQuitting ||
+      headerWindow !== createdHeaderWindow ||
+      headerController.getCurrentState() !== 'ready' ||
+      overlayVisibility.isUiHidden()
+    ) return
+
+    // Taskbar minimization bypasses handleHeaderToggle. Keep desired panels
+    // intact and expose the same tray recovery path as an explicit hide.
+    restoreChildWindowsOnHeaderRestore = true
+    overlayVisibility.hideUi()
+    setWindowMaterialVisible(createdHeaderWindow, false)
+    for (const name of getVisibleChildWindowNames()) {
+      const win = childWindows.get(name)
+      if (win && !win.isDestroyed()) hideComposedWindow(win)
+    }
+  }
+  const onNativeHeaderShown = () => {
+    if (headerWindow !== createdHeaderWindow || !restoreChildWindowsOnHeaderRestore) return
+    restoreChildWindowsOnHeaderRestore = false
+    restoreOverlayUi()
+  }
+  headerWindow.on('minimize', onNativeHeaderHidden)
+  headerWindow.on('hide', onNativeHeaderHidden)
+  headerWindow.on('restore', onNativeHeaderShown)
+  headerWindow.on('show', onNativeHeaderShown)
   headerWindow.on('closed', () => {
     // A late close event from an old native window must not clear a replacement
     // that a concurrent state transition has already installed.
@@ -662,16 +688,6 @@ function getOrCreateHeaderWindow(): BrowserWindow {
       headerWindow = null
       restoreChildWindowsOnHeaderRestore = false
     }
-  })
-
-  headerWindow.on('restore', () => {
-    if (!restoreChildWindowsOnHeaderRestore) {
-      return
-    }
-
-    restoreChildWindowsOnHeaderRestore = false
-    overlayVisibility.showUi()
-    restoreLastVisibleChildWindows()
   })
 
   headerWindow.once('ready-to-show', () => {

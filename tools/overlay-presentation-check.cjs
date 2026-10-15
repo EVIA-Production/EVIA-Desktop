@@ -184,6 +184,19 @@ app.whenReady().then(async () => {
   };
   await delay(500);
   await capture('initial');
+  if (process.platform === 'win32') {
+    bar.minimize();
+    await delay(150);
+    assert(bar.isMinimized(), 'Native taskbar minimize did not minimize the bar');
+    overlay.restoreOverlayUi();
+    await delay(500);
+    await capture('taskbar-minimized-tray-restored');
+    bar.minimize();
+    await delay(150);
+    bar.restore();
+    await delay(500);
+    await capture('taskbar-minimized-taskbar-restored');
+  }
   for (let cycle = 1; cycle <= 5; cycle++) {
     await bar.webContents.executeJavaScript('window.evia.windows.toggleAllVisibility()');
     await delay(150);

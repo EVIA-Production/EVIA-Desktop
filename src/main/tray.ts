@@ -8,9 +8,8 @@
  * knows it exists. Hiding the app was reversible in principle and unrecoverable
  * in practice.
  *
- * The icon exists only while the UI is hidden, and removes itself the moment
- * the UI is back, so the menu bar stays clean during normal use and the icon
- * means exactly one thing: "your overlay is hidden, click to get it back".
+ * Windows exposes a restore icon while the UI is hidden. macOS keeps its
+ * menu-bar icon available so successive clicks can hide and show the overlay.
  *
  * ── One thing this deliberately does NOT do ──────────────────────────────────
  * It cannot hide itself from a screen share. Electron's Tray wraps an
@@ -33,14 +32,19 @@ import path from 'node:path'
 type TrayLanguage = 'de' | 'en'
 
 /** Hover text. The rep sees this in the language they picked in the app. */
-const TOOLTIP: Record<TrayLanguage, string> = {
-  de: 'Taylos einblenden',
-  en: 'Show Taylos',
+const TOOLTIP: Record<TrayLanguage, { show: string; hide: string }> = {
+  de: { show: 'Taylos einblenden', hide: 'Taylos ausblenden' },
+  en: { show: 'Show Taylos', hide: 'Hide Taylos' },
 }
 
 let tray: Tray | null = null
 let language: TrayLanguage | null = null
-let restore: (() => void) | null = null
+let toggle: (() => void) | null = null
+let uiHidden = false
+
+function tooltip(): string {
+  return TOOLTIP[currentLanguage()][uiHidden ? 'show' : 'hide']
+}
 
 /**
  * The renderer owns the language (i18n lives there) and broadcasts changes on
@@ -111,12 +115,12 @@ export function setTrayLanguage(next: string | null | undefined): void {
   const normalized: TrayLanguage = String(next || '').toLowerCase().startsWith('de') ? 'de' : 'en'
   if (normalized === language) return
   language = normalized
-  if (tray && !tray.isDestroyed()) tray.setToolTip(TOOLTIP[normalized])
+  if (tray && !tray.isDestroyed()) tray.setToolTip(tooltip())
 }
 
-/** Called once at startup with the action that brings the overlay back. */
-export function initTray(onRestore: () => void): void {
-  restore = onRestore
+/** Called once at startup with the shared overlay toggle/recovery action. */
+export function initTray(onToggle: () => void): void {
+  toggle = onToggle
 }
 
 function createTray(): void {
@@ -142,11 +146,11 @@ function createTray(): void {
     }
   }
   tray = new Tray(image)
-  tray.setToolTip(TOOLTIP[currentLanguage()])
+  tray.setToolTip(tooltip())
   // No context menu on purpose. The icon has exactly one job, and a menu would
   // turn a single click into two plus a decision.
-  tray.on('click', () => restore?.())
-  console.log('[tray] menu-bar restore icon shown')
+  tray.on('click', () => toggle?.())
+  console.log('[tray] overlay icon shown')
 }
 
 function destroyTray(): void {
@@ -157,17 +161,22 @@ function destroyTray(): void {
 }
 
 /**
- * Single entry point: the icon is a pure function of whether the UI is hidden.
- * Call it after anything that hides or shows the overlay, and it converges -
- * calling it twice with the same state does nothing.
+ * Windows only needs a restore icon. macOS keeps the toggle icon while shown.
+ * The initial visibility observer runs before Electron is ready; defer native
+ * tray creation until the first presentation or later visibility change.
  */
-export function syncTray(uiHidden: boolean): void {
+export function syncTray(hidden: boolean): void {
+  uiHidden = hidden
   if (process.platform !== 'darwin' && process.platform !== 'win32') return
-  if (uiHidden) createTray()
+  if (!app.isReady()) return
+  if (uiHidden || process.platform === 'darwin') {
+    createTray()
+    if (tray && !tray.isDestroyed()) tray.setToolTip(tooltip())
+  }
   else destroyTray()
 }
 
 export function disposeTray(): void {
   destroyTray()
-  restore = null
+  toggle = null
 }

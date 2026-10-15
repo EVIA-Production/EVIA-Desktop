@@ -40,7 +40,7 @@ test('Windows tray has a white glyph, black outer/internal outlines and DPI repr
   }
   let trayImage;
   const electron = {
-    app: { isPackaged: false, getLocale: () => 'en' },
+    app: { isPackaged: false, isReady: () => true, getLocale: () => 'en' },
     nativeImage: {
       createFromPath: () => {
         const pixels = Buffer.alloc(9 * 9 * 4);
@@ -57,6 +57,7 @@ test('Windows tray has a white glyph, black outer/internal outlines and DPI repr
     Tray: class extends EventEmitter {
       constructor(image) { super(); trayImage = image; }
       setToolTip() {}
+      isDestroyed() { return false; }
     },
   };
   const tray = evaluate('src/main/tray.ts', name => name === 'electron' ? electron : require(name));
@@ -102,6 +103,116 @@ function materialHarness() {
   });
   return { material, win, applies, updates, events, flush: () => { while (pending.length) pending.shift()(); } };
 }
+
+function nativeVisibilityHarness(platform = 'win32') {
+  const source = fs.readFileSync(path.join(root, 'src/main/overlay-windows.ts'), 'utf8');
+  const visibility = evaluate('src/main/overlay-visibility-controller.ts', name => require(name));
+  const overlayVisibility = new visibility.OverlayVisibilityController();
+  overlayVisibility.set({ ask: true, listen: true });
+  const header = new EventEmitter();
+  Object.assign(header, {
+    visible: true, minimized: false, isDestroyed: () => false,
+    isVisible: () => header.visible, isMinimized: () => header.minimized,
+  });
+  const children = new Map(['ask', 'listen', 'settings'].map(name => [name, { visible: name !== 'settings', isDestroyed: () => false }]));
+  const trayStates = [];
+  let trayClick;
+  let reopened = 0;
+  let state = 'ready';
+  const context = {
+    headerWindow: header, childWindows: children, overlayVisibility,
+    restoreChildWindowsOnHeaderRestore: false, isAppQuitting: false,
+    process: { platform }, console: { log() {}, error() {} },
+    headerController: { getCurrentState: () => state, reopen: async () => { reopened++; } },
+    initTray: callback => { trayClick = callback; },
+    syncTray: hidden => trayStates.push(hidden),
+    setWindowMaterialVisible() {},
+    getVisibleChildWindowNames: () => [...children].filter(([, win]) => win.visible).map(([name]) => name),
+    hideComposedWindow: win => { win.visible = false; win.emit?.('hide'); },
+    ensureHeaderWindowVisible: () => {
+      if (header.minimized) { header.minimized = false; header.emit('restore'); }
+      header.visible = true;
+      header.emit('show');
+      return header;
+    },
+    restoreLastVisibleChildWindows: () => {
+      for (const [name, win] of children) win.visible = overlayVisibility.isDesired(name);
+    },
+  };
+  const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+  const code = [
+    section('initTray(() => {', 'function getWindowIconPath'),
+    section('export function restoreOverlayUi()', 'function getVisibleChildWindowNames'),
+    section('  const createdHeaderWindow = headerWindow', "  headerWindow.once('ready-to-show'"),
+    section('function handleHeaderToggle()', 'let isAnimating ='),
+  ].join('\n').replace('export function restoreOverlayUi', 'function restoreOverlayUi');
+  vm.createContext(context);
+  vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  return {
+    header, children, overlayVisibility, trayStates, context,
+    clickTray: () => trayClick(), reopened: () => reopened, setState: value => { state = value; },
+  };
+}
+
+for (const event of ['minimize', 'hide']) {
+  test(`Windows native ${event} exposes tray recovery and restores exactly the desired panels`, () => {
+    const h = nativeVisibilityHarness();
+    for (let cycle = 0; cycle < 3; cycle++) {
+      h.header.minimized = event === 'minimize';
+      h.header.visible = event !== 'hide';
+      h.header.emit(event);
+      assert.equal(h.overlayVisibility.isUiHidden(), true);
+      assert.equal(h.trayStates.at(-1), true);
+      assert.equal([...h.children.values()].some(win => win.visible), false);
+      h.clickTray();
+      assert.equal(h.overlayVisibility.isUiHidden(), false);
+      assert.equal(h.trayStates.at(-1), false);
+      assert.equal(h.header.minimized, false);
+      assert.equal(h.header.visible, true);
+      assert.equal(h.children.get('ask').visible, true);
+      assert.equal(h.children.get('listen').visible, true);
+      assert.equal(h.children.get('settings').visible, false);
+    }
+  });
+}
+
+test('restoring from the Windows taskbar also clears hidden state and restores panels', () => {
+  const h = nativeVisibilityHarness();
+  h.header.minimized = true;
+  h.header.emit('minimize');
+  h.header.minimized = false;
+  h.header.emit('restore');
+  assert.equal(h.overlayVisibility.isUiHidden(), false);
+  assert.equal(h.trayStates.at(-1), false);
+  assert.equal(h.children.get('ask').visible, true);
+});
+
+test('native header events ignore shutdown, setup, and obsolete native windows', () => {
+  for (const mode of ['quitting', 'setup', 'replaced']) {
+    const h = nativeVisibilityHarness();
+    if (mode === 'quitting') h.context.isAppQuitting = true;
+    if (mode === 'setup') h.setState('onboarding');
+    if (mode === 'replaced') h.context.headerWindow = {};
+    h.header.emit('minimize');
+    assert.equal(h.overlayVisibility.isUiHidden(), false, mode);
+    assert.equal(h.children.get('ask').visible, true, mode);
+  }
+});
+
+test('macOS tray callback toggles the whole group and reopens setup instead of toggling it', () => {
+  const h = nativeVisibilityHarness('darwin');
+  h.clickTray();
+  assert.equal(h.overlayVisibility.isUiHidden(), true);
+  assert.equal(h.header.visible, false);
+  h.clickTray();
+  assert.equal(h.overlayVisibility.isUiHidden(), false);
+  assert.equal(h.header.visible, true);
+  assert.equal(h.children.get('ask').visible, true);
+  h.setState('onboarding');
+  h.clickTray();
+  assert.equal(h.reopened(), 1);
+  assert.equal(h.overlayVisibility.isUiHidden(), false);
+});
 
 test('49px product bounds survive 64px Windows host, focus, resize and reveal', () => {
   const h = materialHarness();

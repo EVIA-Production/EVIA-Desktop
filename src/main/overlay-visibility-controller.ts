@@ -6,8 +6,8 @@ export class OverlayVisibilityController {
   private desired = new Set<OverlayFeature>()
   private uiHidden = false
   /**
-   * Notified whenever the UI goes hidden or comes back. The menu-bar restore
-   * icon is a pure function of this flag, and hanging it off the state itself
+   * Notified whenever the UI goes hidden or comes back. The tray's presence
+   * and action label follow this flag, and hanging them off the state itself
    * means a future sixth call site cannot forget to keep it in sync - which is
    * how the icon would silently stop appearing.
    */
