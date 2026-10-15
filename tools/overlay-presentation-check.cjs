@@ -42,7 +42,7 @@ public static class TaylosRegionCheck {
 }
 '@
 [TaylosRegionCheck]::Inspect(${handle})`;
-  return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 }).trim());
+  return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000, windowsHide: true }).trim());
 }
 
 function windowsScreenCrop(win, file, margin = 0) {
@@ -96,6 +96,7 @@ public static class TaylosScreenCheck {
 [TaylosScreenCheck]::Capture([long]$env:TAYLOS_QA_HWND, $env:TAYLOS_QA_SNAPSHOT, [int]$env:TAYLOS_QA_MARGIN)`;
   execFileSync('powershell.exe', ['-NoProfile', '-Command', code], {
     timeout: 15000,
+    windowsHide: true,
     env: { ...process.env, TAYLOS_QA_HWND: win.getNativeWindowHandle().readBigUInt64LE().toString(), TAYLOS_QA_SNAPSHOT: file, TAYLOS_QA_MARGIN: String(margin) },
   });
   return nativeImage.createFromPath(file);
@@ -134,6 +135,7 @@ app.whenReady().then(async () => {
   backing.show();
   backing.focus();
   await delay(150);
+  console.log(JSON.stringify({ fixture: 'white-backing', bounds: backing.getBounds(), visible: backing.isVisible(), minimized: backing.isMinimized(), alwaysOnTop: backing.isAlwaysOnTop() }));
   const bar = overlay.createHeaderWindow();
   let crash;
   bar.webContents.on('render-process-gone', (_event, details) => { crash = details; });

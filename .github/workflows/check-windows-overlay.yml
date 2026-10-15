@@ -12,6 +12,10 @@ on:
         description: "Recover an interrupted checkout without building or publishing"
         type: boolean
         default: false
+      resume_signed_release:
+        description: "Revalidate and upload the existing signed v1.0.137 build without rebuilding"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +26,7 @@ concurrency:
 
 jobs:
   check-overlay:
+    if: inputs.resume_signed_release != true
     runs-on: ${{ inputs.runner == 'windows-latest' && 'windows-latest' || fromJSON('["self-hosted","windows-signing"]') }}
     timeout-minutes: 25
     steps:
@@ -69,4 +74,67 @@ jobs:
         with:
           name: windows-overlay-evidence
           path: overlay-evidence
+          if-no-files-found: warn
+
+  resume-signed-release:
+    if: inputs.resume_signed_release == true && inputs.runner == 'self-hosted' && inputs.cleanup_only != true
+    runs-on: [self-hosted, windows-signing]
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    steps:
+      # No checkout: retain the already signed installer and its exact tagged source.
+      - name: Revalidate the immutable signed build with hidden diagnostic subprocesses
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = 'c0561300485d4f37a6da73a1b31be4ff0d98af78'
+          $tag = 'v1.0.137'
+          if (!(Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'scripts\release-windows-signed.ps1'))) { throw 'Existing signed workspace is missing.' }
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          if ((& git rev-parse HEAD) -ne $expected) { throw 'Existing workspace is not the signed release commit.' }
+          if ((& git rev-list -n 1 $tag) -ne $expected) { throw 'Release tag differs from the signed build.' }
+          if (& git status --porcelain) { throw 'Existing release workspace is dirty.' }
+          if ((Get-Content -Raw package.json | ConvertFrom-Json).version -ne '1.0.137') { throw 'Unexpected package version.' }
+          $paths = @('dist\Taylos.exe', 'dist\Taylos.exe.blockmap', 'dist\latest.yml')
+          $hashes = @{}
+          foreach ($path in $paths) { $hashes[$path] = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash }
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'tools\overlay-presentation-check.cjs'
+          $original = [IO.File]::ReadAllBytes($fixture)
+          $candidate = & gh api "repos/$env:GITHUB_REPOSITORY/contents/tools/overlay-presentation-check.cjs?ref=$env:GITHUB_SHA" -H 'Accept: application/vnd.github.raw+json'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not load the diagnostic-only fixture correction.' }
+          $evidence = Join-Path $env:RUNNER_TEMP "taylos-v137-recovery-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          try {
+            [IO.File]::WriteAllText($fixture, ($candidate -join "`n"), [System.Text.UTF8Encoding]::new($false))
+            & npm.cmd run test:overlay:presentation -- (Join-Path $evidence 'overlay')
+            if ($LASTEXITCODE -ne 0) { throw 'Physical overlay validation failed; upload blocked.' }
+            & npm.cmd run test:onboarding:presentation -- (Join-Path $evidence 'onboarding')
+            if ($LASTEXITCODE -ne 0) { throw 'Onboarding presentation failed; upload blocked.' }
+            & powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-packaged-smoke.ps1 -AppExe dist\win-unpacked\Taylos.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged startup failed; upload blocked.' }
+            & powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-packaged-smoke.ps1 -AppExe dist\win-unpacked\Taylos.exe -NativeGlass on
+            if ($LASTEXITCODE -ne 0) { throw 'Native packaged startup failed; upload blocked.' }
+          } finally {
+            [IO.File]::WriteAllBytes($fixture, $original)
+          }
+          if (& git status --porcelain) { throw 'Validation changed release sources; upload blocked.' }
+          foreach ($path in $paths) {
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -ne $hashes[$path]) { throw "Signed artifact changed during validation: $path" }
+          }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release-windows-signed.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Signature or updater manifest verification failed; upload blocked.' }
+          & gh release upload $tag --repo $env:GITHUB_REPOSITORY --clobber @paths
+          if ($LASTEXITCODE -ne 0) { throw 'Signed asset upload failed.' }
+          & node scripts/finalize-release-if-complete.js $tag $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Cross-platform release finalization failed.' }
+          Write-Host "Signed installer SHA256: $($hashes['dist\Taylos.exe'])"
+      - name: Retain recovery visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-v137-recovery-evidence
+          path: ${{ runner.temp }}/taylos-v137-recovery-${{ github.run_id }}
           if-no-files-found: warn
