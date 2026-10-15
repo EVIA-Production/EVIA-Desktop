@@ -48,15 +48,30 @@ test('insights measure content height and retain all returned rows', () => {
   assert.doesNotMatch(source, /className="assistant-container" style=\{\{ width: '400px'/)
 })
 
-test('Ask measures streamed markdown before the final response settles', () => {
+test('only during-call Ask measures streamed markdown before the final response settles', () => {
   const source = read('src/renderer/overlay/AskView.tsx')
   const liveSizing = source.slice(source.indexOf('// Measure rendered text'), source.indexOf('// Glass parity: Auto-scroll'))
   assert.match(liveSizing, /new ResizeObserver\(resizeStreamingContent\)/)
   assert.match(liveSizing, /observe\(markdown\)/)
-  assert.match(liveSizing, /if \(!isStreaming \|\| !responseBufferRef.current.trim\(\)\) return/)
+  assert.match(liveSizing, /if \(!isStreaming \|\| responseSessionState !== 'during' \|\| !response.trim\(\)\) return/)
   assert.match(liveSizing, /requestWindowResize\(targetHeight\)/)
   assert.match(liveSizing, /resizeStreamingContent\(\);/)
   assert.match(liveSizing, /cancelAnimationFrame\(frame\)/)
+})
+
+test('pre/post-call Ask buffers deltas and replacements and always publishes the finished answer', () => {
+  const source = read('src/renderer/overlay/AskView.tsx')
+  const delta = source.slice(source.indexOf('handle.onDelta((d) => {'), source.indexOf('handle.onReplace((text) => {'))
+  const replace = source.slice(source.indexOf('handle.onReplace((text) => {'), source.indexOf('handle.onDone(() => {'))
+  for (const handler of [delta, replace]) {
+    const gate = handler.indexOf("if (currentSessionState !== 'during') return;")
+    assert.ok(gate > handler.indexOf('responseBufferRef.current'), 'keep the complete response buffer')
+    assert.ok(gate < handler.indexOf('setResponse(visible)'), 'do not render partial pre/post answers')
+    assert.ok(gate < handler.indexOf('setIsLoadingFirstToken(false)', gate), 'keep thinking until completion')
+  }
+  const done = source.slice(source.indexOf('handle.onDone(() => {'), source.indexOf('// Final measurement from the actual visible DOM'))
+  assert.match(done, /responseBufferRef.current = finalResponse;\s*setResponse\(finalResponse\);/)
+  assert.doesNotMatch(done, /if \(finalResponse !== responseBufferRef.current\)/)
 })
 
 test('streaming suggestions render text without an abort button or its reserved height', () => {

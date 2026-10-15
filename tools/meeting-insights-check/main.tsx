@@ -6,7 +6,9 @@ import { i18n } from '../../src/renderer/i18n/i18n';
 
 const handlers = new Map<string, Set<(...args: any[]) => void>>();
 const emit = (event: string, value: any) => handlers.get(event)?.forEach(fn => fn(value));
-const askMode = new URLSearchParams(location.search).get('view') === 'ask';
+const params = new URLSearchParams(location.search);
+const askMode = params.get('view') === 'ask';
+const phase = params.get('phase') === 'before' ? 'before' : params.get('phase') === 'after' ? 'after' : 'during';
 function resizePanel(height: number) {
   const panel = document.getElementById('panel')!;
   panel.style.height = `${height}px`;
@@ -14,13 +16,13 @@ function resizePanel(height: number) {
   panel.dataset.heightHistory = `${panel.dataset.heightHistory || ''},${height}`;
 }
 localStorage.setItem('evia_language', 'de');
-localStorage.setItem('evia_session_state', 'during');
+localStorage.setItem('evia_session_state', phase);
 localStorage.setItem('current_chat_id', '1');
 i18n.setLanguage('de');
 (window as any).evia = {
   demo: { isEnabled: async () => ({ enabled: !askMode }) },
   auth: { getToken: async () => askMode ? 'layout-fixture-only' : null },
-  captureSession: { get: async () => ({ state: 'recording', chatId: '1', generation: 1 }) },
+  captureSession: { get: async () => ({ state: phase === 'during' ? 'recording' : 'idle', chatId: '1', generation: 1 }) },
   liveTranscript: { set() {}, clear() {} },
   windows: { adjustAskHeight: resizePanel },
   ipc: {

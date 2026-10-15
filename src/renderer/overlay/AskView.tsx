@@ -391,7 +391,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const resizeStreamingContent = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (!isStreaming || !responseBufferRef.current.trim()) return;
+        if (!isStreaming || responseSessionState !== 'during' || !response.trim()) return;
         const targetHeight = measureTargetWindowHeight();
         if (Math.abs(targetHeight - window.innerHeight) > 2) {
           storedContentHeightRef.current = targetHeight;
@@ -409,7 +409,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       resizeObserverRef.current?.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [isStreaming, response, sessionState, measureTargetWindowHeight, requestWindowResize]);
+  }, [isStreaming, response, responseSessionState, measureTargetWindowHeight, requestWindowResize]);
 
   // Glass parity: Auto-scroll to bottom during streaming
   useEffect(() => {
@@ -1325,6 +1325,9 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       }
       
       responseBufferRef.current += d;
+      // Long preparation/review answers stay buffered: native per-line resizing
+      // is not smooth. Live advice keeps its low-latency incremental delivery.
+      if (currentSessionState !== 'during') return;
       const visible = sanitizeAskOutput(responseBufferRef.current, currentSessionState);
       if (!visible) return;
       setIsLoadingFirstToken(false);
@@ -1342,6 +1345,7 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     handle.onReplace((text) => {
       if (streamRef.current !== handle) return;
       responseBufferRef.current = text;
+      if (currentSessionState !== 'during') return;
       const visible = sanitizeAskOutput(text, currentSessionState);
       setResponse(visible);
       if (visible) {
@@ -1367,10 +1371,8 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
       console.log('[AskView] ✅ Stream completed');
 
       const finalResponse = sanitizeAskOutput(responseBufferRef.current, currentSessionState).trim();
-      if (finalResponse !== responseBufferRef.current) {
-        responseBufferRef.current = finalResponse;
-        setResponse(finalResponse);
-      }
+      responseBufferRef.current = finalResponse;
+      setResponse(finalResponse);
       if (finalResponse) {
         console.log('[AskView] 🧠 Final suggestion content:\n%s', finalResponse);
       }
