@@ -127,6 +127,9 @@ app.whenReady().then(async () => {
   const display = screen.getPrimaryDisplay();
   const backing = new BrowserWindow({ x: display.workArea.x + 40, y: display.workArea.y + 20, width: 1000, height: 180, frame: false, backgroundColor: '#ffffff', show: true });
   await backing.loadURL('data:text/html,<html><body style="margin:0;background:white">Overlay QA fixture</body></html>');
+  // The runner's foreground PowerShell otherwise covers this ordinary window.
+  // Pin the fixture before creating the topmost bar; never refocus it on restore.
+  backing.setAlwaysOnTop(true);
   const bar = overlay.createHeaderWindow();
   let crash;
   bar.webContents.on('render-process-gone', (_event, details) => { crash = details; });
