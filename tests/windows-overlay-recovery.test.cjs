@@ -137,6 +137,76 @@ test('invalid product dimensions cannot corrupt the native clip', () => {
   assert.equal(h.updates.at(-1).materialHeight, 49);
 });
 
+function attachedLayoutHarness() {
+  const source = fs.readFileSync(path.join(root, 'src/main/overlay-windows.ts'), 'utf8');
+  const start = source.indexOf('function layoutChildWindows(');
+  const end = source.indexOf('function animateShow(', start);
+  const geometry = evaluate('src/main/window-anchor-geometry.ts', name => require(name));
+  const header = { x: 500, y: 100, width: 338, height: 64 };
+  const windows = new Map();
+  const work = { x: 0, y: 0, width: 1920, height: 1040 };
+  const createChildWindow = name => {
+    if (!windows.has(name)) {
+      let bounds = { x: 0, y: 0, width: name === 'ask' ? 640 : 400, height: 300 };
+      windows.set(name, { getBounds: () => ({ ...bounds }), setBounds: value => { bounds = { ...value }; } });
+    }
+    return windows.get(name);
+  };
+  const context = {
+    getOrCreateHeaderWindow: () => ({ getBounds: () => ({ ...header }) }),
+    getWorkAreaBounds: () => work,
+    screen: { getDisplayNearestPoint: () => ({ bounds: { ...work, height: 1080 } }) },
+    HEADER_SIZE: { width: 900, height: 49 },
+    headerVisualCenterOffset: 169,
+    PAD: 8,
+    WINDOW_DATA: { ask: { width: 640, height: 58 }, listen: { width: 400, height: 420 } },
+    centerWindowGroupX: geometry.centerWindowGroupX,
+    centerWindowX: geometry.centerWindowX,
+    createChildWindow,
+    clampBounds: bounds => geometry.clampRectToDisplay(bounds, { bounds: { ...work, height: 1080 }, workArea: work }),
+    console: { log() {} },
+  };
+  vm.createContext(context);
+  const code = ts.transpileModule(source.slice(start, end), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  vm.runInContext(code + '\nglobalThis.layout = layoutChildWindows;', context);
+  return { header, window: createChildWindow, layout: context.layout };
+}
+
+test('Ask anchors eight pixels below the visible bar on first show and after host resizing', () => {
+  const h = attachedLayoutHarness();
+  for (const hostHeight of [64, 49, 64, 80, 49]) {
+    h.header.height = hostHeight;
+    h.layout({ ask: true, listen: false });
+    assert.equal(h.window('ask').getBounds().y - (h.header.y + 49), 8);
+  }
+});
+
+test('streaming growth and side-by-side panels keep the same visible header gap', () => {
+  const h = attachedLayoutHarness();
+  for (const askHeight of [58, 168, 320, 600]) {
+    const ask = h.window('ask');
+    ask.setBounds({ ...ask.getBounds(), height: askHeight });
+    h.layout({ ask: true, listen: true });
+    for (const name of ['ask', 'listen']) assert.equal(h.window(name).getBounds().y, 157);
+    assert.equal(ask.getBounds().height, askHeight);
+    assert.equal(ask.getBounds().x - (h.window('listen').getBounds().x + 400), 8);
+  }
+});
+
+test('panels above the bar retain their bottom anchor while growing', () => {
+  const h = attachedLayoutHarness();
+  h.header.y = 900;
+  for (const height of [58, 320, 600]) {
+    const ask = h.window('ask');
+    ask.setBounds({ ...ask.getBounds(), height });
+    h.layout({ ask: true, listen: true });
+    for (const name of ['ask', 'listen']) {
+      const bounds = h.window(name).getBounds();
+      assert.equal(h.header.y - (bounds.y + bounds.height), 8);
+    }
+  }
+});
+
 function revealHarness() {
   const source = fs.readFileSync(path.join(root, 'src/main/overlay-windows.ts'), 'utf8');
   const start = source.indexOf('const composedFirstPaintReady');

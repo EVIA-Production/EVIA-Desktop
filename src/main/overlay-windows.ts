@@ -1217,7 +1217,9 @@ function ensureWindowShown(name: FeatureName) {
 // Glass parity: Port windowLayoutManager.js:132-220 horizontal stack algorithm
 function layoutChildWindows(visible: WindowVisibility) {
   const header = getOrCreateHeaderWindow()
-  const hb = header.getBounds()
+  // Windows can retain a 64px HWND around the clipped 49px bar. Anchor to the
+  // product edge, not that invisible host area, including during first reveal.
+  const hb = { ...header.getBounds(), height: HEADER_SIZE.height }
   const work = getWorkAreaBounds()
 
   // CRITICAL FIX: Get screen bounds for horizontal calculations (match clampBounds behavior)

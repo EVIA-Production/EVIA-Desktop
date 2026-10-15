@@ -79,6 +79,16 @@ test('Windows glass refracts the live backdrop progressively inward', () => {
   assert.match(nativeWindowsSource, /CreateHostBackdropBrush\(\)/);
 });
 
+test('Windows antialiased curves are not cut by the hard HWND region', () => {
+  assert.match(nativeWindowsSource, /state->root\.BorderMode\(winrt::Windows::UI::Composition::CompositionBorderMode::Soft\)/);
+  assert.match(nativeWindowsSource, /constexpr int antialias_margin = 2/);
+  assert.match(nativeWindowsSource, /CreateRoundRectRgn\(\s*-antialias_margin,\s*-antialias_margin/);
+  assert.match(nativeWindowsSource, /\(radius \+ antialias_margin\) \* 2\.0f/);
+  assert.match(nativeWindowsSource, /CreateRectRgn\(0, 0, region_width \+ 1, region_height \+ 1\)/);
+  assert.match(nativeWindowsSource, /CombineRgn\(region, region, product_region, RGN_AND\)/);
+  assert.match(nativeWindowsSource, /DeleteObject\(product_region\)/);
+});
+
 test('Windows native glass has three contrast-preserving optical rim bands', () => {
   assert.match(
     liquidGlass,

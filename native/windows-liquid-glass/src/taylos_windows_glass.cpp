@@ -285,15 +285,32 @@ void SynchronizeGeometry(
   // otherwise the host backdrop paints the surplus as a blurred shelf.
   const int region_width = std::max(1, static_cast<int>(std::ceil(width)));
   const int region_height = std::max(1, static_cast<int>(std::ceil(height)));
-  const int region_diameter = std::max(1, static_cast<int>(std::ceil(radius * 2.0f)));
+  // HRGNs are binary masks. Leave a physical-pixel guard band around the soft
+  // Composition/CSS curve so the HWND cannot clip away antialiased edge pixels.
+  constexpr int antialias_margin = 2;
+  const int region_diameter = std::max(1, static_cast<int>(std::ceil(
+    (radius + antialias_margin) * 2.0f)));
   const HRGN region = CreateRoundRectRgn(
-    0,
-    0,
-    region_width + 1,
-    region_height + 1,
+    -antialias_margin,
+    -antialias_margin,
+    region_width + 1 + antialias_margin,
+    region_height + 1 + antialias_margin,
     region_diameter,
     region_diameter);
   if (!region) winrt::throw_last_error();
+  // Retain the exact product footprint: the guard must not expose the surplus
+  // host height below the bar or capture clicks outside the product rectangle.
+  const HRGN product_region = CreateRectRgn(0, 0, region_width + 1, region_height + 1);
+  if (!product_region) {
+    DeleteObject(region);
+    winrt::throw_hresult(E_OUTOFMEMORY);
+  }
+  const int clip_result = CombineRgn(region, region, product_region, RGN_AND);
+  DeleteObject(product_region);
+  if (clip_result == ERROR) {
+    DeleteObject(region);
+    winrt::throw_hresult(E_FAIL);
+  }
   // Focus updates must not repeatedly dispatch WM_SIZE/WM_WINDOWPOSCHANGED
   // for an unchanged shape. Still repair a region reset by Electron on reveal.
   const HRGN current_region = CreateRectRgn(0, 0, 0, 0);
@@ -474,6 +491,7 @@ Napi::Value Apply(const Napi::CallbackInfo& info) {
     state->target = CreateTarget(state->compositor, hwnd);
     Trace("apply: root");
     state->root = state->compositor.CreateContainerVisual();
+    state->root.BorderMode(winrt::Windows::UI::Composition::CompositionBorderMode::Soft);
     state->root.RelativeSizeAdjustment({1.0f, 1.0f});
 
     Trace("apply: refractive backdrop layers");
