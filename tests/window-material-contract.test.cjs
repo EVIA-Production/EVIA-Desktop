@@ -47,7 +47,7 @@ test('every native material follows the shared Taylos application focus state', 
 test('Windows uses the packaged native bridge and never the rectangular Electron backdrop', () => {
   assert.match(source, /windows-liquid-glass[\s\S]*`win32-\$\{process\.arch\}`/);
   assert.match(source, /process\.platform !== 'darwin' && process\.platform !== 'win32'/);
-  assert.match(source, /hasShadow: true/);
+  assert.match(source, /hasShadow: process\.platform !== 'win32'/);
   assert.match(source, /roundedCorners: false, thickFrame: false/);
   assert.match(source, /Do not call setBackgroundMaterial/);
   assert.doesNotMatch(source, /setBackgroundMaterial\(policy\.windowsMaterial\)/);

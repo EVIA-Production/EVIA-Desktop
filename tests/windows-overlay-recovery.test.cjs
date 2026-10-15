@@ -75,6 +75,7 @@ test('Windows tray has a white glyph, black outer/internal outlines and DPI repr
 });
 
 function materialHarness() {
+  const shadows = [];
   const updates = [];
   const applies = [];
   const events = [];
@@ -98,10 +99,10 @@ function materialHarness() {
     getBounds: () => ({ width: 338, height: 64 }),
     getNativeWindowHandle: () => Buffer.alloc(8),
     isDestroyed: () => false,
-    setHasShadow() {},
+    setHasShadow(value) { shadows.push(value); },
     webContents: { isLoading: () => false },
   });
-  return { material, win, applies, updates, events, flush: () => { while (pending.length) pending.shift()(); } };
+  return { material, win, applies, updates, events, shadows, flush: () => { while (pending.length) pending.shift()(); } };
 }
 
 function nativeVisibilityHarness(platform = 'win32') {
@@ -185,6 +186,43 @@ test('restoring from the Windows taskbar also clears hidden state and restores p
   assert.equal(h.overlayVisibility.isUiHidden(), false);
   assert.equal(h.trayStates.at(-1), false);
   assert.equal(h.children.get('ask').visible, true);
+});
+
+test('Windows Close window preserves the renderer and reopens the same window group', () => {
+  const h = nativeVisibilityHarness();
+  let prevented = 0;
+  for (let cycle = 0; cycle < 3; cycle++) {
+    h.header.emit('close', { preventDefault() { prevented++; } });
+    assert.equal(h.context.headerWindow, h.header, 'do not replace the capture renderer or its glass host');
+    assert.equal(h.header.visible, false);
+    assert.equal(h.overlayVisibility.isUiHidden(), true);
+    assert.equal([...h.children.values()].some(win => win.visible), false);
+    h.context.restoreOverlayUi();
+    assert.equal(h.header.visible, true);
+    assert.equal(h.children.get('ask').visible, true);
+    assert.equal(h.children.get('listen').visible, true);
+  }
+  assert.equal(prevented, 3);
+});
+
+test('native Close window remains destructive for shutdown, setup, stale windows and macOS', () => {
+  for (const mode of ['quitting', 'setup', 'replaced', 'macos']) {
+    const h = nativeVisibilityHarness(mode === 'macos' ? 'darwin' : 'win32');
+    if (mode === 'quitting') h.context.isAppQuitting = true;
+    if (mode === 'setup') h.setState('onboarding');
+    if (mode === 'replaced') h.context.headerWindow = {};
+    h.header.emit('close', { preventDefault() { assert.fail('must allow the native close: ' + mode); } });
+  }
+});
+
+test('Windows material never enables an OS shadow on the oversized transparent host', () => {
+  const h = materialHarness();
+  assert.equal(h.material.materialWindowOptions('overlay').hasShadow, false);
+  h.material.applyWindowMaterial(h.win, 'overlay', 'native');
+  h.material.applyWindowMaterial(h.win, 'overlay', 'custom');
+  h.material.setWindowMaterialVisible(h.win, true);
+  assert.ok(h.shadows.length > 0);
+  assert.ok(h.shadows.every(value => value === false));
 });
 
 test('native header events ignore shutdown, setup, and obsolete native windows', () => {

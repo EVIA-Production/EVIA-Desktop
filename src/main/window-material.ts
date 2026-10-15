@@ -303,11 +303,10 @@ export function materialWindowOptions(
   return {
     transparent: true,
     backgroundColor: '#00000000',
-    // AppKit and DWM both calculate their shadow from the final native window
-    // shape. Windows receives an explicit rounded HWND region before reveal,
-    // so its shadow follows the glass instead of the compositor's rectangular
-    // backing surface.
-    hasShadow: true,
+    // Windows may retain a taller rectangular HWND than the visible capsule.
+    // Its OS shadow follows that host, not the clipped Composition material.
+    // Keep AppKit shadows, but never enable the rectangular Windows layer.
+    hasShadow: process.platform !== 'win32',
     ...(process.platform === 'win32'
       ? { roundedCorners: false, thickFrame: false }
       : {}),
@@ -327,7 +326,7 @@ function setElectronFallback(win: BrowserWindow, surface: MaterialSurface) {
     // Do not call setBackgroundMaterial, including with "none". Electron's
     // setter reconfigures the full HWND and can restore the exact rectangular
     // backing this module exists to avoid. CSS supplies the dark fallback.
-    win.setHasShadow(true)
+    win.setHasShadow(false)
   }
 }
 
@@ -410,7 +409,7 @@ export function applyWindowMaterial(
     )
     if (result.applied) {
       clearElectronMaterial(win)
-      win.setHasShadow(true)
+      win.setHasShadow(process.platform !== 'win32')
       console.log(`[window-material] Native ${surface} glass attached`)
       return true
     } else {

@@ -289,6 +289,9 @@ export class HeaderController {
    */
   private async transitionTo(newState: AppState) {
     console.log(`[HeaderController] State transition: ${this.currentState} → ${newState}`);
+    // Close handlers must see the destination state so logout/setup can really
+    // destroy the header instead of taking the user-initiated hide path.
+    this.currentState = newState;
     
     // Close transient windows before opening the next state window.
     closeWelcomeWindow();
@@ -303,8 +306,6 @@ export class HeaderController {
         header.close();
       }
     }
-    
-    this.currentState = newState;
     
     // Open appropriate window for new state
     switch (newState) {
@@ -594,8 +595,8 @@ export class HeaderController {
       hideAllChildWindows();
       suspendOverlayShortcuts();
       if (options.openBrowser === false) {
-        getHeaderWindow()?.close();
         this.currentState = 'welcome';
+        getHeaderWindow()?.close();
       } else await this.transitionTo('welcome');
     } catch (err) {
       console.error('[HeaderController] ❌ Logout failed:', err);

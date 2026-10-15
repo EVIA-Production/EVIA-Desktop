@@ -138,7 +138,7 @@ function showComposedWindow(
     composedParked.delete(win)
     win.setFocusable(true)
     win.setIgnoreMouseEvents(false)
-    win.setHasShadow(true)
+    win.setHasShadow(false)
     setWindowMaterialVisible(win, true)
     win.setOpacity(composedDesiredOpacity.get(win) ?? 1)
     show(mode)
@@ -681,6 +681,17 @@ function getOrCreateHeaderWindow(): BrowserWindow {
   headerWindow.on('hide', onNativeHeaderHidden)
   headerWindow.on('restore', onNativeHeaderShown)
   headerWindow.on('show', onNativeHeaderShown)
+  headerWindow.on('close', (event) => {
+    if (
+      process.platform !== 'win32' || isAppQuitting ||
+      headerWindow !== createdHeaderWindow || headerController.getCurrentState() !== 'ready'
+    ) return
+    // Native Close is another way to hide the running overlay, not to destroy
+    // its capture renderer and construct a fresh HWND on the browser handoff.
+    event.preventDefault()
+    onNativeHeaderHidden()
+    hideComposedWindow(createdHeaderWindow)
+  })
   headerWindow.on('closed', () => {
     // A late close event from an old native window must not clear a replacement
     // that a concurrent state transition has already installed.

@@ -16,10 +16,20 @@ function controller({token=null,subscribed=false,completed=false,legacyState=nul
  const module={exports:{}};
  const fetch=async(_url,init)=>({ok:authStatus===200,status:authStatus,json:async()=>({username:JSON.parse(Buffer.from(init.headers.Authorization.slice(7).split('.')[1],'base64url')).sub,is_active:true})});
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../dist/main/header-controller.js'),'utf8'),{require:id=>{if(!(id in deps))throw Error(id);return deps[id]},exports:module.exports,module,Buffer,AbortSignal,fetch,process:{platform,env:{}},console:{log(){},warn(){},error(){}}});
- const c=new module.exports.HeaderController();return {c,windows,persisted};
+ const c=new module.exports.HeaderController();return {c,windows,persisted,deps};
 }
 const jwt=(sub='test')=>`x.${Buffer.from(JSON.stringify({sub,exp:Date.now()/1000+3600})).toString('base64url')}.x`;
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+test('logout changes state before closing the header, with and without a browser',async()=>{
+ for(const openBrowser of [false,true]){
+  const h=controller({token:jwt(),subscribed:true,completed:true,platform:'win32'});
+  await h.c.initialize();assert.equal(h.c.getCurrentState(),'ready');
+  const states=[];
+  h.deps['./overlay-windows'].getHeaderWindow=()=>({close(){states.push(h.c.getCurrentState())}});
+  await h.c.handleLogout({openBrowser});
+  assert.deepEqual(states,['welcome']);
+ }
+});
 test('fresh launch waits for real registration; successful auth opens native before checkout',async()=>{
  const h=controller();let opened=0;
  h.c.setNativeOnboardingLauncher(async()=>{opened++;return {close(){}}});

@@ -166,6 +166,24 @@ app.whenReady().then(async () => {
       const bounds = bar.getBounds();
       const crop = source.thumbnail.crop({ x: Math.round((bounds.x - display.bounds.x) * ratio), y: Math.round((bounds.y - display.bounds.y) * ratio), width: Math.round(bounds.width * ratio), height: Math.round(49 * ratio) });
       fs.writeFileSync(path.join(output, name + '-desktop.png'), crop.toPNG());
+      // The old 49px crop excluded the reported rectangular shadow entirely.
+      // Include the surrounding white fixture and test below the product edge.
+      const margin = 16;
+      const surround = source.thumbnail.crop({
+        x: Math.round((bounds.x - display.bounds.x - margin) * ratio),
+        y: Math.round((bounds.y - display.bounds.y - margin) * ratio),
+        width: Math.round((bounds.width + margin * 2) * ratio),
+        height: Math.round((49 + margin * 2) * ratio),
+      });
+      fs.writeFileSync(path.join(output, name + '-surrounding-desktop.png'), surround.toPNG());
+      const outsidePixels = surround.toBitmap(), outsideSize = surround.getSize();
+      for (const offset of [4, 8, 12]) for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+        const x = Math.round((margin + bounds.width * fraction) * ratio);
+        const y = Math.round((margin + 49 + offset) * ratio);
+        const pixel = (y * outsideSize.width + x) * 4;
+        assert(Math.min(...outsidePixels.subarray(pixel, pixel + 3)) >= 240,
+          'OS shadow/rectangle below the capsule at ' + offset + 'px: ' + name);
+      }
       // A stale restored surface showed only one corner. Every interior band
       // must contain the dark bar, not the fixture's white backing.
       const bands = screenBands(crop);
@@ -185,6 +203,12 @@ app.whenReady().then(async () => {
   await delay(500);
   await capture('initial');
   if (process.platform === 'win32') {
+    bar.close();
+    await delay(150);
+    assert(!bar.isDestroyed() && !bar.isVisible(), 'Close window must hide the running header, not destroy it');
+    overlay.restoreOverlayUi();
+    await delay(500);
+    await capture('native-close-browser-reopened');
     bar.minimize();
     await delay(150);
     assert(bar.isMinimized(), 'Native taskbar minimize did not minimize the bar');
