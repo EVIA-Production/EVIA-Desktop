@@ -324,13 +324,11 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     const paddingBottom = parseFloat(style.paddingBottom || '0') || 0;
     const markdownEl = container.querySelector('.markdown-content') as HTMLElement | null;
     const loadingEl = container.querySelector('.loading-dots') as HTMLElement | null;
-    const abortButtonEl = container.querySelector('.abort-button') as HTMLElement | null;
     const emptyStateEl = container.querySelector('.empty-state') as HTMLElement | null;
     const markdownHeight = markdownEl?.scrollHeight || markdownEl?.offsetHeight || 0;
     const loadingHeight = loadingEl?.scrollHeight || loadingEl?.offsetHeight || 0;
-    const abortHeight = abortButtonEl?.offsetHeight || 0;
     const emptyHeight = emptyStateEl?.scrollHeight || emptyStateEl?.offsetHeight || 0;
-    return Math.ceil(Math.max(markdownHeight + abortHeight, loadingHeight, emptyHeight, 0) + paddingTop + paddingBottom);
+    return Math.ceil(Math.max(markdownHeight, loadingHeight, emptyHeight, 0) + paddingTop + paddingBottom);
   }, [response, isLoadingFirstToken]);
 
   const measureTargetWindowHeight = useCallback(() => {
@@ -1508,10 +1506,6 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
     startStream();
   };
 
-  const onAbort = () => {
-    cancelActiveStream('user abort');
-  };
-
   // Glass parity: Copy entire response
   const handleCopy = async () => {
     if (copyState === 'copied' || !response) return;
@@ -1812,17 +1806,10 @@ const AskView: React.FC<AskViewProps> = ({ language, onClose, onSubmitPrompt }) 
             <div className="loading-dot"></div>
           </div>
         ) : response ? (
-          <>
-            <div 
-              className="markdown-content"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
-            />
-            {isStreaming && (
-              <button onClick={onAbort} className="abort-button">
-                Abort
-              </button>
-            )}
-          </>
+          <div
+            className="markdown-content"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(response) }}
+          />
         ) : (
           <div className="empty-state">...</div>
         )}

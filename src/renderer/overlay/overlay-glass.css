@@ -2095,24 +2095,6 @@ textarea:focus-visible,
   font-family: monospace;
 }
 
-/* Abort Button */
-.abort-button {
-  margin-top: 12px;
-  padding: 6px 12px;
-  background: rgba(255, 59, 48, 0.8);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: 'Helvetica Neue', sans-serif;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.abort-button:hover {
-  background: rgba(255, 59, 48, 1);
-}
-
 /* Text Input Container */
 .text-input-container {
   display: flex;

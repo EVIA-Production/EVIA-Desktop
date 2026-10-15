@@ -58,3 +58,16 @@ test('Ask measures streamed markdown before the final response settles', () => {
   assert.match(liveSizing, /resizeStreamingContent\(\);/)
   assert.match(liveSizing, /cancelAnimationFrame\(frame\)/)
 })
+
+test('streaming suggestions render text without an abort button or its reserved height', () => {
+  const source = read('src/renderer/overlay/AskView.tsx')
+  const css = read('src/renderer/overlay/overlay-glass.css')
+  const body = source.slice(source.indexOf('{isLoadingFirstToken ? ('), source.indexOf('{/* Glass parity: Text Input Container */}'))
+  assert.match(body, /className="markdown-content"/)
+  assert.match(body, /renderMarkdown\(response\)/)
+  assert.doesNotMatch(body, /<button/)
+  assert.doesNotMatch(source, /abort-button|abortHeight|onAbort|user abort/)
+  assert.doesNotMatch(css, /\.abort-button/)
+  assert.match(source, /Math\.max\(markdownHeight, loadingHeight, emptyHeight, 0\)/)
+  assert.match(source, /streamRef\.current\.abort\(\)/, 'lifecycle cancellation stays available')
+})
