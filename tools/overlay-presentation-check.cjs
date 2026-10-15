@@ -45,7 +45,7 @@ public static class TaylosRegionCheck {
   return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 }).trim());
 }
 
-function windowsScreenCrop(win, file) {
+function windowsScreenCrop(win, file, margin = 0) {
   const code = `
 Add-Type -AssemblyName System.Drawing
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
@@ -61,18 +61,19 @@ public static class TaylosScreenCheck {
   [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
   [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("gdi32.dll", SetLastError = true)] static extern bool BitBlt(IntPtr dst, int x, int y, int width, int height, IntPtr src, int sx, int sy, uint operation);
-  public static void Capture(long handle, string file) {
+  public static void Capture(long handle, string file, int margin) {
     // GetWindowRect and BitBlt must agree on physical pixels at every DPI.
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     if (previous == IntPtr.Zero) throw new InvalidOperationException("Physical DPI context unavailable");
-    try { CapturePixels(handle, file); }
+    try { CapturePixels(handle, file, margin); }
     finally { SetThreadDpiAwarenessContext(previous); }
   }
-  static void CapturePixels(long handle, string file) {
+  static void CapturePixels(long handle, string file, int margin) {
     var h = new IntPtr(handle); Rect box;
     if (!GetWindowRect(h, out box)) throw new InvalidOperationException("Window bounds unavailable");
     int height = (int)Math.Round(49 * GetDpiForWindow(h) / 96.0);
-    using (var image = new Bitmap(box.Right - box.Left, height, PixelFormat.Format24bppRgb)) {
+    int padding = (int)Math.Round(margin * GetDpiForWindow(h) / 96.0);
+    using (var image = new Bitmap(box.Right - box.Left + padding * 2, height + padding * 2, PixelFormat.Format24bppRgb)) {
       using (var graphics = Graphics.FromImage(image)) {
         var desktop = GetDC(IntPtr.Zero);
         if (desktop == IntPtr.Zero) throw new InvalidOperationException("Desktop DC unavailable");
@@ -81,7 +82,7 @@ public static class TaylosScreenCheck {
           try {
             // SRCCOPY | CAPTUREBLT includes the layered Electron window.
             if (!BitBlt(destination, 0, 0, image.Width, image.Height, desktop,
-                box.Left, box.Top, 0x00CC0020u | 0x40000000u)) {
+                box.Left - padding, box.Top - padding, 0x00CC0020u | 0x40000000u)) {
               throw new InvalidOperationException("Screen copy failed: " + Marshal.GetLastWin32Error());
             }
           } finally { graphics.ReleaseHdc(destination); }
@@ -92,10 +93,10 @@ public static class TaylosScreenCheck {
   }
 }
 '@
-[TaylosScreenCheck]::Capture([long]$env:TAYLOS_QA_HWND, $env:TAYLOS_QA_SNAPSHOT)`;
+[TaylosScreenCheck]::Capture([long]$env:TAYLOS_QA_HWND, $env:TAYLOS_QA_SNAPSHOT, [int]$env:TAYLOS_QA_MARGIN)`;
   execFileSync('powershell.exe', ['-NoProfile', '-Command', code], {
     timeout: 15000,
-    env: { ...process.env, TAYLOS_QA_HWND: win.getNativeWindowHandle().readBigUInt64LE().toString(), TAYLOS_QA_SNAPSHOT: file },
+    env: { ...process.env, TAYLOS_QA_HWND: win.getNativeWindowHandle().readBigUInt64LE().toString(), TAYLOS_QA_SNAPSHOT: file, TAYLOS_QA_MARGIN: String(margin) },
   });
   return nativeImage.createFromPath(file);
 }
@@ -130,6 +131,9 @@ app.whenReady().then(async () => {
   // The runner's foreground PowerShell otherwise covers this ordinary window.
   // Pin the fixture before creating the topmost bar; never refocus it on restore.
   backing.setAlwaysOnTop(true);
+  backing.show();
+  backing.focus();
+  await delay(150);
   const bar = overlay.createHeaderWindow();
   let crash;
   bar.webContents.on('render-process-gone', (_event, details) => { crash = details; });
@@ -179,14 +183,6 @@ app.whenReady().then(async () => {
         height: Math.round((49 + margin * 2) * ratio),
       });
       fs.writeFileSync(path.join(output, name + '-surrounding-desktop.png'), surround.toPNG());
-      const outsidePixels = surround.toBitmap(), outsideSize = surround.getSize();
-      for (const offset of [4, 8, 12]) for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
-        const x = Math.round((margin + bounds.width * fraction) * ratio);
-        const y = Math.round((margin + 49 + offset) * ratio);
-        const pixel = (y * outsideSize.width + x) * 4;
-        assert(Math.min(...outsidePixels.subarray(pixel, pixel + 3)) >= 240,
-          'OS shadow/rectangle below the capsule at ' + offset + 'px: ' + name);
-      }
       // A stale restored surface showed only one corner. Every interior band
       // must contain the dark bar, not the fixture's white backing.
       const bands = screenBands(crop);
@@ -197,6 +193,18 @@ app.whenReady().then(async () => {
       assert(!nativeCapture.isEmpty(), 'No native screen evidence');
       const nativeBands = screenBands(nativeCapture);
       console.log(JSON.stringify({ checkpoint: name, nativeBands }));
+      const nativeSurround = windowsScreenCrop(bar, path.join(output, name + '-native-surrounding-desktop.png'), margin);
+      for (const [method, evidence] of [['desktop', surround], ['native', nativeSurround]]) {
+        const outsidePixels = evidence.toBitmap(), outsideSize = evidence.getSize();
+        const evidenceRatio = outsideSize.width / (bounds.width + margin * 2);
+        for (const offset of [4, 8, 12]) for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+          const x = Math.round((margin + bounds.width * fraction) * evidenceRatio);
+          const y = Math.round((margin + 49 + offset) * evidenceRatio);
+          const pixel = (y * outsideSize.width + x) * 4;
+          assert(Math.min(...outsidePixels.subarray(pixel, pixel + 3)) >= 240,
+            method + ' OS shadow/rectangle below the capsule at ' + offset + 'px: ' + name);
+        }
+      }
       for (const band of bands)
         assert(Math.min(...band.rgb) < 200, 'Missing physical bar band at ' + band.fraction + ': ' + name);
       for (const band of nativeBands)
